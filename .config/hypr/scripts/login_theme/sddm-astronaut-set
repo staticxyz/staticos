@@ -1,0 +1,245 @@
+#!/usr/bin/python3
+"""sddm-astronaut-set — выбрать экран входа SDDM: тему и вариант sddm-astronaut.
+
+Устанавливается в /usr/local/bin (владелец root, 0755) установщиком
+~/.config/hypr/scripts/login_theme/install.sh, обновляется update_helper.sh; в
+/etc/sudoers.d разрешено запускать ТОЛЬКО этот файл без пароля. Поэтому всё,
+что приходит в аргументах и с диска пользователя, проверяется здесь, от root.
+
+    sddm-astronaut-set current                 вариант astronaut (ConfigFile)
+    sddm-astronaut-set dm-current              тема SDDM (пусто — встроенная)
+    sddm-astronaut-set dm-set <тема|default>   выбрать тему SDDM
+    sddm-astronaut-set set <вариант>           вариант astronaut (+ тема astronaut)
+    sddm-astronaut-set desktop <primary> <on_primary> <surface> <surface_container> <on_surface> <on_surface_variant>
+    sddm-astronaut-set recolor <вариант> <затемнение 0..0.8> <те же 6 цветов>
+
+dm-set  — тема из /usr/share/sddm/themes (каталог с metadata.desktop) или
+          default: встроенная тема SDDM, какой экран входа был до установки
+          (Current= пусто, «Loaded empty theme configuration» в журнале).
+set     — вариант, для которого есть Themes/<имя>.conf; тема SDDM
+          переключается на sddm-astronaut-theme.
+desktop — вариант «Как рабочий стол»: фон — подготовленный пользователем
+          JPEG по фиксированному пути, цвета — из аргументов (#rrggbb).
+recolor — вариант темы в цветах палитры обоев (15.09.2026): из
+          Themes/<вариант>.conf пишется Themes/_pal_<вариант>.conf — фон, шрифт и
+          расположение от варианта, все цвета из аргументов, DimBackground —
+          затемнение (светлые фоны: иначе светлый текст палитры не читается).
+          Родные файлы темы не меняются. Выбирается _pal_<вариант>.
+14.09.2026, по просьбе (выбор в «Настройках» → «Экран»).
+"""
+import os
+import re
+import stat
+import sys
+import tempfile
+
+THEMES_DIR = "/usr/share/sddm/themes"
+ASTRONAUT = "sddm-astronaut-theme"
+THEME = os.path.join(THEMES_DIR, ASTRONAUT)
+META = os.path.join(THEME, "metadata.desktop")
+CONF = "/etc/sddm.conf.d/10-sddm-astronaut.conf"
+# @USER_HOME@ is filled in by install.sh / update_helper.sh when the helper is installed,
+# so the installed root helper keeps a fixed path.
+STAGE = "@USER_HOME@/.cache/login-theme/desktop.jpg"
+NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+MAX_IMG = 30 * 1024 * 1024
+COLOR_KEYS = ("primary", "on_primary", "surface", "surface_container",
+              "on_surface", "on_surface_variant")
+
+
+def die(msg):
+    print("sddm-astronaut-set: " + msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def write_atomic(path, data, mode=0o644):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tmp-")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.chmod(tmp, mode)
+        os.chown(tmp, 0, 0)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+def current():
+    with open(META, encoding="utf-8") as f:
+        for line in f:
+            m = re.match(r"^ConfigFile=Themes/([A-Za-z0-9_-]+)\.conf\s*$", line)
+            if m:
+                return m.group(1)
+    return ""
+
+
+def dm_current():
+    try:
+        with open(CONF, encoding="utf-8") as f:
+            m = re.search(r"(?m)^Current=(.*)$", f.read())
+    except OSError:
+        return ""
+    return m.group(1).strip() if m else ""
+
+
+def dm_set(name):
+    if name != "default":
+        if not NAME_RE.match(name):
+            die("недопустимое имя темы")
+        d = os.path.join(THEMES_DIR, name)
+        if os.path.islink(d) or not os.path.isfile(os.path.join(d, "metadata.desktop")):
+            die("нет такой темы SDDM: " + name)
+    value = "" if name == "default" else name
+    try:
+        with open(CONF, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        text = "[Theme]\nCurrent=\n"
+    new, n = re.subn(r"(?m)^Current=.*$", "Current=" + value, text)
+    if n != 1:
+        die("в %s не одна строка Current=" % CONF)
+    write_atomic(CONF, new.encode("utf-8"))
+
+
+def set_variant(name):
+    if not NAME_RE.match(name):
+        die("недопустимое имя варианта")
+    conf = os.path.join(THEME, "Themes", name + ".conf")
+    if os.path.islink(conf) or not os.path.isfile(conf):
+        die("нет такого варианта: " + name)
+    with open(META, encoding="utf-8") as f:
+        text = f.read()
+    new, n = re.subn(r"(?m)^ConfigFile=.*$", "ConfigFile=Themes/%s.conf" % name, text)
+    if n != 1:
+        die("в metadata.desktop не одна строка ConfigFile")
+    write_atomic(META, new.encode("utf-8"))
+    if dm_current() != ASTRONAUT:
+        dm_set(ASTRONAUT)
+
+
+def read_stage():
+    # Ровно этот путь: без символических ссылок ни в одном звене, обычный
+    # файл разумного размера и сигнатура JPEG. Иначе через помощника можно
+    # было бы скопировать чужой файл в общедоступную папку темы.
+    if os.path.realpath(STAGE) != STAGE:
+        die("путь к фону содержит ссылки")
+    fd = os.open(STAGE, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as f:
+        st = os.fstat(f.fileno())
+        if not stat.S_ISREG(st.st_mode) or not (1000 <= st.st_size <= MAX_IMG):
+            die("фон: не обычный файл или неверный размер")
+        data = f.read(MAX_IMG + 1)
+    if data[:3] != b"\xff\xd8\xff":
+        die("фон: не JPEG")
+    return data
+
+
+def palette_values(colors):
+    """Цвета палитры -> ключи темы. Одна таблица для desktop и recolor."""
+    if len(colors) != len(COLOR_KEYS) or not all(HEX_RE.match(c) for c in colors):
+        die("нужно %d цветов вида #rrggbb" % len(COLOR_KEYS))
+    c = dict(zip(COLOR_KEYS, colors))
+    return {
+        "HeaderTextColor": c["on_surface"],
+        "DateTextColor": c["on_surface"],
+        "TimeTextColor": c["on_surface"],
+        "FormBackgroundColor": c["surface"],
+        "BackgroundColor": c["surface"],
+        "DimBackgroundColor": c["surface"],
+        "LoginFieldBackgroundColor": c["surface_container"],
+        "PasswordFieldBackgroundColor": c["surface_container"],
+        "LoginFieldTextColor": c["on_surface"],
+        "PasswordFieldTextColor": c["on_surface"],
+        "UserIconColor": c["primary"],
+        "PasswordIconColor": c["primary"],
+        "PlaceholderTextColor": c["on_surface_variant"],
+        "WarningColor": c["primary"],
+        "LoginButtonTextColor": c["on_primary"],
+        "LoginButtonBackgroundColor": c["primary"],
+        "SystemButtonsIconsColor": c["primary"],
+        "SessionButtonTextColor": c["on_surface_variant"],
+        "VirtualKeyboardButtonTextColor": c["on_surface_variant"],
+        "DropdownTextColor": c["on_surface"],
+        "DropdownSelectedBackgroundColor": c["surface_container"],
+        "DropdownBackgroundColor": c["surface"],
+        "HighlightTextColor": c["on_surface"],
+        "HighlightBackgroundColor": c["surface_container"],
+        "HighlightBorderColor": c["primary"],
+        "HoverUserIconColor": c["on_surface"],
+        "HoverPasswordIconColor": c["on_surface"],
+        "HoverSystemButtonsIconsColor": c["on_surface"],
+        "HoverSessionButtonTextColor": c["on_surface"],
+        "HoverVirtualKeyboardButtonTextColor": c["on_surface"],
+    }
+
+
+def apply_values(conf, values, source):
+    for key, val in values.items():
+        conf, n = re.subn(r'(?m)^%s=.*$' % re.escape(key), '%s="%s"' % (key, val), conf)
+        if n != 1:
+            die("в %s нет ключа %s" % (source, key))
+    return conf
+
+
+def desktop(colors):
+    values = palette_values(colors)
+    values["Background"] = "Backgrounds/desktop.jpg"
+    data = read_stage()
+    with open(os.path.join(THEME, "Themes", "astronaut.conf"), encoding="utf-8") as f:
+        conf = apply_values(f.read(), values, "astronaut.conf")
+    write_atomic(os.path.join(THEME, "Backgrounds", "desktop.jpg"), data)
+    write_atomic(os.path.join(THEME, "Themes", "desktop.conf"), conf.encode("utf-8"))
+    set_variant("desktop")
+
+
+def recolor(name, dim, colors):
+    if not NAME_RE.match(name) or name.startswith("_pal_") or name == "desktop":
+        die("недопустимое имя варианта")
+    base = os.path.join(THEME, "Themes", name + ".conf")
+    if os.path.islink(base) or not os.path.isfile(base):
+        die("нет такого варианта: " + name)
+    if not re.fullmatch(r"0(\.\d{1,2})?|0?\.\d{1,2}", dim) or float(dim) > 0.8:
+        die("затемнение — число от 0 до 0.8")
+    values = palette_values(colors)
+    values["DimBackground"] = dim
+    with open(base, encoding="utf-8") as f:
+        conf = apply_values(f.read(), values, name + ".conf")
+    out = "_pal_" + name
+    write_atomic(os.path.join(THEME, "Themes", out + ".conf"), conf.encode("utf-8"))
+    set_variant(out)
+
+
+def main():
+    if os.geteuid() != 0:
+        die("нужен root (запуск через sudo)")
+    args = sys.argv[1:]
+    if args == ["dm-current"]:
+        print(dm_current())
+        return
+    if len(args) == 2 and args[0] == "dm-set":
+        dm_set(args[1])
+        print("тема SDDM: " + (args[1] if args[1] != "default" else "встроенная"))
+        return
+    if not os.path.isfile(META):
+        die("тема не установлена: нет " + META)
+    if args == ["current"]:
+        print(current())
+    elif len(args) == 2 and args[0] == "set":
+        set_variant(args[1])
+        print("выбран вариант: " + args[1])
+    elif len(args) == 1 + len(COLOR_KEYS) and args[0] == "desktop":
+        desktop(args[1:])
+        print("выбран вариант: desktop")
+    elif len(args) == 3 + len(COLOR_KEYS) and args[0] == "recolor":
+        recolor(args[1], args[2], args[3:])
+        print("выбран вариант: %s в цветах палитры" % args[1])
+    else:
+        die("использование: current | dm-current | dm-set <тема|default> | set <вариант> | "
+            "desktop <6 цветов> | recolor <вариант> <затемнение> <6 цветов>")
+
+
+if __name__ == "__main__":
+    main()

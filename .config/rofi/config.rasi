@@ -1,0 +1,128 @@
+/* Лаунчер приложений (WIN+SPACE, rofi -show drun).
+ *
+ * Закрывается щелчком в любом месте, кроме самой панели. Встроенный
+ * click-to-exit rofi на Wayland не работает: поверхность rofi была размером с
+ * окно, и щелчок мимо до rofi не доходил, а, пока rofi держит клавиатуру,
+ * Hyprland не отдаёт мышь никакой другой поверхности (замерено 11.09.2026).
+ * Поэтому окно rofi — на весь экран и прозрачное, видимая панель — в центре,
+ * а поля вокруг неё — невидимые кнопки с action "kb-cancel". Проверено
+ * виртуальной мышью: щелчок мимо панели закрывает rofi, щелчок по панели — нет.
+ *
+ * «Стекло»: фон панели @bg-glass (bg на 85%), под ним Hyprland размывает
+ * обои — правило слоя rofi-glass в ~/.config/hypr/visuals.lua, там же мягкое
+ * появление (popin).
+ *
+ * Выбранная строка — мягкая подсветка акцентом (@accent-soft, 16%) и текст
+ * цвета акцента; значок поиска — глиф Nerd Font U+F002 (не эмодзи).
+ *
+ * Прежние версии: config.rasi.bak.2026-09-11_035253 (самая первая),
+ * config.rasi.bak.2026-09-11_040748 (до стекла), снимки theme-snapshot.
+ * Цвета — роли палитры обоев из matugen (~/.cache/matugen/colors.rasi, шаблон
+ * templates/rofi.rasi), rofi читает их при каждом открытии.
+ */
+configuration {
+    modi:                       "drun,run";
+    show-icons:                 true;
+    icon-theme:                 "Papirus-Wall";
+    display-drun:               "󰍉";
+    drun-display-format:        "{name}";
+    font:                       "JetBrainsMono Nerd Font 11";
+    /* Ctrl+J / Ctrl+K и Alt+J / Alt+K — вниз и вверх во ВСЕХ меню rofi
+       (меню программ, калькулятор, буфер, помидор), не только в буфере
+       (просьба пользователя 23.09.2026). По умолчанию Ctrl+J — «выбрать», а
+       Ctrl+K — «стереть до конца строки», поэтому они сняты оттуда: выбор
+       остаётся на Enter и Ctrl+M. Cyrillic_o и Cyrillic_el — те же клавиши
+       на русской раскладке: rofi сравнивает символ, а не клавишу. */
+    kb-accept-entry:            "Control+m,Return,KP_Enter";
+    kb-remove-to-eol:           "";
+    kb-row-down:                "Down,Control+n,Control+j,Alt+j,Control+Cyrillic_o,Alt+Cyrillic_o";
+    kb-row-up:                  "Up,Control+p,Control+k,Alt+k,Control+Cyrillic_el,Alt+Cyrillic_el";
+}
+
+@theme "/dev/null"
+@import "~/.cache/matugen/colors.rasi"
+
+* {
+    background-color:           transparent;
+    text-color:                 @fg;
+    margin:                     0;
+    padding:                    0;
+}
+
+window {
+    fullscreen:                 true;
+    background-color:           transparent;
+    border:                     0;
+}
+
+mainbox {
+    orientation:                vertical;
+    children:                   [ "button-gap-top", "row", "button-gap-bottom" ];
+}
+
+row {
+    orientation:                horizontal;
+    expand:                     false;
+    children:                   [ "button-gap-left", "panel", "button-gap-right" ];
+}
+
+button-gap-top, button-gap-bottom, button-gap-left, button-gap-right {
+    expand:                     true;
+    content:                    "";
+    action:                     "kb-cancel";
+}
+
+panel {
+    orientation:                vertical;
+    expand:                     false;
+    width:                      520px;
+    padding:                    12px;
+    spacing:                    8px;
+    border:                     1px solid;
+    border-color:               @outline;
+    border-radius:              12px;
+    background-color:           @bg-glass;
+    children:                   [ "inputbar", "listview" ];
+}
+
+inputbar {
+    spacing:                    10px;
+    padding:                    10px 14px;
+    border-radius:              10px;
+    background-color:           @bg-alt;
+    children:                   [ "prompt", "entry" ];
+}
+
+prompt { text-color: @accent; }
+
+entry {
+    placeholder:                "Поиск";
+    placeholder-color:          @fg-alt;
+    cursor:                     text;
+}
+
+listview {
+    columns:                    1;
+    lines:                      7;
+    spacing:                    2px;
+    fixed-height:               true;
+    scrollbar:                  false;
+}
+
+element {
+    spacing:                    12px;
+    padding:                    7px 12px;
+    border-radius:              8px;
+}
+
+element selected.normal {
+    background-color:           @accent-soft;
+    text-color:                 @accent;
+}
+
+element-icon { size: 26px; }
+
+element-text {
+    vertical-align:             0.5;
+    text-color:                 inherit;
+}

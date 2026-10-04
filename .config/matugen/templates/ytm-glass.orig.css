@@ -1,0 +1,25 @@
+/* Полная прозрачность интерфейса YouTube Music */
+html, body, #contents, ytmusic-app, #layout, ytmusic-player-page,
+ytmusic-browse-response, #main-panel, #browse-page, ytmusic-tab-renderer,
+ytmusic-section-list-renderer {
+    background: transparent !important;
+    background-color: rgba(10, 12, 22, 0.15) !important;
+}
+
+/* Верхняя поисковая строка */
+ytmusic-nav-bar, #nav-bar-background {
+    background: rgba(15, 17, 26, 0.3) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Нижний плеер */
+ytmusic-player-bar, #player-bar-background {
+    background: rgba(15, 17, 26, 0.35) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Боковое меню и карточки */
+ytmusic-guide-renderer, #guide-wrapper, #items.ytmusic-guide-section-renderer,
+ytmusic-responsive-list-item-renderer {
+    background: transparent !important;
+}

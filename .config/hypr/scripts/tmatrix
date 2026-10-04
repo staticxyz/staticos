@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# unimatrix в гамме обоев.
+#
+# unimatrix умеет только восемь именованных цветов curses — green, red, blue
+# и так далее, — то есть говорит не «этот оттенок», а «слот номер такой-то».
+# Поэтому подменяются сами слоты, и только для своего окна: 4 (blue) уходит в
+# акцент обоев, 7 (white) — в светлую роль палитры, потому что головной символ
+# струи unimatrix рисует именно белым (init_pair(2, COLOR_WHITE, ...) в его
+# коде). Ярких близнецов 12 и 15 подменяем заодно: их берёт kitty, когда
+# curses просит жирное начертание.
+#
+# Сторож нужен по той же причине, что в tclock: при смене обоев theme_changer
+# рассылает палитру во все окна kitty разом и затирает нашу подмену.
+#
+# Если запуск идёт из терминала, матрица рисуется В ЭТОМ ЖЕ окне. Отдельное
+# окно создаётся только когда терминала нет (бинд, rofi).
+set -uo pipefail
+
+CACHE="$HOME/.cache/matugen"
+accent() { cat "$CACHE/vivid.txt" 2>/dev/null; }
+head_color() {
+    python3 - <<'PY' 2>/dev/null
+import json, os
+p = os.path.expanduser("~/.cache/matugen/colors.json")
+try:
+    print(json.load(open(p)).get("primary", ""))
+except Exception:
+    print("")
+PY
+}
+
+ACCENT="$(accent)"; [ -z "$ACCENT" ] && ACCENT="#7aa2f7"
+HEAD="$(head_color)"; [ -z "$HEAD" ] && HEAD="#c0caf5"
+
+apply() {
+    printf '\033]4;4;%s\007'  "$1" > /dev/tty 2>/dev/null
+    printf '\033]4;12;%s\007' "$1" > /dev/tty 2>/dev/null
+    printf '\033]4;7;%s\007'  "$2" > /dev/tty 2>/dev/null
+    printf '\033]4;15;%s\007' "$2" > /dev/tty 2>/dev/null
+}
+
+if [ -t 1 ]; then
+    # Вернуть слоты к палитровым значениям НА МОМЕНТ ВЫХОДА, а не к тем, что
+    # были при запуске: обои могли смениться, пока шла матрица.
+    restore() {
+        local f="$CACHE/colors-kitty.conf" n v
+        for n in 4 7 12 15; do
+            v="$(awk -v k="color$n" '$1 == k { print $2 }' "$f" 2>/dev/null)"
+            [ -n "$v" ] && printf '\033]4;%s;%s\007' "$n" "$v" > /dev/tty 2>/dev/null
+        done
+    }
+    watch_accent() {
+        local a h
+        while :; do
+            a="$(accent)"; [ -z "$a" ] && a="$ACCENT"
+            h="$(head_color)"; [ -z "$h" ] && h="$HEAD"
+            apply "$a" "$h"
+            sleep 2
+        done
+    }
+    trap 'restore; kill "$WATCH_PID" 2>/dev/null' EXIT INT TERM
+    apply "$ACCENT" "$HEAD"
+    watch_accent &
+    WATCH_PID=$!
+    unimatrix -c blue "$@"
+    exit $?
+fi
+
+# Своего терминала нет: открываем окно и запускаем в нём ЭТОТ ЖЕ скрипт, иначе
+# вместе с матрицей не поедет сторож слотов.
+exec kitty --title "unimatrix" -o "color4=$ACCENT" -o "color12=$ACCENT" \
+     -o "color7=$HEAD" -o "color15=$HEAD" "$0" "$@"

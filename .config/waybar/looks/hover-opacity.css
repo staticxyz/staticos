@@ -1,0 +1,2 @@
+/* Пишет top_bar.py (opacity_rule): hover, плотность 100%. */
+window#waybar.mode-default { background-color: @bar-bg; }

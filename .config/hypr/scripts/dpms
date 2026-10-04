@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Включить/выключить экраны:  dpms on | dpms off
+#
+# ГЛАВНОЕ: команда сверяется с текущим состоянием и ничего не делает, если
+# экраны уже в нужном. Это не украшение, а защита от чёрного экрана.
+#
+# На пробуждении из сна hypridle вызывает "dpms on" ДВАЖДЫ — из
+# after_sleep_cmd и из on-resume того же слушателя. Если диспетчер не
+# устанавливает состояние, а переключает его, второй вызов гасит экран
+# обратно, и вернуть его можно только перезагрузкой. Ровно это и случалось.
+#
+# Кавычек в hypridle.conf нет намеренно: вызов идёт через этот скрипт, а не
+# строкой с hl.dsp.dpms("on") — внешние кавычки там уезжали в аргумент.
+set -uo pipefail
+
+case "${1:-}" in
+    on|off) WANT="$1" ;;
+    *) echo "использование: dpms on|off" >&2; exit 1 ;;
+esac
+
+state() {
+    hyprctl monitors -j 2>/dev/null | python3 -c "
+import json, sys
+try: mons = json.load(sys.stdin)
+except Exception: sys.exit(2)
+if not mons: sys.exit(2)
+print('on' if any(m.get('dpmsStatus') for m in mons) else 'off')
+"
+}
+
+cur=$(state) || cur=""
+[ "$cur" = "$WANT" ] && exit 0        # уже в нужном состоянии — не трогаем
+
+hyprctl dispatch "hl.dsp.dpms(\"$WANT\")" >/dev/null
+
+# Проверяем результат. Ровно ОДНА повторная попытка: слепые повторы этого
+# диспетчера гасят экраны намертво, что уже проверено на собственной шкуре.
+sleep 0.4
+if [ "$(state)" != "$WANT" ]; then
+    hyprctl dispatch "hl.dsp.dpms(\"$WANT\")" >/dev/null
+fi

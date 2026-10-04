@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""ptysync — запустить программу в псевдотерминале и обернуть каждый кадр в
+синхронизированный вывод (DEC private mode 2026).
+
+Зачем: brrtfetch печатает кадр (~24 КБ) без каких-либо пометок, а в терминал он
+приходит порциями по 4 КБ — столько отдаёт буфер pty. kitty перерисовывает
+экран по своему таймеру и нередко попадает в середину кадра: верх уже новый,
+низ ещё старый. Глазу это видно как постоянное мигание (замерено 22.09.2026:
+52 кадра за 3 с, 246 порций записи, медиана 4095 байт).
+
+Здесь начало кадра узнаётся по «курсор в угол» (\033[H) — brrtfetch именно с
+этого начинает каждый кадр; перед ним пишется \033[?2026h, а когда поток
+замолкает на ~8 мс (кадр дописан), — \033[?2026l. kitty показывает кадр
+целиком, одним махом.
+
+Программа получает настоящий псевдотерминал: видит размер окна, считает себя
+терминалом, получает SIGWINCH и Ctrl+C (сигналы пробрасываются).
+
+usage: ptysync <команда> [аргументы...]
+"""
+
+import fcntl
+import os
+import pty
+import select
+import signal
+import struct
+import sys
+import termios
+
+BEGIN = b"\x1b[?2026h"
+END = b"\x1b[?2026l"
+HOME = b"\x1b[H"
+QUIET_S = 0.008          # пауза, после которой кадр считается дописанным
+
+
+def winsize(fd):
+    try:
+        cols, rows = os.get_terminal_size(fd)
+        return rows, cols
+    except OSError:
+        return 24, 80
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit("usage: ptysync <команда> [аргументы...]")
+
+    out_fd = sys.stdout.fileno()
+    pid, master = pty.fork()
+    if pid == 0:
+        os.execvp(sys.argv[1], sys.argv[1:])
+
+    def push_size(*_):
+        rows, cols = winsize(out_fd)
+        try:
+            fcntl.ioctl(master, termios.TIOCSWINSZ,
+                        struct.pack("HHHH", rows, cols, 0, 0))
+            os.kill(pid, signal.SIGWINCH)
+        except (OSError, ProcessLookupError):
+            pass
+
+    def forward(signum, *_):
+        try:
+            os.kill(pid, signum)
+        except ProcessLookupError:
+            pass
+
+    push_size()
+    signal.signal(signal.SIGWINCH, push_size)
+    signal.signal(signal.SIGINT, forward)
+    signal.signal(signal.SIGTERM, forward)
+    signal.signal(signal.SIGHUP, forward)
+
+    in_frame = False
+    try:
+        while True:
+            try:
+                readable, _, _ = select.select([master], [], [], QUIET_S)
+            except InterruptedError:
+                continue
+            if not readable:
+                if in_frame:
+                    os.write(out_fd, END)
+                    in_frame = False
+                continue
+            try:
+                data = os.read(master, 65536)
+            except OSError:
+                break
+            if not data:
+                break
+            if HOME in data:
+                # новый кадр: закрыть прошлый, если он ещё открыт, и открыть этот
+                head, _, tail = data.partition(HOME)
+                out = head
+                if in_frame:
+                    out += END
+                out += BEGIN + HOME + tail
+                in_frame = True
+                os.write(out_fd, out)
+            else:
+                os.write(out_fd, data)
+    finally:
+        if in_frame:
+            try:
+                os.write(out_fd, END)
+            except OSError:
+                pass
+        try:
+            _, status = os.waitpid(pid, 0)
+        except ChildProcessError:
+            status = 0
+
+    sys.exit(os.waitstatus_to_exitcode(status) if status else 0)
+
+
+if __name__ == "__main__":
+    main()

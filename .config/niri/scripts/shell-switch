@@ -1,0 +1,123 @@
+#!/bin/sh
+# Переключатель оболочки: своя (waybar и компания) или Noctalia. 21.09.2026.
+#
+#     shell-switch status      что сейчас: mine | noctalia
+#     shell-switch start       поднять то, что выбрано (зовётся при входе)
+#     shell-switch mine        вернуться на свою оболочку
+#     shell-switch noctalia    включить Noctalia
+#     shell-switch toggle      туда-обратно
+#
+# Зачем. Noctalia — не панель, а ЦЕЛАЯ оболочка: бар, док, лаунчер, уведомления,
+# центр управления, экран блокировки, OSD, обои, история буфера. Всё это у вас
+# уже есть своё, и работать вместе они не должны: получится два бара и два
+# набора уведомлений. Поэтому включено всегда ровно одно, а переключение —
+# одной командой, без правки конфигов и без перезахода.
+#
+# Что НЕ трогается никогда (нужно обеим оболочкам): hypridle, hyprsunset,
+# awww-daemon с обоями, cliphist, playerctld, подсветка клавиатуры, сторож
+# самовольного разворота окон.
+#
+# Выбор запоминается в ~/.config/niri/state/shell и действует со следующего входа.
+
+set -u
+STATE="$HOME/.config/niri/state/shell"
+WB_GEN="$HOME/.config/niri/scripts/waybar_niri.py"
+WB_CFG="$HOME/.config/waybar/config-niri.jsonc"
+
+current() { cat "$STATE" 2>/dev/null || echo mine; }
+
+# Убить процесс ТОЛЬКО своего сеанса: рядом может работать второй композитор,
+# и pkill по имени погасил бы и его панель (так уже случалось 21.09.2026).
+kill_mine() {
+    for p in $(pgrep -x "$1" 2>/dev/null); do
+        grep -qz "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}" "/proc/$p/environ" 2>/dev/null && kill "$p" 2>/dev/null
+    done
+}
+
+# Команда запуска Noctalia: имя двоичного файла у неё менялось между версиями,
+# поэтому берём первое, что найдётся.
+noctalia_cmd() {
+    for c in noctalia-shell noctalia; do
+        command -v "$c" >/dev/null 2>&1 && { echo "$c"; return 0; }
+    done
+    command -v qs >/dev/null 2>&1 && { echo "qs -c noctalia"; return 0; }
+    return 1
+}
+
+stop_mine() {
+    kill_mine waybar
+    kill_mine swaync
+    kill_mine eww
+    # layout_osd — питон, по имени процесса не ловится
+    for p in $(pgrep -f "scripts/layout_osd" 2>/dev/null); do
+        grep -qz "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}" "/proc/$p/environ" 2>/dev/null && kill "$p" 2>/dev/null
+    done
+}
+
+start_mine() {
+    python3 "$WB_GEN" >/dev/null 2>&1
+    WB_CSS="$HOME/.config/waybar/style-niri.css"
+    # верхний бар выключен (hypr/scripts/top_bar.py set off) — waybar не запускаем
+    if [ "$(cat "$HOME/.config/hypr/state/top-bar" 2>/dev/null)" = off ]; then
+        :
+    elif [ -f "$WB_CFG" ] && [ -f "$WB_CSS" ]; then
+        (setsid waybar -c "$WB_CFG" -s "$WB_CSS" >/dev/null 2>&1 &)
+    elif [ -f "$WB_CFG" ]; then
+        (setsid waybar -c "$WB_CFG" >/dev/null 2>&1 &)
+    else
+        (setsid waybar >/dev/null 2>&1 &)
+    fi
+    (setsid swaync >/dev/null 2>&1 &)
+    (setsid eww daemon >/dev/null 2>&1 &)
+    sleep 0.4
+    (setsid eww open volume-trigger >/dev/null 2>&1 &)
+    (setsid python3 "$HOME/.config/hypr/scripts/layout_osd" >/dev/null 2>&1 &)
+}
+
+# Гасим ТОЛЬКО сам двоичный файл оболочки. Не pgrep -f: он ищет строку в любой
+# командной строке и поймал бы этот же скрипт, запущенный как `shell-switch
+# noctalia` (ровно так однажды скрипт убил сам себя).
+stop_noctalia() {
+    for p in $(pgrep -f "scripts/wallpaper_watch" 2>/dev/null); do
+        grep -qz "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}" "/proc/$p/environ" 2>/dev/null && kill "$p" 2>/dev/null
+    done
+    for p in $(pgrep -x noctalia 2>/dev/null; pgrep -x noctalia-shell 2>/dev/null); do
+        grep -qz "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}" "/proc/$p/environ" 2>/dev/null && kill "$p" 2>/dev/null
+    done
+    for p in $(pgrep -x qs 2>/dev/null); do
+        grep -qz "noctalia" "/proc/$p/cmdline" 2>/dev/null \
+            && grep -qz "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}" "/proc/$p/environ" 2>/dev/null \
+            && kill "$p" 2>/dev/null
+    done
+}
+
+start_noctalia() {
+    cmd=$(noctalia_cmd) || {
+        notify-send "Оболочка" "Noctalia не установлена: sudo pacman -S noctalia"
+        return 1
+    }
+    # shellcheck disable=SC2086
+    (setsid $cmd >/dev/null 2>&1 &)
+    # Обои, выбранные в Noctalia, должны менять и палитру системы (matugen).
+    (setsid "$HOME/.config/niri/scripts/wallpaper_watch" >/dev/null 2>&1 &)
+}
+
+case "${1:-status}" in
+    status) current ;;
+    start)
+        if [ "$(current)" = noctalia ]; then start_noctalia || start_mine; else start_mine; fi ;;
+    mine)
+        stop_noctalia; sleep 0.3; start_mine
+        printf 'mine\n' > "$STATE"
+        notify-send "Оболочка" "Свои настройки: waybar, swaync, eww" ;;
+    noctalia)
+        if start_noctalia; then
+            stop_mine
+            printf 'noctalia\n' > "$STATE"
+            sleep 0.5
+            notify-send "Оболочка" "Noctalia. Вернуться: SUPER+SHIFT+S" 2>/dev/null
+        fi ;;
+    toggle)
+        if [ "$(current)" = noctalia ]; then "$0" mine; else "$0" noctalia; fi ;;
+    *) echo "команды: status | start | mine | noctalia | toggle" >&2; exit 1 ;;
+esac

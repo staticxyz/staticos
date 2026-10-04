@@ -1,0 +1,10 @@
+/* Вид «во всю ширину»: бар от края до края и вплотную к верху экрана —
+   без боковых рамок и скруглений (отступы 0 — edge.jsonc). Снизу тонкая
+   линия акцента отделяет бар от окон; фон тот же, что у «парящего». */
+window#waybar {
+    background-color: alpha(@bar-bg, 0.88);
+    border: none;
+    border-bottom: 1px solid alpha(@primary, 0.45);
+    border-radius: 0;
+    color: @foreground;
+}

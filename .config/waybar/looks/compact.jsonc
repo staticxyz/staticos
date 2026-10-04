@@ -1,0 +1,8 @@
+// Вид «компактный»: бар ниже (26 px) и ближе к верху — больше места окнам.
+{
+    "position": "top",
+    "height": 24,
+    "margin-top": 6,
+    "margin-left": 20,
+    "margin-right": 20
+}

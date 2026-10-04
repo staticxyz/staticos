@@ -1,0 +1,153 @@
+(defpoll current-vol :interval "100ms" :initial "50" "wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{print int($2 * 100)}'")
+(defpoll is-muted :interval "100ms" :initial "false" "wpctl get-volume @DEFAULT_AUDIO_SINK@ | grep -q 'MUTED' && echo 'true' || echo 'false'")
+
+
+;; Переменные времени и даты
+(defpoll time :interval "1s" "date '+%H:%M:%S'")
+(defpoll month :interval "1h" "date '+%b'")
+(defpoll day :interval "1h" "date '+%d'")
+(defpoll weekday :interval "1h" "date '+%A'")
+
+;; Виджет часов и даты
+(defwidget clock_widget []
+  (box :class "clock-box"
+       :orientation "h"
+       :space-evenly false
+       :halign "end"
+       :valign "end"
+    (label :class "time-text" :text time)
+    (label :class "separator" :text "|")
+    (box :class "date-box"
+         :orientation "v"
+         :space-evenly false
+         :valign "center"
+         :halign "start"
+      (label :class "month-text" :text month)
+      (label :class "day-text" :text day)
+      (label :class "weekday-text" :text weekday)
+    )
+  )
+)
+
+;; Окно для первого монитора
+(defwindow clock0
+  :monitor 0
+  :geometry (geometry :x "40px"
+                      :y "40px"
+                      :width "450px"
+                      :height "120px"
+                      :anchor "bottom right")
+  :stacking "bottom"
+  :exclusive false
+  :focusable false
+  (clock_widget)
+)
+
+;; Окно для второго монитора
+(defwindow clock1
+  :monitor 1
+  :geometry (geometry :x "40px"
+                      :y "40px"
+                      :width "450px"
+                      :height "120px"
+                      :anchor "bottom right")
+  :stacking "bottom"
+  :exclusive false
+  :focusable false
+  (clock_widget)
+)
+
+;; 1. Сенсорная полоска у самого края
+;; Монитор у этого и трёх окон ниже — списком: MSI, если подключён, иначе
+;; первый по счёту, то есть экран ноутбука. Прежнее «1» без MSI ломало окно:
+;; eww отвечал «Failed to get monitor 1», и индикатор не появлялся вовсе
+;; (проверено 26.09.2026 — ноутбук уезжает без второго монитора).
+(defwindow volume-trigger
+  :monitor '["MAG 255XF", 0]'
+  :geometry (geometry :x "0px" :y "0px" :width "2px" :height "88%" :anchor "right center")
+  ;; 88 %, а не 100: полоска во всю высоту накрывала правый верхний угол, и горячий угол
+  ;; (уведомления) переставал срабатывать — заметно стало без MSI, когда полоска
+  ;; переехала на экран ноутбука (04.10.2026).
+  :stacking "overlay"
+  :exclusive false
+  (eventbox
+    :onhover "$HOME/.config/eww/scripts/volume_manager.sh trigger_hit"
+    (box :class "edge-sensor")))
+
+;; 2. Вертикальный микшер (С отступом от края экрана!)
+(defwindow volume-sidebar
+  :monitor '["MAG 255XF", 0]'
+  ;; Ширина 64px: пиксельный шрифт на четверть шире, «100» в 52px не влезало (24.09.2026).
+  :geometry (geometry :x "12px" :y "0px" :width "64px" :height "260px" :anchor "right center")
+  :stacking "overlay"
+  :exclusive false
+  (eventbox
+    :onhover "$HOME/.config/eww/scripts/volume_manager.sh cancel"
+    :onhoverlost "$HOME/.config/eww/scripts/volume_manager.sh leave"
+    :onscroll "[ \"{}\" = \"up\" ] && wpctl set-volume @DEFAULT_AUDIO_SINK@ 3%+ || wpctl set-volume @DEFAULT_AUDIO_SINK@ 3%-"
+    (box :class "vol-container" :orientation "v" :space-evenly false :spacing 14
+      (button :class "vol-btn"
+              :onclick "$HOME/.config/eww/scripts/volume_manager.sh toggle_mute"
+        (label :class {is-muted == "true" ? "vol-icon muted" : "vol-icon"}
+               :text {is-muted == "true" ? "󰝟" : "󰕾"}))
+      (scale :class {is-muted == "true" ? "vol-slider muted" : "vol-slider"}
+             :orientation "v"
+             :flipped true
+             :min 0
+             :max 101
+             :value current-vol
+             :onchange "wpctl set-volume @DEFAULT_AUDIO_SINK@ {}%")
+      (label :class {is-muted == "true" ? "vol-text muted" : "vol-text"}
+             :text {is-muted == "true" ? "Mute" : "${current-vol}"}))))
+
+;; ── Подсказка о смене раскладки ────────────────────────────────────────
+;; Снизу по центру, как в KDE. Держится меньше секунды и гаснет: она нужна
+;; лишь чтобы подтвердить переключение, а не сообщать что-то надолго.
+;; Текст приходит из ~/.cache/eww-layout, куда его пишет scripts/layout_osd.
+;; defvar, а НЕ defpoll: значение приходит извне командой eww update, а
+;; опрашиваемую переменную она менять не может — окно показывало бы старую
+;; раскладку до следующего опроса.
+;; ── Громкость отдельного приложения (SUPER + / SUPER −) ────────────────
+;; Одна строка: значок, имя программы, полоса, число. Шрифт — системный Hack.
+;; Значок вписан символом, а не escape-последовательностью: \uXXXXX из пяти
+;; знаков yuck не разбирает и печатает как текст (поймано 24.09.2026).
+(defvar appvol-name "")
+(defvar appvol-level "0")
+(defvar appvol-muted "no")
+(defvar appvol-kind "app")
+
+(defwindow app-volume-osd
+  :monitor '["MAG 255XF", 0]'
+  :geometry (geometry :x "0px" :y "56px" :width "1px" :height "1px"
+                      :anchor "top center")
+  :stacking "overlay"
+  :exclusive false
+  :focusable false
+  (box :class "appvol" :space-evenly false :spacing 10
+    ;; Значок говорит, ЧЕЙ это звук: динамик — у окна в фокусе, нота — у
+    ;; играющего плеера, когда само окно молчит.
+    (label :class {appvol-muted == "yes" ? "appvol-icon off" : "appvol-icon"}
+           :text {appvol-muted == "yes" ? "󰝟" : (appvol-kind == "player" ? "󰎆" : "󰕾")}
+           :show-truncated false)
+    (label :class "appvol-name" :text appvol-name :show-truncated false)
+    (progress :class "appvol-bar" :orientation "h" :valign "center"
+              :value {appvol-muted == "yes" ? 0 : appvol-level})
+    (label :class "appvol-level" :show-truncated false
+           :text {appvol-muted == "yes" ? "тихо" : "${appvol-level}%"})))
+
+(defvar layout-name "US")
+(defvar layout-icon "󰌌")
+(defvar layout-mode "lang")
+
+(defwindow layout-osd
+  :monitor '["MAG 255XF", 0]'
+  ;; Размер не задаём: карточка сжимается по содержимому, как уведомление.
+  :geometry (geometry :x "0px" :y "90px" :width "1px" :height "1px"
+                      :anchor "bottom center")
+  :stacking "overlay"
+  :exclusive false
+  :focusable false
+  (box :class "layout-osd" :space-evenly false :spacing 11
+    (box :class "layout-osd-chip ${layout-mode}" :space-evenly false
+      (label :class "layout-osd-icon ${layout-mode}" :text layout-icon :show-truncated false))
+    (label :class "layout-osd-text" :text layout-name :show-truncated false)))

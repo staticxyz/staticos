@@ -1,0 +1,12 @@
+# СОБРАН АВТОМАТИЧЕСКИ скриптом ~/.config/hypr/scripts/kitty_shader_colors.py
+# при каждой смене обоев. Правки здесь пропадут — правьте скрипт.
+# Включается в «Настройках» → «Шейдеры» (kitty_shader.py).
+
+# Разряд за текстовым курсором.
+
+startgroup
+    animation_start cursor-trail-move
+    animation_stop cursor-trail-stop
+    var float3 ACCENT = float3(0.4800, 0.5979, 1.0000)
+    shaders trail-lightning
+endgroup

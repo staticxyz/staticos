@@ -1,0 +1,73 @@
+#!/bin/sh
+# Смена обоев в Noctalia → пересбор палитры matugen. 21.09.2026.
+#
+# Зачем. Обои рисует awww-daemon — он и только он занимает фоновый слой niri
+# (проверено: в слоях единственный namespace awww-daemon). Noctalia ведёт СВОЙ
+# список обоев и в свои настройки пишет выбранный файл, но на экран он не
+# попадает: фон уже занят. Поэтому 21.09.2026 выходило так — в Noctalia выбраны
+# одни обои, на экране другие, а палитра matugen не менялась вовсе.
+#
+# Сторож связывает оба пути: заметив новый путь в настройках Noctalia, он ставит
+# эти обои через waypaper — ровно так же, как ваш SUPER+W. А waypaper сам зовёт
+# post_command (theme_changer.sh), и палитра идёт следом. То есть обои можно
+# менять откуда угодно, результат один.
+#
+# Сторож работает в обе стороны: выбор в Noctalia ставится через waypaper, а
+# выбор своим SUPER+W сообщается Noctalia, чтобы её панель показывала то же
+# самое. Метка $MARK не даёт этим двум путям зациклиться эхом.
+#
+# Работает, только пока включена Noctalia: при своей оболочке обои идут через
+# waypaper, и цепочка запускается сама.
+
+set -u
+STATE="$HOME/.local/state/noctalia/settings.toml"
+MARK="${XDG_RUNTIME_DIR:-/tmp}/noctalia-wallpaper-seen"
+THEME="$HOME/.config/hypr/scripts/theme_changer.sh"
+POLL=2
+
+current() {
+    # [wallpaper.last] path = "..."  — последний выбранный файл
+    # Заголовки в settings.toml записаны С ОТСТУПОМ («    [wallpaper.last]»),
+    # поэтому шаблоны не привязаны к началу строки.
+    sed -n '/^[[:space:]]*\[wallpaper\.last\]/,/^[[:space:]]*\[wallpaper\.monitors/p' "$STATE" 2>/dev/null |
+        sed -n 's/^[[:space:]]*path[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' | head -1
+}
+
+[ -f "$THEME" ] || exit 0
+printf '%s' "$(current)" > "$MARK"
+
+# Обои, показанные на экране (их рисует awww).
+shown() {
+    awww query 2>/dev/null | head -1 | sed 's/.*image: //'
+}
+
+while sleep "$POLL"; do
+    now=$(current)
+    live=$(shown)
+
+    # Обратная сторона: обои сменили своим SUPER+W (waypaper → awww), а Noctalia
+    # об этом не знает, и в её панели остаётся прежняя картинка. Сообщаем ей —
+    # предварительно записав путь в метку, чтобы она не вернулась к нам эхом.
+    if [ -n "$live" ] && [ -f "$live" ] && [ "$live" != "$now" ] \
+       && [ "$live" = "$(cat "$HOME/.cache/matugen/wallpaper" 2>/dev/null)" ]; then
+        # Метку ставим ТОЛЬКО при успехе: если Noctalia не запущена, команда
+        # падает, и пометить путь как «разобранный» нельзя — иначе при её
+        # следующем запуске мы бы уже не догнали (проверено 21.09.2026).
+        if noctalia msg wallpaper-set "$live" >/dev/null 2>&1; then
+            printf '%s' "$live" > "$MARK"
+        fi
+        continue
+    fi
+
+    [ -n "$now" ] || continue
+    [ "$now" = "$(cat "$MARK" 2>/dev/null)" ] && continue
+    [ "$now" = "$live" ] && { printf '%s' "$now" > "$MARK"; continue; }
+    printf '%s' "$now" > "$MARK"
+    [ -f "$now" ] || continue
+    # waypaper ставит обои И запускает theme_changer.sh (post_command в его
+    # config.ini) — тот же путь, что у SUPER+W. Отдельно matugen не зовём.
+    waypaper --wallpaper "$now" >/dev/null 2>&1 || {
+        awww img "$now" >/dev/null 2>&1
+        "$THEME" "$now" >/dev/null 2>&1
+    }
+done

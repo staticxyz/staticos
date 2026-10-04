@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Вернуть подсветку клавиатуры Razer после выхода из сна.
+
+Зачем: при засыпании устройство обесточивается и просыпается с погашенной
+подсветкой. Polychromatic сам её не восстанавливает — его служба применяет
+профиль при своём запуске, а не при пробуждении машины.
+
+Читаем сохранённое состояние Polychromatic и применяем цвет и яркость
+напрямую через openrazer. Так восстановление не зависит от того, запущено
+ли окно Polychromatic.
+"""
+import glob
+import json
+import os
+import sys
+import time
+
+STATES = os.path.expanduser("~/.config/polychromatic/states")
+
+
+def saved_colour():
+    """Цвет и яркость из профиля Polychromatic; при неудаче — разумные по умолчанию."""
+    try:
+        st = sorted(glob.glob(os.path.join(STATES, "*.json")))[0]
+        path = json.load(open(st))["effect"]["path"]
+        eff = json.load(open(path))
+        # В карте эффекта лежат цвета по зонам; берём первый непустой.
+        for zone in (eff.get("map") or {}).values():
+            for frame in (zone.values() if isinstance(zone, dict) else zone):
+                if isinstance(frame, str) and frame.startswith("#"):
+                    h = frame.lstrip("#")
+                    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        pass
+    return (255, 255, 255)
+
+
+def main():
+    # Демон openrazer после пробуждения поднимается не мгновенно.
+    for attempt in range(10):
+        try:
+            import openrazer.client
+            dm = openrazer.client.DeviceManager()
+            if dm.devices:
+                break
+        except Exception:
+            pass
+        time.sleep(1)
+    else:
+        print("устройства Razer не найдены", file=sys.stderr)
+        return 1
+
+    r, g, b = saved_colour()
+    for dev in dm.devices:
+        try:
+            dev.brightness = 100
+            if dev.fx.has("static"):
+                dev.fx.static(r, g, b)
+        except Exception as e:
+            print("%s: %s" % (dev.name, e), file=sys.stderr)
+    print("подсветка восстановлена: rgb(%d, %d, %d)" % (r, g, b))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

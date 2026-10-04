@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+"""Кто сколько ест — по приложениям, а не по процессам.
+
+    appmem            топ-12 по памяти
+    appmem -n 20      другое число строк
+    appmem -c         сортировать по процессору
+    appmem helium     только про одно приложение, с разбивкой по процессам
+
+Почему не btop и не «сумма RSS»: у браузера два десятка процессов, и почти
+вся их память ОБЩАЯ — один и тот же бинарник, шрифты, библиотеки. Если просто
+сложить RSS всех процессов (так делает btop в режиме суммирования и так же
+считал sysmontask), общее посчитается по многу раз: у helium выходит 3.04 ГиБ
+вместо честных 1.29 ГиБ — замерено 12.09.2026.
+
+Здесь считается PSS: общая страница делится между всеми, кто её держит. Сумма
+PSS по всем процессам равна реально занятой памяти, поэтому проценты и итог
+сходятся с /proc/meminfo.
+"""
+import collections
+import glob
+import re
+import os
+import sys
+import time
+
+HZ = os.sysconf("SC_CLK_TCK")
+# Приложения, у которых процессы называются по-разному: группируем по подстроке
+# в командной строке, иначе браузер рассыпается на «exe», «Isolated Web Co» и т.п.
+GROUPS = ("helium", "librewolf", "chromium", "thorium", "firefox", "steamwebhelper",
+          "steam", "code", "sublime_text", "telegram", "zapzap", "kitty",
+          "obsidian", "spotify", "yandexmusic", "vicinae", "waybar", "hyprland")
+
+
+def scan():
+    out = {}
+    for d in glob.glob("/proc/[0-9]*"):
+        pid = d.rsplit("/", 1)[1]
+        try:
+            stat = open(d + "/stat").read()
+            after = stat[stat.rindex(")") + 2:].split()
+            cmd = open(d + "/cmdline", "rb").read().decode("utf-8", "ignore")
+            comm = open(d + "/comm").read().strip()
+        except (OSError, ValueError):
+            continue
+        try:
+            exe = os.readlink(d + "/exe")
+        except OSError:
+            exe = ""
+        try:
+            cpu = (int(after[11]) + int(after[12])) / HZ
+        except (IndexError, ValueError):
+            continue
+        try:
+            ppid = int(after[1])
+        except (IndexError, ValueError):
+            ppid = 0
+        out[pid] = {"cpu": cpu, "cmd": cmd, "comm": comm, "exe": exe, "ppid": ppid}
+    return out
+
+
+def pss_kb(pid):
+    """(килобайты, точно ли). PSS честен, но читать smaps_rollup чужого или
+    защищённого процесса нельзя: у VirtualBoxVM он setuid root, и виртуалка с
+    её четырьмя гигабайтами просто не попадала в список (пользователь 25.09.2026).
+    Для таких берём VmRSS из status — он читается всегда; для одиночного
+    процесса это то же самое, для многопроцессных завышает (общая память
+    считается у каждого), поэтому такие строки помечаются звёздочкой.
+    """
+    try:
+        for line in open("/proc/%s/smaps_rollup" % pid):
+            if line.startswith("Pss:"):
+                return int(line.split()[1]), True
+    except OSError:
+        pass
+    try:
+        for line in open("/proc/%s/status" % pid):
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]), False
+    except OSError:
+        pass
+    return 0, True
+
+
+def group_of(p):
+    # Ищем имя приложения только в ПУТЯХ: исполняемый файл, argv[0] и аргументы
+    # со слешем (--user-data-dir=/…/obsidian, /usr/lib/obsidian/app.asar).
+    # Раньше искали по всей командной строке, и это врало: у любого Electron
+    # есть флаг --code-cache-schemes, поэтому Obsidian попадал в «code»,
+    # а таймер «timer code 5h» — в «code». Замечено 14.09.2026.
+    # Electron переписывает argv рендерера одной строкой через пробелы,
+    # без NUL-разделителей, — поэтому режем и по NUL, и по пробелам.
+    argv = re.split(r"[\0\s]+", p["cmd"].strip("\0 "))
+    parts = [p["exe"], argv[0]] + [a for a in argv[1:] if "/" in a]
+    low = " ".join(parts).lower()
+    # Zen стоит в ~/.local/opt/zen и зовётся zen-bin / zen-browser, а его
+    # вкладки и службы — «Isolated Web Co», «Web Content», «WebExtensions».
+    # Подстрока «zen» слишком общая, поэтому узнаём по папке программы и
+    # по имени команды (15.09.2026).
+    if "/.local/opt/zen/" in low or re.search(r"(^|[/ ])zen-(browser|bin)( |$)", low):
+        return "zen"
+    for key in GROUPS:
+        if key in low:
+            return key
+    return p["comm"]
+
+
+# ── Человеческие названия (30.09.2026): не название процесса, а название
+# программы. Названия по-английски. Сначала узнаётся сама программа по
+# командной строке, потом — по тому, ВНУТРИ чего она запущена (оболочки и
+# помощники дашборда считаются дашбордом, а не «fish» и «python3»).
+
+BY_CMD = (   # подстрока в командной строке → название
+)
+BY_GROUP = {
+    "kitty": "kitty terminal", "waybar": "Waybar",
+    "helium": "Helium", "librewolf": "LibreWolf", "chromium": "Chromium",
+    "thorium": "Thorium", "firefox": "Firefox", "zen": "Zen",
+    "steamwebhelper": "Steam", "steam": "Steam", "code": "VS Code",
+    "sublime_text": "Sublime Text", "telegram": "Telegram", "zapzap": "WhatsApp",
+    "obsidian": "Obsidian", "spotify": "Spotify", "yandexmusic": "Yandex Music",
+    "vicinae": "Vicinae", "hyprland": "Hyprland",
+}
+BY_COMM = {
+    "niri": "niri", "Xorg": "SDDM login screen", "Xwayland": "Xwayland",
+    "xwayland-satell": "Xwayland", "espanso": "espanso",
+    "systemd-journal": "System journal", "swaync": "Notifications",
+    "awww-daemon": "Wallpaper", "polychromatic-t": "Razer lighting",
+    "polychromatic-h": "Razer lighting", "openrazer-daem": "Razer lighting",
+    "blueman-applet": "Bluetooth", "blueman-tray": "Bluetooth",
+    "bluetoothd": "Bluetooth", "nm-applet": "Network", "NetworkManager": "Network",
+    "kdeconnectd": "KDE Connect", "pipewire": "Audio (PipeWire)",
+    "pipewire-pulse": "Audio (PipeWire)", "wireplumber": "Audio (PipeWire)",
+    "xdg-desktop-por": "Portals", "xdg-document-po": "Portals",
+    "xdg-permission-": "Portals", "gnome-keyring-d": "Keyring",
+    "hypridle": "Idle & lock", "sddm": "SDDM login screen",
+    "sddm-helper": "SDDM login screen", "cava": "Equalizer (cava)",
+    "gpu-screen-reco": "Screen recording", "wf-recorder": "Screen recording",
+    "mpv": "mpv", "Telegram": "Telegram", "openrazer-daemo": "Razer lighting",
+    "eww": "eww widgets", "sshd": "SSH", "ksecretd": "Keyring",
+    "glycin-image-rs": "Image loader", "power-profiles-": "System services",
+    "upowerd": "System services", "udisksd": "System services",
+    "thermald": "System services", "wpa_supplicant": "Network",
+    "polkitd": "System services", "(sd-pam)": "System services",
+}
+SYSTEM_PREFIX = ("systemd", "dbus-", "gvfs", "at-spi", "dconf")
+SHELLS = ("fish", "bash", "zsh", "sh", "kitten")
+SCRIPT_DIRS = ("/.config/hypr/scripts/", "/.config/niri/scripts/", "/.local/bin/")
+
+
+def _chain(p, procs, depth=12):
+    """Родители процесса снизу вверх."""
+    out, seen = [], set()
+    cur = procs.get(str(p.get("ppid"))) if procs else None
+    while cur and depth and id(cur) not in seen:
+        seen.add(id(cur))
+        out.append(cur)
+        cur = procs.get(str(cur.get("ppid")))
+        depth -= 1
+    return out
+
+
+def _is_dash(q):
+    return q["comm"] == "kitty" and "\0--app-id\0dash-" in "\0" + q["cmd"]
+
+
+def label_of(p, procs=None):
+    """Название программы для людей. procs — весь снимок scan(), для родителей."""
+    cmd = p["cmd"].replace("\0", " ")
+    for key, name in BY_CMD:
+        if key in cmd:
+            return name
+    if _is_dash(p):
+        return "Dashboard"
+    chain = _chain(p, procs)
+    for q in chain:
+        if _is_dash(q):
+            return "Dashboard"
+        if q["comm"] == "waybar":
+            return "Waybar"
+    g = group_of(p)
+    if g in BY_GROUP:
+        return BY_GROUP[g]
+    if p["comm"] in BY_COMM:
+        return BY_COMM[p["comm"]]
+    if p["comm"].startswith(SYSTEM_PREFIX):
+        return "System services"
+    if any(d in cmd for d in SCRIPT_DIRS):
+        return "staticOS scripts"
+    if p["comm"] in SHELLS and any(q["comm"] == "kitty" for q in chain):
+        return "kitty terminal"
+    return g
+
+
+def meminfo():
+    m = {}
+    for line in open("/proc/meminfo"):
+        k, v = line.split(":")
+        m[k] = int(v.split()[0])
+    return m
+
+
+def main():
+    args = sys.argv[1:]
+    limit = 12
+    by_cpu = False
+    only = None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "-n" and i + 1 < len(args):
+            limit = int(args[i + 1]); i += 1
+        elif a == "-c":
+            by_cpu = True
+        elif a in ("-h", "--help"):
+            print(__doc__)
+            return 0
+        else:
+            only = a.lower()
+        i += 1
+
+    first = scan()
+    t0 = time.time()
+    time.sleep(1.5)
+    second = scan()
+    dt = time.time() - t0
+
+    rows = []
+    for pid, p in second.items():
+        prev = first.get(pid)
+        cpu = (p["cpu"] - prev["cpu"]) / dt * 100 if prev else 0.0
+        kb, exact = pss_kb(pid)
+        rows.append((pid, label_of(p, second), cpu, kb, p["comm"], exact))
+
+    m = meminfo()
+    total = m["MemTotal"] / 1048576
+    avail = m["MemAvailable"] / 1048576
+    swap_used = (m["SwapTotal"] - m["SwapFree"]) / 1048576
+    print("Память: занято %.1f из %.1f ГиБ, свободно для приложений %.1f ГиБ, в swap %.1f ГиБ"
+          % (total - avail, total, avail, swap_used))
+    print("Ядер: %d, загрузка: %s\n" % (os.cpu_count(), open("/proc/loadavg").read().split()[0]))
+
+    if only:
+        sel = [r for r in rows if only in r[1].lower() or only in r[4].lower()]
+        if not sel:
+            print("Ничего не нашёл по «%s»" % only)
+            return 1
+        mem = sum(r[3] for r in sel) / 1024
+        cpu = sum(r[2] for r in sel)
+        print("%s: %.0f МиБ, %.1f%% процессора, процессов %d\n" % (only, mem, cpu, len(sel)))
+        print("  %-8s %8s %7s  %s" % ("PID", "память", "CPU", "процесс"))
+        for pid, g, c, pss, comm, exact in sorted(sel, key=lambda r: -r[3])[:limit]:
+            print("  %-8s %7.0fМ %6.1f%%  %s" % (pid, pss / 1024, c, comm))
+        return 0
+
+    g_mem = collections.Counter()
+    g_cpu = collections.Counter()
+    g_n = collections.Counter()
+    rough = set()
+    for pid, g, cpu, pss, comm, exact in rows:
+        if not exact:
+            rough.add(g)
+        g_mem[g] += pss
+        g_cpu[g] += cpu
+        g_n[g] += 1
+    order = g_cpu if by_cpu else g_mem
+    print("  %-22s %9s %8s  %s" % ("приложение", "память", "CPU", "процессов"))
+    for g, _ in order.most_common(limit):
+        print("  %-22s %7.0f МиБ%s %6.1f%%  %d"
+              % (g, g_mem[g] / 1024, "*" if g in rough else " ", g_cpu[g], g_n[g]))
+    if rough:
+        print("\n  * память по RSS: PSS у защищённого процесса не прочитать")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

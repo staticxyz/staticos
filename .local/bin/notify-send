@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Обёртка notify-send: значок по умолчанию для уведомлений без значка. 30.09.2026.
+#
+# Просьба: «не хватает иконок для типов уведомлений» — снимки, запись экрана,
+# сохранения из моих скриптов приходили без картинки. Вместо правки двадцати
+# скриптов: если значок (-i/--icon) не передан, он подбирается по имени
+# отправителя (-a) или, если его нет, по тексту заголовка. Всё остальное —
+# как есть, в настоящий /usr/bin/notify-send. ~/.local/bin в PATH первым.
+REAL=/usr/bin/notify-send
+app=""; summary=""; has_icon=0; prev=""
+for a in "$@"; do
+    case "$prev" in
+        -a|--app-name) app=$a ;;
+    esac
+    case "$a" in
+        -i|--icon|--icon=*|-i?*) has_icon=1 ;;
+        --app-name=*) app=${a#--app-name=} ;;
+        -*) ;;
+        *) case "$prev" in
+               -a|--app-name|-u|--urgency|-t|--expire-time|-h|--hint|-c|--category|-A|--action|-r|--replace-id) ;;
+               *) [ -z "$summary" ] && summary=$a ;;
+           esac ;;
+    esac
+    prev=$a
+done
+[ "$has_icon" = 1 ] && exec "$REAL" "$@"
+
+key="$app $summary"
+case "${key,,}" in
+    *recorder*|*запис*|*видео*|*gif*|*стикер*) icon=simplescreenrecorder ;;
+    *replay*)                                  icon=media-playlist-repeat ;;
+    *снимок*|*скрин*|*screenshot*|*image\ saved*|*сохранено*) icon=applets-screenshooter ;;
+    *music*|*трек*)                            icon=multimedia-audio-player ;;
+    *переводчик*|*перевод*)                    icon=translate ;;
+    *калькулятор*|*calc*)                      icon=accessories-calculator ;;
+    *распознавание*|*ocr*|*текст*)             icon=ocrfeeder ;;
+    *пипетка*|*цвет*)                          icon=color-picker ;;
+    *вентилятор*|*fan*|*температур*)           icon=psensor ;;
+    *vault*|*синхрон*|*obsidian*)              icon=folder-sync ;;
+    *память*|*mem-guard*|*memory*)             icon=dialog-warning ;;
+    *таймер*|*timer*|*pomo*)                   icon=alarm-clock ;;
+    *обои*|*тема*|*wallpaper*)                 icon=preferences-desktop-wallpaper ;;
+    *микрофон*|*mic*)                          icon=audio-input-microphone ;;
+    *раскладк*|*keyboard*)                     icon=input-keyboard ;;
+    *focus*|*фокус*)                           icon=preferences-system-notifications ;;
+    *) icon=dialog-information ;;
+esac
+exec "$REAL" -i "$icon" "$@"

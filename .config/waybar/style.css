@@ -1,0 +1,525 @@
+@import "../../.cache/matugen/colors.css";
+@import "../../.cache/matugen/sensor-colors.css";
+/* Вид бара — подложка и её рамка (window#waybar). Текущий вид — ссылка
+   looks/current.css, её меняет scripts/bar_style.py. */
+@import "looks/current.css";
+/* Режим «при наведении»: плотный фон у показанного бара — пишет top_bar.py
+   (opacity_rule); в остальных режимах файл пустой. */
+@import "looks/hover-opacity.css";
+/* Скругление таблеток — генерирует scripts/bar_rounding.py (ползунок в
+   «Настройках»). Правила там с window#waybar, поэтому перебивают радиусы ниже. */
+@import "rounding.css";
+/* Столы с виджетами видны в баре и пустыми — правила пишет scripts/desktop_widgets.py
+   (файл существует всегда; пустой — если виджетов нет). 02.10.2026. */
+@import "widget-desks.css";
+
+* {
+    border: none;
+    border-radius: 0;
+    font-family: "JetBrainsMono Nerd Font", "Noto Sans", sans-serif;
+    font-weight: bold;
+    font-size: 13px;
+    min-height: 0;
+}
+
+/* Секции больше не рисуют собственный фон — он теперь общий, на всём баре. */
+.modules-left,
+.modules-center,
+.modules-right {
+    background-color: transparent;
+    border: none;
+    padding: 2px 8px;
+    margin: 0;
+}
+
+/* Кнопка "Пуск" (Arch) */
+#custom-launcher {
+    background-color: alpha(@primary, 0.18);
+    color: @primary;
+    /* Шрифт JarvisBarIcons (~/.config/hypr/scripts/build_bar_icons.py): логотип
+       Arch приведён там к общей рамке — рисунок равен кеглю и центрирован самим
+       шрифтом. Поэтому кегль здесь — это БУКВАЛЬНО размер логотипа, а отступы
+       симметричные. Раньше они были неравными (12 px против 8): в своём шрифте
+       у глифа неравные боковые выносы, и его приходилось подпирать вручную. */
+    font-family: "JarvisBarIcons", "JetBrainsMono Nerd Font", "Noto Sans", sans-serif;
+    /* 17 px вместо прежних 15. Рисунок при этом вырос с 12x12 до 17x17 — столько
+       же, сколько у значков столов. Отступы подобраны так, чтобы таблетка
+       по ширине намеренно шире рисунка — 16 + 12*2 + рамка 2 = 42 px: так кнопка
+       читается как отдельная, а не как ещё один значок стола.
+
+       ВЫСОТА таблетки — 20 px (16 + 1*2 + рамка 2), и она подобрана НЕ на глаз.
+       Свечению нужно место, иначе оно упирается в рамку бара и подсвечивает её:
+       именно это и выглядело плохо 21.09.2026 (таблетка занимала 28 px из 30,
+       ореолу оставалось по полтора пикселя). При 20 px над и под таблеткой
+       остаётся по 5 px, и ореол успевает сойти на нет внутри бара.
+       Отсюда правило: меняя кегль, держите высоту таблетки не больше 20 px,
+       иначе свет снова упрётся в кромку. */
+    font-size: 16px;
+    padding: 1px 12px;
+    /* Свечение (21.09.2026) — у САМОГО ЛОГОТИПА, а не у кнопки.
+       Через box-shadow оно повторяло прямоугольник таблетки и упиралось в
+       кромку бара, подсвечивая её: внутренняя высота бара 30 px, таблетка 20,
+       на свет оставалось по 5 px, а ореолу нужно больше. У текста отсчёт идёт
+       от самого рисунка: логотип 16 px, до кромки бара от него 7 px, и ореол
+       успевает сойти на нет. Заодно он повторяет форму логотипа, а не коробку. */
+    text-shadow: 0 0 3px alpha(@primary, 0.95), 0 0 7px alpha(@primary, 0.55);
+    margin: 2px 6px 2px 0;
+    border-radius: 9px;
+    border: 1px solid alpha(@primary, 0.35);
+    transition: all 0.2s ease;
+}
+
+#custom-launcher:hover {
+    background-color: @primary;
+    color: @background;
+}
+
+/* Рабочие пространства */
+#workspaces button {
+    /* WolfGlyph — собственный шрифт с одним глифом, логотипом LibreWolf на
+       U+E900. Собирается из штатной иконки пакета скриптом
+       scripts/build_wolf_font.py: waybar принимает в список столов только
+       текст, поэтому картинку пришлось превратить в глиф.
+       Symbola оставлен запасным вариантом для прочих символов. */
+    font-family: "JetBrainsMono Nerd Font", "WolfGlyph", "ZenGlyph", "JarvisBarIcons", "Symbola", "Noto Sans", sans-serif;
+    /* Отступы у неактивного стола узкие, у активного (ниже) широкие — так
+       видно, где находишься, без лишних подсветок. Поля между кнопками
+       крупнее самих отступов: столы читаются как отдельные группы. */
+    padding: 0 5px;
+    color: @foreground;
+    background: transparent;
+    border-radius: 9px;
+    margin: 2px 5px;
+    transition: all 0.2s ease;
+}
+
+/* Активный рабочий стол */
+#workspaces button.active {
+    background-color: @primary;
+    color: @background;
+    border-radius: 10px;
+    padding: 0 13px;
+}
+
+#workspaces button:hover {
+    background-color: alpha(@primary, 0.25);
+    /* @foreground, а не #ffffff: белый не менялся вместе с обоями и на
+       светлых палитрах сливался с подложкой. */
+    color: @foreground;
+}
+
+/* Дата/часы — компактно, справа между зарядкой и питанием.
+   Паддинг слева меньше правого не по прихоти: глиф часов  вылезает за свою
+   ячейку вправо (замерено: ширина ячейки 24px, чернила до 37px при кегле 40),
+   поэтому справа зазор визуально съедается, а слева кажется лишним. 5px/9px
+   компенсируют этот перекос и текст встаёт по центру подложки. */
+#custom-clock {
+    background-color: alpha(@primary, 0.10);
+    color: @foreground;
+    font-size: 13px;
+    font-weight: 800;
+    border-radius: 10px;
+    padding: 0 9px 0 5px;
+    margin: 4px 3px;
+}
+
+#custom-clock:hover {
+    background-color: alpha(@primary, 0.22);
+}
+
+/* Датчики системы. Оттенки берутся от цвета обоев: CPU — сам оттенок,
+   ОЗУ — на 40° дальше, температура — на 40° в другую сторону
+   (sensor-colors.css, генерирует sensor_colors.py). Раньше оттенки были
+   закреплены (синий/фиолетовый/красный) и на тёплых обоях выбивались. */
+#cpu,
+#memory,
+#temperature {
+    font-size: 13px;
+    font-weight: 800;
+    padding: 0 10px;
+    margin: 4px 2px;
+}
+
+/* Цвет в полную силу, подложка заметная — на плотном фоне панели датчики
+   иначе терялись. */
+#cpu         { color: @sensor-cpu;  background-color: alpha(@sensor-cpu, 0.18); }
+#memory      { color: @sensor-mem;  background-color: alpha(@sensor-mem, 0.18); }
+#temperature { color: @sensor-temp; background-color: alpha(@sensor-temp, 0.18); }
+
+/* Скруглить только внешние края группы, чтобы читалась одним блоком */
+#cpu         { border-radius: 10px 0 0 10px; margin-left: 3px; }
+#memory      { border-radius: 0; }
+#temperature { border-radius: 0 10px 10px 0; margin-right: 3px; }
+
+#cpu:hover         { background-color: alpha(@sensor-cpu, 0.32); }
+#memory:hover      { background-color: alpha(@sensor-mem, 0.32); }
+#temperature:hover { background-color: alpha(@sensor-temp, 0.32); }
+
+/* Перегрев виден без чтения цифр */
+#temperature.critical {
+    background-color: alpha(@error, 0.30);
+    color: @error;
+}
+
+/* Интерактивный календарь */
+tooltip {
+    background-color: alpha(@background, 0.95);
+    border: 1px solid @primary;
+    border-radius: 12px;
+}
+
+tooltip label {
+    color: @foreground;
+    padding: 6px;
+}
+
+/* Cava эквалайзер. @vivid, а не @primary: primary в тёмной схеме Material
+   имеет светлоту ~84% и читается почти белым, из-за чего полоски выглядели
+   бесцветными при любых обоях. @vivid — тот же оттенок обоев, но темнее и
+   насыщеннее. */
+#cava,
+#custom-cava {
+    /* Шрифт прибит нарочно и НЕ следует за выбором в Настройках (23.09.2026).
+       Полоски рисуются знаками ▁▂▃▄▅▆▇█, а они есть не у каждого шрифта: у
+       PxPlus HP 100LX 6x8 их три из восьми, остальные пять брались подстановкой
+       из другого шрифта — с другой шириной знакоместа. От этого модуль менял
+       ширину на каждом кадре и дёргал соседей, включая среднюю панель.
+       У Hack все восемь, и в список подмены системы он не входит. */
+    font-family: "Hack", "CozetteVector", monospace;
+    /* Ширина заморожена: модуль не должен дышать. */
+    min-width: 96px;
+    /* Ширина одной полоски в waybar — это ширина знакоместа: полоски рисуются
+       символами ▂▃▄, а не графикой, и другого рычага, кроме кегля, нет.
+       15px вместо 13px делает их заметно толще, а всего модуля меньше:
+       полосок теперь 8 вместо 12, то есть ~72px против прежних ~94px. */
+    font-size: 15px;
+    color: @vivid;
+    margin-top: 3px;
+    margin-right: 4px;
+    padding: 0 4px;
+    letter-spacing: 2px;
+}
+
+/* MPRIS плеер */
+/* Таблетки с информацией (плеер, системная группа, часы) — один вид:
+   подложка @primary на 10%, скругление 10, одинаковая высота (поля 4px),
+   без рамок. Рамки остались только у кнопок-«действий» по краям бара —
+   Arch слева и питание справа, — поэтому края читаются как пара. */
+#custom-mpris {
+    background-color: alpha(@primary, 0.10);
+    color: @foreground;
+    border-radius: 10px;
+    padding: 0 10px;
+    margin: 4px 3px;
+}
+
+#custom-mpris:hover {
+    background-color: alpha(@primary, 0.22);
+    color: @foreground;
+}
+
+/* Системные индикаторы */
+/* Провод отдельным модулем (network#eth): значок крупнее общего кегля и с
+   подписью «LAN» — маленький глиф рядом с Wi-Fi читался плохо (21.09.2026). */
+#network.eth {
+    font-size: 14px;
+    padding: 0 6px;
+}
+
+#network,
+#bluetooth,
+#language,
+#custom-language,
+#pulseaudio,
+#custom-battery {
+    background: transparent;
+    color: @foreground;
+    padding: 0 6px;
+    margin: 0;
+    font-size: 13px;
+}
+
+#group-system {
+    background-color: alpha(@primary, 0.10);
+    border-radius: 10px;
+    padding: 0 4px;
+    margin: 4px 3px;
+}
+
+#pulseaudio.microphone {
+    color: @primary;
+}
+
+/* Wi-Fi и Bluetooth (04.10.2026, просьба: «чуть-чуть крупнее; вайфай не понятно,
+   включён или нет»): на 1 px крупнее общего кегля; подключённое — акцентом; бледное —
+   только выключенное. «Включён, без сети» — обычной яркости (у него свой значок —
+   пустой веер без черты, config.jsonc). */
+#network:not(.eth),
+#bluetooth {
+    font-size: 16px;            /* 04.10.2026: 14 → 16, «ещё чуть больше» */
+}
+#network.wifi,
+#bluetooth.connected {
+    color: @primary;
+}
+#network.disabled,
+#bluetooth.disabled,
+#bluetooth.off {
+    color: alpha(@foreground, 0.35);
+}
+
+#custom-battery.savage {
+    /* @vivid — насыщенный оттенок самих обоев. Раньше стоял @error: он хоть
+       и из палитры, но это сигнальный красный, одинаковый на любых обоях, и
+       спидометр выбивался из гаммы. Правило: цвет только из палитры обоев,
+       любой ценой, для всех элементов.
+       14px, а не прежние 15: внутри системной таблетки (поля 4px) строка
+       в 15px требовала от бара 33px вместо заданных 32 — waybar ругался
+       "minimum height: 33" и панель вырастала на пиксель. */
+    color: @vivid;
+    font-size: 14px;
+}
+
+/* «Не отключать экран» включён (класс awake ставит savage_battery.py) — спидометр
+   светится насыщенным цветом обоев. 02.10.2026. */
+#custom-battery.awake {
+    /* радиус не больше полей модуля (6px): шире — свечение обрезалось по прямоугольнику */
+    text-shadow: 0 0 2px @vivid, 0 0 5px @vivid, 0 0 6px alpha(@vivid, 0.8);
+}
+
+/* Мало заряда от батареи — значок режима насыщенным оттенком обоев (правило
+   палитры), на последних 10% ещё и дышит. */
+#custom-battery.low,
+#custom-battery.critical {
+    color: @vivid;
+    font-weight: 800;
+}
+
+#custom-battery.critical {
+    animation: battery-breathe 1s ease-in-out infinite alternate;
+}
+
+@keyframes battery-breathe {
+    to { opacity: 0.35; }
+}
+
+/* Кнопка питания */
+/* Кнопка питания — зеркальная пара кнопке Arch: та же подложка и рамка,
+   поэтому бар с обеих сторон замыкается одинаковыми «действиями». */
+#custom-power {
+    background-color: alpha(@primary, 0.18);
+    color: @primary;
+    border: 1px solid alpha(@primary, 0.35);
+    border-radius: 9px;
+    /* Поля несимметричные намеренно: у глифа питания (U+F011, Nerd Font)
+       рисунок сидит в знакоместе правее центра, и при равных полях значок
+       съезжал вправо (замер 14.09.2026). Слева на пиксель меньше. */
+    padding: 0 11px 0 8px;
+    margin: 2px 0 2px 6px;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+#custom-power:hover {
+    background-color: @primary;
+    color: @background;
+}
+
+/* Значки браузеров, пока браузер открыт. Раньше это были цветные логотипы-
+   картинки из пакетов — они выбивались из гаммы обоев. Теперь это
+   одноцветные глифы цвета палитры, те же, что у этих браузеров в списке
+   столов (window-rewrite): LibreWolf — U+E100 из собственного шрифта
+   WolfGlyph (scripts/build_wolf_font.py), Mercury — U+F269 из Nerd Font.
+   Глиф отдаёт scripts/browser_status.py; пока браузер закрыт, текст пустой,
+   и waybar прячет модуль целиком. */
+#custom-librewolf,
+#custom-zen,
+#custom-mercury {
+    color: @primary;
+    font-size: 14px;
+    /* Справа поле больше: логотип рисуется шире своей ячейки (замерено — на
+       5px при кегле 14), и с равными полями он упирался в соседний модуль. */
+    padding: 0 11px 0 6px;
+}
+
+#custom-librewolf {
+    font-family: "WolfGlyph", "JetBrainsMono Nerd Font", sans-serif;
+    /* Глиф сидел на 1.5px выше соседей: по снимку центр его чернил на
+       y=22.5, а у ▶ в таблетке плеера — 24.0. Поле сверху 3px сдвигает
+       центр ровно на половину — 1.5px. */
+    padding-top: 3px;
+}
+
+/* Помидор. Модуль часов рядом — такая же по размеру подложка с цифрами через
+   двоеточие, поэтому различать их приходится не по форме, а по трём вещам
+   сразу: другой глиф (песочные часы вместо циферблата), заливка вместо
+   почти-прозрачной подложки часов и вертикальная засечка слева. Пока таймер
+   идёт, чип цветной и «горит»; в покое он гаснет до полупрозрачного контура,
+   и тогда путать уже нечего — цифр там нет. */
+#custom-pomo {
+    background-color: alpha(@vivid, 0.30);
+    color: @foreground;
+    font-size: 13px;
+    font-weight: 800;
+    border-left: 2px solid @vivid;
+    border-radius: 4px 10px 10px 4px;
+    padding: 0 9px 0 7px;
+    margin: 4px 3px;
+}
+
+/* Перерыв — та же форма, но спокойная гамма основного цвета: смена цвета
+   видна боковым зрением, не заставляя вчитываться в цифры. */
+#custom-pomo.break {
+    background-color: alpha(@primary, 0.26);
+    border-left-color: @primary;
+    color: @foreground;
+}
+
+#custom-pomo.paused {
+    background-color: alpha(@foreground, 0.08);
+    border-left-color: alpha(@foreground, 0.45);
+    color: alpha(@foreground, 0.55);
+}
+
+#custom-pomo.idle {
+    background-color: transparent;
+    border-left-color: alpha(@foreground, 0.30);
+    color: alpha(@foreground, 0.35);
+    padding: 0 7px 0 5px;
+}
+
+#custom-pomo:hover {
+    background-color: alpha(@vivid, 0.45);
+}
+
+/* Карта ленты (scripts/ribbon_map.py): точки-колонки активного стола.
+   Без подложки и мелким кеглем — подсказка, а не ещё одна таблетка. Цвета
+   точек задаёт сам скрипт разметкой из палитры обоев. */
+#custom-ribbon {
+    font-size: 9px;
+    padding: 0 6px;
+    margin: 0 2px;
+}
+
+/* Название окна в фокусе — правее столов и карты ленты (niri, 21.09.2026). Модуль
+   есть только в варианте бара для niri (собирает scripts/waybar_niri.py); в Hyprland
+   селектор просто ничего не находит. Приглушённый текст: это подпись, а не кнопка. */
+#window,
+#custom-window-title {
+    padding: 0 8px;
+    margin: 0 2px;
+    opacity: 0.78;
+}
+window#waybar.empty #window {
+    padding: 0;
+    margin: 0;
+}
+
+
+/* Zen: глиф U+E101 из шрифта ZenGlyph (scripts/build_zen_font.py), цвет — акцент
+   палитры, как у LibreWolf (15.09.2026). */
+#custom-zen {
+    font-family: "ZenGlyph", "JetBrainsMono Nerd Font", sans-serif;
+}
+
+/* Раскладка при включённом Caps Lock — акцентом со свечением: класс caps
+   ставит bar_language.py (23.09.2026). */
+#custom-language.caps {
+    color: @primary;
+    text-shadow: 0 0 6px @primary;
+}
+
+/* Правой группе — постоянная ширина (23.09.2026, просьба пользователя).
+   Бар держит среднюю группу (pomo + cpu/память/температура) по центру, только пока
+   правая группа не шире своей половины. Когда она шире — средняя прижимается к ней
+   правым краем. Число ниже держит бар ВСЕГДА во втором режиме: правый край средней
+   группы стоит на месте, и капсулы не ездят ни от правой группы, ни от ширины pomo.
+   Что входит (замеры по снимкам, pomo уже перенесён в середину):
+     ~646 px — правая группа без музыки, название трека в полные 14 знаков
+            (MAX_LEN в mpris_status.py), время в часах, меню свёрнуты;
+     +129 px — эквалайзер, появляется с музыкой и прячется в тишине (замер по снимку
+            с игравшей музыкой; по стилю выходило 108, на деле шире);
+     +70 px — выдвижное меню микрофона в group/audio (оценка по формату);
+     +10 px — погрешность замеров.
+   НЕ входит: дата в часах вместо времени (+54 px) и подключённый bluetooth в
+   выдвижном меню сети (сейчас выключен) — с ними капсулы сдвинутся, но держать запас
+   и под них значило бы увести капсулы далеко от центра.
+   Пустое место встаёт слева от группы, правый край прижат к краю экрана.
+   Добавится модуль справа — пересчитать число. */
+.modules-right { min-width: 830px; }
+
+/* pomo — посередине между заголовком окна и капсулами (24.09.2026, просьба пользователя).
+   Средняя группа (pomo + капсулы) прижата правым краем к правой группе, поэтому
+   отступ справа у pomo отодвигает влево только его, капсулы стоят на месте.
+   Заголовок ограничен 25 знаками (max-length в ~/.config/niri/scripts/waybar_niri.py),
+   знак в баре — 10 px. Заголовок в 22 знака при 6 столах и одной колонке
+   кончается на ~497 px, капсулы начинаются на ~851: 126 px ставят pomo посередине,
+   с зазором ~130 px с обеих сторон. Короче заголовок — больше места слева; больше
+   колонок на ленте — заголовок начинается правее, но до pomo всё равно не достаёт. */
+/* 30.09.2026: пользователь — «pomo чуть правее», потом «ещё правее», «чуть левее», «ещё на 10 px левее»: 126 → 60.
+   Заголовок окна считает место до pomo сам (POMO_LEFT в bar_window_title.py). */
+#custom-pomo { margin-right: 60px; }
+
+/* Красная точка записи Recorder (30.09.2026). Без мигания: анимация заставила бы
+   бар перерисовываться каждый кадр. */
+#custom-rec {
+    color: #ff4444;
+    padding: 0 8px;
+}
+/* Буфер Replay включён — тусклая точка (обычная запись — красная). */
+#custom-rec.replay {
+    color: alpha(#ff4444, 0.45);
+}
+
+/* Индикаторы приватности (30.09.2026): видны только пока микрофон, камера или
+   экран заняты. Значки из Nerd Font — у PxPlus их нет. Микрофон — третьим
+   цветом палитры, камера и экран — цветом ошибки (заметнее). */
+#custom-privacy {
+    font-family: "JetBrainsMono Nerd Font", "Noto Sans", sans-serif;
+    color: @tertiary;
+    padding: 0 8px;
+    margin-top: 3px;
+}
+#custom-privacy.camera,
+#custom-privacy.screen {
+    color: @error;
+}
+
+/* Bongo Cat (30.09.2026): цвет — акцент обоев, ширина прибита (глиф 32 px). */
+#custom-bongo {
+    color: @vivid;
+    padding: 0 4px;
+    margin: 0 2px;
+    min-width: 32px;
+    letter-spacing: 0;
+}
+
+/* Караоке-строка песни (30.09.2026): неспетое — полупрозрачным цветом текста,
+   спетое — акцентом (цвет вписывает сам lyrics_bar.py). */
+#custom-lyrics {
+    color: @foreground;
+    padding: 0 8px;
+    margin: 4px 3px;
+}
+#custom-lyrics.paused { opacity: 0.6; }
+#custom-lyrics.gap    { opacity: 0.7; }
+
+/* Пиксельный «Пуск» (30.09.2026): жёсткая тень 1 px вместо размытого ореола. */
+/* Пиксельный Arch (01.10.2026: «более пиксельным и свечения больше»): три слоя
+   свечения акцентом — плотное у самых пикселей, среднее и широкий ореол, — плюс
+   тёмная тень на 1 px, чтобы ступеньки не растворялись в свете. */
+#custom-launcher.pixel {
+    text-shadow: 1px 1px 0 alpha(@background, 0.9),
+                 0 0 2px @primary,
+                 0 0 6px alpha(@primary, 0.85),
+                 0 0 12px alpha(@primary, 0.6);
+}
+#custom-launcher.pixel:hover {
+    text-shadow: 0 0 2px @background, 0 0 6px alpha(@background, 0.6);
+}
+/* Панель задач в стиле XP (taskbar.py): кнопки рисует шрифт JarvisTaskbar. */
+#custom-taskbar {
+    padding: 0 8px 0 6px;
+    margin: 0 2px;
+    font-weight: normal;
+}

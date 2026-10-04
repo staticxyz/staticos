@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""Сторож панели: поднимает бар, когда он отвалился от потока событий niri.
+
+Нашлось в журнале 25.09.2026, после жалоб «столы в баре застыли»:
+
+    WARN niri::ipc::server: disconnecting IPC event stream client
+                            because it is reading events too slowly
+
+niri рвёт соединение с клиентом, который не успевает вычитывать события.
+После разрыва модуль столов замирает навсегда: переходы идут, подписи стоят.
+
+Две проверки, потому что одной оказалось мало (25.09.2026, вечер):
+
+  1. Строка в журнале — реакция сразу. Раньше стоял запрет «не чаще раза в
+     45 с», и он пропустил разрыв через минуту после перезапуска: бар отвалился
+     в 13:58:00, а сторож молчал до конца окна и дальше тоже — событие уже
+     прошло. Теперь разрывы копятся 3 с и поднимают бар одним заходом.
+  2. Раз в 20 с — есть ли у waybar вообще соединение с сокетом niri
+     (ss -xp). Это ловит и тихие обрывы, о которых журнал не пишет.
+
+Поднимается связка целиком через barfix: панель, niri_bar.py names (он слушает
+тот же поток и мог отвалиться вместе с ней) и окна eww.
+
+И третье — смена мониторов (26.09.2026, ноутбук уезжает без MSI). Событий о
+мониторах niri не шлёт, поэтому раз в 3 с сверяется список включённых выходов.
+Поменялся — полоска громкости у правого края (eww volume-trigger) открывается
+заново и встаёт на MSI или, если его нет, на экран ноутбука: окно, открытое на
+отключённом мониторе, пропадает вместе с ним и само не возвращается. Если при
+этом упал waybar этого сеанса, он поднимается целиком через barfix. А
+вернувшийся монитор получает те же обои, что на остальных: демон обоев помнит
+для него картинку на момент отключения, и смена обоев в поездке без этого
+оставила бы на MSI старые.
+"""
+import json
+import os
+import subprocess
+import sys
+import threading
+import time
+
+NEEDLE = "disconnecting IPC event stream client"
+SETTLE = 3            # собрать серию разрывов в один перезапуск
+MIN_GAP = 12          # но не дёргать бар чаще: перезапуск сам порождает события
+PROBE_EVERY = 20
+BARFIX = os.path.expanduser("~/.local/bin/barfix")
+OUTPUTS_EVERY = 3     # запрос к niri ~5 мс, чаще и не нужно
+PINNED_EWW = ["volume-trigger"]       # окна eww, которые держатся открытыми всегда
+SHELL_STATE = os.path.expanduser("~/.config/niri/state/shell")
+WALL_BLUR = os.path.expanduser("~/.config/hypr/scripts/wallpaper_blur.py")
+
+lock = threading.Lock()
+last_restart = 0.0
+
+
+LOG = os.path.expanduser("~/.cache/bar_watch.log")
+
+
+def log(msg):
+    # В файл, а не в stdout: при автозапуске niri вывод сторожа никуда не
+    # попадает, и 28.09.2026 его реакции было не восстановить.
+    line = "%s %s\n" % (time.strftime("%d.%m %H:%M:%S"), msg)
+    try:
+        with open(LOG, "a") as f:
+            f.write(line)
+    except OSError:
+        pass
+
+
+def restart(why):
+    global last_restart
+    try:                                             # barfix только что отработал — не дублировать
+        stamp = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "barfix-stamp")
+        if time.time() - os.path.getmtime(stamp) < MIN_GAP:
+            log("пропуск (%s): бар только что перезапущен" % why)
+            return
+    except OSError:
+        pass
+    with lock:
+        if time.time() - last_restart < MIN_GAP:
+            return
+        last_restart = time.time()
+    log("панель отвалилась (%s) — поднимаю" % why)
+    subprocess.run([BARFIX], capture_output=True)     # и бар, и имена столов, и окна eww
+
+
+def waybar_connected():
+    """True, если у процесса waybar есть соединение именно с сокетом niri.
+
+    Просто искать «waybar» в выводе ss нельзя: панель всегда держит сокеты
+    Wayland и D-Bus, и такая проверка была бы вечно зелёной. Поэтому
+    сопоставляем концы: у серверной стороны в адресе путь сокета niri и номер
+    пира, у клиентской — свой номер и владелец. Совпал номер — это наш клиент.
+    """
+    if subprocess.run(["pgrep", "-x", "waybar"], capture_output=True).returncode != 0:
+        return True                                  # панели нет — не наше дело
+    if not bar_uses_niri():
+        return True                                  # модулей niri нет — и соединения не будет
+    sock = os.environ.get("NIRI_SOCKET", "")
+    if not sock:
+        return True
+    out = subprocess.run(["ss", "-xpn"], capture_output=True, text=True).stdout
+    peers, owners = set(), {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 8:
+            continue
+        local_addr, local_inode, peer_inode = parts[4], parts[5], parts[7]
+        if local_addr == sock:
+            peers.add(peer_inode)                    # клиенты niri, по номеру
+        if '"waybar"' in line:
+            owners[local_inode] = True              # сокеты, которыми владеет waybar
+    return any(inode in owners for inode in peers)
+
+
+def bar_uses_niri():
+    """Есть ли в действующей раскладке бара модули niri (столы, окно, раскладка).
+
+    Столы в нижней панели (top_bar.py ws bottom) убирают из бара niri/workspaces — и
+    соединения с niri у waybar может не быть вовсе. Проверка «нет соединения» тогда
+    поднимала бар каждые 20 с (04.10.2026, 01:02–01:08 — 17 перезапусков подряд; просьба: «waybar сам по себе несколько раз перезапускается, особенно когда выбираю Список
+    столов в нижней панели»)."""
+    import re
+    try:
+        text = open(os.path.expanduser("~/.config/waybar/config-niri.jsonc")).read()
+    except OSError:
+        return True
+    text = re.sub(r"//[^\n]*", "", text)
+    lists = re.findall(r'"modules(?:-left|-center|-right)?"\s*:\s*\[([^\]]*)\]', text)
+    return any('"niri/' in l for l in lists)
+
+
+def probe():
+    time.sleep(PROBE_EVERY)                          # дать панели подняться после входа
+    while True:
+        try:
+            if not waybar_connected():
+                restart("нет соединения с niri")
+        except OSError:
+            pass
+        time.sleep(PROBE_EVERY)
+
+
+def enabled_outputs():
+    """Имена включённых мониторов, или None, если niri не ответил."""
+    try:
+        r = subprocess.run(["niri", "msg", "-j", "outputs"], capture_output=True,
+                           text=True, timeout=5)
+        return frozenset(n for n, o in json.loads(r.stdout).items() if o.get("logical"))
+    except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
+        return None
+
+
+def own_shell():
+    """Своя оболочка (waybar + eww), а не Noctalia — см. scripts/shell-switch."""
+    try:
+        with open(SHELL_STATE) as f:
+            return f.read().strip() != "noctalia"
+    except OSError:
+        return True
+
+
+def session_waybar():
+    """Жив ли waybar ЭТОГО сеанса: бар соседнего сеанса не в счёт."""
+    me = "WAYLAND_DISPLAY=%s" % os.environ.get("WAYLAND_DISPLAY", "")
+    pids = subprocess.run(["pgrep", "-x", "waybar"], capture_output=True,
+                          text=True).stdout.split()
+    for pid in pids:
+        try:
+            with open("/proc/%s/environ" % pid, "rb") as f:
+                if me.encode() in f.read().split(b"\0"):
+                    return True
+        except OSError:
+            pass
+    return False
+
+
+def sync_wallpaper(added):
+    """Вернувшимся мониторам — обои, что сейчас на остальных (с их размытием)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("wallpaper_blur", WALL_BLUR)
+    wb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wb)
+    display = wb.shown()
+    stayed = [n for n in display if n not in added]
+    if not stayed:
+        return
+    want = wb.original(stayed[0], display)
+    changed = False
+    for name in added:
+        if name in display and want and wb.original(name, display) != want:
+            changed = wb.show(name, want) or changed
+    if changed:
+        time.sleep(1)                       # переход awww, потом размытие по состоянию
+        log("обои на %s: %s" % (", ".join(sorted(added)), wb.apply()))
+
+
+def watch_outputs():
+    seen = enabled_outputs()
+    bar_was = session_waybar()
+    while True:
+        time.sleep(OUTPUTS_EVERY)
+        now = enabled_outputs()
+        if now is None or seen is None or now == seen:
+            seen = now if now is not None else seen
+            bar_was = session_waybar()
+            continue
+        log("мониторы: %s → %s" % (", ".join(sorted(seen)), ", ".join(sorted(now))))
+        added = now - seen
+        seen = now
+        time.sleep(2)                       # дать waybar и GTK увидеть новый набор
+        if not own_shell():
+            continue
+        if added:
+            try:
+                sync_wallpaper(added)
+            except Exception as e:          # обои — не повод ронять сторож
+                log("обои не сверил: %s" % e)
+            # Фон обзора: второй демон awww вернувшемуся монитору показывает чёрное
+            # (03.10.2026, после отключения MSI) — положить ему размытые обои заново.
+            try:
+                r = subprocess.run(["python3", WALL_BLUR, "backdrop"], capture_output=True,
+                                   text=True, timeout=120)
+                log("фон обзора: %s" % (r.stdout.strip() or r.stderr.strip()))
+            except (OSError, subprocess.SubprocessError) as e:
+                log("фон обзора не обновил: %s" % e)
+        if bar_was and not session_waybar():
+            restart("бар упал при смене мониторов")   # barfix пересоздаст и окна eww
+        else:
+            for w in PINNED_EWW:
+                subprocess.run(["eww", "close", w], capture_output=True)
+                subprocess.run(["eww", "open", w], capture_output=True)
+        bar_was = session_waybar()
+
+
+def follow_journal():
+    proc = subprocess.Popen(["journalctl", "--user", "-f", "-n", "0", "-o", "cat"],
+                            stdout=subprocess.PIPE, text=True)
+    pending = None
+    for line in proc.stdout:
+        if NEEDLE not in line:
+            continue
+        # Серия разрывов — один перезапуск; но каждый разрыв после отработавшего
+        # таймера — новый. Раньше после первого же перезапуска таймер оставался
+        # «занятым», и следующий разрыв молча пропускался: 28.09.2026 бар стоял
+        # 19 с до запасной проверки (разрывы 01:45:16 и 01:47:22).
+        if pending is None or not pending.is_alive():
+            pending = threading.Timer(SETTLE, restart, ("разрыв в журнале",))
+            pending.start()
+
+
+def main():
+    threading.Thread(target=probe, daemon=True).start()
+    threading.Thread(target=watch_outputs, daemon=True).start()
+    follow_journal()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

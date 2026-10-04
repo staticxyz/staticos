@@ -1,0 +1,49 @@
+// window-fx: pixel — пишет ~/.config/hypr/scripts/window_fx.py, руками не править
+animations {
+    window-open {
+        duration-ms 260
+        curve "ease-out-quad"
+        custom-shader r"
+
+            float jhash(vec2 p) {
+                return fract(sin(dot(p, vec2(127.1, 311.7)) + niri_random_seed * 43.0) * 43758.5453);
+            }
+            vec4 open_color(vec3 coords_geo, vec3 size_geo) {
+                if (coords_geo.x < 0.0 || coords_geo.x > 1.0 || coords_geo.y < 0.0 || coords_geo.y > 1.0)
+                    return vec4(0.0);
+                float p = niri_clamped_progress;
+                vec2 px = coords_geo.xy * size_geo.xy;
+                float cell = max(1.0, mix(18.0, 1.0, smoothstep(0.0, 0.85, p)));
+                vec2 snapped = (floor(px / cell) + 0.5) * cell / size_geo.xy;
+                vec3 ct = niri_geo_to_tex * vec3(snapped, 1.0);
+                vec4 color = texture2D(niri_tex, ct.st);
+                float r = jhash(floor(px / 18.0));
+                float vis = step(r, p * 1.35);
+                return color * vis;
+            }
+        "
+    }
+    window-close {
+        duration-ms 220
+        curve "linear"
+        custom-shader r"
+
+            float jhash(vec2 p) {
+                return fract(sin(dot(p, vec2(127.1, 311.7)) + niri_random_seed * 43.0) * 43758.5453);
+            }
+            vec4 close_color(vec3 coords_geo, vec3 size_geo) {
+                if (coords_geo.x < 0.0 || coords_geo.x > 1.0 || coords_geo.y < 0.0 || coords_geo.y > 1.0)
+                    return vec4(0.0);
+                float p = niri_clamped_progress;
+                vec2 px = coords_geo.xy * size_geo.xy;
+                float cell = max(1.0, mix(1.0, 18.0, smoothstep(0.1, 1.0, p)));
+                vec2 snapped = (floor(px / cell) + 0.5) * cell / size_geo.xy;
+                vec3 ct = niri_geo_to_tex * vec3(snapped, 1.0);
+                vec4 color = texture2D(niri_tex, ct.st);
+                float r = jhash(floor(px / 18.0));
+                float vis = step(p * 1.35, r);
+                return color * vis;
+            }
+        "
+    }
+}

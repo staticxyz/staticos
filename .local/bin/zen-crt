@@ -1,0 +1,11 @@
+#!/bin/bash
+# ЭЛТ-эффект в Zen: zen-crt on|off|toggle|status (30.09.2026).
+# Пишет файл-флаг; живая тема Zen (~/.config/zen-jarvis/live-theme.js) проверяет
+# его каждые 1.5 с и включает/выключает эффект на лету, без перезапуска.
+F="$HOME/.config/zen-jarvis/crt"
+cur=$(cat "$F" 2>/dev/null || echo off)
+case "${1:-status}" in
+    on|off) echo "$1" > "$F"; echo "ЭЛТ в Zen: $1" ;;
+    toggle) [ "$cur" = on ] && n=off || n=on; echo "$n" > "$F"; echo "ЭЛТ в Zen: $n" ;;
+    *)      echo "$cur" ;;
+esac

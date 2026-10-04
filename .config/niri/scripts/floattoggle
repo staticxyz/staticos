@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""SUPER+V: плавающее ↔ в ленте, с возвратом прежней ширины. 02.10.2026.
+
+Просьба: «окно раскрыто полностью через Super+=, жму Super+V и обратно — размер
+сбрасывается на маленький, хотя был максимальным». Сам niri, возвращая окно в
+ленту, ставит колонке ширину по умолчанию (50 %), а не ту, что была до ухода в
+плавающие. Здесь ширина окна запоминается перед уходом (по id окна) и
+возвращается командой set-column-width после возврата.
+"""
+import json
+import os
+import subprocess
+import time
+
+RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+SAVE = os.path.join(RUN, "niri-float-widths.json")
+TOUCH = os.path.join(RUN, "niri-colwidth-touch")     # «ширину менял человек» — для no_self_maximize.py
+
+
+def ask(what):
+    r = subprocess.run(["niri", "msg", "--json", what], capture_output=True, text=True)
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        return None
+
+
+def act(*a):
+    subprocess.run(["niri", "msg", "action", *a], capture_output=True)
+
+
+def main():
+    win = ask("focused-window")
+    if not win:
+        act("toggle-window-floating")
+        return
+    try:
+        saved = json.load(open(SAVE))
+    except (OSError, ValueError):
+        saved = {}
+    wid = str(win["id"])
+    if not win.get("is_floating"):
+        w = ((win.get("layout") or {}).get("window_size") or [0])[0]
+        if w:
+            saved[wid] = int(w)
+        act("toggle-window-floating")
+    else:
+        act("toggle-window-floating")
+        w = saved.pop(wid, None)
+        if w:
+            open(TOUCH, "w").close()
+            time.sleep(0.03)
+            act("set-column-width", str(w))
+    alive = {str(x["id"]) for x in (ask("windows") or [])}
+    saved = {k: v for k, v in saved.items() if k in alive}
+    with open(SAVE + ".tmp", "w") as f:
+        json.dump(saved, f)
+    os.replace(SAVE + ".tmp", SAVE)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,17 @@
+[Unit]
+Description=Сторож GTK-цветов: вернуть палитру обоев, если kded6/gtkconfig перезаписал файлы
+
+[Path]
+# kded6 при каждом своём запуске переписывает эти файлы цветами Breeze
+# (подробности — в шапке ~/.config/hypr/scripts/gtk_guard.py).
+PathChanged=%h/.config/gtk-3.0/colors.css
+PathChanged=%h/.config/gtk-4.0/gtk.css
+# 25.09.2026: kded6 тем же заходом переписывает и шрифт — тогда блокнот и
+# другие GTK-программы теряют шрифт системы. Следим и за этими файлами.
+PathChanged=%h/.config/gtk-3.0/settings.ini
+PathChanged=%h/.config/gtk-4.0/settings.ini
+# Тема курсора у kded6 уходит и сюда (для программ под Xwayland).
+PathChanged=%h/.config/xsettingsd/xsettingsd.conf
+
+[Install]
+WantedBy=default.target

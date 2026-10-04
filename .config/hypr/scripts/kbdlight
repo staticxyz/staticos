@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Подсветка клавиатуры ноутбука: kbdlight on|off|up|down|toggle
+#
+# Пишем через brightnessctl, а не напрямую в sysfs: узел принадлежит root,
+# и без правила udev туда не записать. brightnessctl такое правило приносит
+# с собой, поэтому работает от обычного пользователя.
+#
+# Уровень запоминается в файле: гашение по простою должно возвращать ту
+# яркость, что была, а не включать на полную.
+set -uo pipefail
+
+DEV="rgb:kbd_backlight"
+STATE="$HOME/.cache/kbdlight-level"
+MAX=$(brightnessctl -d "$DEV" max 2>/dev/null || echo 255)
+STEP=$((MAX / 5))
+
+cur()  { brightnessctl -d "$DEV" get 2>/dev/null || echo 0; }
+save() { [ "$1" -gt 0 ] && printf '%s\n' "$1" > "$STATE"; }
+last() { cat "$STATE" 2>/dev/null || echo "$MAX"; }
+set_to() { brightnessctl -d "$DEV" set "$1" >/dev/null 2>&1; }
+
+case "${1:-toggle}" in
+    on)   set_to "$(last)" ;;
+    off)  save "$(cur)"; set_to 0 ;;
+    up)   n=$(( $(cur) + STEP )); [ "$n" -gt "$MAX" ] && n=$MAX; set_to "$n"; save "$n" ;;
+    down) n=$(( $(cur) - STEP )); [ "$n" -lt 0 ] && n=0; set_to "$n"; [ "$n" -gt 0 ] && save "$n" ;;
+    toggle)
+        if [ "$(cur)" -gt 0 ]; then save "$(cur)"; set_to 0; else set_to "$(last)"; fi ;;
+    get)  echo "$(cur)/$MAX" ;;
+    *) echo "использование: kbdlight on|off|up|down|toggle|get" >&2; exit 1 ;;
+esac

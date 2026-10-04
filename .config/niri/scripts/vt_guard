@@ -1,0 +1,20 @@
+#!/bin/bash
+# Сторож консоли после входа (24.09.2026). Симптом: после пароля в SDDM — чёрный экран,
+# работает только Ctrl+Alt+F3. Разбор по журналу: niri жив, но его сеанс не активен —
+# консоль осталась на VT2, где уже умер X-greeter SDDM (гонка: пароль введён, пока
+# greeter ещё не догрузился; при неспешном входе всё работало). Лечится переключением
+# на VT сеанса. Здесь то же самое делается само: первые 60 с после входа, если сеанс
+# niri не активен и человек сам не ушёл в другой tty, — loginctl activate.
+sid=${XDG_SESSION_ID:-}
+[ -n "$sid" ] || exit 0
+for _ in $(seq 1 12); do
+  sleep 5
+  [ "$(loginctl show-session "$sid" -p Active --value 2>/dev/null)" = "yes" ] && exit 0
+  # Другой сеанс этого же пользователя активен (сам переключился в tty) — не мешать.
+  busy=0
+  for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk -v me="$sid" '$1 != me && $4 == "seat0" {print $1}'); do
+    [ "$(loginctl show-session "$s" -p Active --value 2>/dev/null)" = "yes" ] && busy=1
+  done
+  [ "$busy" = 1 ] && continue
+  loginctl activate "$sid" 2>/dev/null && exit 0
+done

@@ -1,0 +1,6 @@
+# Цвет встроенной подсветки клавиатуры (tuxedo_keyboard, rgb:kbd_backlight)
+# без root. brightnessctl яркость ставит через logind, а цвет лежит в
+# multi_intensity, и на него ни правила, ни API нет. Группа input — в ней
+# пользователь уже состоит (в video — нет). Копия лежит в
+# /etc/udev/rules.d/, источник — здесь (23.09.2026).
+ACTION=="add|change", SUBSYSTEM=="leds", KERNEL=="rgb:kbd_backlight", RUN+="/bin/chgrp input /sys%p/multi_intensity", RUN+="/bin/chmod g+w /sys%p/multi_intensity"

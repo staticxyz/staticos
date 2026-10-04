@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""SUPER+0 — вернуть окну в фокусе исходный размер (28.09.2026).
+
+Исходный — тот, с которым окно устоялось за первые секунды после открытия: его
+пишет no_self_maximize.py в $XDG_RUNTIME_DIR/niri-window-origin.json. Плитка
+получает прежнюю ширину колонки и авто-высоту, плавающее окно — прежние ширину
+и высоту. У окон, открытых до запуска сторожа, записи нет — им ширина по
+умолчанию (layout.default-column-width = 50 %) и авто-высота.
+"""
+import json
+import os
+import subprocess
+import time
+
+RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+ORIGIN = os.path.join(RUN, "niri-window-origin.json")
+TOUCH = os.path.join(RUN, "niri-colwidth-touch")
+
+
+def ask(what):
+    r = subprocess.run(["niri", "msg", "--json", what], capture_output=True, text=True)
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        return None
+
+
+def act(*args):
+    subprocess.run(["niri", "msg", "action", *map(str, args)], capture_output=True)
+
+
+def main():
+    w = ask("focused-window")
+    if not w:
+        return
+    try:
+        with open(ORIGIN) as f:
+            rec = json.load(f).get(str(w["id"]))
+    except (OSError, ValueError):
+        rec = None
+    # Отметка «размер менял человек»: иначе сторож принял бы ширину во весь
+    # экран за самовольный разворот и откатил её.
+    open(TOUCH, "w").close()
+
+    if w.get("is_floating"):
+        if rec and rec.get("floating"):
+            width, height = rec["window"]
+            act("set-window-width", round(width))
+            act("set-window-height", round(height))
+        return
+
+    if rec and not rec.get("floating"):
+        target = round(rec["window"][0])
+        act("set-column-width", target)
+        # Считает ли niri «fixed» шириной окна или плитки с рамкой — не гадаем:
+        # сверяем с тем, что вышло, и доводим разницу одним шагом.
+        time.sleep(0.15)
+        got = ((ask("focused-window") or {}).get("layout") or {}).get("window_size")
+        if got and abs(got[0] - target) > 1:
+            act("set-column-width", round(2 * target - got[0]))
+    else:
+        act("set-column-width", "50%")
+    act("reset-window-height")
+
+
+if __name__ == "__main__":
+    main()

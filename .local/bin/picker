@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Пипетка: взять цвет с экрана, скопировать его код (#rrggbb) в буфер и
+# показать уведомление с образцом цвета.
+#
+# Запуск отвязан от терминала (setsid): команда сразу возвращает управление,
+# и терминал можно закрыть — пипетка останется ждать щелчка по экрану.
+# Та же команда стоит в меню приложений rofi под именем «Picker».
+if [ -z "${PICKER_DETACHED:-}" ]; then
+    PICKER_DETACHED=1 setsid -f "$0" "$@" >/dev/null 2>&1 < /dev/null
+    exit 0
+fi
+hex=$(hyprpicker -a -f hex 2>/dev/null | tail -n1)
+[ -z "$hex" ] && exit 0                      # Escape — ничего не выбрано
+swatch="$HOME/.cache/picker-swatch.png"
+python3 - "$hex" "$swatch" <<'PY' 2>/dev/null
+import sys
+from PIL import Image, ImageDraw
+hexv, out = sys.argv[1].lstrip("#"), sys.argv[2]
+rgb = tuple(int(hexv[i:i + 2], 16) for i in (0, 2, 4))
+im = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+ImageDraw.Draw(im).rounded_rectangle((2, 2, 61, 61), radius=14, fill=rgb + (255,))
+im.save(out)
+PY
+notify-send -a "Пипетка" -i "$swatch" "$hex" "Код цвета скопирован в буфер обмена"

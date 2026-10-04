@@ -1,0 +1,74 @@
+{
+  "_": "Дашборд на экране ноутбука: плавающие окна kitty. Снято 24.09.2026 с живой раскладки. w/h — размер окна, x/y — положение от угла экрана, как отдаёт `niri msg windows`. Правит scripts/dashboard save, руками — только cmd. Стол — именованный workspace из config.kdl (ключ workspace), окна идут на него по имени.",
+  "output": "eDP-1",
+  "windows": [
+    {
+      "name": "tmatrix",
+      "cmd": "tmatrix",
+      "w": 424,
+      "h": 287,
+      "x": 17,
+      "y": 43
+    },
+    {
+      "name": "tmatrix2",
+      "cmd": "tmatrix",
+      "w": 420,
+      "h": 284,
+      "x": 1481,
+      "y": 42
+    },
+    {
+      "name": "date",
+      "cmd": "python3 ~/.config/hypr/scripts/dateview.py",
+      "w": 799,
+      "h": 130,
+      "x": 540,
+      "y": 45,
+      "font_size": 6.0
+    },
+    {
+      "name": "pomo",
+      "cmd": "pomo watch",
+      "w": 798,
+      "h": 49,
+      "x": 543,
+      "y": 203
+    },
+    {
+      "name": "tclock",
+      "cmd": "tclock",
+      "w": 612,
+      "h": 111,
+      "x": 631,
+      "y": 405
+    },
+    {
+      "name": "cava",
+      "cmd": "cava",
+      "w": 1888,
+      "h": 101,
+      "x": 13,
+      "y": 534
+    },
+    {
+      "name": "brrt",
+      "cmd": "clear; brrt",
+      "w": 904,
+      "h": 403,
+      "x": 13,
+      "y": 659,
+      "font_size": 6.0
+    },
+    {
+      "name": "ffetch",
+      "cmd": "~/.config/hypr/scripts/ffetch",
+      "w": 957,
+      "h": 402,
+      "x": 945,
+      "y": 661,
+      "font_size": 10.0
+    }
+  ],
+  "workspace": "󰐷"
+}

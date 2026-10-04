@@ -1,0 +1,34 @@
+#!/bin/sh
+# Одно действие — две оболочки. 21.09.2026.
+#
+#     shell-do launcher   меню программ
+#     shell-do lock       блокировка экрана
+#
+# Бинды в config.kdl зовут этот скрипт, а он смотрит, что сейчас включено
+# (scripts/shell-switch status), и вызывает нужное. Так SUPER+SPACE и SUPER+O
+# работают в обеих оболочках, и при переключении ничего перевешивать не надо.
+#
+# Если Noctalia выбрана, но не отвечает (не запустилась, упала) — молча уходим
+# на своё: остаться без блокировки или без меню нельзя.
+
+set -u
+SW="$HOME/.config/niri/scripts/shell-switch"
+on_noctalia() {
+    [ "$("$SW" status 2>/dev/null)" = noctalia ] && command -v noctalia >/dev/null 2>&1 \
+        && pgrep -x noctalia >/dev/null 2>&1
+}
+
+case "${1:-}" in
+    launcher)
+        if on_noctalia && noctalia msg panel-toggle launcher >/dev/null 2>&1; then
+            exit 0
+        fi
+        exec rofi -show drun ;;
+    lock)
+        if on_noctalia && noctalia msg session lock >/dev/null 2>&1; then
+            exit 0
+        fi
+        exec "$HOME/.config/hypr/scripts/lockscreen" ;;
+    *)
+        echo "команды: launcher | lock" >&2; exit 1 ;;
+esac

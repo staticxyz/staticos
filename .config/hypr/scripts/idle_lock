@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Блокировка экрана по простою (hypridle, listener 1).
+
+Блокировка срабатывает всегда, в том числе при включённом Savage Mode, —
+кроме случая, когда у Savage Mode отдельно включено «не отключать экран».
+"""
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from idle_guard import keep_screen_on  # noqa: E402
+from game_guard import game_running  # noqa: E402
+
+
+def main():
+    if keep_screen_on():
+        print("Savage Mode + «не отключать экран» — блокировка пропущена")
+        return 0
+    # Очередь в матч или загрузка карты — минуты без ввода. Экран блокировки
+    # поверх полноэкранной игры отбирает у неё фокус (15.09.2026).
+    if game_running():
+        print("идёт игра — блокировка пропущена")
+        return 0
+    dry = os.environ.get("IDLE_LOCK_DRYRUN") == "1"
+    if dry:
+        print("экран бы заблокировался")
+        return 0
+    subprocess.run(["loginctl", "lock-session"])
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,12 @@
+#!/bin/bash
+# `wl-paste --watch cliphist-store`: история буфера, но без скопированного в Tor Browser.
+niri msg -j focused-window 2>/dev/null | grep -q '"app_id":"Tor Browser"' && { cat >/dev/null; exit 0; }
+# Большое в историю не пишем (29.09.2026): каждая скопированная картинка ложилась в
+# базу целиком — она разрослась до 59 МБ, и буфер начал подлагивать при открытии и
+# удалении. В буфер большое копируется как обычно, просто не остаётся в истории.
+MAX=$((3 * 1024 * 1024))
+tmp=$(mktemp) || exec cliphist store
+trap 'rm -f "$tmp"' EXIT
+head -c $((MAX + 1)) > "$tmp"
+if [ "$(stat -c %s "$tmp")" -gt "$MAX" ]; then cat >/dev/null; exit 0; fi
+cliphist store < "$tmp"

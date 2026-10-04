@@ -1,0 +1,40 @@
+#!/bin/bash
+# Запись «задним числом», как Instant Replay у NVIDIA (30.09.2026, просьба пользователя).
+#
+#   replay on        включить буфер последних 5 минут (монитор MSI + звук системы)
+#   replay off       выключить
+#   replay toggle
+#   replay save      сохранить весь буфер (5 мин) — Super+Alt+Print
+#   replay save60    сохранить последнюю минуту
+#   replay status    on | off
+#
+# Пишет gpu-screen-recorder в буфер В ПАМЯТИ (~300 МБ при 8 Мбит/с), на диск —
+# только по «сохранить», в ~/Videos/Replays; файл сразу в буфер обмена.
+# Кодирует встроенная Intel (VAAPI): в CS2 она и так загружена почти полностью,
+# поэтому буфер выключен по умолчанию — включать, когда нужен.
+UNIT=jarvis-replay
+state() { systemctl --user is-active --quiet $UNIT && echo on || echo off; }
+bar() { pkill -RTMIN+11 -x waybar 2>/dev/null; }
+case "${1:-status}" in
+    on)
+        [ "$(state)" = on ] && { echo on; exit 0; }
+        systemd-run --user --unit=$UNIT --collect -q \
+            gpu-screen-recorder -w DP-4 -f 60 -c mp4 -k h264 -bm cbr -q 8000 \
+                -a default_output -ac aac -r 300 -replay-storage ram \
+                -sc "$HOME/.config/hypr/scripts/replay_saved.sh" -o "$HOME/Videos/Replays"
+        sleep 1.5; bar
+        if [ "$(state)" = on ]; then
+            notify-send -a Replay "Replay включён" "Держу последние 5 минут. Super+Alt+Print — сохранить"
+        else
+            notify-send -a Replay "Replay не запустился" "journalctl --user -u $UNIT"
+        fi ;;
+    off)    systemctl --user stop $UNIT 2>/dev/null; bar; notify-send -a Replay "Replay выключен" ;;
+    toggle) [ "$(state)" = on ] && exec "$0" off || exec "$0" on ;;
+    save)   [ "$(state)" = on ] || { notify-send -a Replay "Replay выключен" "Нечего сохранять: сначала replay on"; exit 1; }
+            systemctl --user kill -s SIGUSR1 --kill-whom=main $UNIT
+            notify-send -a Replay -h string:x-canonical-private-synchronous:jarvis-replay "Сохраняю последние 5 минут…" ;;
+    save60) [ "$(state)" = on ] || exit 1
+            systemctl --user kill -s SIGRTMIN+3 --kill-whom=main $UNIT
+            notify-send -a Replay -h string:x-canonical-private-synchronous:jarvis-replay "Сохраняю последнюю минуту…" ;;
+    *)      state ;;
+esac

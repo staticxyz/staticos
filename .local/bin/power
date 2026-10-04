@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+#
+# Переключатель режимов питания для ноутбука st101k.
+#
+#   power max     — всё на максимум
+#   power mid     — повседневный
+#   power quiet   — тихий и холодный
+#   power status  — что сейчас, с замерами (не режим, просто показ)
+#
+# Часть ручек требует root. Скрипт сам вызывает sudo только для них,
+# остальное делает от пользователя. Чтобы не спрашивал пароль, есть
+# правило в /etc/sudoers.d/power-profiles (ставится отдельно).
+
+set -u
+
+STATE="$HOME/.cache/power-mode"
+GPU_DEV=0
+DP="DP-4"                   # монитор с переменной частотой; eDP-1 умеет только 144
+
+c_ok=$'\033[38;5;79m'; c_warn=$'\033[38;5;179m'; c_bad=$'\033[38;5;203m'
+c_dim=$'\033[2m'; c_b=$'\033[1m'; c_off=$'\033[0m'; c_key=$'\033[38;5;245m'
+
+have() { command -v "$1" >/dev/null 2>&1; }
+root() { sudo -n "$@" 2>/dev/null || sudo "$@"; }
+
+# ─────────────────────────── чтение состояния ───────────────────────────
+
+cpu_temp()   { sensors 2>/dev/null | awk '/Package id 0/{gsub(/[+°C]/,"",$4); print $4; exit}'; }
+cpu_watts()  { awk '{printf "%.0f", $1/1000000}' /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw 2>/dev/null; }
+cpu_gov()    { cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null; }
+cpu_epp()    { cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null; }
+cpu_turbo()  { [ "$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null)" = "0" ] && echo "вкл" || echo "выкл"; }
+cpu_max()    { cat /sys/devices/system/cpu/intel_pstate/max_perf_pct 2>/dev/null; }
+cpu_mhz()    { awk '/cpu MHz/{s+=$4;n++} END{if(n)printf "%.0f", s/n}' /proc/cpuinfo 2>/dev/null; }
+gpu_watts()  { nvidia-smi --query-gpu=enforced.power.limit --format=csv,noheader,nounits 2>/dev/null | awk '{printf "%.0f",$1}'; }
+gpu_temp()   { nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader 2>/dev/null; }
+ppd()        { powerprofilesctl get 2>/dev/null; }
+on_ac()      { [ "$(cat /sys/class/power_supply/AC/online 2>/dev/null)" = "1" ]; }
+hz() {
+  if [ -n "$NIRI_SOCKET" ]; then
+    niri msg -j outputs 2>/dev/null | python3 -c "
+import sys,json
+o=json.load(sys.stdin).get('$DP')
+if o and o.get('current_mode') is not None: print(round(o['modes'][o['current_mode']]['refresh_rate']/1000))" 2>/dev/null
+  else
+    hyprctl monitors -j 2>/dev/null | python3 -c "
+import sys,json
+for m in json.load(sys.stdin):
+    if m['name']=='$DP': print(f\"{m.get('refreshRate',0):.0f}\"); break" 2>/dev/null
+  fi
+}
+
+# ─────────────────────────── применение ───────────────────────────
+
+set_ppd() { have powerprofilesctl && powerprofilesctl set "$1" 2>/dev/null; }
+
+set_epp() {
+  for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+    echo "$1" | root tee "$f" >/dev/null 2>&1
+  done
+}
+
+set_turbo() {   # 1 = включить турбо
+  echo "$(( 1 - $1 ))" | root tee /sys/devices/system/cpu/intel_pstate/no_turbo >/dev/null 2>&1
+}
+
+set_perf_pct() {  # мин макс
+  echo "$1" | root tee /sys/devices/system/cpu/intel_pstate/min_perf_pct >/dev/null 2>&1
+  echo "$2" | root tee /sys/devices/system/cpu/intel_pstate/max_perf_pct >/dev/null 2>&1
+}
+
+set_rapl() {   # длительный краткий, в ваттах
+  local base=/sys/class/powercap/intel-rapl:0
+  echo "$(( $1 * 1000000 ))" | root tee $base/constraint_0_power_limit_uw >/dev/null 2>&1
+  echo "$(( $2 * 1000000 ))" | root tee $base/constraint_1_power_limit_uw >/dev/null 2>&1
+}
+
+set_gpu() { root nvidia-smi -i "$GPU_DEV" -pl "$1" >/dev/null 2>&1; }
+
+set_hz() {
+  if [ -n "$NIRI_SOCKET" ]; then
+    # niri хочет точную частоту из списка режимов (300.004, а не 300) — берём ближайшую.
+    local mode
+    mode=$(niri msg -j outputs 2>/dev/null | python3 -c "
+import sys,json
+o=json.load(sys.stdin).get('$DP')
+if o:
+    ms=[m for m in o['modes'] if (m['width'],m['height'])==(1920,1080)]
+    m=min(ms,key=lambda m:abs(m['refresh_rate']/1000-$1))
+    print(f\"1920x1080@{m['refresh_rate']/1000:.3f}\")" 2>/dev/null)
+    [ -n "$mode" ] && niri msg output "$DP" mode "$mode" >/dev/null 2>&1
+  else
+    hyprctl keyword monitor "$DP,1920x1080@$1,auto,1" >/dev/null 2>&1 \
+      || hyprctl dispatch dpms on >/dev/null 2>&1
+  fi
+}
+
+# ─────────────────────────── режимы ───────────────────────────
+
+apply_max() {
+  # Замерено 05.09.2026, sha256 на 12 потоков, с остыванием между прогонами:
+  #   профиль performance  10014-10187 МБ/с
+  #   профиль balanced     10663-11113 МБ/с   <- быстрее на 6-9%
+  # performance разгоняет агрессивнее, упирается в 100°C и сбрасывает частоту.
+  # Поэтому здесь balanced, а не performance: так машина реально быстрее.
+  #
+  # Лимит 45 Вт вместо 40 дал ~3% при разбросе замеров того же порядка —
+  # оставлен, но чуда не ждать. Видеокарта 95 Вт вместо 70 не дала НИЧЕГО
+  # (2.22 с против 2.22 с на синтезе), поэтому её не трогаем: только нагрев.
+  echo "${c_b}Максимум${c_off} — для долгой непрерывной нагрузки"
+  set_ppd balanced
+  set_epp performance
+  set_turbo 1
+  set_perf_pct 25 100      # высокий пол: не даём проваливаться между задачами
+  set_rapl 45 115
+  set_hz 300
+  echo max > "$STATE"
+}
+
+apply_mid() {
+  echo "${c_b}Средний${c_off} — повседневный"
+  set_ppd balanced
+  set_epp balance_performance
+  set_turbo 1
+  set_perf_pct 10 100
+  set_rapl 40 115
+  set_hz 165
+  echo mid > "$STATE"
+}
+
+apply_quiet() {
+  echo "${c_b}Тихий${c_off} — холодно и без шума"
+  set_ppd power-saver
+  set_epp power
+  set_turbo 0              # турбо — главный источник и жара, и шума
+  set_perf_pct 10 55
+  set_rapl 25 35
+  set_gpu 40               # единственное место, где лимит карты осмыслен:
+                           # не ради скорости, а ради тишины и батареи
+  set_hz 60
+  echo quiet > "$STATE"
+}
+
+# ─────────────────────────── показ ───────────────────────────
+
+bar() {   # значение мин макс ширина
+  local v=$1 lo=$2 hi=$3 w=${4:-18}
+  local n=$(( (v - lo) * w / (hi - lo) )); [ $n -lt 0 ] && n=0; [ $n -gt $w ] && n=$w
+  printf "%s%s%s%s" "$c_ok" "$(printf '█%.0s' $(seq 1 $n 2>/dev/null))" "$c_dim" "$(printf '·%.0s' $(seq 1 $((w-n)) 2>/dev/null))"
+  printf "%s" "$c_off"
+}
+
+status() {
+  local mode; mode=$(cat "$STATE" 2>/dev/null || echo "не задан")
+  local t; t=$(cpu_temp); local gt; gt=$(gpu_temp)
+  local tc=$c_ok; [ "${t%.*}" -ge 85 ] 2>/dev/null && tc=$c_bad || { [ "${t%.*}" -ge 75 ] 2>/dev/null && tc=$c_warn; }
+
+  echo
+  echo "  ${c_b}Режим: ${mode}${c_off}   ${c_dim}$(on_ac && echo 'от сети' || echo 'от батареи')${c_off}"
+  echo "  ${c_dim}────────────────────────────────────────────${c_off}"
+  printf "  %-22s %s\n" "${c_key}профиль системы${c_off}" "$(ppd)"
+  printf "  %-22s %s / %s\n" "${c_key}процессор${c_off}" "$(cpu_gov)" "$(cpu_epp)"
+  printf "  %-22s турбо %s, потолок %s%%\n" "${c_key}частоты${c_off}" "$(cpu_turbo)" "$(cpu_max)"
+  printf "  %-22s %s Вт длительно\n" "${c_key}лимит мощности CPU${c_off}" "$(cpu_watts)"
+  printf "  %-22s %s Вт\n" "${c_key}лимит видеокарты${c_off}" "$(gpu_watts)"
+  printf "  %-22s %s Гц\n" "${c_key}монитор $DP${c_off}" "$(hz)"
+  echo "  ${c_dim}────────────────────────────────────────────${c_off}"
+  printf "  %-22s ${tc}%s°C${c_off}  %s\n" "${c_key}процессор сейчас${c_off}" "$t" "$(bar "${t%.*}" 40 100)"
+  printf "  %-22s %s°C\n" "${c_key}видеокарта${c_off}" "$gt"
+  printf "  %-22s %s МГц средняя\n" "${c_key}частота${c_off}" "$(cpu_mhz)"
+  echo
+}
+
+modes() {
+  cat <<M
+
+  ${c_b}Три режима${c_off}   ${c_dim}переключать: power max | mid | quiet${c_off}
+
+  ${c_ok}max${c_off} ${c_dim}максимум${c_off}
+    процессор    турбо, пол частот 25%, политика performance
+    мощность     45 Вт длительно ${c_dim}(против 40 — прирост ~3%, на грани погрешности)${c_off}
+    видеокарта   не трогаем ${c_dim}(95 Вт против 70 дали ровно ноль — замерено)${c_off}
+    монитор      300 Гц
+    ${c_dim}для долгой непрерывной нагрузки: сборка, рендер, игра.${c_off}
+
+  ${c_ok}mid${c_off} ${c_dim}обычный${c_off}
+    процессор    турбо, потолок 100%, политика balance_performance
+    мощность     40 Вт / 115 Вт ${c_dim}(заводские)${c_off}
+    монитор      165 Гц
+    ${c_dim}повседневный. Турбо включено — тяжёлая задача всё равно разгонит.${c_off}
+
+  ${c_ok}quiet${c_off} ${c_dim}тихий${c_off}
+    процессор    без турбо, потолок 55%, политика power
+    мощность     25 Вт / 35 Вт
+    видеокарта   40 Вт
+    монитор      60 Гц
+    ${c_dim}от батареи, для чтения и текста. Вентилятор почти молчит.${c_off}
+
+M
+}
+
+usage() {
+  cat <<H
+  ${c_b}power${c_off} — режимы питания
+
+    ${c_ok}max${c_off}     максимум   высокий пол частот, 45 Вт, 300 Гц
+    ${c_ok}mid${c_off}     обычный    заводские значения, 165 Гц
+    ${c_ok}quiet${c_off}   тихий      без турбо, потолок 55%, 25 Вт, карта 40 Вт, 60 Гц
+              ${c_dim}втрое медленнее, зато 59°C вместо 80 и тишина${c_off}
+    ${c_ok}status${c_off}  что сейчас, с замерами
+    ${c_ok}modes${c_off}   подробно, что меняет каждый режим
+
+H
+}
+
+case "${1:-status}" in
+  max|performance|макс)  apply_max;   status ;;
+  mid|balanced|средний)  apply_mid;   status ;;
+  quiet|eco|тихий)       apply_quiet; status ;;
+  status|"")             status ;;
+  modes|list)            modes ;;
+  *)                     usage ;;
+esac

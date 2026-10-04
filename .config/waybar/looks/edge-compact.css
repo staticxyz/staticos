@@ -1,0 +1,112 @@
+/* Вид «во всю ширину, компактный»: от края до края, вплотную к верху,
+   24 px, шрифт 11 px и значки мельче. Поля таблеток и секций ужаты, иначе содержимое не
+   влезло бы в 24 px ("minimum height").
+   Линии акцента снизу здесь НЕТ: она была до 12.09.2026, пользователю не
+   понравилась, и вид заменён на этот — без черты. */
+window#waybar {
+    background-color: alpha(@bar-bg, 0.88);
+    border: none;
+    border-radius: 0;
+    color: @foreground;
+}
+
+window#waybar #custom-mpris,
+window#waybar #custom-clock,
+window#waybar #group-system,
+window#waybar #custom-pomo,
+window#waybar #cpu,
+window#waybar #memory,
+window#waybar #temperature {
+    margin-top: 3px;
+    margin-bottom: 3px;
+}
+
+/* Компактный вид ужимает не только высоту, но и содержимое: шрифт, поля
+   таблеток и значки. Раньше менялась почти одна высота (32 -> 26), и вид
+   было не отличить от обычного (21.09.2026). */
+window#waybar * {
+    font-size: 11px;
+}
+
+window#waybar .modules-left,
+window#waybar .modules-center,
+window#waybar .modules-right {
+    padding: 0 4px;
+}
+
+/* Таблетки: поля и поля-отступы примерно на треть меньше обычных. */
+window#waybar #custom-clock,
+window#waybar #custom-pomo,
+window#waybar #custom-battery,
+window#waybar #custom-power,
+window#waybar #group-system,
+window#waybar #cpu,
+window#waybar #memory,
+window#waybar #temperature,
+window#waybar #network,
+window#waybar #pulseaudio,
+window#waybar #bluetooth,
+window#waybar #language {
+    padding: 0 7px;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+/* Столы: кнопки уже, активная выделяется по-прежнему, но скромнее. */
+window#waybar #workspaces button {
+    padding: 0 4px;
+    margin: 1px 4px;
+}
+
+window#waybar #workspaces button.active {
+    padding: 0 9px;
+}
+
+/* Значки: логотип «Пуск» и логотипы браузеров — мельче кегля обычного вида. */
+window#waybar #custom-launcher {
+    font-size: 13px;
+    padding: 0 8px;
+}
+
+window#waybar #custom-librewolf,
+window#waybar #custom-zen,
+window#waybar #custom-mercury {
+    font-size: 12px;
+}
+
+window#waybar #custom-ribbon {
+    font-size: 8px;
+}
+
+/* Значки столов: размер задан НАДПИСИ кнопки, и правило style.css сильнее
+   общего «window#waybar *». Без этой строки компактный вид упирался в ту же
+   высоту, что обычный: waybar писал «Requested height: 23 is less than the
+   minimum height: 32 required by the modules» (замерено 21.09.2026). */
+window#waybar #workspaces button label {
+    font-size: 12px;
+}
+
+window#waybar #workspaces button {
+    min-width: 12px;
+    padding: 2px 7px;
+}
+
+window#waybar #workspaces button.active {
+    padding: 2px 10px;
+}
+
+window#waybar #custom-clock {
+    padding: 0 7px 0 4px;
+}
+
+/* Системная группа (сеть, раскладка, звук, батарея) оказалась самой высокой:
+   в паре с соседом она поднимала минимум бара до 28 px. Ужимаем и её саму,
+   и её содержимое (замерено 21.09.2026). */
+window#waybar #group-system {
+    padding: 0 3px;
+    margin: 0 3px;
+}
+
+window#waybar #group-system widget > * {
+    padding: 0 4px;
+}

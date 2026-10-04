@@ -1,0 +1,153 @@
+# Matugen — dynamic system-wide theming from the current wallpaper.
+# Applied by ~/.config/hypr/scripts/theme_changer.sh (waypaper post_command).
+
+[config]
+# Reloading is done by theme_changer.sh so we control the order and the cost.
+reload_apps = false
+
+# ---------------- Compositor ----------------
+[templates.hyprland]
+input_path = "~/.config/matugen/templates/colors.lua"
+output_path = "~/.cache/matugen/colors.lua"
+
+[templates.hypr_colors]
+input_path = "~/.config/matugen/templates/hypr-colors.sh"
+output_path = "~/.cache/matugen/hypr-colors.sh"
+
+[templates.hyprlock]
+input_path = "~/.config/matugen/templates/hyprlock.conf"
+output_path = "~/.cache/matugen/hyprlock-colors.conf"
+
+# ---------------- Bar / widgets / notifications ----------------
+[templates.waybar]
+input_path = "~/.config/matugen/templates/colors.css"
+output_path = "~/.cache/matugen/colors.css"
+
+# Вся палитра одним JSON — источник для скриптов, которым нужны роли, а не
+# готовый файл конкретного приложения (vscode_colors.py).
+[templates.colors_json]
+input_path = "~/.config/matugen/templates/colors.json"
+output_path = "~/.cache/matugen/colors.json"
+
+[templates.eww]
+input_path = "~/.config/matugen/templates/eww.scss"
+output_path = "~/.cache/matugen/eww-colors.scss"
+
+[templates.swaync]
+input_path = "~/.config/matugen/templates/swaync.css"
+output_path = "~/.cache/matugen/swaync-colors.css"
+
+# ---------------- Terminal / TUI / shell ----------------
+[templates.term_facts]
+input_path = "~/.config/matugen/templates/term-facts.sh"
+output_path = "~/.cache/matugen/term-facts.sh"
+
+[templates.fish]
+input_path = "~/.config/matugen/templates/colors.fish"
+output_path = "~/.cache/matugen/colors.fish"
+
+[templates.btop]
+input_path = "~/.config/matugen/templates/btop.theme"
+output_path = "~/.config/btop/themes/matugen.theme"
+
+[templates.rofi]
+input_path = "~/.config/matugen/templates/rofi.rasi"
+output_path = "~/.cache/matugen/colors.rasi"
+
+# ---------------- Toolkits ----------------
+[templates.gtk3]
+input_path = "~/.config/matugen/templates/gtk.css"
+output_path = "~/.config/gtk-3.0/matugen.css"
+
+[templates.gtk4]
+input_path = "~/.config/matugen/templates/gtk.css"
+output_path = "~/.config/gtk-4.0/matugen.css"
+
+[templates.kdeglobals]
+input_path = "~/.config/matugen/templates/kdeglobals"
+output_path = "~/.cache/matugen/kdeglobals-colors"
+
+# Same palette as a proper KDE colour scheme, so plasma-apply-colorscheme can
+# push it into already-running KDE apps.
+[templates.kde_colorscheme]
+input_path = "~/.config/matugen/templates/kde-colors"
+output_path = "~/.local/share/color-schemes/Matugen.colors"
+
+[templates.qt6ct]
+input_path = "~/.config/matugen/templates/qt6ct-colors.conf"
+output_path = "~/.config/qt6ct/colors/matugen.conf"
+
+# ---------------- Apps ----------------
+# Яндекс.Музыка: CSS вставляется в окно хуком, добавленным в её app.asar.
+[templates.yandex]
+input_path = "~/.config/matugen/templates/yandex.css"
+output_path = "~/.cache/matugen/yandex.css"
+
+# LibreWolf: свои цвета браузер берёт только из userChrome/userContent в
+# профиле, и внешних файлов оттуда не читает — кроме @import по file://,
+# который и подключён в профиле. Новая палитра доезжает при перезапуске
+# браузера: chrome-стили Firefox читает один раз при старте.
+[templates.librewolf]
+input_path = "~/.config/matugen/templates/librewolf.css"
+output_path = "~/.config/librewolf/librewolf/xmfr3xyd.default-default/chrome/matugen.css"
+
+# Helium (Chromium) не читает userChrome.css — цвета интерфейса ему можно
+# отдать только темой-расширением. Папку с manifest.json надо один раз
+# загрузить: helium://extensions → Developer mode → Load unpacked. Дальше
+# она перегенерируется вместе со всеми, но браузер видит новые цвета
+# только после перезапуска — Chromium читает тему один раз при старте.
+[templates.helium]
+input_path = "~/.config/matugen/templates/helium-theme.json"
+output_path = "~/.config/matugen/helium-theme/manifest.json"
+
+[templates.gtksourceview]
+input_path = "~/.config/matugen/templates/gtksourceview.xml"
+output_path = "~/.local/share/gtksourceview-4/styles/matugen.xml"
+
+[templates.obsidian]
+input_path = "~/.config/matugen/templates/obsidian.css"
+output_path = "~/Documents/Obsidian/.obsidian/snippets/matugen-theme.css"
+
+# Своя тема Obsidian «Jarvis» (17.09.2026): вид как у рабочего стола + палитра
+# обоев. Выбирается в Obsidian → Настройки → Оформление → Темы; переключатели —
+# плагин Style Settings. Сниппет выше остаётся для остальных тем.
+[templates.obsidian_jarvis]
+input_path = "~/.config/matugen/templates/obsidian-jarvis.css"
+output_path = "~/Documents/Obsidian/.obsidian/themes/Jarvis/theme.css"
+
+# Vencord следит за файлами в themes/ и перечитывает их сам, так что новая
+# палитра доезжает в запущенный Discord без перезапуска клиента.
+[templates.discord]
+input_path = "~/.config/matugen/templates/discord.css"
+output_path = "~/.config/Vencord/themes/matugen.css"
+
+# Sublime Text следит за Packages/User и перечитывает схему сам — палитра
+# доезжает в открытый редактор без перезапуска. Схема выбирается в
+# Preferences.sublime-settings ключом "color_scheme".
+[templates.sublime]
+input_path = "~/.config/matugen/templates/sublime.sublime-color-scheme"
+output_path = "~/.config/sublime-text/Packages/User/Matugen.sublime-color-scheme"
+
+# Neovim (LazyVim): тема tokyonight перекрашивается этой палитрой. Neovim сам
+# следит за файлом (lua/plugins/colorscheme.lua) и перекрашивается без
+# перезапуска — перезагружать его из theme_changer.sh не нужно.
+[templates.nvim]
+input_path = "~/.config/matugen/templates/nvim-colors.lua"
+output_path = "~/.cache/matugen/nvim-colors.lua"
+
+# LibreWolf, страницы: акцент обоев для рамки поиска на новой вкладке. Этот
+# цвет берётся из системного акцента Firefox, у API тем для него нет ключа, и
+# расширение matugen-theme его не меняет. Файл подключает userContent.css;
+# доезжает после перезапуска браузера.
+[templates.librewolf_content]
+input_path = "~/.config/matugen/templates/librewolf-content.css"
+output_path = "~/.config/librewolf/librewolf/xmfr3xyd.default-default/chrome/matugen-content.css"
+
+[templates.niri]
+input_path = "~/.config/matugen/templates/niri-colors.kdl"
+output_path = "~/.cache/matugen/niri-colors.kdl"
+
+# Spotify через spicetify: тема Jarvis красится палитрой обоев (23.09.2026).
+[templates.spicetify]
+input_path = "~/.config/matugen/templates/spicetify-color.ini"
+output_path = "~/.config/spicetify/Themes/Jarvis/color.ini"

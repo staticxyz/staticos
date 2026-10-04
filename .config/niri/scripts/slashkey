@@ -1,0 +1,20 @@
+#!/bin/sh
+# SUPER+«/» на русской раскладке — «Настройки».                  (21.09.2026)
+#
+# Зачем. Niri разбирает сочетания по СИМВОЛУ текущей раскладки. На английской
+# клавиша «/» даёт Slash, на русской — period, и SUPER+«/» попадал на
+# Mod+Period, то есть «вынуть окно из колонки». Отдельного бинда для русской
+# раскладки не сделать: символ у клавиши ровно тот же, что у английской точки.
+#
+# Поэтому Mod+Period ведёт сюда, а решает раскладка: русская — открыть
+# «Настройки» (нажата «/»), английская — вынуть окно из колонки (нажата «.»),
+# как и было.
+set -u
+
+layout=$(niri msg --json keyboard-layouts |
+    python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["names"][d["current_idx"]])')
+
+case "$layout" in
+    Russian*|Русск*) exec python3 $HOME/.config/hypr/scripts/settings_app.py ;;
+    *) exec niri msg action expel-window-from-column ;;
+esac

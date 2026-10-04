@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Перезапустить панель: лечит «застывшие» столы, когда waybar перестаёт
+# получать события niri (25.09.2026 — случилось после трёх часов работы;
+# перечитывание конфига niri ни при чём, проверено по сокетам процесса).
+set -u
+CFG="$HOME/.config/waybar/config-niri.jsonc"
+CSS="$HOME/.config/waybar/style-niri.css"
+[ -n "${NIRI_SOCKET:-}" ] || { CFG="$HOME/.config/waybar/config.jsonc"; CSS="$HOME/.config/waybar/style.css"; }
+
+# Метка «бар только что перезапущен»: сторож bar_watch видит её и не поднимает бар второй
+# раз по журналу/проверке, вызванной этим же перезапуском (04.10.2026: после смены режима
+# верхнего бара бар перезапускался дважды-трижды).
+touch "${XDG_RUNTIME_DIR:-/tmp}/barfix-stamp" 2>/dev/null
+for p in $(pgrep -x waybar); do
+    # только панель этого сеанса — чужие не трогаем
+    if grep -qz "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}" "/proc/$p/environ" 2>/dev/null; then
+        kill "$p" 2>/dev/null
+    fi
+done
+sleep 0.6
+# Верхний бар выключен (top_bar.py set off, 03.10.2026) — не поднимаем: столы и всё
+# остальное в этом режиме показывает нижняя XP-панель.
+if [ "$(cat "$HOME/.config/hypr/state/top-bar" 2>/dev/null)" = off ] && [ -n "${NIRI_SOCKET:-}" ]; then
+    echo "верхний бар выключен (top_bar.py) — не запускаю"
+else
+    if [ -f "$CSS" ]; then
+        setsid waybar -c "$CFG" -s "$CSS" >/dev/null 2>&1 &
+    else
+        setsid waybar -c "$CFG" >/dev/null 2>&1 &
+    fi
+    sleep 1
+    pgrep -x waybar >/dev/null && echo "панель перезапущена" || echo "панель не поднялась — проверьте: waybar -c $CFG"
+fi
+
+# Имена столов (niri_bar.py names) слушают тот же поток событий niri, что и бар,
+# и отваливаются вместе с ним — поднимаем и их (28.09.2026: раньше это делал
+# только bar_watch, и ручной barfix оставлял их висеть).
+if [ -n "${NIRI_SOCKET:-}" ]; then
+    for p in $(pgrep -f "niri_bar.py names"); do
+        grep -qz "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}" "/proc/$p/environ" 2>/dev/null && kill "$p" 2>/dev/null
+    done
+    setsid python3 "$HOME/.config/niri/scripts/niri_bar.py" names >/dev/null 2>&1 < /dev/null &
+fi
+
+# Окна eww после «eww reload» остаются в списке открытых, но поверхности у них
+# нет: микшер у правого края перестаёт появляться (25.09.2026). Пересоздаём.
+if pgrep -x eww >/dev/null 2>&1; then
+    for w in $(eww active-windows 2>/dev/null | cut -d: -f1); do
+        eww close "$w" >/dev/null 2>&1
+        eww open "$w" >/dev/null 2>&1
+    done
+    echo "окна eww пересозданы"
+fi

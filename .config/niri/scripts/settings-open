@@ -1,0 +1,28 @@
+#!/usr/bin/python3 -SE
+"""Открыть Настройки (SUPER+/) — быстрый пускатель. 03.10.2026.
+
+Настройки после первого открытия живут спрятанным процессом и слушают сокет
+(settings_app.py: ask_resident). Но сам settings_app.py — 300 КБ, и Python разбирает
+его целиком ещё до того, как постучаться в сокет: ~165 мс на зажатом процессоре.
+Этот файл стучится сам (те же аргументы через \\x1f) и запускает settings_app.py,
+только если живого процесса нет. `-S -E` — без site-packages, они тут не нужны.
+"""
+import os
+import socket
+import sys
+
+SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "jarvis-settings.sock")
+APP = os.path.expanduser("~/.config/hypr/scripts/settings_app.py")
+args = sys.argv[1:]
+try:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as c:
+        c.settimeout(1.5)
+        c.connect(SOCK)
+        c.sendall(("\x1f".join(args) + "\n").encode())
+        if c.recv(16).startswith(b"ok"):
+            sys.exit(0)
+except OSError:
+    pass
+if "--quit" in args:
+    sys.exit(0)
+os.execv("/usr/bin/python3", ["python3", APP] + args)

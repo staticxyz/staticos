@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""ptyclean — запустить программу в псевдотерминале и дописывать \033[K.
+
+Зачем: brrtfetch каждый кадр уводит курсор в угол (\033[H) и печатает кадр
+заново, но ни разу не стирает строку до конца (\033[K) и не чистит экран
+(\033[2J) — таких последовательностей в её выводе нет вовсе. Строка кадра —
+это «кусок гифки плюс строка справки» одной склейкой, и когда край кадра
+прозрачнее, склейка выходит короче: справка съезжает влево, а хвост прошлой
+строки остаётся висеть. Отсюда наложенный текст.
+
+Здесь программа получает настоящий псевдотерминал (значит видит размер и
+считает себя терминалом), а мы по дороге к экрану дописываем в конец каждой
+строки «стереть до конца строки». Мусор становится невозможен.
+
+usage: ptyclean <команда> [аргументы...]
+"""
+
+import fcntl
+import os
+import pty
+import select
+import signal
+import struct
+import sys
+import termios
+
+ERASE_LINE = b"\x1b[K"
+
+
+def winsize(fd):
+    try:
+        rows, cols = os.get_terminal_size(fd)
+        return rows, cols
+    except OSError:
+        return 24, 80
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit("usage: ptyclean <команда> [аргументы...]")
+
+    out_fd = sys.stdout.fileno()
+    pid, master = pty.fork()
+    if pid == 0:
+        os.execvp(sys.argv[1], sys.argv[1:])
+
+    def push_size(*_):
+        rows, cols = winsize(out_fd)
+        fcntl.ioctl(master, termios.TIOCSWINSZ,
+                    struct.pack("HHHH", rows, cols, 0, 0))
+        try:
+            os.kill(pid, signal.SIGWINCH)
+        except ProcessLookupError:
+            pass
+
+    push_size()
+    signal.signal(signal.SIGWINCH, push_size)
+
+    in_fd = sys.stdin.fileno()
+    saved = None
+    try:
+        saved = termios.tcgetattr(in_fd)
+        import tty
+
+        tty.setraw(in_fd)
+    except (termios.error, ValueError):
+        pass
+
+    status = 0
+    try:
+        while True:
+            try:
+                readable, _, _ = select.select([master, in_fd], [], [], 0.2)
+            except InterruptedError:
+                continue            # прилетел SIGWINCH — просто повторяем
+
+            if master in readable:
+                try:
+                    data = os.read(master, 65536)
+                except OSError:
+                    break
+                if not data:
+                    break
+                # вот ради этой строки всё и затевалось
+                os.write(out_fd, data.replace(b"\n", ERASE_LINE + b"\n"))
+
+            if in_fd in readable:
+                try:
+                    keys = os.read(in_fd, 1024)
+                except OSError:
+                    keys = b""
+                if keys:
+                    os.write(master, keys)
+    finally:
+        if saved is not None:
+            termios.tcsetattr(in_fd, termios.TCSADRAIN, saved)
+        try:
+            _, status = os.waitpid(pid, 0)
+        except ChildProcessError:
+            status = 0
+
+    sys.exit(os.waitstatus_to_exitcode(status) if status else 0)
+
+
+if __name__ == "__main__":
+    main()

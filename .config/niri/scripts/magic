@@ -1,0 +1,46 @@
+#!/bin/sh
+# «Карманный» стол — SUPER+ALT+Q                                  (21.09.2026)
+#
+# Замена special:magic из Hyprland. Спецстолов в niri нет (issue #932), поэтому
+# это обычный ИМЕНОВАННЫЙ стол: он объявлен в config.kdl и потому существует
+# всегда, даже пустым, и никогда не исчезает сам.
+#
+#     magic toggle   не на нём — перейти, запомнив откуда;
+#                    на нём     — вернуться туда, откуда пришли
+#     magic send     отправить текущее окно в карман (сам остаёшься на месте)
+#     magic take     достать окно из кармана туда, откуда пришли, и уйти за ним
+#                    (в Hyprland это был SUPER+ALT+E: window.move workspace "+0")
+#
+# Откуда пришли — в файле: скрипт живёт ровно одно нажатие, помнить в памяти
+# нечему. Если возвращаться некуда (стол закрыт, перезаход) — уходим на первый
+# стол того же монитора, чтобы клавиша никогда не оставляла в кармане запертым.
+
+set -e
+NAME=""   # значок Telegram — это и имя стола, и его подпись в баре
+MEM="${XDG_RUNTIME_DIR:-/tmp}/niri-magic-from"
+
+cur_idx=$(niri msg --json workspaces | jq -r '.[] | select(.is_focused) | .idx')
+cur_name=$(niri msg --json workspaces | jq -r '.[] | select(.is_focused) | .name // ""')
+
+case "$1" in
+    send)
+        niri msg action move-column-to-workspace --focus false "$NAME" ;;
+    take)
+        back=$(cat "$MEM" 2>/dev/null || echo "")
+        [ -n "$back" ] || back=1
+        niri msg action move-column-to-workspace "$back"
+        rm -f "$MEM" ;;
+    toggle|"")
+        if [ "$cur_name" = "$NAME" ]; then
+            back=$(cat "$MEM" 2>/dev/null || echo "")
+            if [ -n "$back" ] && niri msg action focus-workspace "$back" 2>/dev/null; then
+                :
+            else
+                niri msg action focus-workspace 1
+            fi
+            rm -f "$MEM"
+        else
+            printf '%s' "$cur_idx" > "$MEM"
+            niri msg action focus-workspace "$NAME"
+        fi ;;
+esac

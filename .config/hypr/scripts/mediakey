@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Медиаклавиши F7/F8/F9 — действие уходит нужному плееру.
+#
+# Раньше в биндах стоял playerctl --player=a,b,c,... Этот список задаёт
+# ПРИОРИТЕТ, а не просто набор: "chromium" стоял раньше "firefox", поэтому
+# при двух запущенных браузерах клавиши всегда доставались Thorium, а
+# LibreWolf (представляется как firefox.instance_N) не слушался вовсе.
+#
+# Порядок выбора:
+#   1. плеер, который сейчас ИГРАЕТ — очевидный кандидат;
+#   2. иначе playerctld, он помнит последний активный плеер (иначе при всех
+#      приостановленных выбор был бы произвольным — по алфавиту);
+#   3. иначе первый приостановленный.
+set -uo pipefail
+
+ACTION="${1:-play-pause}"
+
+# Blanket — генератор фонового шума, вечно в состоянии Playing; без этого
+# он перетягивал бы на себя все клавиши.
+IGNORE="Blanket"
+
+pick() {
+    local want="$1" name status
+    while IFS= read -r name; do
+        [ -z "$name" ] && continue
+        case "${name%%.*}" in "$IGNORE") continue ;; esac
+        status=$(playerctl --player="$name" status 2>/dev/null)
+        [ "$status" = "$want" ] && { echo "$name"; return 0; }
+    done < <(playerctl -l 2>/dev/null)
+    return 1
+}
+
+if TARGET=$(pick Playing); then
+    :
+elif playerctl --player=playerctld status >/dev/null 2>&1; then
+    TARGET=playerctld
+elif TARGET=$(pick Paused); then
+    :
+else
+    exit 0
+fi
+
+exec playerctl --player="$TARGET" "$ACTION"

@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""F10 — «нравится» тому плееру, который сейчас звучит.        (21.09.2026)
+
+В Hyprland это делалось нажатием клавиши прямо в окно плеера
+(hl.dsp.send_shortcut). В Niri послать нажатие конкретному окну нечем, поэтому
+кнопка жмётся там же, где её жмёт попап плеера, — через player_like.py:
+Яндекс Музыка по отладочному порту, YouTube Music через Companion, YouTube в
+Zen через файловый мост.
+
+Молча не отказываемся: если плеер лайк не поддерживает, приходит уведомление —
+иначе нажатие выглядит как сломанная клавиша.
+"""
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def out(cmd):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+        return (r.stdout or "").strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def notify(text):
+    subprocess.run(["notify-send", "-a", "Плеер", "-u", "low", text],
+                   capture_output=True)
+
+
+def main():
+    instance = out(["playerctl", "metadata", "--format", "{{playerInstance}}"]).splitlines()
+    instance = instance[0] if instance else ""
+    if not instance:
+        notify("Сейчас ничего не играет")
+        return 0
+    state = out(["python3", os.path.join(HERE, "player_like.py"), "toggle", instance])
+    if state == "liked":
+        notify("Нравится")
+    elif state == "not":
+        notify("Оценка снята")
+    elif state == "keep":
+        notify("Плеер занят, попробуйте ещё раз")
+    else:
+        notify("Этот плеер не умеет «Нравится»")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

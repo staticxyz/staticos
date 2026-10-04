@@ -1,0 +1,21 @@
+#!/bin/sh
+# Буфер обмена (SUPER+ALT+V): показать или спрятать окно clipboard_win.py (03.10.2026).
+#
+# Окно после закрытия ещё десять минут живёт спрятанным («тёплым»), и повторное
+# нажатие — это один сигнал SIGUSR1 готовому процессу: окно появляется за кадр.
+# Сигнал шлёт сама оболочка: запуск Python ради одного kill стоил бы 30 мс.
+# Номер процесса сверяется с его командной строкой — номер из старого файла мог
+# достаться чужой программе, а SIGUSR1 чужую программу убил бы.
+# Процесса нет — обычный запуск. `-S`: без site-packages Python стартует быстрее,
+# скрипт подключает их сам, когда доходит до GTK. `-m`, а не путь к файлу: файл
+# Python каждый раз компилирует заново (40 мс), модуль берёт готовым из __pycache__.
+# JARVIS_CLIP_RUN — подмена каталога для проверок без настоящего окна.
+PIDFILE="${JARVIS_CLIP_RUN:-${XDG_RUNTIME_DIR:-/tmp}}/jarvis-clipboard.pid"
+pid=
+{ read -r pid < "$PIDFILE"; } 2>/dev/null
+if [ $# -eq 0 ] && [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ]; then    # с аргументами (--quit, --daemon) — сразу в скрипт
+    case "$(tr '\0' ' ' < "/proc/$pid/cmdline")" in
+        *clipboard_win*) kill -USR1 "$pid" 2>/dev/null && exit 0 ;;
+    esac
+fi
+PYTHONPATH=$HOME/.config/hypr/scripts exec python3 -S -m clipboard_win "$@"

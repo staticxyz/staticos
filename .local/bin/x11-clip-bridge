@@ -1,0 +1,23 @@
+#!/bin/bash
+# Текст, скопированный в X11-программах (Tor Browser, Steam и т. п.), -> буфер Wayland.
+# Мост xwayland-satellite делает это сам, но только пока X11-окно в фокусе: Wayland
+# принимает выделение лишь от окна с фокусом, и копии «уходят в никуда» (28.09.2026,
+# журнал satellite: «CLIPBOARD set from X11» без единого запроса данных). Здесь
+# wl-copy работает через data-control — фокус не нужен. Автозапуск niri.
+# Скопированное в Tor идёт с пометкой --sensitive — cliphist не сохраняет его в историю.
+export DISPLAY=${DISPLAY:-:1}
+tmp=${XDG_RUNTIME_DIR:-/tmp}/x11-clip-bridge; mkdir -p "$tmp"
+while :; do
+  ~/.local/bin/x11-clip-events | while read -r _owner; do
+    sleep 0.05
+    timeout 2 xclip -selection clipboard -o -t UTF8_STRING >"$tmp/x" 2>/dev/null || continue
+    [ -s "$tmp/x" ] || continue
+    # то же, что уже в Wayland (satellite успел сам или это эхо из Wayland) — не трогаем
+    timeout 1 wl-paste -n -t text >"$tmp/w" 2>/dev/null
+    cmp -s "$tmp/x" "$tmp/w" && continue
+    flags=()
+    niri msg -j focused-window 2>/dev/null | grep -q '"app_id":"Tor Browser"' && flags=(--sensitive)
+    wl-copy "${flags[@]}" <"$tmp/x"
+  done
+  sleep 2   # satellite перезапустился — дисплей появится снова
+done

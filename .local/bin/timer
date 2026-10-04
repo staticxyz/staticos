@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# Короткая обёртка над ~/.config/hypr/scripts/tdown.
+#
+# Заголовок необязателен: всё, что не похоже на время, считается заголовком.
+#
+#   timer 5h32m         — таймер без надписи
+#   timer 1h 5m 30s     — составное время, кавычки не нужны
+#   timer tea 5h32m     — с надписью TEA над цифрами
+#   timer Work 07:27    — отсчёт до 07:27; если сегодня 07:27 уже прошло —
+#                         до завтрашних 07:27 (раньше приходилось писать
+#                         -a "$(date -d 'tomorrow 07:27' '+%Y-%m-%d %H:%M')")
+#   timer               — секундомер, без надписи
+#
+# По истечении: звук, уведомление и строка в терминале. Сигнал ставится
+# отдельным фоновым процессом (termdown после нуля ждёт нажатия клавиши,
+# поэтому звонить «после выхода» было бы поздно); если выйти раньше по Q,
+# фоновый будильник убивается и не сработает.
+set -uo pipefail
+
+ALARM_SOUND="/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"
+
+TITLE=""
+TIME=()
+
+# Время: 90 | 5h32m | 1h 5m 30s | 12:00 | 2020-01-01
+is_time() {
+    [[ "$1" =~ ^([0-9]+[dhms]?)+$ || "$1" =~ ^[0-9]{1,2}:[0-9]{2} || "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2} ]]
+}
+
+for arg in "$@"; do
+    if is_time "$arg"; then
+        TIME+=("$arg")
+    else
+        TITLE="${TITLE:+$TITLE }$arg"
+    fi
+done
+
+# Время на часах (07:27, 07:27:30) — ближайшее такое. Если сегодня оно уже
+# прошло, берём завтрашнее: иначе будильник получал ноль секунд и не ставился,
+# а termdown — время в прошлом. Дальше идёт полная дата, её понимают и
+# termdown, и расчёт будильника ниже. В подписи остаётся то, что написали.
+SHOWN="${TIME[*]:-}"
+if [ ${#TIME[@]} -eq 1 ] && [[ "${TIME[0]}" =~ ^[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?$ ]]; then
+    clock="${TIME[0]}"
+    if [ "$(date -d "$clock" +%s 2>/dev/null || echo 0)" -le "$(date +%s)" ]; then
+        TIME=("$(date -d "tomorrow $clock" '+%Y-%m-%d %H:%M:%S')")
+    else
+        TIME=("$(date -d "$clock" '+%Y-%m-%d %H:%M:%S')")
+    fi
+fi
+
+# Длительность в секундах — нужна, чтобы знать, когда звонить.
+# Для абсолютного времени (12:00, дата) берём разницу с текущим моментом.
+duration_seconds() {
+    local s="${1// /}" total=0 n u
+    if [[ "$s" =~ ^([0-9]+[dhms]?)+$ ]]; then
+        while [[ "$s" =~ ^([0-9]+)([dhms]?)(.*)$ ]]; do
+            n="${BASH_REMATCH[1]}"; u="${BASH_REMATCH[2]}"; s="${BASH_REMATCH[3]}"
+            case "$u" in
+                d) total=$((total + n * 86400)) ;;
+                h) total=$((total + n * 3600)) ;;
+                m) total=$((total + n * 60)) ;;
+                *) total=$((total + n)) ;;
+            esac
+        done
+        echo "$total"
+    else
+        local target now
+        target=$(date -d "$1" +%s 2>/dev/null) || { echo 0; return; }
+        now=$(date +%s)
+        echo $(( target > now ? target - now : 0 ))
+    fi
+}
+
+play_alarm() {
+    if [ -r "$ALARM_SOUND" ]; then
+        for _ in 1 2 3; do
+            paplay "$ALARM_SOUND" 2>/dev/null || pw-play "$ALARM_SOUND" 2>/dev/null || break
+        done
+    else
+        printf '\a\a\a'
+    fi
+}
+
+DUR=0
+if [ ${#TIME[@]} -gt 0 ]; then
+    DUR=$(duration_seconds "${TIME[*]}")
+fi
+
+ALARM_PID=""
+if [ "$DUR" -gt 0 ]; then
+    (
+        sleep "$DUR"
+        notify-send -u critical "⏰ Таймер истёк" "${TITLE:-$SHOWN}" 2>/dev/null
+        play_alarm
+    ) &
+    ALARM_PID=$!
+    trap 'kill "$ALARM_PID" 2>/dev/null' EXIT INT TERM
+fi
+
+# Шрифт цифр. В ansi_regular нет кириллицы вовсе: русская надпись просто
+# исчезала (25.09.2026 — «почему не работают русские названия»).
+# Из шрифтов pyfiglet кириллицу знают 16, ближе всех по виду mono12 —
+# такие же блочные знаки, только выше на две строки. Переключаемся только
+# ради русской надписи: у латиницы прежний вид сохраняется.
+FONT=ansi_regular
+[[ "$TITLE" =~ [А-Яа-яЁё] ]] && FONT=mono12
+
+ARGS=(-f "$FONT" -a -b -t "TIME IS UP")
+[ -n "$TITLE" ] && ARGS+=(-T "$TITLE")
+# -q 5 — только для отсчёта: закрыться через 5 с после «TIME IS UP». У секундомера
+# тот же флаг значит «остановиться через 5 с», и голый timer гас на пятой секунде
+# (23.09.2026). Секундомер работает, пока его не закроют по Q.
+[ ${#TIME[@]} -gt 0 ] && ARGS+=(-q 5 "${TIME[*]}")
+
+# TIMER_DRYRUN=1 — показать, что будет запущено, и выйти (для проверки).
+if [ -n "${TIMER_DRYRUN:-}" ]; then
+    [ -n "$ALARM_PID" ] && kill "$ALARM_PID" 2>/dev/null
+    printf 'надпись=%q  шрифт=%s  время=%q  будильник через %s с\n' "$TITLE" "$FONT" "${TIME[*]:-}" "$DUR"
+    exit 0
+fi
+
+START=$(date +%s)
+"$HOME/.config/hypr/scripts/tdown" "${ARGS[@]}"
+RC=$?
+ELAPSED=$(( $(date +%s) - START ))
+
+[ -n "$ALARM_PID" ] && kill "$ALARM_PID" 2>/dev/null
+
+if [ "$DUR" -gt 0 ] && [ "$ELAPSED" -ge "$DUR" ]; then
+    printf '\033[1m⏰ Таймер истёк\033[0m — %s%s\n' \
+        "$SHOWN" "${TITLE:+ («$TITLE»)}"
+fi
+
+exit $RC

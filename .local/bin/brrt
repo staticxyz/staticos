@@ -1,0 +1,248 @@
+#!/bin/sh
+# brrt — brrtfetch как в README проекта, но в цвете акцента обоев.
+#                                                 21.09.2026, переписан 22.09
+#
+# Оригинал (README brrtfetch, ferrebarrat/brrtfetch):
+#   brrtfetch -width 80 -fps 17 -multiplier 10 -offset 3 gifs/defaults/brrt.gif
+#   со справкой fastfetch из конфига xerolinux/xero-layan-git (рамки Hardware /
+#   Software / Uptime). Тот конфиг переложен в ~/.config/fastfetch/brrt.jsonc.
+#
+# Что добавлено:
+#
+# 1. ЦВЕТ ПО АКЦЕНТУ — без потери лица. Монохромный режим brrtfetch убивает
+#    детали: глаза и рот у осьминога — это тёмные пятна на цветном теле, а
+#    одним цветом их не показать. Поэтому перекрашивается сама ГИФКА: кадры
+#    переводятся в серый и растягиваются от чёрного к акценту
+#    (+level-colors), тени остаются тенями. Результат кешируется в
+#    ~/.cache/brrt/ по цвету — сборка ~4 с на первый запуск с новым акцентом,
+#    дальше мгновенно. Заодно в этом окне ANSI-слот 4 подменяется на акцент,
+#    чтобы рамки и ключи справки были того же цвета, что гифка.
+#
+# 2. СМЕНА ОБОЕВ НА ЛЕТУ: сторож раз в 2 секунды сверяет vivid.txt; изменился
+#    — гифка пересобирается, brrtfetch перезапускается с новой.
+#
+# 3. РАЗМЕР ОТ ОКНА: ширина как в README (80), но не больше, чем позволяют
+#    ширина окна за вычетом справки и высота окна (гифка квадратная, клетка
+#    вдвое выше своей ширины: высота = ширина/2). -height задаётся явно — без
+#    него кадры разной высоты сдвигали справку, и оставались хвосты.
+#
+# 4. ЧИСТЫЙ ЭКРАН при изменении окна: brrtfetch не стирает за собой (в её
+#    выводе нет ни \033[K, ни \033[2J), поэтому на SIGWINCH — гасим, чистим,
+#    пересчитываем, поднимаем заново.
+#
+# 5. Ctrl+C НЕ ЗАКРЫВАЕТ ОКНО: exec убран; если родитель не оболочка, окно
+#    отдаётся приглашению.
+#
+# Переменные окружения:
+#   BRRT_ACCENT=0   родные цвета гифки, без перекраски
+#   BRRT_WIDTH      желаемая ширина гифки (80), BRRT_FPS (17), BRRT_MULT (10),
+#   BRRT_OFFSET (3), BRRT_GIF, BRRT_INFO (команда справки)
+#   BRRT_DRY=1      показать расчёт и выйти
+#
+# Случайная гифка — команда brrtfetch. Список всех: brrtfetch -l
+
+set -u
+
+SRC_GIF=${BRRT_GIF:-"$HOME/Pictures/brrtfetch/gifs/defaults/brrt.gif"}
+[ -f "$SRC_GIF" ] || { echo "brrt: нет $SRC_GIF" >&2; exit 1; }
+
+WANT_W=${BRRT_WIDTH:-auto}   # auto — во всё окно (см. compute), число — как раньше
+FPS=${BRRT_FPS:-17}
+MULT=${BRRT_MULT:-10}
+WANT_OFF=${BRRT_OFFSET:-3}
+# Справка: конфиг ~/.config/fastfetch/brrt.jsonc — шаблон, в нём цвет рамок и
+# ключей задан ANSI-слотом 4. Слот в окне перебивает рассылка палитры при
+# смене обоев (kitty @ set-colors --all из theme_changer), и рамки уезжали в
+# палитровый «синий» (сейчас розовый). Поэтому перед запуском из шаблона
+# собирается копия с truecolor акцента (~/.cache/brrt/brrt.jsonc) — от
+# слотов терминала она не зависит. BRRT_INFO переопределяет всё это.
+INFO_CMD=${BRRT_INFO:-}
+ACCENT_MODE=${BRRT_ACCENT:-1}
+INFO_W=58                 # ширина рамок справки (56) плюс запас
+GAP=2
+MIN_W=16
+CACHE="$HOME/.cache/brrt"
+
+accent_now() { cat "$HOME/.cache/matugen/vivid.txt" 2>/dev/null; }
+
+term_size() {
+    if size=$(stty size 2>/dev/null </dev/tty); then
+        rows=${size%% *}; cols=${size##* }
+    else
+        rows=${LINES:-24}; cols=${COLUMNS:-80}
+    fi
+    [ "$rows" -gt 0 ] 2>/dev/null || rows=24
+    [ "$cols" -gt 0 ] 2>/dev/null || cols=80
+}
+
+compute() {
+    # auto (по умолчанию с 23.09.2026): гифка занимает всё, что осталось от
+    # справки, а не фиксированные 80 из README. Раньше при читаемом кегле на
+    # гифку оставалось полтора десятка колонок, и её приходилось растить,
+    # уменьшая шрифт — вместе со справкой. Потолок 120: выше растёт цена
+    # кадра (multiplier 10), а осьминог уже не выигрывает в деталях.
+    if [ "$WANT_W" = auto ]; then
+        w=$(( cols - INFO_W - GAP ))
+        lim=$(( (rows - 1) * 2 )); [ "$w" -gt "$lim" ] && w=$lim
+        [ "$w" -gt 120 ] && w=120
+        [ "$w" -lt "$MIN_W" ] && w=$MIN_W
+        h=$w
+        off=$WANT_OFF
+        [ $(( rows - 24 )) -lt "$off" ] && off=0
+        return
+    fi
+    w=$WANT_W
+    lim=$(( cols - INFO_W - GAP )); [ "$w" -gt "$lim" ] && w=$lim
+    lim=$(( (rows - 1) * 2 ));      [ "$w" -gt "$lim" ] && w=$lim
+    [ "$w" -lt "$MIN_W" ] && w=$MIN_W
+    # -height равен -width, а не половине: brrtfetch сам делит высоту пополам
+    # под пропорции клетки (README: «-width 60 -height 60» для квадратной
+    # гифки). С -height w/2 осьминог выходил сплющенным в 12 строк и без лица
+    # — проверено 22.09.2026 на оригинальной гифке, рендер идентичный.
+    h=$w
+    off=$WANT_OFF
+    [ $(( rows - 24 )) -lt "$off" ] && off=0
+}
+
+# Гифка, перекрашенная под цвет $1. Кеш по цвету; сборка ~4 с.
+tinted_gif() {
+    hex=$(printf '%s' "$1" | tr -d '#' | tr 'A-F' 'a-f')
+    # Имя гифки в ключе кеша: с BRRT_GIF другая картинка не должна получать
+    # чужую перекраску.
+    base=$(basename "$SRC_GIF" .gif)
+    out="$CACHE/$base-$hex.gif"
+    if [ ! -s "$out" ]; then
+        mkdir -p "$CACHE"
+        # В /dev/tty, а не в stdout: stdout этой функции — возвращаемый путь.
+        printf '\033[2J\033[H\033[2mперекрашиваю гифку под акцент %s…\033[0m' "$1" > /dev/tty 2>/dev/null
+        # -channel RGB: красим только цвет, альфа (прозрачный фон) остаётся.
+        # -modulate 100,0 обесцвечивает, -level 0%,85% растягивает яркость
+        # ОДИНАКОВО для всех кадров. Раньше стоял -auto-level — он считает
+        # растяжку по гистограмме КАЖДОГО кадра, а осьминог в анимации меняет
+        # размер: яркость прыгала от кадра к кадру (замер 22.09.2026: от 0.03
+        # до 0.71 при 0.49±0.01 у оригинала) — это и было «мигание».
+        # -sigmoidal-contrast поднимает средние тона (тело — яркий акцент),
+        # не трогая тёмные (глаза и рот остаются тёмными). +repage сбрасывает
+        # геометрию страниц после -resize, иначе brrtfetch считает холст по
+        # старому размеру и рисует гифку сплющенной.
+        magick "$SRC_GIF" -coalesce -resize 200x200 -alpha set \
+               -channel RGB -modulate 100,0 -level 0%,85% \
+               -sigmoidal-contrast 7x45% +level-colors "#101010,$1" +channel \
+               +repage "$out.tmp" 2>/dev/null \
+            && mv "$out.tmp" "$out" || { rm -f "$out.tmp"; out="$SRC_GIF"; }
+    fi
+    printf '%s' "$out"
+}
+
+# Слот 4 — как в tclock: подменяем на акцент, при выходе возвращаем палитре.
+slot4_restore() {
+    back=$(awk '/^color4 /{ print $2 }' "$HOME/.cache/matugen/colors-kitty.conf" 2>/dev/null)
+    if [ -n "$back" ]; then printf '\033]4;4;%s\007' "$back"; else printf '\033]104;4\007'; fi
+}
+
+WATCH_PID=0
+if [ "$ACCENT_MODE" != "0" ] && [ -n "$(accent_now)" ]; then
+    printf '\033]4;4;%s\007' "$(accent_now)"
+    # Сторож: акцент сменился — держим слот 4 и просим главный цикл
+    # перезапуститься (тот же путь, что при изменении окна).
+    # Сторож ТОЛЬКО наблюдает и НИЧЕГО не пишет в терминал. Раньше он раз в
+    # 2 секунды слал OSC-последовательность цвета параллельно с кадрами
+    # brrtfetch; байты перемешивались: \007 из разорванной последовательности
+    # kitty принимал за колокольчик (niri красил рамку красным — «срочное»
+    # окно), а 14 символов вклинивались в строку кадра и сдвигали хвост
+    # («1344 (pacman)1344 (pacman)»). Замечено 22.09.2026. Теперь цвет слота 4
+    # ставится в главном цикле перед запуском brrtfetch, когда терминал никто
+    # не рисует. Смена акцента или размера окна — сигнал главному циклу.
+    ( last=$(accent_now); lastsize=$(stty size 2>/dev/null </dev/tty)
+      while :; do
+          sleep 2
+          cur=$(accent_now); size=$(stty size 2>/dev/null </dev/tty)
+          if { [ -n "$cur" ] && [ "$cur" != "$last" ]; } || [ "$size" != "$lastsize" ]; then
+              last=$cur; lastsize=$size
+              kill -WINCH $$ 2>/dev/null
+          fi
+      done ) &
+    WATCH_PID=$!
+fi
+
+CHILD=0; RESIZED=0; INTERRUPTED=0
+
+finish() {
+    [ "$WATCH_PID" -ne 0 ] && kill "$WATCH_PID" 2>/dev/null
+    [ "$CHILD" -ne 0 ] && kill "$CHILD" 2>/dev/null
+    [ "$ACCENT_MODE" != "0" ] && slot4_restore
+    printf '\033[?25h'
+}
+trap finish EXIT
+trap 'INTERRUPTED=1; [ "$CHILD" -ne 0 ] && kill "$CHILD" 2>/dev/null' INT TERM
+trap 'RESIZED=1;     [ "$CHILD" -ne 0 ] && kill "$CHILD" 2>/dev/null' WINCH
+
+status=0
+while :; do
+    RESIZED=0
+    term_size
+    compute
+    gif=$SRC_GIF
+    if [ "$ACCENT_MODE" != "0" ]; then
+        a=$(accent_now)
+        [ -n "$a" ] && gif=$(tinted_gif "$a")
+    fi
+
+    if [ -n "${BRRT_DRY:-}" ]; then
+        echo "окно ${cols}x${rows} -> -width $w -height $h -offset $off, гифка: $gif"
+        exit 0
+    fi
+
+    printf '\033[2J\033[3J\033[H'
+    # Слот 4 — здесь, пока brrtfetch не рисует (см. сторож выше).
+    [ "$ACCENT_MODE" != "0" ] && [ -n "${a:-}" ] && printf '\033]4;4;%s\007' "$a"
+    if [ -z "$INFO_CMD" ]; then
+        tpl="$HOME/.config/fastfetch/brrt.jsonc"; cfg="$CACHE/brrt.jsonc"; mkdir -p "$CACHE"
+        if [ "$ACCENT_MODE" != "0" ] && [ -n "${a:-}" ]; then
+            hx=$(printf '%s' "$a" | tr -d '#')
+            rgb="$(printf '%d;%d;%d' 0x${hx%????} 0x$(printf '%s' "$hx" | cut -c3-4) 0x${hx#????})"
+            # "34" (ключи/заголовок) -> truecolor, \u001b[34m в рамках -> тоже
+            sed -e "s/\"34\"/\"38;2;$rgb\"/g" -e "s/\\\\u001b\[34m/\\\\u001b[38;2;${rgb}m/g" "$tpl" > "$cfg"
+            INFO_RUN="fastfetch --logo-type none --config $cfg"
+        else
+            cp "$tpl" "$cfg"
+            INFO_RUN="fastfetch --logo-type none --config $cfg"
+        fi
+        # Справка на всю высоту (23.09.2026). В шаблоне три рамки разделены
+        # одиночными "break"; в высоком окне они жались к верхнему краю, а
+        # низ пустовал. Здесь пустые строки между рамками размножаются по
+        # остатку высоты: 26 строк — это сама справка (рамки, ключи, палитра).
+        spread=$(( (rows - 26) / 3 ))
+        [ "$spread" -lt 1 ] && spread=1
+        [ "$spread" -gt 8 ] && spread=8
+        awk -v n="$spread" '
+            /^[[:space:]]*"break",[[:space:]]*$/ { for (i = 0; i < n; i++) print "        \"break\","; next }
+            { print }
+        ' "$cfg" > "$cfg.spread" && mv "$cfg.spread" "$cfg"
+    else
+        INFO_RUN=$INFO_CMD
+    fi
+    # Через ptysync: он оборачивает каждый кадр в синхронизированный вывод
+    # (DEC 2026), иначе kitty перерисовывает экран посреди кадра и картинка
+    # мигает (кадр 24 КБ приходит порциями по 4 КБ). Без ptysync — напрямую.
+    if command -v ptysync >/dev/null 2>&1; then
+        ptysync /usr/bin/brrtfetch -width "$w" -height "$h" -fps "$FPS" -multiplier "$MULT" \
+                       -offset "$off" -info "$INFO_RUN" "$@" "$gif" < /dev/tty &
+    else
+        /usr/bin/brrtfetch -width "$w" -height "$h" -fps "$FPS" -multiplier "$MULT" \
+                       -offset "$off" -info "$INFO_RUN" "$@" "$gif" < /dev/tty &
+    fi
+    CHILD=$!
+    wait "$CHILD"; status=$?; CHILD=0
+    [ "$INTERRUPTED" -eq 1 ] && break
+    [ "$RESIZED" -eq 1 ] && continue
+    break
+done
+
+# Из оболочки — просто выходим, окно останется за ней. Иначе (kitty -e brrt,
+# бинд) окно закрылось бы вместе со скриптом — отдаём его приглашению.
+parent=$(ps -o comm= -p "$PPID" 2>/dev/null | tr -d ' ')
+case "$parent" in
+    fish|bash|zsh|sh|dash|ksh|elvish|nu) exit "$status" ;;
+    *) finish; trap - EXIT; exec "${SHELL:-/bin/bash}" -i ;;
+esac

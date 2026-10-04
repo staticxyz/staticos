@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Убрать узлы-сироты PipeWire, из-за которых после сна пропадает звук.
+
+Что происходит. При засыпании звуковые карты обесточиваются, при пробуждении
+перечисляются заново. WirePlumber создаёт для них НОВЫЕ объекты Device, а
+старые узлы (Node) иногда остаются висеть — их Device уже не существует.
+Замерено 02.09.2026 после сна 13:15→13:25: шесть таких узлов, включая 53 и 54,
+на которые указывали default.audio.sink и default.audio.source.
+
+Дальше беда тихая. wpctl показывает нормальную громкость и «running», потоки
+выглядят подключёнными, но /proc/asound/USB/pcm0p/sub0/status = closed:
+железо не играет вовсе, звук уходит в никуда.
+
+Починить переключением умолчаний нельзя: у живого и мёртвого узлов ОДНО И ТО
+ЖЕ node.name, и `wpctl set-default` по имени снова попадает в мёртвый.
+Проверено — команда отрабатывает без ошибки и ничего не меняет.
+
+Поэтому единственное лекарство — перезапуск WirePlumber: он пересобирает граф
+с нуля, сироты исчезают. Перезапуск делается ТОЛЬКО при найденных сиротах:
+он рвёт и восстанавливает связи потоков, и дёргать его на здоровом графе
+незачем.
+
+Запускается после сна из hypridle (after_sleep_cmd) и вручную:
+    ~/.config/hypr/scripts/audio_repair
+"""
+import json
+import subprocess
+import sys
+import time
+
+
+def orphans():
+    """Узлы, чей Device уже не существует."""
+    try:
+        objs = json.loads(subprocess.run(["pw-dump"], capture_output=True,
+                                         text=True, timeout=15).stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    devices = {o["id"] for o in objs if str(o.get("type", "")).endswith("Device")}
+    found = []
+    for o in objs:
+        if not str(o.get("type", "")).endswith("Node"):
+            continue
+        props = (o.get("info") or {}).get("props") or {}
+        dev = props.get("device.id")
+        if dev is None:
+            continue
+        try:
+            dev = int(dev)
+        except (TypeError, ValueError):
+            continue
+        if dev not in devices:
+            found.append((o["id"], props.get("node.name", "")))
+    return found
+
+
+def main():
+    # После пробуждения граф ещё достраивается: карты подключаются не мгновенно,
+    # и узлы, которые через секунду станут нормальными, сейчас выглядят
+    # осиротевшими. Поэтому смотрим несколько раз и верим только устойчивому
+    # результату.
+    stable = None
+    for _ in range(6):
+        found = orphans()
+        if found is None:
+            print("audio_repair: pw-dump недоступен", file=sys.stderr)
+            return 1
+        if stable is not None and {i for i, _ in found} == {i for i, _ in stable}:
+            break
+        stable = found
+        time.sleep(2)
+    found = stable or []
+
+    if not found:
+        print("audio_repair: сирот нет, граф в порядке")
+        return 0
+
+    print("audio_repair: узлов-сирот %d:" % len(found))
+    for nid, name in found:
+        print("   %s  %s" % (nid, name))
+
+    r = subprocess.run(["systemctl", "--user", "restart", "wireplumber"],
+                       capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        print("audio_repair: перезапуск не удался: %s"
+              % (r.stderr.strip() or r.returncode), file=sys.stderr)
+        return 1
+    time.sleep(4)
+
+    left = orphans() or []
+    if left:
+        print("audio_repair: после перезапуска осталось %d" % len(left),
+              file=sys.stderr)
+        return 1
+    print("audio_repair: WirePlumber перезапущен, граф чист")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

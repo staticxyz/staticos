@@ -1,0 +1,792 @@
+#!/usr/bin/env python3
+"""Тренажёр набора, в котором работают шейдеры kitty. 28.09.2026.
+
+Зачем своя, когда есть ttyper и Keypunch. Эффекты kitty цепляются за движение
+ТЕКСТОВОГО курсора (событие cursor-trail-move — единственное, что срабатывает
+на каждый символ; событий клавиатуры у шейдеров нет). ttyper прячет курсор и
+рисует свой, поэтому там эффекты молчат — проверено 28.09.2026. Keypunch — это
+приложение GTK, до него шейдеры терминала не достают вовсе.
+
+Важно: у kitty есть порог `cursor_trail_start_threshold`, по умолчанию 2 2 —
+след появляется только при прыжке больше чем на две ячейки. При обычном наборе
+курсор идёт по одной, и порог не проходится. В kitty.conf стоит 0 0.
+
+Набор идёт ПОВЕРХ образца, буква на месте буквы, как в Keypunch.
+
+    jtype              50 слов
+    jtype 100          100 слов
+    jtype -f файл      текст из файла (по словам)
+    jtype stats        статистика за всё время
+    jtype demo         посмотреть салют, который бывает на новый рекорд
+
+Работает В ТЕКУЩЕМ окне, отдельного не открывает (требование пользователя).
+Эффекты — отдача и молнии от курсора — дают шейдеры kitty; включаются в
+«Настройках» → «Шейдеры» → «Печать» и действуют на любое окно kitty, но сила у
+них от СКОРОСТИ набора: в спокойной работе экран стоит смирно, а в тренажёре,
+где печатают быстро, они горят почти всё время.
+
+  Ctrl+Backspace   стереть слово       Backspace   стереть букву
+  Esc / Ctrl+C     выход               Ctrl+R      начать заново
+
+Цвета берутся из палитры обоев (~/.cache/matugen).
+"""
+import json
+import os
+import random
+import subprocess
+import sys
+import termios
+import time
+import tty
+from collections import defaultdict
+
+PALETTE = os.path.expanduser("~/.cache/matugen/colors.json")
+HISTORY = os.environ.get("JTYPE_HISTORY") or os.path.expanduser(
+    "~/.local/share/jarvis/jtype-history.json")      # JTYPE_HISTORY — для проверок
+WORDS_FILE = "/usr/share/dict/words"
+MARGIN = 3
+# Кегль на время заезда: крупнее обычного, чтобы буквы читались без напряжения
+# (просьба пользователя 28.09.2026 — «сделай похоже на Keypunch»).
+FONT_SIZE = float(os.environ.get("JTYPE_FONT", "18"))
+FALLBACK = """the be to of and a in that have it for not on with he as you do at
+this but his by from they we say her she or an will my one all would there their
+what so up out if about who get which go me when make can like time no just him
+know take people into year your good some could them see other than then now look
+only come its over think also back after use two how our work first well way even
+new want because any these give day most us""".split()
+
+
+def font_size(size):
+    """Поднять кегль в окне kitty на время заезда; 0 — вернуть как в конфиге.
+
+    Свой шрифт терминалу изнутри не задать, но kitty умеет менять кегль по
+    удалённому управлению (allow_remote_control yes у пользователя уже стоит).
+    Нет сокета — молча пропускаем: тренажёр должен работать и в чужом терминале.
+    """
+    sock = os.environ.get("KITTY_LISTEN_ON")
+    if not sock:
+        return
+    try:
+        subprocess.run(["kitten", "@", "--to", sock, "set-font-size", str(size)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def palette():
+    d = {}
+    try:
+        with open(PALETTE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        pass
+
+    def rgb(key, default):
+        h = d.get(key, default).lstrip("#")
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+    return {"accent": rgb("primary", "#b4c5ff"), "text": rgb("on_surface", "#e1e1ef"),
+            "dim": rgb("outline", "#8e909c"), "bad": rgb("error", "#ffb4ab"),
+            "line": rgb("outline_variant", "#444651")}
+
+
+def term_size():
+    """Размер окна. Если вывод уходит в файл или конвейер, его неоткуда взять —
+    берём разумный запасной, чтобы `jtype stats | less` не падал."""
+    try:
+        sz = os.get_terminal_size()
+        return sz.columns, sz.lines
+    except OSError:
+        return 80, 24
+
+
+def fg(c):
+    return "\x1b[38;2;%d;%d;%dm" % c
+
+
+def bg(c):
+    return "\x1b[48;2;%d;%d;%dm" % c
+
+
+RESET = "\x1b[0m"
+HIDE = "\x1b[?25l"
+SHOW = "\x1b[?25h"
+
+
+def words(n):
+    pool = FALLBACK
+    if os.path.exists(WORDS_FILE):
+        try:
+            with open(WORDS_FILE, encoding="utf-8", errors="ignore") as f:
+                got = [w.strip().lower() for w in f
+                       if 3 <= len(w.strip()) <= 8 and w.strip().isalpha()]
+            if len(got) > 500:
+                pool = got
+        except OSError:
+            pass
+    return [random.choice(pool) for _ in range(n)]
+
+
+def wrap(ws, width):
+    # Пробел в конце строки ОСТАЁТСЯ её частью (30.09.2026): раньше он
+    # срезался, и после последнего слова строки ждалась сразу первая буква
+    # следующей — пробел, нажатый по привычке, считался ошибкой в новом слове.
+    # Теперь как в monkeytype: пробел набирается, и только потом переход.
+    # Ширина не страдает: условие ниже уже оставляет место под этот пробел.
+    lines, cur = [], ""
+    for w in ws:
+        if len(cur) + len(w) + 1 > width:
+            lines.append(cur)
+            cur = ""
+        cur += w + " "
+    if cur.strip():
+        lines.append(cur.rstrip())
+    return lines
+
+
+def bar_chart(series, width, height, p):
+    """Столбики скорости по ходу заезда — как в ttyper, но из блоков."""
+    if len(series) < 4:
+        return []
+    # Столбиков РОВНО width — сколько бы ни было заездов. Когда их меньше,
+    # каждый растягивается на несколько столбиков; когда больше — усредняются.
+    # Иначе при шести заездах график жался в угол и выглядел сломанным.
+    cols = []
+    for c in range(width):
+        lo = c * len(series) / width
+        hi = max(lo + 1e-9, (c + 1) * len(series) / width)
+        chunk = series[int(lo):max(int(lo) + 1, int(hi))]
+        cols.append(sum(chunk) / len(chunk))
+    lo, hi = min(cols), max(cols)
+    span = max(hi - lo, 1.0)
+    blocks = "▁▂▃▄▅▆▇█"
+    rows = []
+    for r in range(height, 0, -1):
+        line = ""
+        for v in cols:
+            level = (v - lo) / span * height
+            if level >= r:
+                line += "█"
+            elif level > r - 1:
+                line += blocks[max(0, min(7, int((level - (r - 1)) * 8)))]
+            else:
+                line += " "
+        rows.append(line)
+    return rows, lo, hi
+
+
+def load_history():
+    try:
+        with open(HISTORY) as f:
+            h = json.load(f)
+        return h if isinstance(h, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def save_run(adj, acc, raw, typed, errors, took):
+    """Дописать заезд в историю. Храним только итоги, без текста."""
+    h = load_history()
+    h.append({"t": int(time.time()), "wpm": round(adj, 1), "acc": round(acc, 1),
+              "raw": round(raw, 1), "keys": typed, "err": errors,
+              "secs": round(took, 1)})
+    h = h[-500:]                      # больше пятисот заездов хранить незачем
+    try:
+        os.makedirs(os.path.dirname(HISTORY), exist_ok=True)
+        with open(HISTORY, "w") as f:
+            json.dump(h, f)
+    except OSError:
+        pass
+    return h
+
+
+def drawer(p, w=None):
+    """Вернуть (pad, box, pair) для вывода в рамках.
+
+    Вынесено из отчёта, чтобы `jtype stats` выглядел точно так же: одна и та же
+    ширина, те же цвета из палитры обоев, те же отступы.
+    """
+    cols = term_size()[0]
+    w = w or min(cols - 8, 62)
+    pad = " " * max(2, (cols - w) // 2)
+    L = fg(p["line"])
+    out = sys.stdout.write
+
+    def box(title, rows):
+        out(pad + L + "╭─ " + fg(p["accent"]) + title + L +
+            " " + "─" * max(0, w - 5 - len(title)) + "╮" + RESET + "\n")
+        for r in rows:
+            plain = len(r[1])
+            out(pad + L + "│ " + RESET + r[0] + " " * max(0, w - 3 - plain) +
+                L + "│" + RESET + "\n")
+        out(pad + L + "╰" + "─" * (w - 2) + "╯" + RESET + "\n")
+
+    def pair(label, value, colour=None):
+        c = colour or p["text"]
+        return (fg(p["dim"]) + label + " " + fg(c) + value + RESET, label + " " + value)
+
+    return pad, box, pair, w
+
+
+def show_stats(p):
+    """`jtype stats` — всё, что накопилось за время занятий."""
+    out = sys.stdout.write
+    hist = load_history()
+    pad, box, pair, w = drawer(p)
+    out("\n" + pad + fg(p["accent"]) + "jtype" + RESET +
+        fg(p["dim"]) + "   статистика за всё время" + RESET + "\n\n")
+    if not hist:
+        out(pad + fg(p["dim"]) + "Заездов пока нет. Наберите `jtype` и начните." +
+            RESET + "\n\n")
+        return
+
+    keys = sum(r["keys"] for r in hist)
+    secs = sum(r["secs"] for r in hist)
+    errs = sum(r["err"] for r in hist)
+    hours, mins = int(secs // 3600), int(secs % 3600 // 60)
+    time_s = ("%d ч %d мин" % (hours, mins)) if hours else ("%d мин" % mins)
+    box("Всего", [
+        pair("Заездов       ", "%d" % len(hist), p["accent"]),
+        pair("Знаков набрано", "%d" % keys),
+        pair("Из них мимо   ", "%d  (%.1f %%)" % (errs, 100 * errs / max(keys, 1))),
+        pair("Время за делом", time_s),
+    ])
+
+    best = max(hist, key=lambda r: r["wpm"])
+    bacc = max(hist, key=lambda r: r["acc"])
+    day = lambda r: time.strftime("%d.%m.%Y", time.localtime(r["t"]))
+    out("\n")
+    box("Рекорды", [
+        pair("Лучшая скорость ", "%.1f слов/мин" % best["wpm"], p["accent"]),
+        (fg(p["dim"]) + "                  поставлен " + day(best) + RESET,
+         "                  поставлен " + day(best)),
+        pair("Лучшая точность ", "%.1f %%" % bacc["acc"]),
+        (fg(p["dim"]) + "                  поставлена " + day(bacc) + RESET,
+         "                  поставлена " + day(bacc)),
+    ])
+
+    def avg(n):
+        part = hist[-n:] if n else hist
+        return sum(r["wpm"] for r in part) / len(part)
+
+    rows = [pair("За всё время   ", "%.1f слов/мин" % avg(0))]
+    if len(hist) > 10:
+        rows.append(pair("Последние 10   ", "%.1f слов/мин" % avg(10), p["accent"]))
+    if len(hist) > 50:
+        rows.append(pair("Последние 50   ", "%.1f слов/мин" % avg(50)))
+    out("\n")
+    box("В среднем", rows)
+
+    # Как дело идёт со временем: столбик на заезд, слева старые, справа свежие.
+    if len(hist) >= 6:
+        res = bar_chart([r["wpm"] for r in hist], w - 4, 7, p)
+        if res:
+            rows, lo, hi = res
+            body = [(fg(p["accent"]) + r + RESET, r) for r in rows]
+            tail = "%.0f … %.0f слов/мин, слева старые заезды" % (lo, hi)
+            body.append((fg(p["dim"]) + tail + RESET, tail))
+            out("\n")
+            box("Как идёт дело", body)
+    out("\n")
+    sys.stdout.flush()
+
+
+def run_test(ws, p):
+    out = sys.stdout.write
+    font_size(FONT_SIZE)
+    time.sleep(0.12)                      # дать kitty пересчитать размер окна
+    cols, rows = term_size()
+    # Узкая колонка — как в Keypunch: там в строке семь-восемь слов, и глаз не
+    # бегает через весь экран. Строки разделены пустой: так видно, где ты.
+    width = min(cols - 8, 46)
+    lines = wrap(ws, width)
+    left = max(2, (cols - width) // 2)
+    block = len(lines) * 2 - 1            # строки образца плюс пустые между ними
+    top = max(4, (rows - block) // 2 + 1) # 1-based строка первой строки образца
+    total = sum(len(l) for l in lines)
+
+    def head(speed, acc):
+        """Шапка: название слева, живая скорость справа.
+
+        Счётчика «сколько осталось» здесь нет намеренно: пользователь сказал, что не
+        должен видеть остаток — он отвлекает и подгоняет. Вместо него скорость
+        и точность прямо сейчас: они говорят о том, КАК идёт набор, а не сколько
+        ещё терпеть.
+
+        Рисуется при спрятанном курсоре и с возвратом на место — иначе kitty
+        примет перерисовку за движение курсора и пустит след посреди набора.
+        """
+        out("\x1b7" + HIDE)
+        right = ""
+        if speed > 0:
+            right = "%.0f сл/мин" % speed
+        line1 = fg(p["accent"]) + "jtype" + RESET
+        gap = max(1, width - 5 - len(right) - (6 if acc is not None else 0))
+        if acc is not None:
+            right = right + "  " + "%.0f%%" % acc
+        out("\x1b[%d;%dH\x1b[2K" % (top - 3, left + 1) + line1 + " " * gap +
+            fg(p["accent"]) + right + RESET)
+        # Черта — просто украшение, а не полоса хода: по ней тоже был бы виден остаток.
+        out("\x1b[%d;%dH" % (top - 2, left + 1) + fg(p["line"]) + "─" * width + RESET)
+        out(SHOW + "\x1b8")
+        sys.stdout.flush()
+
+    # Всё ставится ТОЧНЫМ позиционированием, а не переводами строк: при выводе
+    # через \n экран прокручивается, если содержимое не помещается, и блок
+    # съезжает вверх. Здесь он всегда ровно посередине окна.
+    out("\x1b[2J")
+    for n, line in enumerate(lines):
+        out("\x1b[%d;%dH" % (top + n * 2, left + 1) + fg(p["dim"]) + line + RESET)
+    # Подсказки внизу нет: пользователь попросил убрать (28.09.2026). Клавиши те же —
+    # Ctrl+Backspace стирает слово, Ctrl+R начинает заново, Esc выходит.
+    out("\x1b[%d;%dH" % (top, left + 1))
+    sys.stdout.flush()
+    head(0, None)
+
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    started = None
+    typed = errors = 0
+    done = 0
+    per_key = defaultdict(lambda: [0, 0])      # символ → [верно, всего]
+    stamps = []                                # время каждого нажатия
+    restart = False
+    try:
+        tty.setraw(fd)
+        li = 0
+        while li < len(lines):
+            line = lines[li]
+            i = 0
+            wrong = [False] * len(line)      # какие места набраны с ошибкой
+            while i < len(line):
+                ch = sys.stdin.read(1)
+                if ch in ("\x03", "\x1b"):
+                    raise KeyboardInterrupt
+                if ch == "\x12":                    # Ctrl+R — заново
+                    restart = True
+                    raise KeyboardInterrupt
+                # Забой. Курсор ПРЯЧЕМ на время отката: kitty пускает след на
+                # любое движение курсора, и при стирании экран дёргался —
+                # пользователь попросил убрать (28.09.2026). Под спрятанным курсором
+                # событие не возникает.
+                if ch in ("\x7f", "\b", "\x08", "\x17"):
+                    # Ctrl+Backspace приходит как \x17 (а в kitty часто как \x08):
+                    # стираем слово целиком, до предыдущего пробела.
+                    whole = ch in ("\x17", "\x08")
+                    if i == 0:
+                        continue
+                    n = 1
+                    if whole:
+                        # Начало слова — значит, стирать в нём нечего, и мы
+                        # возвращаемся к ПРЕДЫДУЩЕМУ. Но только если в нём есть
+                        # ошибка: иначе набранное верно слово не тронуть. Так же
+                        # устроен monkeytype, об этом и просил пользователь 28.09.2026.
+                        j = i - 1
+                        while j > 0 and line[j] == " ":
+                            j -= 1
+                        while j > 0 and line[j - 1] != " ":
+                            j -= 1
+                        at_word_start = (j == i) or all(line[x] == " " for x in range(j, i))
+                        if at_word_start:
+                            e = j
+                            while e > 0 and line[e - 1] == " ":
+                                e -= 1
+                            b = e
+                            while b > 0 and line[b - 1] != " ":
+                                b -= 1
+                            if e > b and any(wrong[b:e]):
+                                j = b
+                            else:
+                                continue      # прошлое слово верно — не трогаем
+                        n = i - j
+                    out(HIDE)
+                    for _ in range(n):
+                        i -= 1
+                        wrong[i] = False
+                        out("\x1b[D" + fg(p["dim"]) + line[i] + RESET + "\x1b[D")
+                    out(SHOW)
+                    done = max(0, done - n)
+                    sys.stdout.flush()
+                    continue
+                if ch == "\r":
+                    continue
+                if started is None:
+                    started = time.time()
+                good = ch == line[i]
+                typed += 1
+                now = time.time()
+                stamps.append(now)
+                k = line[i]
+                per_key[k][1] += 1
+                if good:
+                    per_key[k][0] += 1
+                else:
+                    errors += 1
+                    wrong[i] = True
+                if good:
+                    out(fg(p["text"]) + line[i] + RESET)
+                else:
+                    shown = line[i] if line[i] != " " else "_"
+                    out(bg(p["bad"]) + fg((18, 18, 28)) + shown + RESET)
+                sys.stdout.flush()
+                i += 1
+                done += 1
+                if done % 6 == 0 and len(stamps) > 8:
+                    dt = stamps[-1] - stamps[max(0, len(stamps) - 25)]
+                    n = min(25, len(stamps) - 1)
+                    sp = (n / 5) / (dt / 60) if dt > 0 else 0
+                    head(sp, 100 * (typed - errors) / typed)
+            li += 1
+            if li < len(lines):
+                out("\x1b[2B\x1b[%dG" % (left + 1))
+                sys.stdout.flush()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        out(SHOW)
+
+    out("\x1b[%d;1H\n" % min(rows, top + block + 1))
+    return started, typed, errors, per_key, stamps, restart
+
+
+# ── салют на рекорд ────────────────────────────────────────────────────────
+# Раньше рекорд отмечался одной строкой в таблице итогов — её легко было не
+# заметить. пользователь попросил, чтобы рекорд было видно «точно и эффектно»
+# (29.09.2026): вспышка, салют, крупная надпись с бликом, звук.
+RECORD_SOUND = "/usr/share/sounds/freedesktop/stereo/complete.oga"
+GOLD = (255, 207, 92)
+SHOW_SECS = 5.0          # сколько длится салют
+SKIP_AFTER = 1.0         # раньше клавиши не принимаются: последнее нажатие
+                         # заезда иначе смахивало бы салют, не дав его увидеть
+
+# Буквы pyfiglet (mono12) нарисованы четвертинками клетки; растягиваем их по
+# пикселям 2×2, как в ~/.local/bin/text, — повтор знака дал бы лесенку.
+_QUAD = {" ": 0, "▘": 1, "▝": 2, "▀": 3, "▖": 4, "▌": 5, "▞": 6, "▛": 7,
+         "▗": 8, "▚": 9, "▐": 10, "▜": 11, "▄": 12, "▙": 13, "▟": 14, "█": 15}
+_QUAD_CH = {v: k for k, v in _QUAD.items()}
+
+
+def _big(text, max_w, max_h):
+    """Крупная надпись блочными буквами, самая большая, что влезает. [] — если нет pyfiglet."""
+    try:
+        import pyfiglet
+    except ImportError:
+        return []
+    art = pyfiglet.Figlet(font="mono12", width=10 ** 6).renderText(text).split("\n")
+    art = [l.rstrip() for l in art]
+    while art and not art[-1]:
+        art.pop()
+    while art and not art[0]:
+        art.pop(0)
+    w = max((len(l) for l in art), default=0)
+    if not w or w > max_w or len(art) > max_h:
+        return []
+    k = max(1, min(max_w // w, max_h // len(art), 4))
+    rows = [l.ljust(w) for l in art]
+    if k == 1 or any(ch not in _QUAD for l in rows for ch in l):
+        return rows
+    px = []
+    for l in rows:
+        top, bot = [], []
+        for ch in l:
+            b = _QUAD[ch]
+            top += [b & 1, b >> 1 & 1]
+            bot += [b >> 2 & 1, b >> 3 & 1]
+        px += [top, bot]
+    big = []
+    for r in px:
+        wide = [v for v in r for _ in range(k)]
+        big += [wide] * k
+    return ["".join(_QUAD_CH[a[x] | a[x + 1] << 1 | b[x] << 2 | b[x + 1] << 3]
+                    for x in range(0, len(a), 2)) for a, b in zip(big[::2], big[1::2])]
+
+
+def _mix(a, b, k):
+    return tuple(int(x + (y - x) * k) for x, y in zip(a, b))
+
+
+def celebrate(p, adj, best):
+    """Салют на весь экран: вспышка, ракеты, «РЕКОРД!» с бликом, цифры, звук."""
+    import math
+    import select as _select
+    cols, rows = term_size()
+    fd = sys.stdin.fileno()
+    try:
+        subprocess.Popen(["paplay", RECORD_SOUND], stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+
+    # Надписи — по-английски (просьба пользователя 29.09.2026). «NEW RECORD!» широкая:
+    # в узком окне берётся «RECORD!», а если и она не влезает — обычная строка.
+    title = []
+    for word in ("NEW RECORD!", "RECORD!"):
+        title = _big(word, cols - 4, max(5, rows // 2 - 2))
+        if title:
+            break
+    if not title:
+        title = ["NEW RECORD!"]
+    tw = max((len(l) for l in title), default=0)
+    speed = "%.1f WPM" % adj
+    delta = ("previous %.1f   ·   +%.1f" % (best, adj - best)) if best else "first counted result"
+    block_h = len(title) + 3
+    ty = max(0, (rows - block_h) // 2)
+    tx = max(0, (cols - tw) // 2)
+
+    colours = [p["accent"], GOLD, _mix(p["accent"], (255, 255, 255), 0.5), (255, 255, 255),
+               _mix(GOLD, (255, 120, 80), 0.5)]
+    sparks = "✦*+·."
+    rockets, parts = [], []
+    rnd = random.Random()
+    next_rocket = 0.0
+
+    old = termios.tcgetattr(fd)
+    out = sys.stdout.write
+    out("\x1b[?1049h" + HIDE + "\x1b[?7l")
+    start = time.monotonic()
+    last = start
+    try:
+        tty.setcbreak(fd)
+        termios.tcflush(fd, termios.TCIFLUSH)       # хвост заезда не должен пропустить салют
+        while True:
+            now = time.monotonic()
+            t, dt = now - start, min(0.1, now - last)
+            last = now
+            if t > SHOW_SECS:
+                break
+            # ракеты: чаще в начале, к концу реже
+            if t >= next_rocket and t < SHOW_SECS - 1.2:
+                rockets.append({"x": rnd.uniform(cols * 0.1, cols * 0.9), "y": rows - 1.0,
+                                "vy": -rnd.uniform(rows * 1.1, rows * 1.6),
+                                "top": rnd.uniform(rows * 0.12, rows * 0.45),
+                                "c": rnd.choice(colours)})
+                next_rocket = t + (0.12 if t < 1.5 else 0.3) * rnd.uniform(0.6, 1.4)
+            for r in rockets[:]:
+                r["y"] += r["vy"] * dt
+                if r["y"] <= r["top"]:
+                    rockets.remove(r)
+                    n = rnd.randint(28, 46)
+                    power = rnd.uniform(0.7, 1.2)
+                    for i in range(n):
+                        a = 2 * math.pi * i / n + rnd.uniform(-0.1, 0.1)
+                        v = rnd.uniform(0.5, 1.0) * power * rows * 0.9
+                        # клетка вдвое выше, чем шире — по горизонтали разгон вдвое больше
+                        parts.append({"x": r["x"], "y": r["y"], "vx": math.cos(a) * v * 2.0,
+                                      "vy": math.sin(a) * v, "life": rnd.uniform(0.9, 1.6),
+                                      "age": 0.0, "c": rnd.choice((r["c"], r["c"], GOLD))})
+            for q in parts[:]:
+                q["age"] += dt
+                if q["age"] >= q["life"]:
+                    parts.remove(q)
+                    continue
+                q["vy"] += rows * 0.9 * dt              # тяжесть
+                q["vx"] *= 1 - 1.6 * dt                 # сопротивление воздуха
+                q["vy"] *= 1 - 1.2 * dt
+                q["x"] += q["vx"] * dt
+                q["y"] += q["vy"] * dt
+
+            grid = [[" "] * cols for _ in range(rows)]
+            col = [[None] * cols for _ in range(rows)]
+            for r in rockets:
+                x, y = int(r["x"]), int(r["y"])
+                for k, ch in enumerate("│╵"):
+                    if 0 <= x < cols and 0 <= y + k < rows:
+                        grid[y + k][x] = ch if k else "▲"
+                        col[y + k][x] = _mix(r["c"], (0, 0, 0), 0.4 * k)
+            for q in parts:
+                x, y = int(q["x"]), int(q["y"])
+                if 0 <= x < cols and 0 <= y < rows:
+                    f = q["age"] / q["life"]
+                    grid[y][x] = sparks[min(len(sparks) - 1, int(f * len(sparks)))]
+                    col[y][x] = _mix(q["c"], (30, 30, 40), f ** 1.5)
+            # надпись: проявляется за 0.3 с, по ней бежит блик
+            if t > 0.15 and title:
+                band = ((t - 0.15) * 0.55 % 1.4 - 0.2) * tw
+                for i, l in enumerate(title[:int(len(title) * min(1, (t - 0.15) / 0.3)) + 1]):
+                    y = ty + i
+                    if not 0 <= y < rows:
+                        continue
+                    for j, ch in enumerate(l):
+                        if ch != " " and 0 <= tx + j < cols:
+                            base = _mix(GOLD, p["accent"], j / max(1, tw))
+                            k = max(0.0, 1 - abs(j - band) / max(6, tw / 8))
+                            grid[y][tx + j] = ch
+                            col[y][tx + j] = _mix(base, (255, 255, 255), k * 0.9)
+            if t > 0.5:
+                for text, y, c in ((speed, ty + len(title) + 1, p["accent"]),
+                                   (delta, ty + len(title) + 2, GOLD)):
+                    x0 = max(0, (cols - len(text)) // 2)
+                    if 0 <= y < rows:
+                        for j, ch in enumerate(text[:cols - x0]):
+                            grid[y][x0 + j] = ch
+                            col[y][x0 + j] = c
+            if t > 1.4:
+                hint = "press any key"
+                y, x0 = rows - 1, max(0, (cols - len(hint)) // 2)
+                for j, ch in enumerate(hint[:cols - x0]):
+                    grid[y][x0 + j], col[y][x0 + j] = ch, p["dim"]
+
+            flash = t < 0.14                          # вспышка в самом начале
+            buf = ["\x1b[?2026h\x1b[H"]
+            if flash:
+                buf.append(bg(_mix(p["accent"], (255, 255, 255), 0.3)))
+            for y in range(rows):
+                buf.append("\x1b[%d;1H" % (y + 1))
+                cur = None
+                for x in range(cols):
+                    c = col[y][x]
+                    if c != cur and c is not None:
+                        buf.append("\x1b[1m" + fg(c))
+                        cur = c
+                    buf.append(grid[y][x])
+            buf.append(RESET + "\x1b[?2026l")
+            out("".join(buf))
+            sys.stdout.flush()
+
+            ready, _, _ = _select.select([fd], [], [], 1 / 30)
+            if ready:
+                os.read(fd, 64)
+                if t > SKIP_AFTER:
+                    break
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        out(RESET + "\x1b[?7h\x1b[?1049l" + SHOW)
+        sys.stdout.flush()
+
+
+def report(started, typed, errors, per_key, stamps, p):
+    out = sys.stdout.write
+    took = (time.time() - started) if started else 0
+    if took <= 0.5 or not typed:
+        return
+    raw = (typed / 5) / (took / 60)
+    acc = 100 * (typed - errors) / typed
+    adj = raw * acc / 100
+
+    # Личные рекорды. Заезды короче двадцати нажатий в зачёт не идут:
+    # на них скорость случайна и рекорд ставится «на удачу».
+    # Считаются ДО вывода итогов: на рекорд сначала салют, потом таблица.
+    hist = load_history() if typed < 20 else save_run(adj, acc, raw, typed, errors, took)
+    prev = [r for r in hist[:-1]] if typed >= 20 else hist
+    best = max((r["wpm"] for r in prev), default=0.0)
+    record = bool(prev) and typed >= 20 and adj > best
+    if record:
+        celebrate(p, adj, best)
+
+    pad, box, pair, w = drawer(p)
+
+    out("\n" + pad + fg(p["accent"]) + "jtype" + RESET +
+        fg(p["dim"]) + "   итог заезда" + RESET + "\n\n")
+    box("Итог", [
+        pair("Скорость с поправкой", "%.1f слов/мин" % adj, p["accent"]),
+        pair("Точность            ", "%.1f %%" % acc),
+        pair("Чистая скорость     ", "%.1f слов/мин" % raw),
+        pair("Верных нажатий      ", "%d из %d" % (typed - errors, typed)),
+        pair("Время               ", "%.0f с" % took),
+    ])
+
+    if prev:
+        best_acc = max(r["acc"] for r in prev)
+        last10 = prev[-10:]
+        avg = sum(r["wpm"] for r in last10) / len(last10)
+        rows = []
+        if record:
+            # Плашкой, а не просто цветом: так строку не пропустить глазами.
+            tag = " ★ NEW RECORD ★ "
+            more = "  +%.1f, previous %.1f" % (adj - best, best)
+            rows.append((bg(GOLD) + fg((24, 20, 10)) + "\x1b[1m" + tag + RESET +
+                         fg(GOLD) + more + RESET, tag + more))
+        rows += [
+            pair("Лучший результат    ", "%.1f слов/мин" % max(best, adj if typed >= 20 else 0),
+                 p["accent"]),
+            pair("Лучшая точность     ", "%.1f %%" % max(best_acc, acc if typed >= 20 else 0)),
+            pair("Среднее за 10 заездов", "%.1f слов/мин" % avg),
+            pair("Всего заездов       ", "%d" % len(hist)),
+        ]
+        out("\n")
+        box("Личные рекорды", rows)
+
+    worst = sorted(((v[0] / v[1], k, v) for k, v in per_key.items() if v[1] >= 2))[:5]
+    if worst:
+        rows = []
+        for r, k, v in worst:
+            if r >= 1.0:
+                continue
+            name = "пробел" if k == " " else k
+            rows.append((fg(p["bad"]) + "  " + name + RESET + fg(p["dim"]) +
+                         "  — %.0f %% (%d из %d)" % (r * 100, v[0], v[1]) + RESET,
+                         "  %s  — %.0f %% (%d из %d)" % (name, r * 100, v[0], v[1])))
+        if rows:
+            out("\n")
+            box("Хуже всего даются", rows)
+
+    # Скорость по ходу заезда: мгновенная, по окну в 10 нажатий.
+    series = []
+    win = 10
+    for i in range(win, len(stamps)):
+        dt = stamps[i] - stamps[i - win]
+        if dt > 0:
+            series.append((win / 5) / (dt / 60))
+    if len(series) >= 8:
+        res = bar_chart(series, w - 4, 6, p)
+        if res:
+            rows, lo, hi = res
+            out("\n")
+            body = [(fg(p["accent"]) + r + RESET, r) for r in rows]
+            body.append((fg(p["dim"]) + "%.0f … %.0f слов/мин по ходу заезда" % (lo, hi) + RESET,
+                         "%.0f … %.0f слов/мин по ходу заезда" % (lo, hi)))
+            box("Скорость по ходу", body)
+    out("\n" + " " * MARGIN + fg(p["dim"]) +
+        "Ctrl+R — ещё заезд, Esc — выход" + RESET + "\n\n")
+    sys.stdout.flush()
+
+
+def main():
+    # Кегль поднимается на время заезда, поэтому возврат — в finally:
+    # при выходе по Esc окно иначе осталось бы крупным.
+    try:
+        args = sys.argv[1:]
+        p = palette()
+        if args and args[0] in ("stats", "-s", "--stats"):
+            show_stats(p)
+            return 0
+        if args and args[0] == "demo":          # посмотреть салют без рекорда
+            hist = load_history()
+            best = max((r["wpm"] for r in hist), default=60.0)
+            celebrate(p, best + 3.4, best)
+            return 0
+        while True:
+            if args and args[0] == "-f" and len(args) > 1:
+                with open(args[1], encoding="utf-8") as f:
+                    ws = f.read().split()
+            else:
+                n = int(args[0]) if args and args[0].isdigit() else 50
+                ws = words(n)
+            started, typed, errors, per_key, stamps, restart = run_test(ws, p)
+            if restart:
+                continue
+
+            font_size(0)                      # отчёт читаем обычным кеглем
+            report(started, typed, errors, per_key, stamps, p)
+            # Ждём выбора: ещё заезд или выход.
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                while True:
+                    ch = sys.stdin.read(1)
+                    if ch in ("\x03", "\x1b", "q"):
+                        return 0
+                    if ch == "\x12":
+                        break
+            except KeyboardInterrupt:
+                return 0
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    finally:
+        font_size(0)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

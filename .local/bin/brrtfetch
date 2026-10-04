@@ -1,0 +1,53 @@
+#!/bin/sh
+# brrtfetch — случайная гифка из ~/Pictures/brrtfetch/gifs.     21.09.2026
+#
+#     brrtfetch            случайная гифка с обычными настройками
+#     brrtfetch -l         список всех доступных
+#     brrtfetch <имя>      конкретная: brrtfetch gengar, brrtfetch arch
+#     brrtfetch … путь.gif если указан файл — просто передаём всё программе
+#
+# Обёртка поверх /usr/bin/brrtfetch. Сама программа из пакета brrtfetch-git
+# содержит только двоичный файл, гифок в нём нет — они лежат отдельно, взяты
+# из репозитория ferrebarrat/brrtfetch. Из-за их отсутствия и была паника
+# «no such file or directory».
+#
+# Ваша постоянная гифка одной командой — brrt.
+
+set -u
+REAL=/usr/bin/brrtfetch
+GIFS="$HOME/Pictures/brrtfetch/gifs"
+WIDTH=${BRRT_WIDTH:-60}
+FPS=${BRRT_FPS:-20}
+MULT=${BRRT_MULT:-10}
+OFFSET=${BRRT_OFFSET:-3}
+
+list() { find "$GIFS" -name '*.gif' 2>/dev/null | sort; }
+
+# Указан файл .gif — не вмешиваемся, это прямой вызов программы.
+for a in "$@"; do
+    case "$a" in *.gif) exec "$REAL" "$@";; esac
+done
+
+case "${1:-}" in
+    -l|--list)
+        list | sed "s|$GIFS/||; s|\.gif$||" | sed 's/^/  /'
+        exit 0 ;;
+    -h|--help)
+        sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+        echo
+        exec "$REAL" --help ;;
+esac
+
+[ -d "$GIFS" ] || { echo "brrtfetch: нет гифок в $GIFS" >&2; exit 1; }
+
+if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
+    name=$1; shift
+    gif=$(list | grep -i "/$name\.gif$" | head -1)
+    [ -n "$gif" ] || gif=$(list | grep -i "$name" | head -1)
+    [ -n "$gif" ] || { echo "brrtfetch: «$name» не найдена. Список: brrtfetch -l" >&2; exit 1; }
+else
+    gif=$(list | shuf -n1 2>/dev/null)
+    [ -n "$gif" ] || gif=$(list | awk -v s="$(date +%s)" 'BEGIN{srand(s)} {a[NR]=$0} END{print a[int(rand()*NR)+1]}')
+fi
+
+exec "$REAL" -width "$WIDTH" -fps "$FPS" -multiplier "$MULT" -offset "$OFFSET" "$@" "$gif"

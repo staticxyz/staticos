@@ -1,0 +1,62 @@
+// ────────────────────────────── ПРОЧЕЕ ───────────────────────────
+// Курсор. В Hyprland тему держал scripts/cursor_watch: он читал gsettings
+// и раздавал значение в hyprctl setcursor и в ~/.icons/default/index.theme.
+// niri задаёт тему сам и сам же выставляет XCURSOR_THEME и XCURSOR_SIZE,
+// поэтому cursor_watch тут не нужен — важен только index.theme для Xwayland,
+// а его cursor_watch уже написал.
+cursor {
+    xcursor-theme "breeze_cursors"
+    xcursor-size 24
+    // Прятать курсор через 3 с без движения (27.09.2026): поверх видео в Zen он
+    // висел, хотя кнопки плеера уже скрылись — браузер меняет курсор на
+    // «cursor: none» только при следующем движении мыши. Шевельнули — вернулся.
+    hide-after-inactive-ms 3000
+}
+
+// Курсор Jarvis — MSTCRSR в палитре обоев (23.09.2026). Файл пишет
+// ~/.config/hypr/scripts/cursor_colors.py при каждой смене обоев (зовётся из
+// theme_changer.sh) и чередует имя темы Jarvis-Cursor-A/B. include перекрывает
+// блок выше; optional — если файла нет, остаётся breeze_cursors.
+// Выключить насовсем: python3 ~/.config/hypr/scripts/cursor_colors.py --off
+include optional=true "~/.cache/matugen/niri-cursor.kdl"
+
+// Дашборд на экране ноутбука: правила для окон dash-* собирает
+// scripts/dashboard из dashboard.json (см. шапку скрипта). 24.09.2026.
+include optional=true "~/.config/niri/dashboard-rules.kdl"
+
+environment {
+    QT_QPA_PLATFORMTHEME "qt6ct"
+    // Breeze — это СТИЛЬ Qt; "Breeze-Dark" невалиден и роняет Dolphin в белое.
+    QT_STYLE_OVERRIDE "Breeze"
+    // GTK4 4.22 по умолчанию берёт Vulkan; на гибридном Intel+NVIDIA это
+    // намертво вешало окна GTK. OpenGL — устойчивый путь (env.lua).
+    GSK_RENDERER "opengl"
+}
+
+// Без клиентских заголовков. В Hyprland у kitty не было полосы с названием и
+// кнопками — там композитор сам объявляет серверные рамки. niri по умолчанию
+// этого не делает, и kitty рисовал себе заголовок (21.09.2026). Действует на
+// окна, открытые ПОСЛЕ правки: уже запущенные программы надо перезапустить.
+prefer-no-csd
+
+screenshot-path "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
+
+hotkey-overlay {
+    skip-at-startup
+}
+
+// X11-приложения: niri сам поднимает xwayland-satellite, когда первый
+// X11-клиент стучится в сокет, и перезапускает его, если тот умер.
+// Отдельной настройки не нужно — интеграция включена по умолчанию.
+
+overview {
+    zoom 0.5
+}
+
+gestures {
+    // Левый верхний угол — обзор. Четыре пальца вверх по тачпаду тоже.
+    hot-corners {
+        top-left
+    }
+}
+

@@ -1,0 +1,82 @@
+// Собирается скриптом ~/.config/niri/scripts/dashboard из dashboard.json —
+// руками не править. Подключено из config.kdl через include.
+
+window-rule {
+    match app-id=r#"^dash-tmatrix$"#
+    open-on-workspace "󰐷"
+    open-floating true
+    open-focused false
+    default-column-width { fixed 424; }
+    default-window-height { fixed 287; }
+    default-floating-position x=17 y=5 relative-to="top-left"
+}
+
+window-rule {
+    match app-id=r#"^dash-tmatrix2$"#
+    open-on-workspace "󰐷"
+    open-floating true
+    open-focused false
+    default-column-width { fixed 420; }
+    default-window-height { fixed 284; }
+    default-floating-position x=1481 y=4 relative-to="top-left"
+}
+
+window-rule {
+    match app-id=r#"^dash-date$"#
+    open-on-workspace "󰐷"
+    open-floating true
+    open-focused false
+    default-column-width { fixed 799; }
+    default-window-height { fixed 130; }
+    default-floating-position x=540 y=7 relative-to="top-left"
+}
+
+window-rule {
+    match app-id=r#"^dash-pomo$"#
+    open-on-workspace "󰐷"
+    open-floating true
+    open-focused false
+    default-column-width { fixed 798; }
+    default-window-height { fixed 49; }
+    default-floating-position x=543 y=165 relative-to="top-left"
+}
+
+window-rule {
+    match app-id=r#"^dash-tclock$"#
+    open-on-workspace "󰐷"
+    open-floating true
+    open-focused false
+    default-column-width { fixed 612; }
+    default-window-height { fixed 111; }
+    default-floating-position x=631 y=367 relative-to="top-left"
+}
+
+window-rule {
+    match app-id=r#"^dash-cava$"#
+    open-on-workspace "󰐷"
+    open-floating true
+    open-focused false
+    default-column-width { fixed 1888; }
+    default-window-height { fixed 101; }
+    default-floating-position x=13 y=496 relative-to="top-left"
+}
+
+window-rule {
+    match app-id=r#"^dash-brrt$"#
+    open-on-workspace "󰐷"
+    open-floating true
+    open-focused false
+    default-column-width { fixed 904; }
+    default-window-height { fixed 403; }
+    default-floating-position x=13 y=621 relative-to="top-left"
+}
+
+window-rule {
+    match app-id=r#"^dash-ffetch$"#
+    open-on-workspace "󰐷"
+    open-floating true
+    open-focused false
+    default-column-width { fixed 957; }
+    default-window-height { fixed 402; }
+    default-floating-position x=945 y=623 relative-to="top-left"
+}

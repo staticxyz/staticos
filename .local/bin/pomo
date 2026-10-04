@@ -1,0 +1,711 @@
+#!/bin/sh
+# pomo — помидорный таймер без фонового процесса.
+#
+# Ничего не тикает: в файле состояния лежат фаза, момент старта и длительность,
+# а остаток всегда вычисляется из текущего времени. Звонок в конце отрезка
+# ставит одноразовый transient-таймер systemd, поэтому отсчёт переживает
+# закрытие терминала и перезапуск waybar и не нуждается в живом процессе.
+#
+#   состояние   $XDG_RUNTIME_DIR/pomo/state   (tmpfs, чистится при перезагрузке —
+#               ровно как и transient-таймеры, так что рассинхрона не бывает)
+#   журнал      ~/.local/share/pomo/log.tsv
+#   настройки   ~/.config/pomo/config
+
+set -u
+
+SELF=$(readlink -f "$0")
+
+: "${XDG_RUNTIME_DIR:=/tmp}"
+: "${XDG_CONFIG_HOME:=$HOME/.config}"
+: "${XDG_DATA_HOME:=$HOME/.local/share}"
+
+RUN="${POMO_RUN:-$XDG_RUNTIME_DIR/pomo}"
+STATE="$RUN/state"
+LOCK="$RUN/lock"
+TODAY="$RUN/today"
+DATA="${POMO_DATA:-$XDG_DATA_HOME/pomo}"
+LOG="$DATA/log.tsv"
+CONF="${POMO_CONF:-$XDG_CONFIG_HOME/pomo/config}"
+
+# ---- значения по умолчанию, переопределяются в $CONF ----
+WORK=25m
+SHORT=5m
+LONG=15m
+ROUNDS=4            # рабочих отрезков до длинного перерыва
+CUSTOM_BREAK=1      # после своего отрезка (pomo 1h30m) тоже перерыв
+AUTO_BREAK=1        # перерыв стартует сам, как только кончился фокус
+AUTO_WORK=0         # а вот обратно в работу — только по команде
+DND=1               # тишина swaync на время фокуса
+VOLUME=45           # громкость звонка, 0..100
+SOUND_WORK_END=/usr/share/sounds/Oxygen-Sys-App-Positive.ogg
+SOUND_BREAK_END=/usr/share/sounds/Oxygen-Im-Nudge.ogg
+NOTIFY_ICON=alarm-symbolic
+# Намеренно не critical: в ~/.config/swaync/config.json стоит
+# "timeout-critical": 0, то есть критическое уведомление не гаснет никогда
+# и висит поверх экрана, пока его не смахнёшь руками. Звонок и так не
+# теряется — он остаётся в центре уведомлений, и цифра в баре тоже на месте.
+URGENCY=normal
+WAYBAR_SIGNAL=8     # 5 занят mpris, 9 — часами
+ICON_WORK="󰔟"
+ICON_BREAK="󰅶"
+ICON_PAUSED=""
+ICON_IDLE="󰔟"
+
+[ -r "$CONF" ] && . "$CONF"
+[ -d "$RUN" ] || mkdir -p "$RUN"
+[ -d "$DATA" ] || mkdir -p "$DATA"
+
+# ---------------- состояние ----------------
+
+phase=idle started=0 duration=0 paused=0 round=0 began=0 dnd=0 timer='' next='' task='' custom=0
+
+load() {
+    phase=idle started=0 duration=0 paused=0 round=0 began=0 dnd=0 timer='' next='' task='' custom=0
+    [ -f "$STATE" ] || return 0
+    while IFS='=' read -r k v; do
+        case $k in
+            phase) phase=$v ;;  started) started=$v ;;  duration) duration=$v ;;
+            paused) paused=$v ;;  round) round=$v ;;    began) began=$v ;;
+            dnd) dnd=$v ;;      timer) timer=$v ;;      next) next=$v ;;
+            task) task=$v ;;    custom) custom=$v ;;
+        esac
+    done < "$STATE"
+}
+
+# Пишем через временный файл: status читает состояние раз в секунду из waybar,
+# и ловить его на полузаписанном файле не хочется.
+save() {
+    tmp="$STATE.$$"
+    printf 'phase=%s\nstarted=%s\nduration=%s\npaused=%s\nround=%s\nbegan=%s\ndnd=%s\ntimer=%s\nnext=%s\ntask=%s\ncustom=%s\n' \
+        "$phase" "$started" "$duration" "$paused" "$round" "$began" "$dnd" "$timer" "$next" "$task" "$custom" \
+        > "$tmp" && mv -f "$tmp" "$STATE"
+}
+
+lock()   { exec 9>"$LOCK"; flock 9; }
+unlock() { exec 9>&-; }
+
+# ---------------- мелкие утилиты ----------------
+
+# Длительность в секунды: 25 (минуты), 25m, 90s, 1h, 1h35m, 1h30 (хвост без
+# единицы — минуты), в любом регистре и по-русски: 1ч35м, 40мин, 90с.
+# Не длительность — пустой вывод и код 1.
+parse_dur() {
+    v=$(printf '%s' "$1" | tr 'HMS' 'hms' | sed -e 's/мин/m/g' -e 's/[чЧ]/h/g' -e 's/[мМ]/m/g' -e 's/[сС]/s/g')
+    case $v in ''|*[!0-9hms]*|[hms]*) return 1 ;; esac
+    case $v in *[0-9]) v=${v}m ;; esac
+    t=0
+    while [ -n "$v" ]; do
+        num=${v%%[hms]*}
+        v=${v#"$num"}
+        u=${v%"${v#?}"}
+        v=${v#?}
+        [ -n "$num" ] || return 1            # «1hm»: единица без числа
+        # Ведущие нули срезаем: $(( 08 )) shell читает как кривую восьмеричную.
+        while :; do case $num in 0?*) num=${num#0} ;; *) break ;; esac; done
+        [ ${#num} -le 6 ] || return 1
+        case $u in
+            h) t=$(( t + num * 3600 )) ;;
+            m) t=$(( t + num * 60 )) ;;
+            s) t=$(( t + num )) ;;
+        esac
+    done
+    printf '%s' "$t"
+}
+
+# То же, но со знаком — для pomo add -5m.
+to_secs() {
+    case $1 in -*) sg=-; v=${1#-} ;; +*) sg=''; v=${1#+} ;; *) sg=''; v=$1 ;; esac
+    t=$(parse_dur "$v") || return 1
+    printf '%s%s' "$sg" "$t"
+}
+
+dur_of() {
+    case $1 in
+        work)  to_secs "$WORK"  || printf 1500 ;;
+        short) to_secs "$SHORT" || printf 300 ;;
+        long)  to_secs "$LONG"  || printf 900 ;;
+        *)     printf '0' ;;
+    esac
+}
+
+phase_ru() {
+    case $1 in
+        work)  printf 'Фокус' ;;
+        short) printf 'Перерыв' ;;
+        long)  printf 'Длинный перерыв' ;;
+        *)     printf 'Простой' ;;
+    esac
+}
+
+# Час и больше — 1:34:59, иначе 24:59: «95:00» в баре читается плохо.
+mmss() {
+    s=$1; [ "$s" -lt 0 ] && s=0
+    if [ "$s" -ge 3600 ]; then
+        printf '%d:%02d:%02d' $(( s / 3600 )) $(( s % 3600 / 60 )) $(( s % 60 ))
+    else
+        printf '%02d:%02d' $(( s / 60 )) $(( s % 60 ))
+    fi
+}
+
+human() {
+    h=$(( $1 / 3600 )); m=$(( ($1 % 3600) / 60 )); sc=$(( $1 % 60 ))
+    if [ "$h" -gt 0 ]; then
+        if [ "$m" -gt 0 ]; then printf '%d ч %d мин' "$h" "$m"; else printf '%d ч' "$h"; fi
+    elif [ "$m" -gt 0 ]; then
+        if [ "$m" -lt 10 ] && [ "$sc" -gt 0 ]; then printf '%d мин %d с' "$m" "$sc"
+        else printf '%d мин' "$m"; fi
+    else printf '%d с' "$1"; fi
+}
+
+# Название задачи приходит от человека, поэтому экранируем и разметку pango,
+# и кавычки JSON — waybar разбирает и то и другое.
+esc() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' \
+        -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
+
+refresh() { pkill -RTMIN+"$WAYBAR_SIGNAL" waybar 2>/dev/null; return 0; }
+
+# Каждый звонок заменяет предыдущий по id, а не копится стопкой.
+# Хинт x-canonical-private-synchronous делал бы то же самое, но swaync считает
+# такие уведомления одноразовыми и не кладёт их в центр — а звонок «перерыв
+# кончился» должен дождаться тебя, если ты отошёл от стола.
+notify() {
+    nid=0
+    [ -f "$RUN/notify-id" ] && read -r nid < "$RUN/notify-id"
+    case $nid in *[!0-9]*|'') nid=0 ;; esac
+    nid=$(notify-send -a Pomodoro -u "${3:-$URGENCY}" -i "$NOTIFY_ICON" \
+              -r "$nid" -p "$1" "$2" 2>/dev/null) \
+        && printf '%s\n' "$nid" > "$RUN/notify-id"
+    return 0
+}
+
+play() {
+    [ -n "${1:-}" ] && [ -r "$1" ] || return 0
+    command -v paplay >/dev/null 2>&1 || return 0
+    setsid paplay --volume=$(( VOLUME * 65536 / 100 )) "$1" >/dev/null 2>&1 &
+    return 0
+}
+
+# Тишину включаем только если её не включили до нас — иначе, погасив свою,
+# погасили бы и чужую.
+dnd_on() {
+    [ "$DND" = 1 ] || return 0
+    command -v swaync-client >/dev/null 2>&1 || return 0
+    [ "$(swaync-client -D 2>/dev/null)" = "true" ] && return 0
+    swaync-client -dn >/dev/null 2>&1 && dnd=1
+    return 0
+}
+
+dnd_off() {
+    [ "$dnd" = 1 ] || return 0
+    swaync-client -df >/dev/null 2>&1
+    dnd=0
+    return 0
+}
+
+# ---------------- таймер systemd ----------------
+
+# Имя юнита каждый раз новое и записано в состояние. Иначе ring, живущий
+# внутри pomo-ring.service, при постановке следующего таймера остановил бы
+# сам себя — и следующий отрезок никто бы не завёл.
+arm() {
+    disarm
+    left=$1
+    [ "$left" -lt 1 ] && left=1
+    timer="pomo-$(date +%s)-$$"
+    systemd-run --user --quiet --collect --unit="$timer" \
+        --description="pomo: конец отрезка" \
+        ${POMO_RUN:+--setenv=POMO_RUN="$POMO_RUN"} \
+        ${POMO_DATA:+--setenv=POMO_DATA="$POMO_DATA"} \
+        ${POMO_CONF:+--setenv=POMO_CONF="$POMO_CONF"} \
+        --on-active="$left" --timer-property=AccuracySec=1s \
+        "$SELF" ring >/dev/null 2>&1 || timer=''
+    return 0
+}
+
+disarm() {
+    [ -n "$timer" ] || return 0
+    systemctl --user stop "$timer.timer" "$timer.service" >/dev/null 2>&1
+    systemctl --user reset-failed "$timer.timer" "$timer.service" >/dev/null 2>&1
+    timer=''
+    return 0
+}
+
+# ---------------- журнал ----------------
+
+bump_today() { # $1 — сколько секунд фокуса добавить
+    d=$(date +%F); t=0; c=0
+    if [ -f "$TODAY" ]; then
+        IFS='	' read -r od ot oc < "$TODAY"
+        if [ "${od:-}" = "$d" ]; then t=${ot:-0}; c=${oc:-0}; fi
+    fi
+    printf '%s\t%s\t%s\n' "$d" "$(( t + $1 ))" "$(( c + 1 ))" > "$TODAY"
+}
+
+# Кэш на сегодня, чтобы status не гонял awk по журналу раз в секунду.
+today_stats() { # печатает "секунды помидоры" за $1 (дата в формате %F)
+    t=0; c=0
+    if [ -f "$TODAY" ]; then
+        IFS='	' read -r od ot oc < "$TODAY"
+        if [ "${od:-}" = "$1" ]; then t=${ot:-0}; c=${oc:-0}; fi
+    fi
+    printf '%s %s' "$t" "$c"
+}
+
+log_phase() { # $1 — статус, $2 — момент конца, $3 — сколько реально отсидели
+    [ "$began" -gt 0 ] || return 0
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$began" "$2" "$phase" "$duration" "$3" "$1" "$task" >> "$LOG"
+    if [ "$phase" = work ] && [ "$3" -ge 60 ]; then bump_today "$3"; fi
+    return 0
+}
+
+# ---------------- переходы между фазами ----------------
+
+begin_phase() { # $1 — фаза, $2 — сейчас, $3 — своя длина в секундах (необязательно)
+    phase=$1
+    if [ -n "${3:-}" ]; then duration=$3; custom=1
+    else duration=$(dur_of "$phase"); custom=0; fi
+    started=$2
+    began=$2
+    paused=0
+    next=''
+    [ "$phase" = work ] && dnd_on
+    arm "$duration"
+    save
+}
+
+go_idle() { # $1 — что будет следующим, когда попросят
+    phase=idle; started=0; duration=0; paused=0; began=0; custom=0; next=$1
+    disarm
+    save
+}
+
+# Закрывает текущую фазу и переводит в следующую.
+# $1 — статус для журнала (done | skipped), $2 — сейчас.
+finish_phase() {
+    st=$1; n=$2
+    if [ "$paused" -gt 0 ]; then rem=$(( started + duration - paused ))
+    else rem=$(( started + duration - n )); fi
+    [ "$rem" -lt 0 ] && rem=0
+    spent=$(( duration - rem ))
+    [ "$spent" -lt 0 ] && spent=0
+    log_phase "$st" "$n" "$spent"
+
+    old=$phase
+    dnd_off                     # сначала снимаем тишину, иначе свой же звонок и проглотим
+
+    if [ "$old" = work ]; then
+        round=$(( round + 1 ))
+        if [ $(( round % ROUNDS )) -eq 0 ]; then nxt=long; else nxt=short; fi
+        auto=$AUTO_BREAK
+        title="$(phase_ru "$old") завершён"
+        if [ "$custom" = 1 ]; then
+            [ "$st" = done ] && title='Время вышло'
+            [ "$CUSTOM_BREAK" = 1 ] || { nxt=work; auto=0; }
+        fi
+        if [ "$nxt" = work ]; then more='Следующий фокус — SUPER+P, своё время — SUPER+T.'
+        else more="Дальше: $(phase_ru "$nxt") на $(human "$(dur_of "$nxt")")."; fi
+        [ "$st" = done ] && play "$SOUND_WORK_END"
+        notify "$title" "$(human "$spent") в работе${task:+ · $task}. $more" "$URGENCY"
+    else
+        nxt=work
+        auto=$AUTO_WORK
+        [ "$st" = done ] && play "$SOUND_BREAK_END"
+        notify "$(phase_ru "$old") окончен" \
+               "Возвращаемся к работе: $(human "$(dur_of work)")." "$URGENCY"
+    fi
+
+    if [ "$auto" = 1 ]; then begin_phase "$nxt" "$n"; else go_idle "$nxt"; fi
+    refresh
+}
+
+# ---------------- команды ----------------
+
+# pomo 25m | pomo 1h35m [задача] — фокус на своё время. Это обычный рабочий
+# отрезок, только другой длины: SUPER+P, пропуск, стоп, колесо в баре и журнал
+# работают с ним так же. Если что-то уже идёт — оно закрывается (отсиженное
+# уходит в журнал) и уступает место новому: набрал время — значит, решил.
+cmd_custom() {
+    secs=$(parse_dur "$1") || {
+        printf 'Не понял время: %s (например 25m, 1h35m, 90s, 1ч20м)\n' "$1" >&2; return 1; }
+    [ "$secs" -ge 1 ] || { echo 'Время должно быть больше нуля.' >&2; return 1; }
+    [ "$secs" -le 86400 ] || { echo 'Больше суток не ставлю.' >&2; return 1; }
+    shift
+    load; n=$(date +%s)
+    abort_phase "$n"
+    [ $# -gt 0 ] && task=$(printf '%s' "$*" | tr '\t\n' '  ')
+    begin_phase work "$n" "$secs"
+    refresh
+    printf 'Фокус на %s%s · конец в %s\n' "$(human "$secs")" "${task:+ · $task}" \
+        "$(date -d "@$(( n + secs ))" +%H:%M)"
+}
+
+cmd_start() {
+    if [ $# -gt 0 ] && parse_dur "$1" >/dev/null; then cmd_custom "$@"; return; fi
+    load; n=$(date +%s)
+    if [ -n "$*" ]; then task=$(printf '%s' "$*" | tr '\t\n' '  '); fi
+    if [ "$phase" != idle ]; then
+        [ "$paused" -gt 0 ] && { cmd_resume_inner "$n"; return 0; }
+        save; refresh; return 0          # уже идёт — молча обновим задачу
+    fi
+    begin_phase work "$n"
+    refresh
+    printf 'Фокус на %s%s\n' "$(human "$duration")" "${task:+ · $task}"
+}
+
+cmd_break() {
+    load; n=$(date +%s)
+    case ${1:-} in
+        long|l)  p=long ;;
+        short|s|'') p=short ;;
+        *) printf 'Не понял: %s (short | long)\n' "$1" >&2; return 1 ;;
+    esac
+    [ "$phase" != idle ] && { rem_now="$n"; finish_phase skipped "$rem_now"; load; }
+    begin_phase "$p" "$(date +%s)"
+    refresh
+    printf '%s на %s\n' "$(phase_ru "$p")" "$(human "$duration")"
+}
+
+cmd_pause() {
+    load
+    [ "$phase" = idle ] && { echo 'Таймер не запущен.' >&2; return 1; }
+    [ "$paused" -gt 0 ] && return 0
+    paused=$(date +%s)
+    disarm
+    dnd_off                     # раз уж отвлеклись, пусть уведомления вернутся
+    save; refresh
+    printf 'Пауза · осталось %s\n' "$(mmss $(( started + duration - paused )))"
+}
+
+cmd_resume_inner() { # $1 — сейчас
+    started=$(( started + ($1 - paused) ))
+    paused=0
+    [ "$phase" = work ] && dnd_on
+    arm $(( started + duration - $1 ))
+    save; refresh
+}
+
+cmd_resume() {
+    load
+    [ "$paused" -gt 0 ] || { echo 'Таймер не на паузе.' >&2; return 1; }
+    n=$(date +%s)
+    cmd_resume_inner "$n"
+    printf '%s · осталось %s\n' "$(phase_ru "$phase")" "$(mmss $(( started + duration - n )))"
+}
+
+# Одна кнопка на всё: стоим — стартуем, идём — на паузу, на паузе — дальше.
+cmd_toggle() {
+    load; n=$(date +%s)
+    if [ "$phase" = idle ]; then
+        begin_phase "${next:-work}" "$n"
+        refresh
+    elif [ "$paused" -gt 0 ]; then
+        cmd_resume_inner "$n"
+    else
+        paused=$n; disarm; dnd_off; save; refresh
+    fi
+}
+
+cmd_skip() {
+    load
+    [ "$phase" = idle ] && { n=$(date +%s); begin_phase "${next:-work}" "$n"; refresh; return 0; }
+    finish_phase skipped "$(date +%s)"
+}
+
+# Закрывает идущий отрезок без звонка; в журнал уходит отсиженное.
+abort_phase() { # $1 — сейчас
+    [ "$phase" != idle ] || return 0
+    if [ "$paused" -gt 0 ]; then rem=$(( started + duration - paused ))
+    else rem=$(( started + duration - $1 )); fi
+    [ "$rem" -lt 0 ] && rem=0
+    log_phase aborted "$1" $(( duration - rem ))
+    disarm
+    return 0
+}
+
+cmd_stop() {
+    load
+    abort_phase "$(date +%s)"
+    dnd_off
+    go_idle ''
+    refresh
+    echo 'Остановлено.'
+}
+
+cmd_reset() {
+    load; round=0; save; refresh
+    echo 'Счётчик цикла обнулён.'
+}
+
+cmd_add() {
+    load
+    [ "$phase" = idle ] && { echo 'Таймер не запущен.' >&2; return 1; }
+    d=$(to_secs "${1:-5m}") || { printf 'Не понял время: %s\n' "$1" >&2; return 1; }
+    duration=$(( duration + d ))
+    [ "$duration" -lt 0 ] && duration=0
+    n=$(date +%s)
+    if [ "$paused" -gt 0 ]; then
+        [ "$paused" -gt $(( started + duration )) ] && paused=$(( started + duration ))
+        save; refresh
+    else
+        rem=$(( started + duration - n ))
+        if [ "$rem" -le 0 ]; then save; finish_phase done "$n"; return 0; fi
+        arm "$rem"; save; refresh
+        printf 'Осталось %s\n' "$(mmss "$rem")"
+    fi
+}
+
+cmd_task() {
+    load
+    [ $# -eq 0 ] && { printf '%s\n' "$task"; return 0; }
+    task=$(printf '%s' "$*" | tr '\t\n' '  ')
+    save; refresh
+}
+
+# Вызывается таймером systemd. Юнит уже отработал, поэтому первым делом
+# забываем его имя — останавливать нечего, а arm иначе прибьёт нас самих.
+cmd_ring() {
+    load
+    timer=''
+    [ "$phase" = idle ] && { save; return 0; }
+    [ "$paused" -gt 0 ] && { save; return 0; }
+    n=$(date +%s)
+    [ $(( started + duration - n )) -gt 0 ] && { save; return 0; }   # уже перезапустили
+    finish_phase done "$n"
+}
+
+# Окно «на сколько ставим» (SUPER+T). Сверху готовые длины и то, что ставил
+# недавно, но можно набрать своё: «40m», «1h30m отчёт», «1ч20м» — первое слово
+# время, остальное задача. Без времени («отчёт») — обычный помидор с задачей.
+cmd_ask() {
+    command -v rofi >/dev/null 2>&1 || { echo 'Нужен rofi.' >&2; return 1; }
+    pick=$(
+        {
+            printf '%s\n' 25m 15m 45m 1h 1h30m
+            [ -s "$LOG" ] && tail -n 300 "$LOG" | awk -F'\t' '
+                function fmt(x,   h, m, s, r) {
+                    h = int(x / 3600); m = int(x % 3600 / 60); s = x % 60; r = ""
+                    if (h) r = r h "h"; if (m) r = r m "m"; if (s) r = r s "s"
+                    return r
+                }
+                $3 == "work" && $7 != "" { l[++n] = fmt($4) " " $7 }
+                END { for (i = n; i >= 1 && c < 5; i--) if (!(l[i] in seen)) { seen[l[i]] = 1; print l[i]; c++ } }'
+        } | rofi -dmenu -i -p "$ICON_WORK" \
+                -theme-str 'entry { placeholder: "25m, 1h30m, 40m отчёт…"; }'
+    ) || return 0
+    set -f; set -- $pick; set +f
+    [ $# -gt 0 ] || return 0
+    if parse_dur "$1" >/dev/null; then
+        out=$("$SELF" "$@" 2>&1) || { notify 'Не понял время' "$out" normal; return 1; }
+    else
+        case $1 in
+            [0-9]*) notify 'Не понял время' "«$1» — например 25m, 1h35m, 1ч20м" normal; return 1 ;;
+        esac
+        "$SELF" start "$@" >/dev/null
+    fi
+    return 0
+}
+
+# ---------------- вывод ----------------
+
+bar() { # $1 — процент, $2 — ширина
+    w=$2; f=$(( $1 * w / 100 )); i=0; s=''
+    [ "$f" -gt "$w" ] && f=$w
+    [ "$f" -lt 0 ] && f=0
+    while [ "$i" -lt "$w" ]; do
+        if [ "$i" -lt "$f" ]; then s="$s█"; else s="$s░"; fi
+        i=$(( i + 1 ))
+    done
+    printf '%s' "$s"
+}
+
+cmd_status() {
+    fmt=${1:-text}
+    load
+    dt=$(date '+%s %F'); n=${dt%% *}; day=${dt##* }
+
+    # Таймер мог не сработать — ноутбук ушёл в сон, systemd перезапустился.
+    # Догоняем лениво: любая проверка статуса добивает просроченный отрезок.
+    if [ "$phase" != idle ] && [ "$paused" -eq 0 ] && [ $(( started + duration - n )) -le 0 ]; then
+        lock; load
+        n=$(date +%s)
+        if [ "$phase" != idle ] && [ "$paused" -eq 0 ] && [ $(( started + duration - n )) -le 0 ]; then
+            finish_phase done "$n"
+        fi
+        unlock; load
+    fi
+
+    if [ "$paused" -gt 0 ]; then rem=$(( started + duration - paused ))
+    else rem=$(( started + duration - n )); fi
+    [ "$rem" -lt 0 ] && rem=0
+    if [ "$duration" -gt 0 ]; then pct=$(( (duration - rem) * 100 / duration )); else pct=0; fi
+    # На паузе started+duration застыло в прошлом, поэтому конец считаем от «сейчас».
+    if [ "$paused" -gt 0 ]; then endt=$(( n + rem )); else endt=$(( started + duration )); fi
+
+    set -- $(today_stats "$day"); tsec=$1; tcnt=$2
+
+    if [ "$phase" = idle ]; then
+        icon=$ICON_IDLE; cls=idle; label=''
+    elif [ "$paused" -gt 0 ]; then
+        icon=$ICON_PAUSED; cls=paused; label=$(mmss "$rem")
+    elif [ "$phase" = work ]; then
+        icon=$ICON_WORK; cls=work; label=$(mmss "$rem")
+    else
+        icon=$ICON_BREAK; cls=break; label=$(mmss "$rem")
+    fi
+
+    case $fmt in
+    json)
+        tip="$(phase_ru "$phase")"
+        [ "$paused" -gt 0 ] && tip="$tip · на паузе"
+        [ -n "$task" ] && tip="$tip · $(esc "$task")"
+        if [ "$phase" = idle ]; then
+            tip="Помидор не запущен"
+            [ -n "$next" ] && tip="$tip\nДальше: $(phase_ru "$next") на $(human "$(dur_of "$next")")"
+        else
+            tip="$tip\nОсталось $(mmss "$rem") из $(mmss "$duration")"
+            tip="$tip\nКонец в $(date -d "@$endt" +%H:%M)"
+            if [ "$custom" = 1 ]; then tip="$tip\nСвой отрезок · $(human "$duration")"
+            elif [ "$phase" = work ]; then tip="$tip\nПомидор $(( round % ROUNDS + 1 )) из $ROUNDS"; fi
+        fi
+        tip="$tip\nСегодня: $(human "$tsec") · $tcnt шт."
+        tip="$tip\n\nЛКМ — старт/пауза · ПКМ — пропустить\nСКМ — стоп · колесо — ±1 мин\nСвоё время — SUPER+T или pomo 1h30m"
+        printf '{"text":"%s","alt":"%s","class":"%s","percentage":%s,"tooltip":"%s"}\n' \
+            "$icon${label:+ $label}" "$cls" "$cls" "$pct" "$tip"
+        ;;
+    brief)
+        [ "$phase" = idle ] && printf '\n' || printf '%s\n' "$label"
+        ;;
+    bar)
+        if [ "$phase" = idle ]; then
+            printf 'не запущен · сегодня %s (%s шт.)' "$(human "$tsec")" "$tcnt"
+        else
+            printf '%s %s  %s%s' "$(bar "$pct" 24)" "$label" "$(phase_ru "$phase")" \
+                "$([ "$paused" -gt 0 ] && printf ' (пауза)')${task:+ · $task}"
+        fi
+        ;;
+    *)
+        if [ "$phase" = idle ]; then
+            printf 'Не запущен · сегодня %s, помидоров %s\n' "$(human "$tsec")" "$tcnt"
+            [ -n "$next" ] && printf 'Дальше: %s на %s\n' "$(phase_ru "$next")" "$(human "$(dur_of "$next")")"
+        else
+            printf '%s %s%s%s\n' "$(phase_ru "$phase")" "$label" \
+                "$([ "$paused" -gt 0 ] && printf ' (пауза)')" "${task:+ · $task}"
+            printf 'Конец в %s · сегодня %s, помидоров %s\n' \
+                "$(date -d "@$endt" +%H:%M)" "$(human "$tsec")" "$tcnt"
+        fi
+        ;;
+    esac
+    return 0
+}
+
+cmd_watch() {
+    printf '\033[?25l'
+    trap 'printf "\033[?25h\n"; exit 0' INT TERM HUP
+    while :; do
+        printf '\r\033[2K%s' "$("$SELF" status bar)"
+        sleep 1
+    done
+}
+
+cmd_log() {
+    per=${1:-today}
+    case $per in
+        today|сегодня) since=$(date -d 'today 00:00' +%s); ttl='за сегодня' ;;
+        week|неделя)   since=$(date -d '6 days ago 00:00' +%s); ttl='за 7 дней' ;;
+        month|месяц)   since=$(date -d "$(date +%Y-%m-01) 00:00" +%s); ttl='за месяц' ;;
+        all|всё|все)   since=0; ttl='за всё время' ;;
+        *) since=$(date -d "$per 00:00" +%s 2>/dev/null) || {
+               printf 'Не понял период: %s\n' "$per" >&2; return 1; }
+           ttl="c $per" ;;
+    esac
+    [ -s "$LOG" ] || { echo 'Журнал пуст.'; return 0; }
+
+    awk -F'\t' -v since="$since" -v ttl="$ttl" '
+        function human(s,   h, m) {
+            h = int(s / 3600); m = int((s % 3600) / 60)
+            if (h > 0) return sprintf("%d ч %02d мин", h, m)
+            return sprintf("%d мин", m)
+        }
+        $1 >= since {
+            if ($3 == "work") {
+                total += $5
+                if ($6 == "done") done++
+                started++
+                key = ($7 == "" ? "— без задачи —" : $7)
+                ts[key] += $5; tc[key]++
+                d = strftime("%Y-%m-%d", $1)
+                ds[d] += $5; dc[d]++
+            } else rest += $5
+        }
+        END {
+            printf("Фокус %s: %s · отрезков %d (завершено %d)\n", ttl, human(total), started, done)
+            if (rest) printf("Перерывы: %s\n", human(rest))
+            if (!started) exit
+            print "\nПо задачам"
+            n = asorti(ts, idx, "@val_num_desc")
+            for (i = 1; i <= n; i++)
+                printf("  %-12s %2d  %s\n", human(ts[idx[i]]), tc[idx[i]], idx[i])
+            if (length(ds) > 1) {
+                print "\nПо дням"
+                m = asorti(ds, dd, "@ind_str_asc")
+                for (i = 1; i <= m; i++)
+                    printf("  %s  %-12s %2d\n", dd[i], human(ds[dd[i]]), dc[dd[i]])
+            }
+        }' "$LOG"
+}
+
+cmd_help() {
+    cat <<'EOF'
+pomo — помидорный таймер без демона
+
+  pomo 25m [задача]     фокус на своё время: 45, 90s, 1h35m, 1ч20м
+  pomo ask              окно ввода времени (rofi, SUPER+T)
+  pomo start [задача]   начать фокус (и подписать его задачей)
+  pomo break [long]     перерыв: короткий по умолчанию, long — длинный
+  pomo pause | resume   пауза и продолжение
+  pomo toggle           одна кнопка: старт → пауза → продолжить
+  pomo skip             закрыть отрезок досрочно и перейти к следующему
+  pomo stop             всё остановить
+  pomo add 5m           продлить текущий отрезок (можно -5m)
+  pomo task <текст>     переименовать текущую задачу
+  pomo reset            обнулить счётчик помидоров в цикле
+
+  pomo status [json|brief|bar]   строка состояния (json — для waybar)
+  pomo watch            живой отсчёт в терминале
+  pomo log [today|week|month|all|ГГГГ-ММ-ДД]   статистика
+  pomo edit             открыть ~/.config/pomo/config
+
+Длительности: 25 или 25m — минуты, 90s — секунды, 1h — часы, 1h35m — вместе.
+По-русски тоже: 1ч35м, 40мин, 90с. Своё время прерывает то, что уже идёт.
+EOF
+}
+
+# ---------------- разбор команды ----------------
+
+cmd=${1:-status}
+[ $# -gt 0 ] && shift
+
+case $cmd in
+    start|s)          lock; cmd_start "$@" ;;
+    break|b)          lock; cmd_break "$@" ;;
+    pause|p)          lock; cmd_pause ;;
+    resume|r)         lock; cmd_resume ;;
+    toggle|t)         lock; cmd_toggle ;;
+    skip|n|next)      lock; cmd_skip ;;
+    stop|x)           lock; cmd_stop ;;
+    reset)            lock; cmd_reset ;;
+    add|extend)       lock; cmd_add "$@" ;;
+    task)             lock; cmd_task "$@" ;;
+    ring)             lock; cmd_ring ;;
+    [0-9]*)           lock; cmd_custom "$cmd" "$@" ;;
+    ask|menu)         cmd_ask ;;
+    status|st)        cmd_status "$@" ;;
+    watch|w)          cmd_watch ;;
+    log|stats)        cmd_log "$@" ;;
+    edit)             mkdir -p "${CONF%/*}"; ${EDITOR:-vi} "$CONF" ;;
+    help|-h|--help)   cmd_help ;;
+    *) printf 'Неизвестная команда: %s\n\n' "$cmd" >&2; cmd_help >&2; exit 1 ;;
+esac

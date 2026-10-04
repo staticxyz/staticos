@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""Перенести ВСЕ окна текущего стола на соседний.            (21.09.2026)
+
+    move_all up|down [--dry]
+
+Замена SUPER+ALT+SHIFT+←/→ из Hyprland (scripts/move_all_windows.sh, он держался
+на hyprctl). Соседний стол — по оси niri, то есть выше или ниже.
+
+Стол на ссылку берём не по номеру, а по его id: niri нумерует столы на ходу, и
+когда исходный пустеет, он исчезает, а номера соседей сдвигаются. Поэтому перед
+каждым переносом номер цели вычисляется заново по id — иначе последние окна
+уехали бы не туда.
+"""
+import json
+import subprocess
+import sys
+
+
+def niri(*args):
+    r = subprocess.run(["niri", "msg", *args], capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else ""
+
+
+def workspaces():
+    try:
+        return json.loads(niri("-j", "workspaces") or "[]")
+    except ValueError:
+        return []
+
+
+def windows():
+    try:
+        return json.loads(niri("-j", "windows") or "[]")
+    except ValueError:
+        return []
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] not in ("up", "down"):
+        print(__doc__, file=sys.stderr)
+        return 1
+    dry = "--dry" in args
+
+    wss = workspaces()
+    here = next((w for w in wss if w.get("is_focused")), None)
+    if not here:
+        return 0
+    step = -1 if args[0] == "up" else 1
+    target = next((w for w in wss
+                   if w.get("output") == here.get("output")
+                   and w.get("idx") == here.get("idx") + step), None)
+    if not target:
+        print("соседнего стола в эту сторону нет")
+        return 0
+
+    mine = [w for w in windows() if w.get("workspace_id") == here["id"]]
+    if not mine:
+        print("на столе нет окон")
+        return 0
+
+    print("%d окно(а): стол %d → стол %d" % (len(mine), here["idx"], target["idx"]))
+    if dry:
+        for w in mine:
+            print("   %s — %s" % (w.get("app_id"), (w.get("title") or "")[:40]))
+        return 0
+
+    for w in mine:
+        idx = next((x["idx"] for x in workspaces() if x["id"] == target["id"]), None)
+        if idx is None:
+            break
+        niri("action", "move-window-to-workspace", "--window-id", str(w["id"]),
+             "--focus", "false", str(idx))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

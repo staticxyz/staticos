@@ -1,0 +1,19 @@
+// ──────────────────────────── МОНИТОРЫ ───────────────────────────
+// Источник: ~/.config/hypr/monitors.lua
+output "eDP-1" {
+    mode "1920x1080@144.001"
+    scale 1
+    position x=0 y=0
+}
+
+output "DP-4" {
+    // Частота — ТОЧНО как её называет монитор (niri msg outputs). С "@300" niri
+    // не находил режим и молча брал 60 Гц: курсор казался «медленным» (21.09.2026).
+    mode "1920x1080@300.004"
+    scale 1
+    position x=1920 y=0
+    // MSI MAG 255XF держит FreeSync 48–300 Гц по DisplayPort.
+    // on-demand=true — это аналог misc.vrr = 3 из gaming.lua: переменная
+    // частота включается только под полноэкранной игрой, на столе не мерцает.
+    variable-refresh-rate on-demand=true
+}

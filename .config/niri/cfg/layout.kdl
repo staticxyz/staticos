@@ -1,0 +1,66 @@
+// ──────────────────────────── РАСКЛАДКА ──────────────────────────
+// Источник: ~/.config/hypr/visuals.lua
+layout {
+    // В Hyprland было gaps_in 15 / gaps_out 20. В niri зазор один:
+    // он и между окнами, и до края экрана.
+    gaps 16
+
+    // "never" — потому что решение принимает scripts/pair_center.py: он держит
+    // рядом ТОЛЬКО две ровные половины экрана, а во всех прочих случаях сам
+    // зовёт center-column. Штатный "on-overflow" держал бы любую влезающую
+    // пару (например 555 + 1126), а пользователю нужны именно равные половины.
+    center-focused-column "never"
+
+    default-column-width { proportion 0.5; }
+
+    // Единственная колонка на столе встаёт по центру, а не у левого края
+    // (просьба пользователя 21.09.2026). Появится вторая — лента ведёт себя как обычно.
+    always-center-single-column
+
+    preset-column-widths {
+        proportion 0.33333
+        proportion 0.5
+        proportion 0.66667
+    }
+
+    // Рамка вокруг ВСЕХ окон — как border_size 5 в Hyprland.
+    // Focus ring выключен: в Hyprland его аналога не было, рамку рисовали
+    // всем окнам сразу, просто разным цветом.
+    focus-ring {
+        off
+    }
+
+    border {
+        // `on` ОБЯЗАТЕЛЬНО, раз блок живёт в подключённом файле. Рамка у niri по
+        // умолчанию выключена. В едином config.kdl сам блок без `off` значил
+        // «включена», а подключённый файл niri читает как дополнение к
+        // умолчаниям: не сказано — не менял. После разделения конфига рамки
+        // окон пропали (29.09.2026), `on` их вернул.
+        on
+        width 5
+        // Цвета — заглушки. Живые значения приходят из matugen ниже
+        // (include перекрывает то, что объявлено ВЫШЕ него).
+        active-color "#a6c8ff99"
+        inactive-color "#a6c8ff22"
+        urgent-color "#9b0000"
+    }
+
+    // Полоска вкладок колонки (SUPER+SHIFT+T). В Hyprland такого не было.
+    tab-indicator {
+        gap 5
+        width 4
+        length total-proportion=1.0
+        position "left"
+        gaps-between-tabs 2
+        corner-radius 4
+    }
+
+    insert-hint {
+        color "#a6c8ff55"
+    }
+}
+
+// Живая палитра из обоев. Файл создаёт matugen по шаблону
+// ~/.config/matugen/templates/niri-colors.kdl.
+// Стоит ПОСЛЕ layout намеренно: include перекрывает то, что объявлено выше.
+include optional=true "~/.cache/matugen/niri-colors.kdl"

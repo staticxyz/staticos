@@ -1,0 +1,193 @@
+/* Вид уведомлений «как в Noctalia» (30.09.2026, пользователь прислал её снимок).
+   Включается/выключается `notif-look on|off` или в Настройки → Уведомления:
+   скрипт вставляет этот файл в конец style.css между метками и перечитывает CSS
+   swaync. Править здесь, потом `notif-look on` ещё раз.
+
+   Что взято у Noctalia: глухой тёмный фон вместо полупрозрачного, тонкая рамка
+   акцента, скругление 16, картинка — скруглённым квадратом, а не кругом,
+   заголовок ярко, текст приглушённо, крестик без подложки. Шрифт — системный
+   пиксельный: у Noctalia свой, но на рабочем столе единый шрифт важнее. */
+.notification-row .notification-background,
+.control-center .notification-row .notification-background,
+.notification-group .notification-row .notification-background,
+.notification-row .notification-background:focus,
+.notification-row .notification-background:active {
+    /* Фон — тёмный, подкрашенный акцентом: у Noctalia поверхность заметно синяя,
+       а не серая. Первая версия брала просто --noti-bg-darker, и пользователь разницы
+       со старым видом не увидел («всё как раньше», 30.09.2026). */
+    /* 01.10.2026: из гаммы обоев — тёмная подложка баров (--bar-bg, sensor_colors.py)
+       с долей акцента; прежний фон от --noti-bg-darker выходил серым. */
+    background-color: mix(var(--bar-bg), var(--accent), 0.10);
+    border: 1px solid rgba(var(--accent-rgb), 0.55);
+    border-radius: 16px;
+}
+.notification-row .notification-background:hover,
+.control-center .notification-row .notification-background:hover {
+    background-color: mix(var(--bar-bg), var(--accent), 0.16);
+    border-color: rgba(var(--accent-rgb), 0.85);
+}
+.notification-row .notification-background .notification .notification-default-action .notification-content {
+    /* 30.09.2026: компактнее («уведомления стали большие, но не переборщить»):
+       было 14/16 и картинка 56 — карточка выходила выше старой. */
+    padding: 2px 8px 3px 5px;       /* 01.10.2026: без больших пустот; «чуть-чуть увеличь» — +1–3 px */
+}
+.notification-row .notification-background .notification .notification-default-action .notification-content .image {
+    /* Аватарка 36×36, круглая (01.10.2026). Картинка swaync растягивается по ВЫСОТЕ
+       строки: в компактном виде текст ниже 36 px, и круг сплющивался в овал. Поэтому
+       ниже у .text-box min-height 36px — высоту держит текст, а не картинка
+       (min-height у самой картинки не помогает). Поля вокруг — убраны. */
+    -gtk-icon-size: 36px;
+    border-radius: 100px;
+    /* поля сверху/снизу 4 px обязательны: при 0 картинку обрезает на 9 px (36×27),
+       проверено перебором правил */
+    margin: 4px 8px 4px 0;
+}
+/* 01.10.2026: убраны пустоты вокруг содержимого (пользователь отметил все стороны).
+   Отступы у swaync вложены: карточка 6/12 + область нажатия 4 + содержимое +
+   поля кнопок действий — в сумме ~26 px слева и ~14 снизу. Ужато до 3–6 px. */
+.floating-notifications .notification-row .notification-background,
+.notification-row .notification-background { padding: 4px 5px; }
+.notification-row .notification-background .notification .notification-default-action { padding: 8px 2px 2px 2px; }   /* сверху 8: полоска-таймер (3 px) рисуется на .notification, заголовок не должен в неё упираться */
+.notification-row .notification-background .notification .notification-alt-actions { padding: 2px 3px 4px 3px; }
+.notification-row .notification-background .notification .notification-action { margin: 0 2px; }
+.notification-row .notification-background .notification .notification-action > button { margin: 0; padding: 2px 8px; }
+.notification-row .notification-background .notification .notification-default-action .notification-content .text-box .summary {
+    color: var(--text-color);
+    font-weight: bold;
+    font-size: 16px;
+    margin-bottom: 2px;
+}
+/* Кнопки действий («Mark as read») — мельче текста сообщения, а не крупнее
+   (01.10.2026: «элементы не соразмерны»). */
+.notification-row .notification-background .notification .notification-action,
+.notification-row .notification-background .notification .notification-default-action + * button {
+    font-size: 12px;
+    font-weight: normal;
+    min-height: 20px;
+    padding: 2px 8px;
+    margin: 0;
+    border-radius: 8px;
+}
+.notification-row .notification-background .notification .notification-action label {
+    font-size: 12px;
+    font-weight: normal;
+}
+.notification-row .notification-background .notification .notification-default-action .notification-content .text-box .body {
+    color: alpha(var(--text-color), 0.72);
+    font-size: 12px;          /* пиксельный шрифт: 12 — ещё чётко, строки ниже */
+}
+.notification-row .notification-background .notification .notification-default-action .notification-content .text-box .time {
+    color: alpha(var(--text-color), 0.45);
+    font-weight: normal;
+    font-size: 12px;
+}
+.close-button {
+    background: transparent;
+    color: alpha(var(--text-color), 0.55);
+    min-width: 20px;
+    min-height: 20px;
+    margin-top: 6px;
+    margin-right: 6px;
+}
+.close-button:hover {
+    background: rgba(var(--accent-rgb), 0.16);
+    color: var(--accent);
+}
+
+/* Полоса-таймер сверху, как у Noctalia (пользователь прислал снимок, 30.09.2026):
+   сжимается с обеих сторон к центру; исчезла — уведомление закрывается.
+   Длительность = таймауты swaync из config.json: обычные 7 с, маловажные 4 с (было 8/4 — «долго висят», 5/3 — «очень быстро», 30.09.2026),
+   у срочных таймаута нет — нет и полосы. Только у всплывающих, не в центре
+   уведомлений. Под курсором swaync держит уведомление — полоса стоит полной,
+   а когда курсор уходит, анимация начинается заново (снятое и вновь заданное
+   animation в GTK перезапускается). */
+@keyframes jarvis-noti-timer {
+    from { background-size: 100% 3px; }
+    to   { background-size: 0% 3px; }
+}
+.floating-notifications .notification-row .notification-background .notification.normal,
+.floating-notifications .notification-row .notification-background .notification.low {
+    background-image: linear-gradient(var(--accent), var(--accent));
+    background-repeat: no-repeat;
+    background-position: center 0;
+    background-size: 100% 3px;
+}
+/* 01.10.2026: отсчёт — только у САМОГО НОВОГО уведомления. Когда приходит новое,
+   swaync/GTK перезапускают анимации у всех уже висящих (проверено: полоска первого
+   снова становилась полной, а исчезало оно в свой настоящий срок) — из CSS настоящий
+   остаток не узнать. Поэтому у старых полоска убирается, а не врёт. Новое — первый
+   ребёнок списка (AnimatedList.append ставит его первым). */
+.floating-notifications *:first-child > .notification-row:not(:hover) .notification-background .notification.normal {
+    animation: jarvis-noti-timer 9s linear 1 forwards;
+}
+.floating-notifications *:first-child > .notification-row:not(:hover) .notification-background .notification.low {
+    animation: jarvis-noti-timer 5s linear 1 forwards;
+}
+.floating-notifications *:not(:first-child) > .notification-row .notification-background .notification.normal,
+.floating-notifications *:not(:first-child) > .notification-row .notification-background .notification.low {
+    background-image: none;
+}
+
+/* ─── Центр уведомлений: фон из обоев, компактнее (04.10.2026) ──────────────────
+   Просьба: «пусть фон тоже подхватывает акцентные цвета от обоев, и чуть компактнее;
+   читаемость текстов должна быть корректной». Бэкап noctalia.css.bak-cc-compact.
+   Фон — та же тёмная подложка баров (--bar-bg) с долей акцента, что у карточек, но
+   темнее: карточки на нём читаются отдельными. Оба цвета пересобираются при смене
+   обоев (swaync-accent.css), так что фон следует за обоями сам. */
+.control-center {
+    background-color: mix(var(--bar-bg), var(--accent), 0.05);
+    border: 1px solid rgba(var(--accent-rgb), 0.55);
+    border-radius: 16px;
+}
+/* Заголовок, «Не беспокоить», шапки групп — были 1.5rem/1.1rem (около 24 px), это
+   крупнее самих уведомлений. 16 и 12 — кратно клетке пиксельного шрифта. */
+.widget { margin: 4px 6px; padding: 4px 6px; }
+.widget-title > label { font-size: 16px; }
+.widget-title > button { font-size: 12px; padding: 2px 10px; min-height: 22px; }
+.widget-dnd label { font-size: 12px; }
+.notification-group .notification-group-headers .notification-group-header { font-size: 16px; }
+.notification-group .notification-group-headers .notification-group-icon { -gtk-icon-size: 20px; }
+.notification-group .notification-group-buttons, .notification-group .notification-group-headers { margin: 0 8px; }
+/* Когда одна группа раскрыта, базовая тема гасит остальные до 0.4 — текст на
+   тёмном фоне не читался. 0.75: видно, что они вторичны, но читаются. */
+.notification-group.collapsed.not-expanded { opacity: 0.75; }
+/* Свёрнутые группы: базовая тема заливает внутреннюю .notification серым
+   (rgba(--noti-bg)), и карточка выходила серой на синем фоне. Прозрачно — виден
+   фон карточки из гаммы обоев, как у одиночных. */
+.notification-group.collapsed .notification-row .notification,
+.notification-group.collapsed:hover .notification-row:not(:only-child) .notification {
+    background-color: transparent;
+}
+/* Серые зоны вокруг раскрытой группы (04.10.2026, просьба: «что это за серые зоны»):
+   базовая тема красит строку с фокусом — .notification-row:focus, --noti-bg-focus.
+   Группа получает фокус от щелчка, и вся её область становилась серой. */
+.notification-row:focus,
+.control-center .notification-row:focus,
+.notification-group .notification-row:focus {
+    background: transparent;
+}
+/* Серая полоса под заголовком раскрытой группы («org.telegram.desktop», 04.10.2026:
+   «держаться палитры»). Группа собирается в коде swaync, имени её контейнера в теме
+   нет — фон снят со всех контейнеров внутри группы, кроме карточек и кнопок (их
+   правила точнее и остаются в силе). */
+.notification-group *:not(button):not(.notification-background) {
+    background-color: transparent;
+    background-image: none;
+}
+.notification-group {
+    background-color: transparent;
+}
+/* Серая зона за СВЁРНУТОЙ группой (04.10.2026, второй снимок): это не сама группа,
+   а строка списка вокруг неё — тема GTK красит строки, по которым можно щёлкнуть,
+   при наведении/выборе/фокусе. Снято на всех уровнях выше группы. */
+.control-center .control-center-list > *,
+.control-center .control-center-list > * > *,
+.control-center .control-center-list row,
+.control-center .control-center-list row:hover,
+.control-center .control-center-list row:focus,
+.control-center .control-center-list row:selected,
+.control-center .control-center-list row:active {
+    background-color: transparent;
+    background-image: none;
+    box-shadow: none;
+}

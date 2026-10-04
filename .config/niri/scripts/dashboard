@@ -1,0 +1,465 @@
+#!/usr/bin/env python3
+"""Дашборд — плавающие окна kitty на экране ноутбука (часы, таймер, cava, brrt…).
+
+    dashboard restore [--login]      открыть все окна из dashboard.json (уже открытые
+                                     не дублирует); --login — режим автозапуска: ждёт бар
+                                     (иначе окна встают без поправки на него) и молча
+                                     выходит, если автозапуск выключен в Настройках
+    dashboard autostart on|off|status  автозапуск при входе (флаг dashboard.off);
+                                     то же, что тумблер в Настройках → Окна → Дашборд
+    dashboard save                   записать текущие размеры и места окон дашборда
+                                     в dashboard.json и пересобрать правила
+    dashboard rules                  только пересобрать dashboard-rules.kdl
+    dashboard add <имя> <команда…>   новое окно: запись в json (600×300 в левом верхнем
+                                     углу), правило, окно открывается — расставьте и save
+    dashboard remove <имя>           закрыть окно, убрать из json и из правил
+
+Как это устроено. Каждое окно запускается как kitty с app-id «dash-<имя>», а
+dashboard-rules.kdl (include в config.kdl) для каждого app-id задаёт стол, плавание,
+размер и место. Так окно встаёт куда надо в момент появления, без дёрганья.
+Раскладку меняют мышью, потом `dashboard save`. Окна kitty, открытые на столе
+дашборда руками, save забирает сам: команду — из того, что в окне запущено, и тут же
+переоткрывает их окнами дашборда на том же месте (точный дубль просто закрывает).
+"""
+import json
+import os
+import re
+import pathlib
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+
+HOME = pathlib.Path.home()
+CFG = HOME / ".config/niri/dashboard.json"
+RULES = HOME / ".config/niri/dashboard-rules.kdl"
+PREFIX = "dash-"
+OFF_FLAG = HOME / ".config/niri/dashboard.off"   # есть файл — при входе не открывать
+KITTY_CONF = HOME / ".config/kitty/kitty.conf"
+FONT_KITTEN = HOME / ".config/kitty/font_size_of.py"
+
+
+def default_font_size():
+    try:
+        for line in KITTY_CONF.read_text().splitlines():
+            m = re.match(r"^\s*font_size\s+([\d.]+)", line)
+            if m:
+                return float(m.group(1))
+    except OSError:
+        pass
+    return 12.0
+
+
+def font_size_of(pid):
+    """Кегль шрифта окна kitty (масштаб Ctrl+Shift+−/+), через кittens-скрипт внутри kitty."""
+    out = pathlib.Path(f"/tmp/dash-font-{pid}")
+    try:
+        out.unlink(missing_ok=True)
+        subprocess.run(["kitty", "@", "--to", f"unix:/tmp/kitty-{pid}", "kitten", str(FONT_KITTEN), str(out)],
+                       capture_output=True, text=True, timeout=5)
+        return float(out.read_text().strip())
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    finally:
+        out.unlink(missing_ok=True)
+
+
+def kitty_cmd(e):
+    # --title у kitty закрепляет заголовок намертво: ни fish, ни таймер его не перепишут.
+    # В баре у стола дашборда тогда ровный заголовок, а не «clear; brrt ~» или «04:37:17».
+    cmd = ["kitty", "--app-id", PREFIX + e["name"], "--directory", str(HOME),
+           "--title", e.get("title", "Dashboard")]
+    if e.get("font_size"):
+        cmd += ["-o", f"font_size={e['font_size']}"]
+    return cmd + ["fish", "-C", e["cmd"]]
+
+# niri отсчитывает default-floating-position от рабочей области (под баром), а
+# `niri msg windows` отдаёт положение от угла экрана. Разница — высота бара с его
+# отступами; читается из конфига waybar при каждой сборке правил (после перезагрузки
+# бар собирается заново и его высота уже отличалась: 32 → 38, окна съехали на 6 px).
+WAYBAR_CFG = HOME / ".config/waybar/config-niri.jsonc"
+WORK_OFFSET_FALLBACK = (0, 38)
+
+
+def work_offset():
+    try:
+        raw = re.sub(r"^\s*//.*$", "", WAYBAR_CFG.read_text(), flags=re.M)
+        cfg = json.loads(raw)
+        cfg = cfg[0] if isinstance(cfg, list) else cfg
+        h = int(cfg.get("height", 0))
+        m = cfg.get("margin-top", 0)
+        if not m and isinstance(cfg.get("margin"), str):
+            m = int(cfg["margin"].split()[0])
+        b = cfg.get("margin-bottom", 0) or 0
+        if h:
+            return (0, h + int(m) + int(b))
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    return WORK_OFFSET_FALLBACK
+# fixed-размер в правиле против window_size из `niri msg windows`: совпадают
+# (проверено 24.09.2026, рамку niri fixed не включает).
+SIZE_DELTA = (0, 0)
+
+
+def niri_json(*args):
+    out = subprocess.run(["niri", "msg", "-j", *args], capture_output=True, text=True, check=True).stdout
+    return json.loads(out)
+
+
+def load():
+    return json.loads(CFG.read_text())
+
+
+def dash_windows():
+    """{имя: окно niri} для окон с нашим app-id."""
+    found = {}
+    for w in niri_json("windows"):
+        app = w.get("app_id") or ""
+        if app.startswith(PREFIX):
+            found[app[len(PREFIX):]] = w
+    return found
+
+
+def write_rules(cfg):
+    # Стол дашборда — именованный стол niri (workspace "…" { open-on-output "eDP-1" }
+    # в config.kdl): он есть всегда, и окна идут на него по имени, а не на «активный
+    # стол экрана» — иначе при входе они садились на карман (24.09.2026).
+    ws = cfg.get("workspace")
+    out = cfg["output"]
+    WORK_OFFSET = work_offset()
+    lines = [
+        "// Собирается скриптом ~/.config/niri/scripts/dashboard из dashboard.json —",
+        "// руками не править. Подключено из config.kdl через include.",
+        "",
+    ]
+    for e in cfg["windows"]:
+        # Окно, которое живёт на другом мониторе (save записывает его «output»), идёт
+        # туда, на активный там стол; остальные — на стол дашборда.
+        if e.get("output"):
+            where = f'    open-on-output "{e["output"]}"'
+        elif ws:
+            where = f'    open-on-workspace "{ws}"'
+        else:
+            where = f'    open-on-output "{out}"'
+        lines += [
+            "window-rule {",
+            f'    match app-id=r#"^{PREFIX}{e["name"]}$"#',
+            where,
+            "    open-floating true",
+            "    open-focused false",
+            f'    default-column-width {{ fixed {e["w"] + SIZE_DELTA[0]}; }}',
+            f'    default-window-height {{ fixed {e["h"] + SIZE_DELTA[1]}; }}',
+            f'    default-floating-position x={e["x"] - WORK_OFFSET[0]} y={e["y"] - WORK_OFFSET[1]} relative-to="top-left"',
+            "}",
+            "",
+        ]
+    tmp = RULES.with_suffix(".tmp")
+    tmp.write_text("\n".join(lines))
+    tmp.replace(RULES)
+    subprocess.run(["niri", "msg", "action", "load-config-file"], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Перечитывание не мгновенное: окно, открытое сразу после, правил не получало.
+    time.sleep(1)
+
+
+def wait_bar(timeout=15):
+    """Ждёт, пока на экране появится бар (слой top), чтобы рабочая область была уже с ним."""
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            layers = subprocess.run(["niri", "msg", "layers"], capture_output=True, text=True).stdout
+        except OSError:
+            layers = ""
+        if "waybar" in layers or "noctalia" in layers or "quickshell" in layers:
+            time.sleep(1)
+            return
+        time.sleep(0.5)
+
+
+def settle(cfg, names):
+    """Добить окна до координат из json относительными сдвигами.
+
+    Правило niri ставит окно относительно рабочей области, а её верх зависит от
+    высоты бара, которая у waybar без явной height гуляет от запуска к запуску
+    (24.09.2026: 32 px до перезапуска бара, 38 после — окна уезжали на 6 px)."""
+    exp = {e["name"]: e for e in cfg["windows"]}
+    have = {}
+    for _ in range(40):                       # до 10 с, пока все окна появятся
+        have = dash_windows()
+        if all(n in have for n in names):
+            break
+        time.sleep(0.25)
+    time.sleep(0.5)
+    have = dash_windows()
+    moved = 0
+    for n in names:
+        w, e = have.get(n), exp.get(n)
+        if not w or not e or not w.get("is_floating"):
+            continue
+        pos = w["layout"].get("tile_pos_in_workspace_view")
+        if not pos:
+            continue
+        dx, dy = e["x"] - round(pos[0]), e["y"] - round(pos[1])
+        if dx or dy:
+            subprocess.run(["niri", "msg", "action", "move-floating-window", "--id", str(w["id"]),
+                            f"--x={dx:+d}", f"--y={dy:+d}"], check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            moved += 1
+    return moved
+
+
+def restore(args):
+    if "--login" in args or "--wait-bar" in args:
+        if OFF_FLAG.exists():
+            print("автозапуск дашборда выключен (Настройки → Окна)")
+            return
+        wait_bar()
+    cfg = load()
+    write_rules(cfg)          # правила заново: высота бара могла измениться с прошлого раза
+    have = dash_windows()
+    spawned = []
+    for e in cfg["windows"]:
+        if e["name"] in have:
+            print("уже открыто:", e["name"])
+            continue
+        spawned.append(e["name"])
+        subprocess.Popen(kitty_cmd(e), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+        print("открыто:", e["name"], "—", e["cmd"], f"(шрифт {e['font_size']})" if e.get("font_size") else "")
+        time.sleep(0.3)
+    if spawned:
+        n = settle(cfg, spawned)
+        print(f"поправлено окон после открытия: {n}")
+
+
+def save():
+    cfg = load()
+    have = dash_windows()
+    spaces = {w["id"]: w for w in niri_json("workspaces")}
+    dash_ws = next((i for i, w in spaces.items() if w.get("name") == cfg.get("workspace")), None)
+    n = 0
+    for e in cfg["windows"]:
+        w = have.get(e["name"])
+        if not w:
+            print("нет окна (не через dashboard restore?):", e["name"])
+            continue
+        lay = w["layout"]
+        pos = lay.get("tile_pos_in_workspace_view")
+        if not w.get("is_floating") or not pos:
+            print("не плавающее, пропускаю:", e["name"])
+            continue
+        e["w"], e["h"] = [int(round(v)) for v in lay["window_size"]]
+        e["x"], e["y"] = [int(round(v)) for v in pos]
+        # Место — от угла ТОГО стола, где окно сейчас. Окно, унесённое на другой
+        # монитор, раньше записывалось как место на столе дашборда и после restore
+        # ложилось там поверх соседей (28.09.2026: таймер на MSI → поверх brrt).
+        where = spaces.get(w.get("workspace_id"), {})
+        if dash_ws is not None and w.get("workspace_id") != dash_ws and where.get("output"):
+            e["output"] = where["output"]
+        else:
+            e.pop("output", None)
+        # Масштаб шрифта (Ctrl+Shift+−/+): пишем, только если отличается от kitty.conf.
+        fs = font_size_of(w["pid"]) if w.get("pid") else None
+        if fs is not None and abs(fs - default_font_size()) > 0.01:
+            e["font_size"] = fs
+        else:
+            e.pop("font_size", None)
+        n += 1
+        print(f"{e['name']:8s} {e['w']}x{e['h']} @ {e['x']},{e['y']}"
+              + (f"  на {e['output']}" if e.get("output") else "")
+              + (f"  шрифт {fs:g}" if e.get("font_size") else ""))
+    adopted = adopt(cfg, dash_ws)
+    tmp = CFG.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
+    tmp.replace(CFG)
+    write_rules(cfg)
+    # Взятые окна переоткрываются уже окнами дашборда — правила выше их ставят
+    # на то же место; ручное окно закрывается, когда новое уже есть.
+    for e, w in adopted:
+        subprocess.Popen(kitty_cmd(e), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    if adopted:
+        time.sleep(1.0)
+    for e, w in adopted:
+        if os.path.basename(shlex.split(e["cmd"])[0]) in KEEP_OPEN:
+            print(f"  {e['name']}: в ручном окне редактор — закройте его сами, когда сохранитесь")
+        else:
+            close_window(w)
+    print(f"сохранено окон: {n + len(adopted)}" + (f" (из них взято в дашборд: {len(adopted)})" if adopted else "")
+          + ", правила пересобраны")
+
+
+# Окна, открытые руками на столе дашборда (app-id не dash-…), save забирает в
+# дашборд сам (28.09.2026, просьба: «я же не буду каждый раз через тебя это
+# сохранять»). Раньше он их только перечислял и просил dashboard add.
+SHELLS = {"fish", "bash", "zsh", "sh", "dash"}
+INTERPRETERS = {"bash", "sh", "dash", "python3", "python", "perl", "node"}
+HELPERS = {"sleep", "cat", "head", "tail", "tput", "stty", "tee", "timeout", "xclip", "wl-paste", "wait"}
+KEEP_OPEN = {"nvim", "vim", "vi", "nano", "hx", "helix", "micro", "emacs"}   # правку текста не закрываем
+
+
+def foreground_cmd(pid, title=None):
+    """Команда, запущенная в окне kitty (без оболочки), или None — пустой терминал.
+
+    С 29.09.2026 обычные терминалы (Ctrl+`) — окна ОДНОЙ общей копии kitty
+    (--single-instance), и у одного pid бывает много окон. Нужное ищем по
+    заголовку окна niri; не нашлось однозначно — None, лучше не взять окно,
+    чем взять команду соседнего.
+    """
+    try:
+        r = subprocess.run(["kitty", "@", "--to", f"unix:/tmp/kitty-{pid}", "ls"],
+                           capture_output=True, text=True, timeout=5)
+        oses = json.loads(r.stdout)
+        if len(oses) == 1:
+            osw = oses[0]
+        else:
+            def active(o):
+                tab = next((t for t in o["tabs"] if t.get("is_active")), o["tabs"][0])
+                return next((w for w in tab["windows"] if w.get("is_active")), tab["windows"][0])
+            hits = [o for o in oses if title is not None and active(o).get("title") == title]
+            if len(hits) != 1:
+                return None
+            osw = hits[0]
+        tab = next((t for t in osw["tabs"] if t.get("is_active")), osw["tabs"][0])
+        win = next((w for w in tab["windows"] if w.get("is_active")), tab["windows"][0])
+        procs = win.get("foreground_processes") or []
+    except (ValueError, IndexError, KeyError, subprocess.TimeoutExpired):
+        return None
+    # В окне обычно цепочка «fish → скрипт → … → sleep 2». Раньше бралось первое звено
+    # как придётся, и save записал в дашборд «sleep 2» вместо brrt/ffetch/tmatrix
+    # (30.09.2026). Пропускаем оболочку и служебные команды, берём первое настоящее.
+    def _skip(p):
+        a = p.get("cmdline") or [""]
+        exe = os.path.basename(a[0]).lstrip("-")
+        if exe in HELPERS:
+            return True
+        # «bash скрипт» — это и есть программа окна; пропускаем только саму оболочку
+        # (fish, fish -C '…', bash -c '…').
+        return exe in SHELLS and (len(a) == 1 or a[1].startswith("-"))
+    real = [p for p in procs if not _skip(p)]
+    pick = real[0] if real else (procs[0] if procs else {})
+    argv = pick.get("cmdline") or []
+    if not argv:
+        return None
+    exe = os.path.basename(argv[0]).lstrip("-")
+    if exe in SHELLS and len(argv) == 1:
+        return None
+    # Скрипт, запущенный интерпретатором: «bash ~/.local/bin/tmatrix» → «tmatrix»,
+    # если он и так находится по PATH.
+    if exe in INTERPRETERS and len(argv) > 1 and os.path.isfile(argv[1]):
+        name = os.path.basename(argv[1])
+        found = shutil.which(name)
+        head = name if found and os.path.realpath(found) == os.path.realpath(argv[1]) else argv[1]
+        return shlex.join([head] + argv[2:])
+    return shlex.join([exe if shutil.which(exe) else argv[0]] + argv[1:])
+
+
+def close_window(w):
+    subprocess.run(["niri", "msg", "action", "close-window", "--id", str(w["id"])], capture_output=True)
+
+
+def adopt(cfg, dash_ws):
+    """Забрать ручные окна kitty со стола дашборда в cfg. Вернёт [(запись, окно)]."""
+    adopted = []
+    for w in niri_json("windows"):
+        if w.get("workspace_id") != dash_ws or (w.get("app_id") or "").startswith(PREFIX):
+            continue
+        label = f"{w.get('app_id')} «{w.get('title')}»"
+        if w.get("app_id") != "kitty" or not w.get("pid"):
+            print(f"не kitty, не беру: {label} — дашборд открывает только окна kitty")
+            continue
+        cmd = foreground_cmd(w["pid"], w.get("title"))
+        if not cmd:
+            print(f"пустой терминал, не беру: {label}")
+            continue
+        lay = w.get("layout") or {}
+        size, pos = lay.get("window_size"), lay.get("tile_pos_in_workspace_view")
+        if not size or not pos:
+            print(f"не узнал размер и место, не беру: {label}")
+            continue
+        geo = [int(round(v)) for v in list(size) + list(pos)]
+        twin = next((e for e in cfg["windows"] if e.get("cmd") == cmd and all(
+            abs(a - (e.get(k) or 0)) <= 4 for a, k in zip(geo, ("w", "h", "x", "y")))), None)
+        if twin:
+            close_window(w)
+            print(f"дубль {twin['name']} (та же команда, то же место) — закрыт: {label}")
+            continue
+        base = re.sub(r"[^a-z0-9]+", "", os.path.basename(shlex.split(cmd)[0]).lower()) or "win"
+        name, i = base, 2
+        while any(e["name"] == name for e in cfg["windows"]):
+            name, i = f"{base}{i}", i + 1
+        e = {"name": name, "cmd": cmd, "w": geo[0], "h": geo[1], "x": geo[2], "y": geo[3]}
+        fs = font_size_of(w["pid"])
+        if fs is not None and abs(fs - default_font_size()) > 0.01:
+            e["font_size"] = fs
+        cfg["windows"].append(e)
+        adopted.append((e, w))
+        print(f"{name:8s} {e['w']}x{e['h']} @ {e['x']},{e['y']}"
+              + (f"  шрифт {fs:g}" if e.get("font_size") else "") + f"  ← взято в дашборд: {cmd}")
+    return adopted
+
+
+def add(args):
+    if len(args) < 2:
+        print("dashboard add <имя> <команда…>"); sys.exit(1)
+    name, cmd = args[0], " ".join(args[1:])
+    cfg = load()
+    if any(e["name"] == name for e in cfg["windows"]):
+        print("уже есть:", name); sys.exit(1)
+    e = {"name": name, "cmd": cmd, "w": 600, "h": 300, "x": 40, "y": 60}
+    cfg["windows"].append(e)
+    CFG.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
+    write_rules(cfg)
+    subprocess.Popen(kitty_cmd(e), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+    print(f"добавлено и открыто: {name} — {cmd}. Расставьте окно и выполните: dashboard save")
+
+
+def remove(args):
+    if not args:
+        print("dashboard remove <имя>"); sys.exit(1)
+    name = args[0]
+    cfg = load()
+    keep = [e for e in cfg["windows"] if e["name"] != name]
+    if len(keep) == len(cfg["windows"]):
+        print("нет такого:", name); sys.exit(1)
+    w = dash_windows().get(name)
+    if w and w.get("pid"):
+        try:
+            os.kill(w["pid"], 15)
+        except OSError:
+            pass
+    cfg["windows"] = keep
+    CFG.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
+    write_rules(cfg)
+    print("убрано:", name)
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] == "restore":
+        restore(args[1:])
+    elif args[0] == "save":
+        save()
+    elif args[0] == "rules":
+        write_rules(load())
+        print("правила пересобраны:", RULES)
+    elif args[0] == "add":
+        add(args[1:])
+    elif args[0] == "remove":
+        remove(args[1:])
+    elif args[0] == "autostart":
+        mode = args[1] if len(args) > 1 else "status"
+        if mode == "on":
+            OFF_FLAG.unlink(missing_ok=True)
+        elif mode == "off":
+            OFF_FLAG.touch()
+        print("автозапуск дашборда:", "выкл" if OFF_FLAG.exists() else "вкл")
+    else:
+        print(__doc__)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

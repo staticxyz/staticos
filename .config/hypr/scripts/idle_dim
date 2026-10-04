@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""Приглушение экрана по простою (hypridle, listener 0).
+
+    idle_dim dim      приглушить (яркость 55%)
+    idle_dim deep     глубокое приглушение: картинка почти чёрная, подсветка
+                      ноутбука в ноль, MSI 1%, подсветка клавиатур выключена
+                      (и ноутбука, и Razer)
+    idle_dim restore  вернуть обычную яркость
+
+Приглушение пропускается, когда включён Savage Mode вместе с «не отключать
+экран». Возврат гаммы делается ВСЕГДА и безусловно: если флаг переключили,
+пока экран уже приглушён, он иначе остался бы тёмным.
+"""
+import json
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from idle_guard import keep_screen_on  # noqa: E402
+from game_guard import game_running  # noqa: E402
+import screen_gamma  # noqa: E402
+
+
+BACKLIGHT_SAVE = os.path.expanduser("~/.cache/idle-backlight")
+# Подсветка при глубоком приглушении. Экран ноутбука гасится в ноль — замерено,
+# что он возвращается мгновенно (это не DPMS, а обычная яркость). Монитору MSI
+# оставляем 1%: его яркость идёт по DDC, и если возврат однажды не доедет, при
+# нуле пришлось бы лезть к кнопкам монитора.
+DEEP_LAPTOP = "0"
+DEEP_MSI = "1"
+MSI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitor_brightness.py")
+KBD = "rgb:kbd_backlight"   # подсветка клавиатуры ноутбука (см. scripts/kbdlight)
+
+
+def backlight_down():
+    """Опустить подсветку обоих экранов, запомнив прежние значения.
+
+    Гамма делает картинку чёрной, но подсветка продолжает гореть — а экран
+    выключать нечем: DPMS у нас убран навсегда (однажды экран после него не
+    проснулся). Поэтому «глубокое» приглушение ещё и приглушает саму подсветку,
+    до 5 %, и никогда до нуля — чтобы было видно, что машина жива.
+    """
+    saved = {}
+    # `-m` (машинный вид) — целая строка «устройство,класс,текущее,процент,макс»;
+    # `-m g` отдаёт одно число и по нему не узнать, что было (21.09.2026).
+    r = subprocess.run(["brightnessctl", "-m"], capture_output=True, text=True)
+    cur = r.stdout.strip().splitlines()[0].split(",") if r.stdout.strip() else []
+    if r.returncode == 0 and len(cur) > 4:
+        saved["laptop"] = cur[2]
+        subprocess.run(["brightnessctl", "-q", "set", DEEP_LAPTOP], capture_output=True)
+
+    # Подсветка клавиатуры: гасим совсем, но только если она горела — иначе
+    # возврат «включил» бы её там, где пользователь держал её выключенной.
+    r = subprocess.run(["brightnessctl", "-d", KBD, "-m"], capture_output=True, text=True)
+    kbd = r.stdout.strip().split(",") if r.stdout.strip() else []
+    if r.returncode == 0 and len(kbd) > 4 and kbd[2].isdigit() and int(kbd[2]) > 0:
+        saved["kbd"] = kbd[2]
+        subprocess.run(["brightnessctl", "-d", KBD, "-q", "set", "0"], capture_output=True)
+    r = subprocess.run(["python3", MSI, "get"], capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout.strip().isdigit():
+        saved["msi"] = r.stdout.strip()
+        subprocess.run(["python3", MSI, "set", DEEP_MSI], capture_output=True)
+    razer_down(saved)
+    try:
+        with open(BACKLIGHT_SAVE, "w") as f:
+            json.dump(saved, f)
+    except OSError:
+        pass
+
+
+def razer_down(saved):
+    """Погасить подсветку устройств Razer, запомнив прежнюю яркость.
+
+    Светится не клавиатура ноутбука (её светодиод rgb:kbd_backlight и так
+    выключен), а внешняя Razer — ею правит демон openrazer. Из-за этого первая
+    проверка глубокого приглушения оставила клавиатуру гореть (21.09.2026). Ошибки демона глушим: подсветка не должна мешать возврату
+    яркости экранов.
+    """
+    try:
+        import openrazer.client as razer
+        values = {}
+        for dev in razer.DeviceManager().devices:
+            try:
+                level = float(dev.brightness)
+            except Exception:
+                continue
+            if level > 0:
+                values[dev.serial] = level
+                dev.brightness = 0
+        if values:
+            saved["razer"] = values
+    except Exception:
+        pass
+
+
+def razer_up(saved):
+    values = saved.get("razer") or {}
+    if not values:
+        return
+    try:
+        import openrazer.client as razer
+        for dev in razer.DeviceManager().devices:
+            if dev.serial in values:
+                try:
+                    dev.brightness = values[dev.serial]
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def backlight_up():
+    """Вернуть подсветку. Делается всегда, даже если мы её не опускали."""
+    try:
+        with open(BACKLIGHT_SAVE) as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        return
+    if saved.get("laptop"):
+        subprocess.run(["brightnessctl", "-q", "set", saved["laptop"]], capture_output=True)
+    if saved.get("msi"):
+        subprocess.run(["python3", MSI, "set", saved["msi"]], capture_output=True)
+    if saved.get("kbd"):
+        subprocess.run(["brightnessctl", "-d", KBD, "-q", "set", saved["kbd"]],
+                       capture_output=True)
+    razer_up(saved)
+    try:
+        os.unlink(BACKLIGHT_SAVE)
+    except OSError:
+        pass
+
+
+def dim(level):
+    """Приглушение отдаёт screen_gamma: он же держит ночной свет.
+
+    Раньше здесь был `hyprctl hyprsunset gamma` — в сеансе Niri эта команда
+    не делает ничего (проверено 21.09.2026), и приглушения не было вовсе.
+    """
+    screen_gamma.set_dim(level)
+    print(screen_gamma.apply_state())
+
+
+def main():
+    what = (sys.argv[1:] or ["dim"])[0]
+    if what == "restore":
+        backlight_up()
+        dim("off")
+        return 0
+    if keep_screen_on():
+        print("Savage Mode + «не отключать экран» — приглушение пропущено")
+        return 0
+    if game_running():
+        print("идёт игра — приглушение пропущено")
+        return 0
+    if what == "deep":
+        dim("deep")
+        backlight_down()
+        return 0
+    dim("soft")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

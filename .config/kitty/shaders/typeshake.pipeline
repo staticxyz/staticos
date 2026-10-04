@@ -1,0 +1,17 @@
+# СОБРАН АВТОМАТИЧЕСКИ скриптом ~/.config/hypr/scripts/kitty_shader_colors.py
+# при каждой смене обоев. Правки здесь пропадут — правьте скрипт.
+# Включается в «Настройках» → «Шейдеры» (kitty_shader.py).
+
+# Отдача на скорости: экран вздрагивает, когда набор ускоряется.
+
+startgroup
+    # На движение текстового курсора. «Только в тренажёре» обеспечивается не
+    # здесь, а тем, что jtype открывает своё окно kitty с этим шейдером:
+    # событие bell-in-window, которым я пробовал это сделать, в kitty 0.49.1
+    # не возникает вовсе (проверено пробным шейдером).
+    animation_start cursor-trail-move
+    animation_stop 190
+    animation_curve linear
+    animation_step 8
+    shaders typeshake
+endgroup

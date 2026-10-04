@@ -1,0 +1,65 @@
+// ═══════════════════════════ АНИМАЦИИ ═══════════════════════════
+// Перенесены из Hyprland (visuals.lua + ws_anim.lua), 21.09.2026.
+//
+// Главное совпадение: у пользователя там была пружина «easy» —
+//     mass 1, stiffness 238.1191, dampening 24.21279333
+// Пружины niri задаются иначе (коэффициент затухания вместо dampening), но это
+// то же самое в других единицах:
+//     damping-ratio = dampening / (2 * sqrt(stiffness * mass))
+//                   = 24.2128 / (2 * sqrt(238.1191)) = 0.78
+// Жёсткость переносится числом: sqrt(238) ≈ 15,4 рад/с, то есть период ~410 мс —
+// ровно то, что в Hyprland задавалось как speed 4.1. Значит окна открываются и
+// ездят с прежним ощущением, с той же лёгкой отдачей в конце.
+//
+// Длительности в Hyprland — десятые доли секунды: speed 1.49 = 149 мс.
+animations {
+    // Окно открывается: пружина «easy», как windowsIn (speed 4.1, spring easy).
+    // Отскока «popin 87 %» в niri нет — там своя анимация появления.
+    window-open {
+        spring damping-ratio=0.78 stiffness=238 epsilon=0.0001
+    }
+
+    // Окно закрывается: windowsOut — 149 мс, линейно.
+    window-close {
+        duration-ms 150
+        curve "linear"
+    }
+
+    // Окно едет и меняет размер: windows (speed 4.79, spring easy).
+    window-movement {
+        spring damping-ratio=0.78 stiffness=238 epsilon=0.0001
+    }
+
+    window-resize {
+        spring damping-ratio=0.78 stiffness=238 epsilon=0.0001
+    }
+
+    // Прокрутка ленты вбок. В Hyprland своей анимации у неё не было, поэтому
+    // здесь НЕ «easy»: отскок у всего вида сразу утомляет глаза. Затухание 1.0 —
+    // без перелёта, жёсткость выше, чтобы лента шла за клавишей плотно.
+    horizontal-view-movement {
+        spring damping-ratio=1.0 stiffness=700 epsilon=0.0001
+    }
+
+    // Переход между столами: в Hyprland это slidevert, 320 мс, easeOutQuint
+    // (ws_anim.lua). Тоже без отскока — столы не должны качаться.
+    workspace-switch {
+        spring damping-ratio=0.85 stiffness=450 epsilon=0.0001
+    }
+
+    // Обзор (SUPER+G): отъезд и наезд.
+    overview-open-close {
+        spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
+    }
+
+    // Экран выбора области для снимка — как fade в Hyprland (3.03, quick).
+    screenshot-ui-open {
+        duration-ms 150
+        curve "ease-out-quad"
+    }
+
+    // Плашка «конфиг перечитан» — мягче и с отдачей, она уведомление, а не окно.
+    config-notification-open-close {
+        spring damping-ratio=0.6 stiffness=1000 epsilon=0.001
+    }
+}

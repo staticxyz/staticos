@@ -1,0 +1,8 @@
+// Вид «снизу»: тот же парящий бар, но у нижнего края экрана.
+{
+    "position": "bottom",
+    "height": 32,
+    "margin-bottom": 8,
+    "margin-left": 20,
+    "margin-right": 20
+}

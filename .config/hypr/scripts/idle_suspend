@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Уход в сон по простою — но только если выключен Savage Mode.
+
+Вызывается из hypridle (последний listener). Savage Mode держит systemd-инхибитор
+--what=idle («24/7 mode»), и правило такое:
+
+    savage включён  -> экран гаснуть и блокироваться ДОЛЖЕН, спать — НЕТ;
+    savage выключен -> сначала штатная блокировка, потом сон.
+
+Приглушение и блокировка живут в hypridle с ignore_inhibit = true, поэтому они
+срабатывают при любом инхибиторе. Сон же идёт через этот скрипт, который сам
+смотрит на состояние Savage Mode — так правило записано в одном месте и видно
+глазами, а не спрятано в чужой семантике инхибиторов.
+"""
+import importlib.util
+import os
+import subprocess
+import sys
+
+SAVAGE = os.path.expanduser("~/.config/hypr/scripts/savage_battery.py")
+
+
+def savage_active():
+    spec = importlib.util.spec_from_file_location("savage_battery", SAVAGE)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return bool(m.is_savage_active())
+
+
+def main():
+    dry = os.environ.get("IDLE_SUSPEND_DRYRUN") == "1"
+    try:
+        blocked = savage_active()
+    except Exception as e:                      # скрипт недоступен — лучше не спать
+        print("не смог определить Savage Mode: %s" % e, file=sys.stderr)
+        blocked = True
+    if blocked:
+        print("Savage Mode включён — сон пропущен")
+        return 0
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from game_guard import game_running
+    if game_running():
+        print("идёт игра — сон пропущен")
+        return 0
+    if dry:
+        print("сон бы состоялся (Savage Mode выключен)")
+        return 0
+    subprocess.run(["systemctl", "suspend"])
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

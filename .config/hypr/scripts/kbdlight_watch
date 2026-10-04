@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Гасить подсветку клавиатуры ноутбука по бездействию ИМЕННО ЭТИХ клавиш.
+
+Через hypridle так не выйдет: он следит за вводом вообще, поэтому подсветка
+загоралась бы и от мыши, и от внешней клавиатуры Razer.
+
+Здесь читается конкретное устройство — "AT Translated Set 2 keyboard", то
+есть физические клавиши ноутбука. События читаются сырыми структурами
+input_event, без сторонних библиотек.
+
+Требуется членство в группе input: /dev/input/event* принадлежат root:input.
+"""
+import fcntl
+import os
+import re
+import select
+import struct
+import subprocess
+import sys
+import time
+
+TIMEOUT = 90                      # секунд бездействия до гашения (было 30 — «быстро выключается», 04.10.2026)
+LOCK = "/run/user/%d/kbdlight_watch.lock" % os.getuid()
+KBDLIGHT = os.path.expanduser("~/.config/hypr/scripts/kbdlight")
+WANT = "AT Translated Set 2 keyboard"
+
+# long, long, ushort, ushort, uint — размер зависит от разрядности
+FMT = "llHHI"
+SIZE = struct.calcsize(FMT)
+EV_KEY = 0x01
+
+
+def find_device():
+    blocks = open("/proc/bus/input/devices").read().split("\n\n")
+    for b in blocks:
+        if 'N: Name="%s"' % WANT not in b:
+            continue
+        m = re.search(r"(event\d+)", b)
+        if m:
+            return "/dev/input/" + m.group(1)
+    return None
+
+
+def light(action):
+    subprocess.run([KBDLIGHT, action], capture_output=True)
+
+
+def single_instance():
+    """Не дать запуститься второму сторожу.
+
+    23.09.2026: их набралось три (сеанс перезапускали по ходу переезда на
+    niri), и каждый жил со своим таймером. Замок держится открытым файлом —
+    умрёт процесс, освободится и он.
+    """
+    fd = os.open(LOCK, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("kbdlight_watch: уже запущен", file=sys.stderr)
+        return None
+    os.write(fd, str(os.getpid()).encode())
+    return fd                       # держим открытым до конца жизни процесса
+
+
+def main():
+    if single_instance() is None:
+        return 0
+    dev = find_device()
+    if not dev:
+        print("не нашёл устройство %r" % WANT, file=sys.stderr)
+        return 1
+    try:
+        fd = open(dev, "rb", buffering=0)
+    except PermissionError:
+        print("нет доступа к %s — нужна группа input:\n"
+              "  sudo gpasswd -a $USER input   (затем перезайти в систему)" % dev,
+              file=sys.stderr)
+        return 1
+
+    on = True
+    last = time.monotonic()
+    while True:
+        # Ждём события не дольше, чем осталось до гашения.
+        wait = max(0.2, TIMEOUT - (time.monotonic() - last))
+        r, _, _ = select.select([fd], [], [], wait)
+        if r:
+            try:
+                data = fd.read(SIZE)
+            except OSError:
+                data = b""
+            if data and len(data) == SIZE:
+                _, _, etype, _, _ = struct.unpack(FMT, data)
+                if etype == EV_KEY:      # только нажатия, не движения мыши
+                    last = time.monotonic()
+                    if not on:
+                        light("on"); on = True
+            else:
+                # Устройство исчезло — после сна узел event* пересоздаётся с
+                # другим номером. Старый описатель остаётся «готов к чтению»
+                # навсегда, и раньше на этом всё вставало: select больше не
+                # истекал, а гашение висело в ветке elif и не наступало —
+                # подсветка горела вечно (23.09.2026).
+                fd.close()
+                dev = None
+                while dev is None:
+                    time.sleep(2)
+                    dev = find_device()
+                fd = open(dev, "rb", buffering=0)
+        # Гашение проверяется всегда, а не только когда select вернулся пустым.
+        if on and time.monotonic() - last >= TIMEOUT:
+            light("off"); on = False
+
+
+if __name__ == "__main__":
+    sys.exit(main())

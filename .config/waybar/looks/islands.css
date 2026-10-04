@@ -1,0 +1,21 @@
+/* Вид «острова»: общей подложки нет — левая, центральная и правая группы
+   модулей стоят отдельными островками в той же гамме. Селекторы с
+   window#waybar впереди — сильнее правил .modules-* в style.css, которые
+   иначе перебили бы этот файл (он подключается раньше них). */
+window#waybar {
+    background-color: transparent;
+    border: none;
+    color: @foreground;
+}
+
+window#waybar .modules-left,
+window#waybar .modules-center,
+window#waybar .modules-right {
+    background-color: alpha(@bar-bg, 0.88);
+    border: 1px solid alpha(@primary, 0.55);
+    border-radius: 12px;
+    /* 1px, а не 2px, как у секций в style.css: рамка острова сама добавляет
+       по 1px сверху и снизу, и с полями 2px бар требовал 34px вместо 32
+       (waybar: "minimum height"), раздуваясь на два пикселя. */
+    padding: 1px 8px;
+}

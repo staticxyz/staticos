@@ -1,0 +1,64 @@
+configuration {
+    show-icons: true;
+    window-format: "{c}";
+}
+
+// Палитра обоев. Без этой строки файл жил сам по себе: цвета ниже были
+// зашиты от прежней темы Tokyo Night и за обоями не следовали.
+@import "~/.cache/matugen/colors.rasi"
+
+* {
+    background-color: transparent;
+    text-color: @fg;
+    font: "JetBrainsMono Nerd Font 10";
+}
+
+window {
+    transparency: "real";
+    background-color: rgba(22, 27, 46, 0.92);
+    border: 2px;
+    border-color: @accent;
+    border-radius: 20px;
+    width: 520px;
+    height: 105px;
+    location: center;
+    anchor: center;
+    padding: 12px;
+}
+
+mainbox {
+    children: [ listview ];
+    background-color: transparent;
+}
+
+listview {
+    background-color: transparent;
+    layout: horizontal;
+    spacing: 12px;
+    lines: 6;
+    fixed-columns: true;
+}
+
+element {
+    orientation: vertical;
+    border-radius: 14px;
+    padding: 8px 14px;
+    background-color: rgba(31, 40, 71, 0.45);
+}
+
+element selected {
+    background-color: @accent;
+    border: 2px;
+    border-color: @accent;
+}
+
+element-icon {
+    size: 48px;
+    horizontal-align: 0.5;
+    vertical-align: 0.5;
+    background-color: transparent;
+}
+
+element-text {
+    enabled: false;
+}

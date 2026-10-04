@@ -1,0 +1,134 @@
+// ───────────────────────────── АВТОЗАПУСК ────────────────────────
+// Источник: ~/.config/hypr/autostart.lua
+// Бар общий с Hyprland, но столы и раскладка в нём на модулях Hyprland. Поэтому
+// вариант для niri собирается из основного конфига при каждом входе (скрипт
+// объясняет, что именно меняется), и waybar стартует уже с ним.
+// Оболочка: своя (waybar + swaync + eww) или Noctalia — что выбрано в
+// ~/.config/niri/state/shell. Переключатель: SUPER+SHIFT+S, он же scripts/shell-switch.
+spawn-sh-at-startup "~/.config/niri/scripts/shell-switch start"
+// Подписи столов в баре: значок первой программы вместо номера
+// (переключается в «Настройках» → «Бар», скрипт hypr/scripts/ws_labels.py).
+spawn-sh-at-startup "python3 ~/.config/niri/scripts/niri_bar.py names"
+// Сторож панели: niri рвёт поток событий у клиента, который читает медленно
+// (ловится в журнале), и модуль столов замирает — поднимаем связку сами.
+spawn-sh-at-startup "python3 ~/.config/niri/scripts/bar_watch"
+// Сторож: Electron-программы (браузеры и т. п.) требуют развернуть себя
+// уже ПОСЛЕ появления, и правила открытия их не ловят — см. шапку скрипта.
+spawn-sh-at-startup "python3 ~/.config/niri/scripts/no_self_maximize.py"
+// Центрировать колонку при переходе фокуса — кроме случая «две ровные половины».
+spawn-sh-at-startup "python3 ~/.config/niri/scripts/pair_center.py"
+spawn-at-startup "hypridle"
+// hyprsunset в Niri не работает — он требует hyprland-ctm-control-v1 и сразу
+// выходит. Цвет и яркость экрана ставит screen_gamma: в Niri через gammastep.
+// «dim off», а не «apply»: приглушение по простою (~/.cache/screen-dim) переживало мёртвый
+// сеанс и при новом входе снова темнило оба экрана до 55 % (24.09.2026).
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/screen_gamma.py dim off"
+spawn-at-startup "gnome-keyring-daemon" "--start" "--components=secrets,pkcs11,ssh"
+spawn-at-startup "playerctld" "daemon"
+spawn-sh-at-startup "~/.config/hypr/scripts/kbdlight_watch"
+// История буфера без скопированного в Tor Browser (28.09.2026).
+spawn-sh-at-startup "wl-paste --type text --watch ~/.local/bin/cliphist-store"
+spawn-sh-at-startup "wl-paste --type image --watch ~/.local/bin/cliphist-store"
+// Копирование из X11-программ (Tor) без фокуса на них: satellite сам не передаёт.
+spawn-sh-at-startup "~/.local/bin/x11-clip-bridge"
+// Буфер обмена в игры gamescope: сам он передаёт только из игры наружу (24.09.2026).
+spawn-sh-at-startup "wl-paste --type text --watch ~/.local/bin/game-clip-push"
+// Новой игре — то, что уже лежит в буфере (скопированное до запуска CS2 не доходило).
+spawn-sh-at-startup "~/.local/bin/game-clip-push --watch-games"
+// Звонок терминала тише и тишина уведомлений при «Не беспокоить» (23.09.2026).
+spawn-sh-at-startup "~/.config/hypr/scripts/sound_guard.sh"
+spawn-at-startup "awww-daemon"
+// Фон обзора — второй демон и размытые обои в нём (см. layer-rule у обоев).
+spawn-at-startup "awww-daemon" "--namespace" "-backdrop"
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/wallpaper_blur.py backdrop"
+spawn-at-startup "waypaper" "--restore"
+// Дашборд (часы, таймер, cava, brrt…) — те же окна, что были до перезагрузки,
+// в тех же местах. Ждёт бар, иначе окна встают без поправки на него.
+spawn-sh-at-startup "~/.config/niri/scripts/dashboard restore --login"
+// Сторож консоли: если после входа сеанс niri остался неактивным (чёрный экран на VT
+// greeter-а), вернуть его на экран сам. Подробности в шапке скрипта. 24.09.2026.
+spawn-sh-at-startup "~/.config/niri/scripts/vt_guard"
+
+// НЕ перенесены — опираются на hyprctl, на niri работать не будут:
+//   scripts/cursor_watch     — следит за курсором через hyprctl setcursor
+//   scripts/ws_order.py watch — свой порядок столов; в niri столы
+//                               переставляются штатно (SUPER+SHIFT+H/L)
+//   scripts/keypunch_float.lua — заменено правилом окна ниже
+
+// Проверка связи NetworkManager — ВЫКЛ (29.09.2026). С кабелем и Wi-Fi вместе она
+// каждые ~10 мин на полминуты уводила маршрут на Wi-Fi (проверка по кабелю
+// временами не проходит), и CS2 выкидывало: «Unable to establish a connection with
+// the gameserver». Без sudo, через D-Bus; дома она не нужна (она для страниц входа в Wi-Fi).
+spawn-at-startup "busctl" "set-property" "org.freedesktop.NetworkManager" "/org/freedesktop/NetworkManager" "org.freedesktop.NetworkManager" "ConnectivityCheckEnabled" "b" "false"
+
+// Док снизу по образцу Noctalia (30.09.2026): курсор в низ экрана по центру — выезжает.
+// Нижняя панель (30.09.2026): док, XP-панель или ничего — что выбрано в Настройках.
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/bottom_bar.py"
+// Одиночный Super — меню «Пуск» XP-панели, пока она на экране (01.10.2026).
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/super_tap.py"
+
+// Уведомление при смене трека (30.09.2026); вкл/выкл — Настройки → Уведомления.
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/track_notify.py"
+
+// Экранное время: счётчик фокуса по программам (30.09.2026), окно — screentime.py.
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/screentime_daemon.py"
+
+// Горячие углы (30.09.2026): правый верхний — центр уведомлений; hot_corners.py list/set.
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/hot_corners.py"
+
+// Тишина звуков уведомлений Telegram и др. в «Не беспокоить», звук окон не трогается (30.09.2026).
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/dnd_sounds.py"
+
+// Меню рабочего стола по ПКМ на пустых обоях (30.09.2026); вкл/выкл — desktop_menu.py on|off.
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/desktop_menu.py"
+
+// Страховка (01.10.2026): временные бинды записи экрана (cfg/rec-binds.kdl, голая M —
+// микрофон) застряли после записи, и М/Ь не печаталась без Shift. При входе записи
+// идти не может — сбрасываем файл в пустую заглушку, как rec_area.sh при остановке.
+spawn-sh-at-startup "printf '// Бинды на время записи видео пишет сюда rec_area.sh (M — микрофон).\\n// Сейчас записи нет — пусто.\\n' > ~/.config/niri/cfg/rec-binds.kdl && niri msg action load-config-file"
+
+// Кто греет процессор (01.10.2026): уведомление, если программа держит целое ядро
+// дольше трёх минут — после вопроса «почему кулеры резко раскручиваются».
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/cpu_hog_watch.py"
+
+// Хранитель буфера обмена (02.10.2026): без него содержимое буфера пропадало, когда
+// закрывалась программа, которая его скопировала.
+spawn-at-startup "wl-clip-persist" "--clipboard" "regular"
+
+// «Встряхни мышь — найди курсор» (02.10.2026): кольца вокруг указателя цветом обоев.
+// Вкл/выкл — cursor_shake.py on|off (Настройки → Misc); в играх мышь не читается.
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/cursor_shake.py"
+
+// Авто-«Не беспокоить» на время записи и трансляции экрана (02.10.2026);
+// вкл/выкл — auto_dnd.py on|off (Настройки → Misc). Replay записью не считается.
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/auto_dnd.py"
+
+// Звуки интерфейса (02.10.2026): звук входа; остальные события шлют сами скрипты
+// (снимок, запись, разблокировка). Выключить всё — ui_sound.py off (Настройки → Misc).
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/ui_sound.py play login"
+
+// Виджеты на обоях (02.10.2026): часы, дата, матрица, эквалайзер, осьминог, система —
+// по образцу дашборда, одним процессом. Вкл/выкл — desktop_widgets.py on|off,
+// расстановка — desktop_widgets.py edit (Настройки → Visuals).
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/desktop_widgets.py"
+
+// Сторож звуков интерфейса (02.10.2026): USB, батарея, а при включённых группах — окна,
+// щелчки мыши и уведомления. Сам играет через ui_sound.py (группы — Настройки → Misc).
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/ui_sound_watch.py"
+
+// Верхний бар «при наведении» (03.10.2026): сторож с датчиками у верхнего края. Сам
+// выходит, если режим другой (top_bar.py get: always | hover | off).
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/top_bar.py"
+
+// Настройки — заранее спрятанным процессом (03.10.2026): первое открытие за сеанс тоже
+// мгновенное. Цена ~50 МБ, процессор не тратит. Выключатель — Настройки → Config →
+// «Быстрое открытие» (файл state/settings-resident-off: с ним --hidden сразу выходит).
+spawn-sh-at-startup "sleep 8; python3 ~/.config/hypr/scripts/settings_app.py --hidden"
+
+
+// Журнал уведомлений (04.10.2026): список «Последние уведомления» на странице
+// «Уведомления» центра управления. swaync текст по D-Bus не отдаёт — пишем сами.
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/notif_log.py"
+
+// Переключатель окон Alt+Tab (05.10.2026): резидент держит окно и список окон в памяти.
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/alt_tab.py daemon"

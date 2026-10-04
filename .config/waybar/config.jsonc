@@ -1,0 +1,479 @@
+{
+    // Watch style.css and everything it @imports, and reload only the
+    // stylesheet. Without this the sole way in is SIGUSR2, which tears the
+    // bar down and takes org.kde.StatusNotifierWatcher (the tray) with it.
+    "reload_style_on_change": true,
+
+    "layer": "top",
+    // Середина бара держится по центру монитора, что бы ни творилось по
+    // краям (23.09.2026): панель с температурой уезжала вслед за шириной
+    // плеера и эквалайзера.
+    "fixed-center": true,
+    // Положение и высота бара тоже зависят от вида — см. looks/<вид>.jsonc.
+    "spacing": 0,
+    // Отступы бара зависят от вида и лежат в looks/<вид>.jsonc; текущий
+    // подключается через ссылку looks/current.jsonc (её меняет
+    // scripts/bar_style.py). Здесь их быть не должно: ключи основного
+    // конфига главнее подключённых, и вид перестал бы переключаться.
+    "include": ["~/.config/waybar/looks/current.jsonc"],
+
+    "output": ["DP-4", "eDP-1"],
+
+    "modules-left": [
+        "custom/launcher",
+        "hyprland/workspaces",
+        "custom/ribbon"
+    ],
+    // pomo — слева от капсул, а не справа в общей группе (23.09.2026, просьба
+    // пользователя): правая группа от этого на ~90 px уже, и запасу под эквалайзер
+    // хватает ближе к центру. Средняя группа прижата правым краем к правой
+    // (см. .modules-right в style.css), поэтому ширина pomo (значок / значок с
+    // минутами) капсулы не двигает — pomo растёт влево.
+    "modules-center": [
+        "custom/privacy",
+        "custom/rec",
+        "custom/pomo",
+        "cpu",
+        "memory",
+        "temperature"
+    ],
+    "modules-right": ["custom/librewolf", "custom/mercury", 
+        "custom/bongo",
+        "custom/cava",
+        "custom/mpris",
+        "group/group-system",
+        "custom/clock",
+        "custom/power"
+    ],
+
+    // Кнопка "Пуск" (Arch)
+    "custom/launcher": {
+        // Значок печатает start_button.py (30.09.2026): Nerd-логотип Arch или
+        // пиксельный (шрифт JarvisStart) — выбор в Настройках → Внешний вид,
+        // смена шлёт waybar SIGRTMIN+12.
+        "exec": "python3 $HOME/.config/hypr/scripts/start_button.py",
+        "return-type": "json",
+        "interval": "once",
+        "signal": 12,
+        // Запасной «|| wofi» убран: rofi при закрытии через Escape выходит с
+        // кодом 1, и || запускал бы wofi следом (а wofi и не установлен).
+        "on-click": "rofi -show drun",
+        "tooltip": false
+    },
+
+    // Карта ленты: точки-колонки активного стола — текущая акцентом, видимые
+    // полутоном, за краем едва заметно. Пуста (и скрыта), когда показывать
+    // нечего. Колёсико листает колонки в пределах монитора. Включается и
+    // выключается в «Настройках» и в «Энергии» (ribbon_map.py on|off).
+    "custom/ribbon": {
+        "exec": "python3 $HOME/.config/hypr/scripts/ribbon_map.py",
+        "return-type": "json",
+        "on-scroll-up": "hyprctl eval 'ribbon_focus(\"left\")'",
+        "on-scroll-down": "hyprctl eval 'ribbon_focus(\"right\")'"
+    },
+
+    // Рабочие пространства с иконками окон
+    "hyprland/workspaces": {
+        "disable-scroll": true,
+        "all-outputs": false,
+        "active-only": false,
+        // Подпись стола целиком собирает scripts/ws_order.py: невидимая метка
+        // порядка, номер и по ОДНОМУ значку на приложение, без повторов.
+        // Правила значков он берёт отсюда же, из window-rewrite ниже.
+        "format": "{name}",
+        // Сортировка по метке-подписи — так порядок в баре перестаёт быть
+        // жёстко привязан к номерам, и стол можно переставить, не трогая окна.
+        "sort-by": "name",
+        "format-window-separator": " ",
+        "window-rewrite-default": "",
+	"window-rewrite": {
+            "class<thorium-browser>": "",
+            // Mercury — форк Firefox, класс окна "mercury-default". Без своего
+            // правила он попадал под window-rewrite-default (простой кружок)
+            // и был неотличим от любого другого окна без глифа.
+            "class<mercury.*>": "",
+            // LibreWolf: логотип глифом U+E900 из собственного шрифта WolfGlyph.
+            // U+E100, а не U+E900: частную зону Unicode плотно занимает Nerd Font,
+            // и на U+E900 он рисует свой значок вместо волка.
+            "class<librewolf>": "",
+            "class<Tor Browser>": "",
+            // Zen: логотип глифом U+E101 из шрифта ZenGlyph (15.09.2026).
+            "class<zen>": "",
+            // ZapZap (клиент WhatsApp). Без правила он попадал под
+            // window-rewrite-default — простой кружок.
+            // Класс окна менялся вместе с версией: до 7.4 это было "ZapZap",
+            // с 7.4.3 — "com.rtosta.zapzap", и правило по точному имени
+            // молча переставало срабатывать. Поэтому здесь подстрока:
+            // [^>]* не пересекает ">", так что поиск заперт внутри class<...>
+            // и не может зацепить окно с "zapzap" в заголовке.
+            "class<[^>]*zapzap[^>]*>.*": "",
+            "class<google-chrome>": "",
+            // DBeaver: класс окна ровно "DBeaver" (StartupWMClass в его
+            // .desktop). Без правила падал в window-rewrite-default —
+            // пустую строку, а waybar рисует на пустом тексте стандартный
+            // кружок-точку.
+            "class<DBeaver>": "",
+            "class<com.rafaelmardojai.Blanket>": "",
+            // Dolphin. Единственное, что оставалось без своей иконки,
+            // и потому вечно висело в предупреждениях theme-doctor.
+            "class<[^>]*dolphin[^>]*>.*": "",
+            "class<sysmontask>": "",
+            "class<brave-browser>": "",
+            // Просмотр картинок GNOME (Loupe): без правила рисовался кружок.
+            "class<org.gnome.Loupe>": "\udb80\udee9",
+            "class<md.obsidian.Obsidian>": "",
+            "class<code|vscodium>": "󰨞",
+            // Neovim в kitty: свой «</>» (U+E104) — круглые штрихи, наклон вправо,
+            // зазор между частями; рисуется в build_bar_icons.py по образцам
+            // пользователя (25.09.2026). Окно узнаётся по
+            // заголовку — kitty ставит в него «nvim …»; правило с title< должно
+            // стоять ВЫШЕ общего class<kitty>.
+            "class<kitty> title<nvim.*>": "",
+            "class<kitty>": "",
+            "class<org.telegram.desktop>": "",
+            "class<YouTube Music Desktop App>": "",
+            // Яндекс Музыка: своя звезда-вспышка, снятая с иконки приложения
+            // (U+E103, собирается build_bar_icons.py). Обычная звезда Nerd Font
+            // на логотип не похожа — пользователь сравнил со значком (25.09.2026).
+            "class<YandexMusic>": "",
+            "class<org.xfce.mousepad>": "",
+            // Sublime Text. U+E697 — фирменная лента-«S» из Devicons, ближе
+            // всего к настоящему логотипу; соседний U+E696 это залитый круг
+            // с буквой, чужой знак.
+            "class<[^>]*sublime[^>]*>.*": "",
+            "class<steam>": "",
+            // VirtualBox: у менеджера класс «VirtualBox Manager», у окна
+            // запущенной машины — «VirtualBox Machine». Подстрока ловит оба;
+            // глиф — контурный куб, ближайший к логотипу.
+            "class<[^>]*[Vv]irtual[Bb]ox[^>]*>.*": "󰆧",
+            // ── подобрано разом для остальных программ системы (25.09.2026) ──
+            // Браузеры и связь
+            "class<[^>]*helium[^>]*>.*": "",
+            "class<firefox>": "",
+            "class<[^>]*[Dd]iscord[^>]*>.*": "",
+            "class<[^>]*[Zz]oom[^>]*>.*": "",
+            "class<[^>]*localsend[^>]*>.*": "",
+            "class<[^>]*(anydesk|TeamViewer)[^>]*>.*": "",
+            "class<[^>]*kdeconnect[^>]*>.*": "",
+            // Медиа и картинки
+            "class<[^>]*spotify[^>]*>.*": "",
+            "class<org.kde.gwenview>": "",
+            "class<[^>]*[Pp]inta[^>]*>.*": "",
+            "class<(org.ksnip.ksnip|org.kde.spectacle)>": "",
+            "class<[^>]*waypaper[^>]*>.*": "",
+            // Система и настройки
+            "class<(qt6ct|nwg-look|systemsettings|kdesystemsettings|com.jarvis.settings)>": "",
+            "class<[^>]*blueman[^>]*>.*": "",
+            "class<(org.pulseaudio.pavucontrol|com.saivert.pwvucontrol)>": "",
+            "class<nm-connection-editor>": "",
+            "class<[^>]*wdisplays[^>]*>.*": "",
+            "class<[^>]*polychromatic[^>]*>.*": "",
+            "class<[^>]*[Vv]entoy[^>]*>.*": "",
+            "class<org.kde.discover>": "",
+            "class<[^>]*speedcrunch[^>]*>.*": "",
+            "class<[^>]*postman[^>]*>.*": "",
+            // Игры
+            "class<[^>]*Counter-Strike[^>]*>.*": ""
+        }
+    },
+
+    // Часы с календарём (Пн-старт, без номеров недель, в палитре обоев) —
+    // см. ~/.config/hypr/scripts/waybar_clock.py. Заменяет встроенный "clock":
+    // тот следует локали (en_US = с воскресенья) без способа задать Пн-старт
+    // из конфига waybar.
+    "custom/clock": {
+        "exec": "python3 $HOME/.config/hypr/scripts/waybar_clock.py",
+        "return-type": "json",
+        "interval": 5,
+        // Подсказка по наведению убрана: ту же сетку теперь показывает попап
+        // по щелчку, а всплывающая копия только мешала — она выскакивала при
+        // случайном проходе мышью над часами и жила по своим правилам
+        // задержки.
+        "tooltip": false,
+        // left: мини-календарь окном (calendar_popup.py). Раньше здесь был
+        // запуск большого окна, а сетку месяца показывала подсказка по
+        // наведению — но у подсказок GTK своя задержка, из waybar она не
+        // настраивается, и взглянуть на число сразу было нельзя.
+        "on-click": "python3 $HOME/.config/hypr/scripts/waybar_clock.py popup",
+        // middle: поменять местами часы и дату на двух мониторах
+        "on-click-middle": "python3 $HOME/.config/hypr/scripts/waybar_clock.py toggleside",
+        // right: большое окно календаря (calendar_app.py)
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/waybar_clock.py open",
+        "on-scroll-up": "python3 $HOME/.config/hypr/scripts/waybar_clock.py next",
+        "on-scroll-down": "python3 $HOME/.config/hypr/scripts/waybar_clock.py prev",
+        "signal": 9
+    },
+
+    // ---- Датчики системы (центр бара) --------------------------------
+    "cpu": {
+        "interval": 2,
+        "format": "󰻠 {usage}%",
+        "tooltip-format": "Загрузка CPU: {usage}%\nСредняя за 1/5/15 мин: {load}",
+        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026).
+        // btop — из боковой колонки панели (значок «Система»).
+        "on-click": "python3 $HOME/.config/hypr/scripts/control_center.py --center",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/control_center.py --center"
+    },
+
+    "memory": {
+        "interval": 3,
+        "format": "󰘚 {percentage}%",
+        "tooltip-format": "ОЗУ: {used:0.1f} из {total:0.1f} GiB ({percentage}%)\nSwap: {swapUsed:0.1f} из {swapTotal:0.1f} GiB",
+        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026).
+        // btop — из боковой колонки панели (значок «Система»).
+        "on-click": "python3 $HOME/.config/hypr/scripts/control_center.py --center",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/control_center.py --center"
+    },
+
+    "temperature": {
+        // Абсолютный путь через platform-устройство, а не /sys/class/hwmon/hwmonN:
+        // нумерация hwmon меняется между перезагрузками, а coretemp.0 — нет.
+        "hwmon-path-abs": "/sys/devices/platform/coretemp.0/hwmon",
+        "input-filename": "temp1_input",
+        "interval": 3,
+        "critical-threshold": 85,
+        "format": "{icon} {temperatureC}°",
+        "format-critical": "󰸁 {temperatureC}°",
+        "format-icons": ["󰜗", "󰔏", "󰸁"],
+        "tooltip-format": "Температура пакета CPU: {temperatureC}°C",
+        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026).
+        // btop — из боковой колонки панели (значок «Система»).
+        "on-click": "python3 $HOME/.config/hypr/scripts/control_center.py --center",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/control_center.py --center"
+    },
+
+    // Эквалайзер Cava
+    // Эквалайзер. Встроенный модуль "cava" waybar заменён своим:
+    // у встроенного не работает автоусиление. Замеры на живом баре:
+    // при autosens = 1 он замирал во всех пяти попытках, при autosens = 0
+    // громкость ничем не нормируется и на громкой музыке полоски стоят в
+    // потолке. Плюс он изредка стартовал замороженным — три перезапуска с
+    // одними настройками дали один мёртвый и два живых.
+    //
+    // Скрипт запускает НАСТОЯЩИЙ cava (тот же, что в терминале) с сырым
+    // выводом и рабочим autosens и переводит числа в символы блоков.
+    // Настройки самого эквалайзера — в ~/.config/cava/waybar.conf.
+    "custom/cava": {
+        "exec": "python3 $HOME/.config/hypr/scripts/cava_bar.py",
+        "tooltip": false
+    },
+
+    // Музыкальный плеер MPRIS
+    // Replaces waybar's built-in "mpris": that module stays on screen with an
+    // empty label when nothing is playing, leaving a bare pill in the bar.
+    // A custom module is hidden whenever its text comes back empty.
+    // Значок Mercury, пока браузер открыт. Саму картинку рисует CSS
+    // (background-image в style.css) — waybar показывает в модуле текст,
+    // а не изображения, поэтому скрипт выдаёт лишь пробелы под неё.
+    "custom/librewolf": {
+        "exec": "python3 $HOME/.config/hypr/scripts/browser_status.py librewolf LibreWolf",
+        "return-type": "json",
+        "interval": 3,
+        "on-click": "librewolf"
+    },
+
+    "custom/zen": {
+        "exec": "python3 $HOME/.config/hypr/scripts/browser_status.py zen Zen",
+        "return-type": "json",
+        "interval": 3,
+        "on-click": "zen-browser"
+    },
+
+    "custom/mercury": {
+        "exec": "python3 $HOME/.config/hypr/scripts/browser_status.py mercury Mercury",
+        "return-type": "json",
+        "interval": 3,
+        "on-click": "mercury-browser-avx2"
+    },
+
+    "custom/mpris": {
+        "exec": "python3 $HOME/.config/hypr/scripts/mpris_status.py",
+        "return-type": "json",
+        "interval": 2,
+        // Клик — пауза/воспроизведение. Раньше on-click не было вовсе:
+        // висели средняя кнопка, правая и колёсико, а обычный клик молчал.
+        // pkill шлёт сигнал 5, чтобы иконка сменилась сразу, а не через две
+        // секунды, когда подойдёт очередной опрос по interval.
+        "on-click": "playerctl play-pause && pkill -RTMIN+5 waybar",
+        "signal": 5,
+        "on-click-middle": "$HOME/.config/hypr/scripts/mpris_focus",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/player_popup.py",
+        "on-scroll-up": "playerctl next",
+        "on-scroll-down": "playerctl previous"
+    },
+
+    // Группа сети
+    // Системная таблетка: сеть, раскладка, звук и батарея одним блоком —
+    // раньше они стояли голым текстом среди модулей в подложках и выглядели
+    // случайно. Оформление — #group-system в style.css.
+    "group/group-system": {
+        "orientation": "horizontal",
+        // network#eth стоит ЗДЕСЬ, а не внутри group/net: та группа —
+        // выдвижная, и первый её модуль становится единственным видимым.
+        // Поставив туда провод, я спрятал Wi-Fi вместе со списком сетей
+        // по правой кнопке (замечено пользователем 21.09.2026).
+        "modules": ["network#eth", "group/net", "hyprland/language", "group/audio", "custom/battery"]
+    },
+
+    "group/net": {
+        "orientation": "horizontal",
+        "drawer": {
+            "transition-duration": 300,
+            "transition-left-to-right": false
+        },
+        "modules": ["network", "bluetooth"]
+    },
+
+    // Провод отдельным значком: модуль "network" показывает ТОЛЬКО интерфейс
+    // маршрута по умолчанию, и при живом Wi-Fi кабель в баре не виден вовсе
+    // (21.09.2026). Здесь интерфейс задан явно; когда кабеля нет, текст пустой
+    // и waybar прячет модуль.
+    // Подпись строчными — «lan», а не «LAN» (23.09.2026).
+    "network#eth": {
+        "interface": "enp3s0",
+        "format": "",
+        "format-ethernet": "\udb80\ude00 lan",
+        "format-disconnected": "",
+        "format-linked": "",
+        "tooltip-format-ethernet": "Провод: {ipaddr}\nСкорость: {bandwidthDownBits} / {bandwidthUpBits}",
+        "interval": 5,
+        // Щелчок — центр управления в духе Noctalia (30.09.2026).
+        "on-click": "python3 $HOME/.config/hypr/scripts/control_center.py",
+        // Правой — то же самое (30.09.2026). «Настройки» — из панели, ⚙.
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/control_center.py"
+    },
+
+    "network": {
+        // Этот модуль — про Wi-Fi и только про него. Без явного интерфейса он
+        // показывает тот, через который идёт маршрут по умолчанию, и при
+        // воткнутом кабеле писал «LAN» — рядом с отдельным значком провода
+        // получалось два одинаковых (замечено пользователем 21.09.2026).
+        "interface": "wlp0s20f3",
+        // Значки (04.10.2026, просьба: «вайфай не понятно, включен или нет»): подключён —
+        // полный веер акцентом, включён без сети — пустой контур без черты, выключен —
+        // перечёркнутый бледный. Раньше «нет сети» и «выключен» оба были перечёркнуты.
+        "format-ethernet": "󰈀 LAN",
+        "format-wifi": "󰤨 {essid}",
+        "format-disconnected": "󰤯",
+        "format-disabled": "󰤮",
+        "tooltip-format": "Сеть: {essid}\nIP: {ipaddr}",
+        "on-click": "nmcli radio wifi $(nmcli radio wifi | grep -q 'enabled' && echo off || echo on)",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/wifi_popup.py"
+    },
+
+    "bluetooth": {
+        "format": "",
+        "format-off": "󰂲",
+        "format-disabled": "󰂲",
+        "format-connected": " {device_alias}",
+        "format-connected-battery": " {device_alias} {device_battery_percentage}%",
+        "tooltip-format": "{controller_alias}\t{controller_address}",
+        "on-click": "rfkill toggle bluetooth",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/bluetooth_popup.py"
+    },
+
+    "hyprland/language": {
+        "format": "󰌌 {}",
+        "format-en": "US",
+        "format-ru": "RU",
+        "on-click": "hyprctl switchxkblayout current next"
+    },
+
+    // Группа звука
+    "group/audio": {
+        "orientation": "horizontal",
+        "drawer": {
+            "transition-duration": 300,
+            "transition-left-to-right": false
+        },
+        "modules": ["pulseaudio", "pulseaudio#microphone"]
+    },
+
+    "pulseaudio": {
+        "format": "{icon} {volume}%",
+        "format-muted": "󰝟 Muted",
+        "format-icons": {
+            "default": ["󰕿", "󰖀", "󰕾"]
+        },
+        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/volume_popup.py",
+        "on-scroll-up": "wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+",
+        "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+    },
+
+    "pulseaudio#microphone": {
+        "format": "{format_source}",
+        "format-source": "󰍬 {volume}%",
+        "format-source-muted": "󰍭 Muted",
+        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/mic_popup.py",
+        "on-scroll-up": "wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SOURCE@ 5%+",
+        "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 5%-"
+    },
+
+    "custom/battery": {
+        "exec": "python3 $HOME/.config/hypr/scripts/savage_battery.py",
+        "return-type": "json",
+        "interval": 2,
+        "on-click": "python3 $HOME/.config/hypr/scripts/battery_popup.py",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/savage_battery.py --toggle"
+    },
+
+    // Помидорный таймер (~/.local/bin/pomo). Модуль только рисует: состояние
+    // лежит в файле, а отсчёт держит одноразовый таймер systemd — поэтому
+    // перезапуск waybar таймер не сбивает и своего процесса ему не нужно.
+    // Сигнал 8 шлёт сам pomo после любой команды, включая биндинги Hyprland,
+    // так что цифра меняется сразу, а не в ближайший тик interval.
+    // Красная точка, пока идёт запись Recorder (30.09.2026). Пустой текст — модуль
+    // не виден. Щелчок — остановить запись (тот же скрипт, что Super+Shift+Print).
+    "custom/rec": {
+        "exec": "$HOME/.config/hypr/scripts/rec_status.sh",
+        "return-type": "json",
+        "interval": 5,
+        "signal": 11,
+        "on-click": "$HOME/.config/hypr/scripts/rec_area.sh",
+        "tooltip": true
+    },
+    "custom/pomo": {
+        "exec": "$HOME/.local/bin/pomo status json",
+        "return-type": "json",
+        "interval": 1,
+        "signal": 8,
+        "on-click": "$HOME/.local/bin/pomo toggle",
+        "on-click-right": "$HOME/.local/bin/pomo skip",
+        "on-click-middle": "$HOME/.local/bin/pomo stop",
+        "on-scroll-up": "$HOME/.local/bin/pomo add 1m",
+        "on-scroll-down": "$HOME/.local/bin/pomo add -1m"
+    },
+
+    // Bongo Cat (30.09.2026, по образцу плагина Noctalia): стучит лапами в такт
+    // нажатиям клавиш, без набора — в такт музыке. Кадры — шрифт JarvisBongo
+    // (build_bongo_font.py). Выключается в Настройках (bongo_cat.py off).
+    "custom/bongo": {
+        "exec": "python3 $HOME/.config/hypr/scripts/bongo_cat.py",
+        "escape": false,
+        "tooltip": false
+    },
+
+    // Индикаторы приватности (30.09.2026, по образцу Noctalia): микрофон,
+    // камера, трансляция/запись экрана — видны, только пока что-то занято.
+    // Скрипт событийный (pactl subscribe, inotify, события niri) — interval не нужен.
+    "custom/privacy": {
+        "exec": "$HOME/.config/hypr/scripts/privacy_status.py",
+        "return-type": "json",
+        "restart-interval": 5,
+        "tooltip": true,
+        "escape": false
+    },
+
+    "custom/power": {
+        "format": "",
+        // wlogout, как было (пользователь вернул, 30.09.2026). Выход, перезагрузка и
+        // выключение в нём идут через power_menu.py --only: 5 с отсчёт с кольцом,
+        // ещё щелчок — сразу, Esc — отмена. Значки — wlogout_icons.py.
+        // 01.10.2026: какое меню — решает power_view.py (Настройки → Power):
+        // wlogout или своё power_menu.py с рамкой и кнопками.
+        "on-click": "python3 $HOME/.config/hypr/scripts/power_view.py open --pointer",
+        "tooltip": false
+    }
+}

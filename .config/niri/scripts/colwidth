@@ -1,0 +1,70 @@
+#!/bin/sh
+# Ширина колонки с пределами: colwidth + | colwidth -            (21.09.2026)
+#
+# Зачем. У niri пределов ширины нет: set-column-width "+10%" растит колонку
+# без конца. Правило окна max-width ограничивает только картинку — окно
+# упирается в предел, а счётчик ширины внутри niri продолжает расти, и потом
+# SUPER+− приходится жать столько же раз впустую. Здесь шаг просто не делается,
+# если упёрлись, — как было в Hyprland (ribbon_width в ribbon_binds.lua).
+#
+# Лестница вверх (экран 1920, шаг 10 % = 192):
+#     …  →  1888 «во всю ширину» (экран минус зазоры) — и дальше не растём.
+# Ступень «с запасом», шире экрана, была до 28.09.2026 — убрана по просьбе
+# пользователя: предел — ширина монитора.
+# Вниз — до 22 % экрана, уже не сжимаем.
+# Плавающее окно меняет СВОЮ ширину (у него нет колонки), с теми же пределами —
+# иначе SUPER+= в плавающем режиме не делал ничего (замечено 21.09.2026).
+
+set -e
+# Отметка «ширину менял я»: её читает no_self_maximize.py, чтобы не принять
+# вашу ширину «во весь экран» за самовольный разворот окна и не сбросить её.
+# Без этого быстрые SUPER+= на новом окне откатывались.
+: > "${XDG_RUNTIME_DIR:-/tmp}/niri-colwidth-touch"
+
+win=$(niri msg --json focused-window)
+floating=$(printf '%s' "$win" | jq -r '.is_floating')
+out=$(niri msg --json focused-output | jq -r '.logical.width')
+
+if [ "$floating" = "true" ]; then
+    w=$(printf '%s' "$win" | jq -r '.layout.window_size[0] | floor')
+    [ -n "$w" ] && [ -n "$out" ] && [ "$out" -gt 0 ] || exit 0
+    step=$((out / 10))
+    min=$((out * 22 / 100))
+    case "$1" in
+        +)
+            [ "$w" -ge $((out - 2)) ] && exit 0
+            if [ $((w + step)) -ge "$out" ]; then
+                niri msg action set-window-width "$out"
+            else
+                niri msg action set-window-width "+10%"
+            fi ;;
+        -)
+            [ $((w - step)) -lt "$min" ] && exit 0
+            niri msg action set-window-width "-10%" ;;
+    esac
+    exit 0
+fi
+
+tile=$(printf '%s' "$win" | jq -r '.layout.tile_size[0] | floor')
+[ -n "$tile" ] && [ -n "$out" ] && [ "$out" -gt 0 ] || exit 0
+
+step=$((out / 10))
+full=$((out - 2 * 16))          # вся ширина минус зазоры с двух сторон (layout.gaps = 16)
+min=$((out * 22 / 100))
+
+case "$1" in
+    +)
+        [ "$tile" -ge $((full - 2)) ] && exit 0                 # уже во всю ширину
+        if [ $((tile + step)) -ge "$full" ]; then
+            niri msg action set-column-width "100%"             # ровно во всю ширину
+        else
+            niri msg action set-column-width "+10%"
+        fi ;;
+    -)
+        [ $((tile - step)) -lt "$min" ] && exit 0               # уже узкая
+        if [ "$tile" -gt $((full + 2)) ]; then
+            niri msg action set-column-width "100%"             # шире экрана (старая ступень) — во всю ширину
+        else
+            niri msg action set-column-width "-10%"
+        fi ;;
+esac

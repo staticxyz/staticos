@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""Показывать раскладку и CapsLock при переключении, как в KDE.
+
+Работает и в Hyprland, и в niri (21.09.2026): источник событий разный, а окно,
+таймер и CapsLock общие.
+
+Hyprland шлёт событие activelayout>>устройство,Раскладка на КАЖДОЕ устройство
+ввода, поэтому одно нажатие даёт пачку одинаковых событий — здесь они
+схлопываются: подсказка появляется только когда имя раскладки реально
+изменилось. niri шлёт KeyboardLayoutSwitched с НОМЕРОМ раскладки, а список имён
+приходит отдельным событием KeyboardLayoutsChanged — его и запоминаем.
+
+Показывается окном eww снизу по центру, а не уведомлением: в углу подсказку
+легко не заметить, а свернуть её в общий поток уведомлений неправильно — она
+не сообщение, а мгновенное подтверждение действия.
+
+Имя раскладки пишется в ~/.cache/eww-layout, откуда его читает окно.
+
+CapsLock живёт здесь же, а не отдельным скриптом, хотя источник у него другой
+(sysfs, а не сокет Hyprland): окно и таймер показа должны быть в одних руках.
+Два процесса на одно окно — это два независимых таймера, и один гасит окно,
+пока второй его показывает; ровно так эта подсказка уже ломалась.
+"""
+import glob
+import os
+import socket
+import threading
+import subprocess
+import sys
+import time
+
+SHORT = {"Russian": "RU", "English (US)": "US", "English": "EN"}
+
+
+CACHE = os.path.expanduser("~/.cache/eww-layout")
+HIDE_AFTER = 0.9          # секунд на экране
+
+# Событие CapsLock Hyprland по socket2 не шлёт, поэтому состояние берём из
+# ядра — из лампочки клавиатуры. Файлов несколько (по одному на устройство
+# ввода), достаточно чтобы горел хоть один.
+CAPS_LEDS = "/sys/class/leds/*::capslock/brightness"
+CAPS_POLL = 0.12          # sysfs светодиодов не умеет poll(), только опрос
+
+_timer = None
+_lock = threading.Lock()  # notify зовут два потока: сокет и опрос CapsLock
+
+
+def notify(name):
+    """Написать имя в файл, показать окно и погасить его через паузу.
+
+    Прежний показ гас по таймеру самого окна — при быстром переключении
+    окно успевало закрыться раньше следующего показа и моргало. Здесь
+    таймер сбрасывается: пока переключаешь, подсказка висит непрерывно.
+    """
+    global _timer
+    label = SHORT.get(name, name[:12])
+    with _lock:
+        with open(CACHE, "w") as f:
+            f.write(label + "\n")
+
+        if label.startswith("CAPS"):
+            icon, mode = "\U000f0632", "off" if label.endswith("OFF") else "on"
+        else:
+            icon, mode = "\U000f030c", "lang"
+        subprocess.run(["eww", "update", "layout-icon=" + icon], capture_output=True)
+        subprocess.run(["eww", "update", "layout-mode=" + mode], capture_output=True)
+        subprocess.run(["eww", "update", "layout-name=" + label], capture_output=True)
+        subprocess.run(["eww", "open", "layout-osd"], capture_output=True)
+
+        if _timer is not None:
+            _timer.cancel()
+        _timer = threading.Timer(
+            HIDE_AFTER,
+            lambda: subprocess.run(["eww", "close", "layout-osd"], capture_output=True))
+        _timer.daemon = True
+        _timer.start()
+
+
+def caps_on():
+    """Горит ли лампочка CapsLock хоть на одном устройстве."""
+    for path in glob.glob(CAPS_LEDS):
+        try:
+            with open(path) as f:
+                if f.read().strip() not in ("0", ""):
+                    return True
+        except OSError:
+            continue        # устройство отключили между glob и чтением
+    return False
+
+
+def watch_caps():
+    """Опрашивать лампочку и показывать подсказку при изменении.
+
+    Начальное состояние читаем до цикла: иначе включённый на момент запуска
+    CapsLock засчитался бы за изменение, и подсказка мигала бы при каждом
+    входе в сессию.
+    """
+    last = caps_on()
+    while True:
+        time.sleep(CAPS_POLL)
+        now = caps_on()
+        if now != last:
+            last = now
+            notify("CAPS ON" if now else "CAPS OFF")
+
+
+def single_instance():
+    """Не дать запуститься второй копии.
+
+    Две копии — не безобидное дублирование: у каждой свой таймер, и одна
+    гасит окно, пока вторая его показывает. Со стороны выглядит так, будто
+    подсказка не появляется вовсе.
+    """
+    lock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    try:
+        lock.bind("\0hypr-layout-osd")     # абстрактный сокет, файла не создаёт
+    except OSError:
+        print("уже запущено", file=sys.stderr)
+        raise SystemExit(0)
+    return lock
+
+
+def watch_niri():
+    """Поток событий niri: имена раскладок + переключение по номеру."""
+    import json
+    names, last = [], None
+    while True:
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.connect(os.environ["NIRI_SOCKET"])
+            s.sendall(b'"EventStream"\n')
+            f = s.makefile("rb")
+        except (OSError, KeyError):
+            time.sleep(1)
+            continue
+        for line in f:
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            if "KeyboardLayoutsChanged" in ev:
+                kl = ev["KeyboardLayoutsChanged"]["keyboard_layouts"]
+                names = kl.get("names") or []
+                idx = kl.get("current_idx")
+                last = names[idx] if idx is not None and idx < len(names) else last
+            elif "KeyboardLayoutSwitched" in ev:
+                idx = ev["KeyboardLayoutSwitched"].get("idx")
+                if idx is not None and idx < len(names) and names[idx] != last:
+                    last = names[idx]
+                    notify(last)
+        s.close()
+        time.sleep(1)
+
+
+def main():
+    _lock = single_instance()
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    rt = os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
+    # niri — сначала: раньше поиск экземпляра Hyprland шёл до этой проверки и под niri
+    # обрывал скрипт («Hyprland не найден»), как только в /run/user не оставалось
+    # каталогов hypr от прошлых сеансов Hyprland — то есть после первой же чистой
+    # перезагрузки (25.09.2026, пропали подсказки раскладки и CapsLock).
+    if os.environ.get("NIRI_SOCKET") and not sig:
+        caps = threading.Thread(target=watch_caps, daemon=True)
+        caps.start()
+        watch_niri()
+        return 0
+    if not sig:
+        # Переменной нет при запуске из автозапуска Hyprland — берём самый
+        # свежий каталог экземпляра.
+        base = os.path.join(rt, "hypr")
+        try:
+            sig = max(os.listdir(base),
+                      key=lambda d: os.path.getmtime(os.path.join(base, d)))
+        except (OSError, ValueError):
+            print("Hyprland не найден", file=sys.stderr)
+            return 1
+
+    caps = threading.Thread(target=watch_caps, daemon=True)
+    caps.start()
+
+    if os.environ.get("NIRI_SOCKET") and not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        watch_niri()
+        return 0
+
+    path = os.path.join(rt, "hypr", sig, ".socket2.sock")
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(path)
+
+    last = None
+    buf = b""
+    while True:
+        chunk = s.recv(4096)
+        if not chunk:
+            break
+        buf += chunk
+        while b"\n" in buf:
+            line, buf = buf.split(b"\n", 1)
+            text = line.decode("utf-8", "replace")
+            if not text.startswith("activelayout>>"):
+                continue
+            _, _, rest = text.partition(">>")
+            name = rest.split(",", 1)[1] if "," in rest else rest
+            if name != last:
+                last = name
+                notify(name)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

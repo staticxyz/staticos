@@ -1,0 +1,885 @@
+#!/usr/bin/env python3
+"""Тетрис в терминале, сосед тренажёра jtype. 04.10.2026.
+
+    jtetris            играть
+    jtetris scores     лучшие результаты
+
+Управление как в nvim (и в русской раскладке — по тем же клавишам):
+    h / l  ←→      влево / вправо         j  ↓     мягко вниз
+    k / x  ↑       поворот по часовой     z / u    против часовой
+    пробел         сбросить               c        отложить (hold)
+    p              пауза                  r        заново
+    q / Esc        выход (с вопросом, если игра идёт); Ctrl+C — сразу
+
+Правила современные: мешок из 7 фигур, повороты SRS с отскоками от стен
+(wall kicks), тень падения, hold раз за фигуру, задержка фиксации 0,5 с
+(сбрасывается движением, не больше 15 раз), очки 100/300/500/800 × уровень,
+уровень каждые 10 линий, скорость по формуле гайдлайна.
+
+Цвета — номера 16 слотов палитры терминала, а не RGB: палитра kitty у пользователя
+перекрашивается под обои, и игра перекрашивается вместе с ней (даже на ходу).
+Акцент (рамки окон) — color4, туда gen_term_colors.py кладёт акцент обоев.
+
+Звуки — через ~/.config/hypr/scripts/ui_sound.py (набор xp/retro, громкость,
+DND и «выкл» соблюдает он сам): сброс — click, линия — done, конец — error.
+Не чаще раза в полсекунды. Нет ui_sound — молча.
+
+Рекорды: ~/.local/share/jtetris/scores.json.
+Для проверок: JTETRIS_SEED (порядок фигур), JTETRIS_SCORES (другой файл
+рекордов), JTETRIS_SOUND=0 (без звука).
+
+Рисует обычным выводом ANSI (без curses): альтернативный экран, курсор спрятан,
+кадр целиком внутри «синхронного обновления» (\\e[?2026h) — без мерцания.
+Цикл спит в select() до ближайшего события (шаг гравитации, конец задержки,
+кадр вспышки) или нажатия; на паузе и после конца — спит без таймаута.
+"""
+import json
+import os
+import random
+import select
+import signal
+import sys
+import termios
+import threading
+import time
+import tty
+
+# ─── правила ────────────────────────────────────────────────────────────────
+W, H = 10, 20            # видимое поле
+HIDDEN = 2               # скрытые строки сверху — там появляются фигуры
+ROWS = H + HIDDEN
+LOCK_DELAY = 0.5         # задержка фиксации на земле, с
+MAX_RESETS = 15          # сколько раз движение может продлить задержку
+FLASH = 0.32             # вспышка собранной линии, с
+FLASH_STEP = 0.08        # полупериод мигания
+LINE_SCORE = (0, 100, 300, 500, 800)
+SPAWN_X = 3
+
+# Фигуры в положении 0 (SRS): I — в квадрате 4×4, O — 3×3 без поворота,
+# остальные — 3×3. Поворот по часовой = поворот квадрата целиком, это и есть
+# «истинный поворот» SRS.
+SHAPES = {
+    "I": ["....", "IIII", "....", "...."],
+    "O": [".OO", ".OO", "..."],
+    "T": [".T.", "TTT", "..."],
+    "S": [".SS", "SS.", "..."],
+    "Z": ["ZZ.", ".ZZ", "..."],
+    "J": ["J..", "JJJ", "..."],
+    "L": ["..L", "LLL", "..."],
+}
+
+
+def _rot_cw(rows):
+    n = len(rows)
+    return ["".join(rows[n - 1 - c][r] for c in range(n)) for r in range(n)]
+
+
+def _cells(rows):
+    return tuple((x, y) for y, row in enumerate(rows) for x, ch in enumerate(row) if ch != ".")
+
+
+CELLS = {}
+for _k, _rows in SHAPES.items():
+    CELLS[_k] = []
+    for _ in range(4):
+        CELLS[_k].append(_cells(_rows))
+        _rows = _rot_cw(_rows)
+
+# Таблицы отскоков SRS: (x, y), y — ВВЕРХ, как в гайдлайне. Ключ — (из, в),
+# положения 0, R=1, 2, L=3.
+_JLSTZ = {
+    (0, 1): ((0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)),
+    (1, 0): ((0, 0), (1, 0), (1, -1), (0, 2), (1, 2)),
+    (1, 2): ((0, 0), (1, 0), (1, -1), (0, 2), (1, 2)),
+    (2, 1): ((0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)),
+    (2, 3): ((0, 0), (1, 0), (1, 1), (0, -2), (1, -2)),
+    (3, 2): ((0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)),
+    (3, 0): ((0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)),
+    (0, 3): ((0, 0), (1, 0), (1, 1), (0, -2), (1, -2)),
+}
+_I = {
+    (0, 1): ((0, 0), (-2, 0), (1, 0), (-2, -1), (1, 2)),
+    (1, 0): ((0, 0), (2, 0), (-1, 0), (2, 1), (-1, -2)),
+    (1, 2): ((0, 0), (-1, 0), (2, 0), (-1, 2), (2, -1)),
+    (2, 1): ((0, 0), (1, 0), (-2, 0), (1, -2), (-2, 1)),
+    (2, 3): ((0, 0), (2, 0), (-1, 0), (2, 1), (-1, -2)),
+    (3, 2): ((0, 0), (-2, 0), (1, 0), (-2, -1), (1, 2)),
+    (3, 0): ((0, 0), (1, 0), (-2, 0), (1, -2), (-2, 1)),
+    (0, 3): ((0, 0), (-1, 0), (2, 0), (-1, 2), (2, -1)),
+}
+
+
+def gravity(level):
+    """Секунд на строку (формула гайдлайна), не быстрее 60 строк в секунду."""
+    return max((0.8 - (level - 1) * 0.007) ** (level - 1), 1 / 60)
+
+
+class Game:
+    """Вся логика без ввода-вывода: время передаётся параметром now."""
+
+    def __init__(self, seed=None, best=0, now=0.0):
+        self.rng = random.Random(seed)
+        self.best = best
+        self.board = [[None] * W for _ in range(ROWS)]
+        self.bag, self.queue = [], []
+        self.hold = None
+        self.can_hold = True
+        self.score = self.lines = 0
+        self.level = 1
+        self.over = False
+        self.clearing = []         # строки, которые сейчас мигают
+        self.clear_at = 0.0
+        self.lock_at = None
+        self.resets = 0
+        self.lowest = 0
+        self.events = []           # для звуков: drop, line, over
+        self.kind = None
+        self._fill()
+        self.spawn(now=now)
+
+    # мешок из семи: все семь фигур в случайном порядке, потом новый мешок
+    def _next_kind(self):
+        if not self.bag:
+            self.bag = list("IJLOSTZ")
+            self.rng.shuffle(self.bag)
+        return self.bag.pop()
+
+    def _fill(self):
+        while len(self.queue) < 6:
+            self.queue.append(self._next_kind())
+
+    def fits(self, kind, rot, x, y):
+        b = self.board
+        for cx, cy in CELLS[kind][rot]:
+            bx, by = x + cx, y + cy
+            if not (0 <= bx < W and 0 <= by < ROWS) or b[by][bx] is not None:
+                return False
+        return True
+
+    def cells(self, y=None):
+        y = self.y if y is None else y
+        return [(self.x + cx, y + cy) for cx, cy in CELLS[self.kind][self.rot]]
+
+    def spawn(self, kind=None, now=0.0):
+        if kind is None:
+            kind = self.queue.pop(0)
+            self._fill()
+        self.kind, self.rot, self.x = kind, 0, SPAWN_X
+        # нижний ряд фигуры — первый видимый ряд поля
+        self.y = HIDDEN - max(cy for _, cy in CELLS[kind][0])
+        self.lock_at, self.resets, self.lowest = None, 0, self.y
+        self.fall_at = now + gravity(self.level)
+        if not self.fits(kind, 0, self.x, self.y):
+            if self.fits(kind, 0, self.x, self.y - 1):   # есть место повыше — живём
+                self.y -= 1
+            else:
+                self._game_over()
+
+    def _game_over(self):
+        self.over = True
+        self.kind = None
+        self.best = max(self.best, self.score)
+        self.events.append("over")
+
+    def grounded(self):
+        return not self.fits(self.kind, self.rot, self.x, self.y + 1)
+
+    def ghost_y(self):
+        y = self.y
+        while self.fits(self.kind, self.rot, self.x, y + 1):
+            y += 1
+        return y
+
+    def _after_move(self, now):
+        """Успешный сдвиг/поворот: продлить задержку фиксации (не бесконечно)."""
+        if self.y > self.lowest:
+            self.lowest, self.resets = self.y, 0
+        if self.grounded():
+            if self.lock_at is None:
+                self.lock_at = now + LOCK_DELAY
+            elif self.resets < MAX_RESETS:
+                self.resets += 1
+                self.lock_at = now + LOCK_DELAY
+        else:
+            self.lock_at = None
+
+    def active(self):
+        return self.kind is not None and not self.over and not self.clearing
+
+    def move(self, dx, now=0.0):
+        if not self.active() or not self.fits(self.kind, self.rot, self.x + dx, self.y):
+            return False
+        self.x += dx
+        self._after_move(now)
+        return True
+
+    def rotate(self, d, now=0.0):
+        """d=+1 по часовой, -1 против. Перебираем отскоки SRS по порядку."""
+        if not self.active() or self.kind == "O":
+            return False
+        new = (self.rot + d) % 4
+        table = _I if self.kind == "I" else _JLSTZ
+        for kx, ky in table[(self.rot, new)]:
+            nx, ny = self.x + kx, self.y - ky          # y в таблице — вверх
+            if self.fits(self.kind, new, nx, ny):
+                self.rot, self.x, self.y = new, nx, ny
+                self._after_move(now)
+                return True
+        return False
+
+    def soft_drop(self, now=0.0):
+        if not self.active() or self.grounded():
+            return False
+        self.y += 1
+        self.score += 1
+        self.fall_at = now + gravity(self.level)
+        self._after_move(now)
+        return True
+
+    def hard_drop(self, now=0.0):
+        if not self.active():
+            return 0
+        n = self.ghost_y() - self.y
+        self.y += n
+        self.score += 2 * n
+        self.events.append("drop")
+        self.lock(now)
+        return n
+
+    def do_hold(self, now=0.0):
+        if not self.active() or not self.can_hold:
+            return False
+        cur = self.kind
+        if self.hold is None:
+            self.hold = cur
+            self.spawn(now=now)
+        else:
+            self.hold, nxt = cur, self.hold
+            self.spawn(nxt, now=now)
+        self.can_hold = False
+        return True
+
+    def lock(self, now=0.0):
+        cells = self.cells()
+        for x, y in cells:
+            self.board[y][x] = self.kind
+        self.kind = None
+        self.can_hold = True
+        if all(y < HIDDEN for _, y in cells):          # зафиксирована целиком над полем
+            self._game_over()
+            return
+        full = [r for r in range(ROWS) if all(self.board[r])]
+        if full:
+            self.clearing = full
+            self.clear_at = now + FLASH
+            self.events.append("line")
+        else:
+            self.spawn(now=now)
+
+    def finish_clear(self, now=0.0):
+        n = len(self.clearing)
+        keep = [row for i, row in enumerate(self.board) if i not in self.clearing]
+        self.board = [[None] * W for _ in range(n)] + keep
+        self.clearing = []
+        self.score += LINE_SCORE[min(n, 4)] * self.level
+        self.lines += n
+        self.level = self.lines // 10 + 1
+        self.best = max(self.best, self.score)
+        self.spawn(now=now)
+
+    def update(self, now):
+        """Таймеры: вспышка линии, гравитация, задержка фиксации."""
+        if self.over:
+            return
+        if self.clearing:
+            if now >= self.clear_at:
+                self.finish_clear(now)
+            return
+        if self.kind is None:
+            return
+        while now >= self.fall_at:
+            if self.grounded():
+                self.fall_at = now + gravity(self.level)
+                break
+            self.y += 1
+            if self.y > self.lowest:
+                self.lowest, self.resets = self.y, 0
+            self.fall_at += gravity(self.level)
+        if self.grounded():
+            if self.lock_at is None:
+                self.lock_at = now + LOCK_DELAY
+            elif now >= self.lock_at:
+                self.lock(now)
+        else:
+            self.lock_at = None
+
+    def deadline(self):
+        """Когда в следующий раз что-то изменится само (для таймаута select)."""
+        if self.over:
+            return None
+        if self.clearing:
+            return self.clear_at
+        if self.kind is None:
+            return None
+        t = self.fall_at
+        if self.lock_at is not None:
+            t = min(t, self.lock_at)
+        return t
+
+    def shift(self, dt):
+        """Сдвинуть таймеры после паузы, чтобы фигура не «догоняла» время."""
+        self.fall_at += dt
+        self.clear_at += dt
+        if self.lock_at is not None:
+            self.lock_at += dt
+
+
+# ─── рекорды ────────────────────────────────────────────────────────────────
+SCORES = os.environ.get("JTETRIS_SCORES") or os.path.expanduser(
+    "~/.local/share/jtetris/scores.json")
+
+
+def load_scores():
+    try:
+        with open(SCORES) as f:
+            d = json.load(f)
+        if isinstance(d, dict) and isinstance(d.get("games"), list):
+            return d
+    except (OSError, ValueError):
+        pass
+    return {"games": [], "played": 0}
+
+
+def save_score(g):
+    """Возвращает место в десятке (1…10) или None."""
+    d = load_scores()
+    rec = {"score": g.score, "lines": g.lines, "level": g.level,
+           "date": time.strftime("%Y-%m-%d %H:%M")}
+    d["played"] = int(d.get("played", 0)) + 1
+    games = d["games"] + [rec]
+    games.sort(key=lambda r: -int(r.get("score", 0)))
+    d["games"] = games[:10]
+    place = next((i + 1 for i, r in enumerate(d["games"]) if r is rec), None)
+    try:
+        os.makedirs(os.path.dirname(SCORES), exist_ok=True)
+        tmp = SCORES + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(d, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, SCORES)
+    except OSError:
+        pass
+    return place
+
+
+def best_score():
+    g = load_scores()["games"]
+    return int(g[0].get("score", 0)) if g else 0
+
+
+# ─── звук ───────────────────────────────────────────────────────────────────
+class Sound:
+    GAP = 0.5      # не чаще пары в секунду
+
+    def __init__(self):
+        self.mod = None
+        self.last = 0.0
+        if os.environ.get("JTETRIS_SOUND", "1") == "0":
+            return
+        try:
+            sys.path.insert(0, os.path.expanduser("~/.config/hypr/scripts"))
+            import ui_sound
+            self.mod = ui_sound
+        except Exception:
+            self.mod = None
+
+    def play(self, event, force=False):
+        now = time.monotonic()
+        if self.mod is None or (not force and now - self.last < self.GAP):
+            return
+        self.last = now
+        # в потоке: ui_sound раз в 3 с обходит /proc (проверка «идёт игра») —
+        # это миллисекунды, но в кадре заметно
+        threading.Thread(target=self._play, args=(event,), daemon=True).start()
+
+    def _play(self, event):
+        try:
+            self.mod.play(event)
+        except Exception:
+            pass
+
+
+# ─── вид ────────────────────────────────────────────────────────────────────
+# Слоты палитры (0–15), не RGB. J — акцент обоев (color4), L — color9 (у
+# пользователя это оранжевый), остальные — по классике.
+COLOR = {"I": 6, "O": 3, "T": 5, "S": 2, "Z": 1, "J": 4, "L": 9}
+ACCENT, DIM, BRIGHT, FG = 4, 8, 15, 7
+
+BOARD_W = 2 + 2 * W          # окно поля: рамка + клетки по 2 знака
+BOARD_H = 1 + H + 1          # заголовок + поле + низ рамки
+PANEL_W = 16                 # окна справа
+PIN = PANEL_W - 2
+GAP = 2
+TOTAL_W = BOARD_W + GAP + PANEL_W
+MIN_W, MIN_H = TOTAL_W, BOARD_H
+HINT_LONG = ("h l ←→ ход   j ↓ вниз   k z поворот   пробел сброс   "
+             "c hold   p пауза   q выход")
+HINT_SHORT = "hjkl z  пробел  c  p  q"
+
+
+def sgr(fg=None, bg=None, bold=False):
+    p = ["0"]
+    if bold:
+        p.append("1")
+    if fg is not None:
+        p.append(str(30 + fg if fg < 8 else 90 + fg - 8))
+    if bg is not None:
+        p.append(str(40 + bg if bg < 8 else 100 + bg - 8))
+    return "\x1b[" + ";".join(p) + "m"
+
+
+def at(row, col):
+    return "\x1b[%d;%dH" % (row, col)
+
+
+def segs_text(segs):
+    """[(текст, стиль)] → строка; стиль ставим, только когда он меняется."""
+    out, cur = [], None
+    for text, st in segs:
+        if st != cur:
+            out.append(st)
+            cur = st
+        out.append(text)
+    return "".join(out)
+
+
+def center(text, width):
+    text = text[:width]
+    left = (width - len(text)) // 2
+    return " " * left + text + " " * (width - len(text) - left)
+
+
+def mini_rows(kind, dim=False):
+    """Фигура для окон Next/Hold: две строки шириной PIN."""
+    if kind is None:
+        return [[(" " * PIN, sgr())]] * 2
+    cells = CELLS[kind][0]
+    mx, my = min(x for x, _ in cells), min(y for _, y in cells)
+    w = max(x for x, _ in cells) - mx + 1
+    pad = (PIN - 2 * w) // 2
+    st = sgr(DIM if dim else COLOR[kind])
+    rows = []
+    for r in range(2):
+        segs = [(" " * pad, sgr())]
+        for c in range(w):
+            segs.append(("██", st) if (c + mx, r + my) in cells else ("  ", sgr()))
+        segs.append((" " * (PIN - pad - 2 * w), sgr()))
+        rows.append(segs)
+    return rows
+
+
+class App:
+    def __init__(self, fd, wake):
+        self.fd, self.wake = fd, wake
+        self.sound = Sound()
+        self.seed = os.environ.get("JTETRIS_SEED")
+        self.new_game()
+        self.need_clear = True
+
+    def new_game(self):
+        seed = None if self.seed is None else int(self.seed)
+        self.game = Game(seed=seed, best=best_score(), now=time.monotonic())
+        self.mode = "play"        # play | pause | confirm | over
+        self.confirm = None       # quit | restart
+        self.frozen = None        # с какого момента стоят таймеры
+        self.place = None
+        self.saved = False
+        self.top = []
+
+    # таймеры стоят на паузе, в вопросе и когда окно мало
+    def freeze(self, on, now):
+        if on and self.frozen is None:
+            self.frozen = now
+        elif not on and self.frozen is not None:
+            self.game.shift(now - self.frozen)
+            self.frozen = None
+
+    def size(self):
+        try:
+            c, r = os.get_terminal_size(self.fd)
+        except OSError:
+            c, r = 80, 24
+        return c, r
+
+    def small(self):
+        c, r = self.size()
+        return c < MIN_W or r < MIN_H
+
+    def finish(self):
+        """Записать результат (один раз за игру)."""
+        if not self.saved and self.game.score > 0:
+            self.place = save_score(self.game)
+        self.saved = True
+        self.top = load_scores()["games"][:5]
+
+    # ── ввод ──
+    def read_keys(self):
+        try:
+            data = os.read(self.fd, 4096)
+        except OSError:
+            return []
+        if not data:
+            return ["eof"]
+        # одиночный Esc от начала стрелки отличаем коротким ожиданием
+        while data.endswith(b"\x1b") or data.endswith(b"\x1b[") or data.endswith(b"\x1bO"):
+            r, _, _ = select.select([self.fd], [], [], 0.03)
+            if not r:
+                break
+            data += os.read(self.fd, 4096)
+        text = data.decode("utf-8", "ignore")
+        keys, i = [], 0
+        while i < len(text):
+            ch = text[i]
+            if ch == "\x1b":
+                if i + 1 < len(text) and text[i + 1] in "[O":
+                    j = i + 2
+                    while j < len(text) and not (text[j].isalpha() or text[j] == "~"):
+                        j += 1
+                    fin = text[j] if j < len(text) else ""
+                    keys.append({"A": "up", "B": "down", "C": "right", "D": "left"}.get(fin, ""))
+                    i = j + 1
+                    continue
+                keys.append("esc")
+            else:
+                keys.append(ch)
+            i += 1
+        return [k for k in keys if k]
+
+    def key(self, k, now):
+        """Одно нажатие. Возвращает False, если пора выходить."""
+        if k in ("\x03", "eof"):                     # Ctrl+C — сразу
+            self.finish()
+            return False
+        a = ACTIONS.get(k.lower() if len(k) == 1 else k)
+        g = self.game
+        if self.mode == "over":
+            if a == "restart":
+                self.new_game()
+            elif a in ("quit", "no"):
+                return False
+            return True
+        if self.mode == "confirm":
+            if a == "yes" or (a == "quit" and self.confirm == "quit") \
+                    or (a == "restart" and self.confirm == "restart"):
+                self.finish()
+                if self.confirm == "quit":
+                    return False
+                self.new_game()
+            else:
+                self.mode = "play"
+                self.freeze(False, now)
+            return True
+        if a == "quit" or a == "restart":
+            if g.score == 0 and g.lines == 0:               # ещё не начали — без вопроса
+                if a == "quit":
+                    return False
+                self.new_game()
+                return True
+            self.mode, self.confirm = "confirm", a
+            self.freeze(True, now)
+            return True
+        if a == "pause":
+            if self.mode == "pause":
+                self.mode = "play"
+                self.freeze(False, now)
+            else:
+                self.mode = "pause"
+                self.freeze(True, now)
+            return True
+        if self.mode != "play" or self.frozen is not None:
+            return True
+        if a == "left":
+            g.move(-1, now)
+        elif a == "right":
+            g.move(1, now)
+        elif a == "soft":
+            g.soft_drop(now)
+        elif a == "cw":
+            g.rotate(1, now)
+        elif a == "ccw":
+            g.rotate(-1, now)
+        elif a == "drop":
+            g.hard_drop(now)
+        elif a == "hold":
+            g.do_hold(now)
+        return True
+
+    def sounds(self):
+        ev, self.game.events = self.game.events, []
+        if "over" in ev:
+            self.sound.play("error", force=True)
+        elif "line" in ev:
+            self.sound.play("done")
+        elif "drop" in ev:
+            self.sound.play("click")
+
+    # ── главный цикл ──
+    def run(self):
+        while True:
+            now = time.monotonic()
+            self.freeze(self.small() or self.mode in ("pause", "confirm"), now)
+            if self.mode == "play" and self.frozen is None:
+                self.game.update(now)
+                if self.game.over:
+                    self.mode = "over"
+                    self.finish()
+            self.sounds()
+            self.draw(now)
+            timeout = None
+            if self.mode == "play" and self.frozen is None:
+                dl = self.game.deadline()
+                if self.game.clearing:                      # кадры вспышки
+                    dl = min(dl, now + FLASH_STEP)
+                if dl is not None:
+                    timeout = max(0.0, dl - time.monotonic())
+            try:
+                r, _, _ = select.select([self.fd, self.wake], [], [], timeout)
+            except InterruptedError:
+                r = []
+            if self.wake in r:
+                try:
+                    os.read(self.wake, 64)
+                except OSError:
+                    pass
+                self.need_clear = True                      # окно изменилось
+            if self.fd in r:
+                for k in self.read_keys():
+                    if not self.key(k, time.monotonic()):
+                        return
+
+    # ── кадр ──
+    def window(self, top, left, width, height, title):
+        """Окно в духе XP-виджетов на обоях: «имя.exe», кнопки справа."""
+        btn = "_ ■ x "
+        bar = (" " + title)[: width - len(btn)].ljust(width - len(btn)) + btn
+        o = [at(top, left), sgr(BRIGHT, ACCENT, bold=True), bar, sgr(ACCENT)]
+        for r in range(1, height - 1):
+            o += [at(top + r, left), "│", at(top + r, left + width - 1), "│"]
+        o += [at(top + height - 1, left), "└" + "─" * (width - 2) + "┘"]
+        return "".join(o)
+
+    def board_lines(self, now):
+        """20 строк поля по 20 знаков, как списки сегментов."""
+        g = self.game
+        if self.mode == "pause":
+            lines = [[(" " * 2 * W, sgr())] for _ in range(H)]
+            for i, (t, st) in enumerate([("ПАУЗА", sgr(ACCENT, bold=True)), ("", sgr()),
+                                         ("p — продолжить", sgr(FG)), ("q — выйти", sgr(DIM))]):
+                lines[8 + i] = [(center(t, 2 * W), st)]
+            return lines
+        if self.mode == "over":
+            return self.over_lines()
+        cells = {}
+        if g.kind is not None and not g.over:
+            st = sgr(COLOR[g.kind])
+            for xy in g.cells(g.ghost_y()):
+                cells[xy] = ("░░", st)
+            for xy in g.cells():
+                cells[xy] = ("██", st)
+        phase = int(max(0.0, g.clear_at - now) / FLASH_STEP) % 2
+        empty = (" ·", sgr(DIM))
+        lines = []
+        for vr in range(H):
+            r = vr + HIDDEN
+            segs = []
+            for c in range(W):
+                if r in g.clearing:
+                    segs.append(("██", sgr(BRIGHT if phase == 0 else FG)))
+                elif (c, r) in cells:
+                    segs.append(cells[(c, r)])
+                elif g.board[r][c]:
+                    segs.append(("██", sgr(COLOR[g.board[r][c]])))
+                else:
+                    segs.append(empty)
+            lines.append(segs)
+        if self.mode == "confirm":
+            q = "Выйти из игры?" if self.confirm == "quit" else "Начать заново?"
+            box = sgr(BRIGHT, ACCENT, bold=True)
+            for i, t in enumerate(["", q, "y — да   n — нет", ""]):
+                lines[8 + i] = [(center(t, 2 * W), box)]
+        return lines
+
+    def over_lines(self):
+        g = self.game
+        bw = 2 * W
+        rows = [("", None), ("GAME OVER", sgr(1, bold=True)), ("", None)]
+
+        def kv(k, v, st=None):
+            rows.append((" " + k.ljust(bw - 2 - len(str(v))) + str(v) + " ", st or sgr(FG)))
+        kv("Счёт", g.score, sgr(BRIGHT, bold=True))
+        kv("Линии", g.lines)
+        kv("Уровень", g.level)
+        kv("Рекорд", g.best)
+        if self.place == 1 and g.score > 0:
+            rows.append(("* новый рекорд! *", sgr(ACCENT, bold=True)))
+        elif self.place:
+            rows.append(("место в десятке: %d" % self.place, sgr(ACCENT)))
+        else:
+            rows.append(("", None))
+        rows.append(("", None))
+        if self.top:
+            rows.append((" Лучшие", sgr(DIM)))
+            for i, r in enumerate(self.top):
+                d = str(r.get("date", ""))
+                d = d[8:10] + "." + d[5:7] if len(d) >= 10 else ""   # ДД.ММ
+                t = " %d. %7d   %s" % (i + 1, int(r.get("score", 0)), d)
+                rows.append((t, sgr(ACCENT if i + 1 == self.place else FG)))
+        while len(rows) < H - 3:
+            rows.append(("", None))
+        rows = rows[: H - 3]
+        rows += [("r — заново", sgr(FG)), ("q — выход", sgr(DIM)), ("", None)]
+        out = []
+        for t, st in rows:
+            if t.startswith(" ") and len(t) > 1:
+                out.append([(t.ljust(bw)[:bw], st)])
+            else:
+                out.append([(center(t, bw), st or sgr())])
+        return out
+
+    def draw(self, now):
+        c, r = self.size()
+        o = ["\x1b[?2026h"]
+        if self.need_clear:
+            o.append(sgr() + "\x1b[2J")
+            self.need_clear = False
+        if c < MIN_W or r < MIN_H:
+            o.append(sgr() + "\x1b[2J")
+            msg = ["Увеличьте окно", "нужно %dx%d, сейчас %dx%d" % (MIN_W, MIN_H, c, r)]
+            for i, t in enumerate(msg):
+                t = t[:c]
+                o += [at(max(1, r // 2 + i), max(1, (c - len(t)) // 2 + 1)),
+                      sgr(ACCENT if i == 0 else FG, bold=(i == 0)), t]
+            o.append(sgr() + "\x1b[?2026l")
+            self.out("".join(o))
+            self.need_clear = True       # вернёмся к игре — с чистого листа
+            return
+        hint = HINT_LONG if c >= len(HINT_LONG) else HINT_SHORT
+        tall = BOARD_H + (2 if r >= BOARD_H + 2 else 0)
+        top = (r - tall) // 2 + 1
+        left = (c - TOTAL_W) // 2 + 1
+        g = self.game
+
+        # поле
+        o.append(self.window(top, left, BOARD_W, BOARD_H, "tetris.exe"))
+        for i, segs in enumerate(self.board_lines(now)):
+            o += [at(top + 1 + i, left + 1), segs_text(segs)]
+
+        # справа: next (3 фигуры), hold, счёт
+        px = left + BOARD_W + GAP
+        y = top
+        o.append(self.window(y, px, PANEL_W, 11, "next"))
+        blank = " " * PIN
+        nxt = [] if self.mode == "pause" else g.queue[:3]
+        for i in range(9):
+            o += [at(y + 1 + i, px + 1), sgr(), blank]
+        for i, k in enumerate(nxt):
+            for j, segs in enumerate(mini_rows(k)):
+                o += [at(y + 2 + 3 * i + j, px + 1), segs_text(segs)]
+        y += 11
+        o.append(self.window(y, px, PANEL_W, 5, "hold"))
+        o += [at(y + 1, px + 1), sgr(), blank]
+        hk = None if self.mode == "pause" else g.hold
+        for j, segs in enumerate(mini_rows(hk, dim=not g.can_hold)):
+            o += [at(y + 2 + j, px + 1), segs_text(segs)]
+        y += 5
+        o.append(self.window(y, px, PANEL_W, 6, "score"))
+        stats = [("Score", g.score, BRIGHT), ("Lines", g.lines, FG),
+                 ("Level", g.level, FG), ("Best", max(g.best, g.score), ACCENT)]
+        for i, (k, v, col) in enumerate(stats):
+            v = str(v)
+            o += [at(y + 1 + i, px + 1), sgr(DIM), k.ljust(PIN - len(v) - 1),
+                  sgr(col, bold=(col == BRIGHT)), v, " "]
+
+        if r >= BOARD_H + 2:
+            o += [at(top + BOARD_H + 1, (c - len(hint)) // 2 + 1), sgr(DIM), hint]
+        o.append(sgr() + "\x1b[?2026l")
+        self.out("".join(o))
+
+    @staticmethod
+    def out(s):
+        b = s.encode()
+        while b:
+            try:
+                n = os.write(sys.stdout.fileno(), b)
+            except BlockingIOError:
+                select.select([], [sys.stdout.fileno()], [])
+                continue
+            b = b[n:]
+
+
+# Клавиши: латиница и русская раскладка на тех же физических кнопках.
+ACTIONS = {}
+for _act, _keys in {
+    "left": ("h", "р", "left"), "right": ("l", "д", "right"),
+    "soft": ("j", "о", "down"), "cw": ("k", "л", "up", "x", "ч"),
+    "ccw": ("z", "я", "u", "г"), "drop": (" ",), "hold": ("c", "с"),
+    "pause": ("p", "з"), "quit": ("q", "й", "esc"), "restart": ("r", "к"),
+    "yes": ("y", "н", "\r", "\n"), "no": ("n", "т"),
+}.items():
+    for _k in _keys:
+        ACTIONS[_k] = _act
+
+
+def print_scores():
+    d = load_scores()
+    if not d["games"]:
+        print("Рекордов пока нет.")
+        return
+    print("Сыграно игр: %s" % d.get("played", 0))
+    for i, r in enumerate(d["games"]):
+        print("%2d. %8d  линий %4d  ур. %2d  %s" % (
+            i + 1, r.get("score", 0), r.get("lines", 0), r.get("level", 1), r.get("date", "")))
+
+
+def main():
+    if sys.argv[1:2] in (["-h"], ["--help"]):
+        print(__doc__)
+        return
+    if sys.argv[1:2] == ["scores"]:
+        print_scores()
+        return
+    fd = sys.stdin.fileno()
+    if not os.isatty(fd):
+        print("jtetris: нужен терминал", file=sys.stderr)
+        sys.exit(1)
+    old = termios.tcgetattr(fd)
+    wake_r, wake_w = os.pipe()
+    os.set_blocking(wake_w, False)
+
+    def on_winch(*_):
+        try:
+            os.write(wake_w, b"w")
+        except OSError:
+            pass
+
+    def on_term(*_):
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGWINCH, on_winch)
+    signal.signal(signal.SIGTERM, on_term)
+    signal.signal(signal.SIGHUP, on_term)
+    app = None
+    try:
+        tty.setraw(fd)
+        App.out("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b]2;jtetris\x07")
+        app = App(fd, wake_r)
+        app.run()
+    except KeyboardInterrupt:          # SIGINT извне (в raw Ctrl+C — это байт \x03)
+        if app:
+            app.finish()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        App.out("\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l")
+
+
+if __name__ == "__main__":
+    main()

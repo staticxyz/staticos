@@ -1,0 +1,65 @@
+#!/bin/bash
+# Текст из буфера обмена системы -> в буфер игр внутри gamescope.
+# gamescope сам передаёт только в обратную сторону (из игры наружу).
+#
+#   game-clip-push                 текст на stdin (зовёт `wl-paste --watch game-clip-push`,
+#                                  автозапуск niri) — отдать во все запущенные игры
+#   game-clip-push --watch-games   следить за запуском игр и отдавать новой игре то, что
+#                                  УЖЕ лежит в буфере (автозапуск niri)
+#
+# 28.09.2026: раньше текст уходил в игру только при СМЕНЕ буфера — скопированное до
+# запуска CS2 в игру не попадало (чат, встроенный браузер): --watch-games отдаёт его
+# новой игре. (`wl-paste --type text` ловит и UTF8_STRING из X11-программ — проверено.)
+
+# Xwayland-дисплеи игр: все, кроме моста xwayland-satellite (:1 — обычный рабочий стол).
+game_displays() {
+  for pid in $(pgrep -x Xwayland); do
+    parent=$(ps -o comm= -p "$(ps -o ppid= -p "$pid" | tr -d ' ')")
+    [ "$parent" = "xwayland-satell" ] && continue
+    disp=$(ps -o args= -p "$pid" | awk '{print $2}')
+    [[ "$disp" == :* ]] && echo "$disp"
+  done
+}
+
+# Текст в буфере сейчас есть? (text/*, UTF8_STRING, STRING, TEXT — картинки не наше)
+has_text() {
+  local types; types=$(wl-paste -l 2>/dev/null)
+  # Скопированный ФАЙЛ (text/uri-list — так кладут Dolphin и Recorder) в игру не шлём:
+  # gamescope возвращал его обратно простым текстом и перехватывал буфер, и вместо
+  # файла в Telegram вставлялась строка с путём (29.09.2026).
+  grep -qx 'text/uri-list' <<<"$types" && return 1
+  grep -qE '^(text/|UTF8_STRING$|STRING$|TEXT$)' <<<"$types"
+}
+
+push() {   # $1 — текст, $2… — дисплеи
+  local text=$1; shift
+  for disp in "$@"; do
+    # Уже там — не перезаписываем: иначе gamescope отдаст текст обратно и начнётся круг.
+    cur=$(timeout 1 xclip -display "$disp" -selection clipboard -o 2>/dev/null)
+    [ "$cur" = "$text" ] && continue
+    printf '%s' "$text" | timeout 2 xclip -display "$disp" -selection clipboard -i 2>/dev/null
+  done
+}
+
+if [ "${1:-}" = "--watch-games" ]; then
+  declare -A seen
+  while sleep 2; do
+    for disp in $(game_displays); do
+      [ -n "${seen[$disp]:-}" ] && continue
+      seen[$disp]=1
+      sleep 3                         # игре дать подняться, иначе её буфер ещё не готов
+      has_text && push "$(wl-paste -n 2>/dev/null)" "$disp"
+    done
+    # закрытые игры забыть: следующая на том же номере дисплея снова получит буфер
+    for disp in "${!seen[@]}"; do
+      game_displays | grep -qxF "$disp" || unset "seen[$disp]"
+    done
+  done
+fi
+
+has_text || { cat >/dev/null; exit 0; }
+text=$(cat)
+[ -z "$text" ] && exit 0
+mapfile -t displays < <(game_displays)
+[ ${#displays[@]} -gt 0 ] && push "$text" "${displays[@]}"
+exit 0

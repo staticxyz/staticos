@@ -1,0 +1,6 @@
+[Unit]
+Description=Вернуть палитру обоев в GTK после перезаписи kded6/gtkconfig
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.config/hypr/scripts/gtk_guard.py

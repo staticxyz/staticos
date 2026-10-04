@@ -1,0 +1,97 @@
+// ═════════════════════════ ПРАВИЛА СЛОЁВ ═════════════════════════
+// Источник: layerrule + hl.layer_rule из visuals.lua
+
+// Размытие под waybar — в cfg/waybar-blur.kdl: его пишет top_bar.py. В режиме «при
+// наведении» спрятанный бар остаётся прозрачной поверхностью, и niri размывал под ним
+// обои — сверху стояла размытая полоса (04.10.2026). Там правило выключается.
+
+layer-rule {
+    match namespace=r#"^eww"#
+    background-effect {
+        blur true
+    }
+}
+
+// rofi — меню программ (SUPER+SPACE), калькулятор (SUPER+C), буфер обмена
+// (SUPER+ALT+V) и прочее. Поверхность на весь экран и прозрачная вокруг панели.
+//
+// xray false — здесь главное. По умолчанию niri размывает не то, что на экране,
+// а ОБОИ: размытая картинка готовится один раз и переиспользуется, оттого дёшево
+// (это и есть xray). Но окна при этом исчезают вовсе — вместо рабочего стола
+// видны размытые обои (замерено 21.09.2026 снимками с blur true и blur false).
+// С xray false niri размывает настоящее содержимое экрана, и окна остаются на
+// месте, просто не в фокусе. Просьба пользователя: «можно было просто заблюрить».
+// Калькулятор-переводчик SUPER+C — слой, как rofi, с тем же размытием.
+layer-rule {
+    match namespace=r#"^jarvis-calc$"#
+    background-effect {
+        blur true
+        xray false
+    }
+}
+
+layer-rule {
+    match namespace=r#"^rofi$"#
+    background-effect {
+        blur true
+        xray false
+    }
+}
+
+// Буфер обмена (SUPER+ALT+V, scripts/clipboard_win.py). Окно — слой ровно по
+// размеру окна; вокруг — прозрачные слои-ловцы «jarvis-clipboard-catch» во весь
+// экран на каждом мониторе (ловят щелчок мимо). С 03.10.2026 размываются и они:
+// весь экран не в фокусе, как под rofi (просьба: «как в Super+Space»). Когда окно
+// закреплено, ловцов нет — размыто только под окном. xray false — как у rofi:
+// размывать настоящее содержимое, а не обои.
+layer-rule {
+    match namespace=r#"^jarvis-clipboard$"#
+    background-effect {
+        blur true
+        xray false
+    }
+}
+
+layer-rule {
+    match namespace=r#"^jarvis-clipboard-catch$"#
+    background-effect {
+        blur true
+        xray false
+    }
+}
+
+// Меню Recorder (scripts/rec_menu.py, 04.10.2026) — вместо rofi: размыт весь экран
+// под слоями-ловцами, как было под rofi. Само окно меню непрозрачное, ему правило не нужно.
+layer-rule {
+    match namespace=r#"^jarvis-recmenu-catch$"#
+    background-effect {
+        blur true
+        xray false
+    }
+}
+
+// Лента обоев (SUPER+W, scripts/wallpaper_picker.py)
+layer-rule {
+    match namespace=r#"^jarvis-wallpapers$"#
+    background-effect {
+        blur true
+    }
+}
+
+// Обои (слой awww-daemon) — обычный фоновый слой каждого стола, без правил.
+// 21.09.2026 здесь стояло place-within-backdrop true, и обоев не было видно
+// вовсе: правило уносит слой в «подложку» обзора, а поверх подложки niri рисует
+// непрозрачный фон стола. Без правила обои — часть стола: видны всегда, в обзоре
+// уменьшаются вместе со столом.
+//
+// Фон обзора вокруг уменьшенных столов (был серый) — второй демон awww со своим
+// namespace (28.09.2026): его слой и уходит в подложку, а картинку — размытые
+// обои — кладёт wallpaper_blur.py backdrop при входе и при каждой смене обоев.
+layer-rule {
+    match namespace=r#"^awww-daemon-backdrop$"#
+    place-within-backdrop true
+}
+
+// Виджеты на обоях (scripts/desktop_widgets.py) — без правила: размытые обои под
+// плашкой виджет рисует сам (сила настраивается, и niri не тратит кадр на восемь
+// размытий). Правило с blur true стояло здесь 02.10.2026 несколько часов.

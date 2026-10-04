@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# termdown в акцентном цвете обоев.
+#
+# termdown не красит вывод вообще: в буфере окна только ESC[m и ESC[39;49m,
+# то есть цифры рисуются цветом текста по умолчанию, и опции цвета у него нет.
+# Поэтому подменяется не слот ANSI (как в tclock), а сам foreground.
+#
+# НОВОЕ ОКНО НЕ ОТКРЫВАЕТСЯ. Раньше здесь было `exec kitty -o foreground=...`,
+# и запуск из терминала давал второе окно: одно с оболочкой, одно с таймером.
+# Теперь, если мы уже внутри kitty, цвет текста этого окна меняется на месте
+# escape-последовательностью OSC 10, а по выходу возвращается (OSC 110).
+# Отдельное окно открывается только если запуск пришёл не из терминала.
+#
+# Использование: tdown -T "BREAK" -f ansi_regular -a 5h
+set -uo pipefail
+
+ACCENT="$(cat "$HOME/.cache/matugen/vivid.txt" 2>/dev/null)"
+[ -z "$ACCENT" ] && ACCENT="#7aa2f7"
+
+if [ -n "${KITTY_WINDOW_ID:-}" ] || [ -t 1 ]; then
+    # exec здесь НЕЛЬЗЯ: он заменяет оболочку, и цвет окна остался бы
+    # акцентным после выхода из таймера.
+    # Цвет текста тоже приходится поддерживать: при смене обоев theme_changer
+    # рассылает палитру во все окна kitty, и наш акцентный foreground
+    # затирается обычным цветом текста — таймер белел.
+    watch_accent() {
+        local cur
+        while :; do
+            cur="$(cat "$HOME/.cache/matugen/vivid.txt" 2>/dev/null)"
+            [ -z "$cur" ] && cur="$ACCENT"
+            printf '\033]10;%s\007' "$cur" > /dev/tty 2>/dev/null
+            sleep 2
+        done
+    }
+
+    printf '\033]10;%s\007' "$ACCENT"
+    watch_accent &
+    WATCH_PID=$!
+    trap 'printf "\033]110;\007"; kill "$WATCH_PID" 2>/dev/null' EXIT INT TERM
+    termdown "$@"
+    exit $?
+fi
+
+# Без своего терминала открываем окно и запускаем в нём этот же скрипт —
+# иначе сторож цвета не поедет вместе с таймером.
+exec kitty --title "termdown" -o "foreground=$ACCENT" "$0" "$@"

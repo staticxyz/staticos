@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Сфокусировать окно проигрывателя, который сейчас звучит (средняя кнопка).
+
+Окно ищем в первую очередь по PID владельца шины MPRIS, а не по имени
+плеера: Zen представляется в MPRIS как «firefox», и поиск по имени его окно
+(app_id «zen») не находил. Имя остаётся запасным путём — для плееров, чьё
+окно принадлежит другому процессу.
+
+Список окон и фокус идут через scripts/wm.py: один и тот же путь в Hyprland
+и в Niri (21.09.2026, переезд на Niri: hyprctl там молчал, и кнопка не
+делала ничего).
+"""
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import wm  # noqa: E402
+
+
+def out(cmd):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def player_pid(instance):
+    """PID процесса, который держит шину MPRIS этого плеера."""
+    r = out(["busctl", "--user", "call", "org.freedesktop.DBus",
+             "/org/freedesktop/DBus", "org.freedesktop.DBus",
+             "GetConnectionUnixProcessID", "s",
+             "org.mpris.MediaPlayer2." + instance])
+    parts = r.split()
+    return int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+
+
+def main():
+    instance = out(["playerctl", "metadata", "--format", "{{playerInstance}}"]).splitlines()
+    instance = instance[0] if instance else ""
+    if not instance:
+        return 0
+
+    wins = wm.windows()
+    pid = player_pid(instance)
+    if pid:
+        same = [w for w in wins if w.get("pid") == pid]
+        if same:
+            wm.focus(same[0])
+            return 0
+
+    name = instance.split(".")[0].lower()
+    for w in wins:
+        if name in w["app"].lower():
+            wm.focus(w)
+            return 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

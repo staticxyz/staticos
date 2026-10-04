@@ -1,0 +1,24 @@
+# СОБРАН АВТОМАТИЧЕСКИ скриптом ~/.config/hypr/scripts/kitty_shader_colors.py
+# при каждой смене обоев. Правки здесь пропадут — правьте скрипт.
+# Включается в «Настройках» → «Шейдеры» (kitty_shader.py).
+
+# Отдача и молнии вместе. Оба эффекта сами гаснут на спокойном наборе, поэтому
+# их можно держать включёнными всегда: в обычной работе экран стоит смирно,
+# а в тренажёре jtype, где печатают быстро, они горят почти постоянно.
+
+startgroup
+    animation_start cursor-trail-move
+    animation_stop 190
+    animation_curve linear
+    animation_step 8
+    shaders typeshake
+endgroup
+
+startgroup
+    animation_start cursor-trail-move
+    animation_stop 380
+    animation_curve linear
+    animation_step 8
+    var float3 ACCENT = float3(0.4800, 0.5979, 1.0000)
+    shaders speedburst
+endgroup

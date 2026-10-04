@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Анимация смены стола в niri — пресеты. 30.09.2026.
+
+    ws-anim                 что сейчас
+    ws-anim list            пресеты
+    ws-anim <пресет>        поставить: crisp | soft | glide | bounce | instant
+    ws-anim back            вернуть предыдущий
+
+Идея — из дотфайлов PixelStreetArt (workspace-anim.py), реализация своя.
+Правится только блок workspace-switch в ~/.config/niri/cfg/animations.kdl.
+Порядок безопасный: копия файла → правка → `niri validate` → если конфиг не
+прошёл, файл возвращается как был. Прошлый выбор хранится для `back`.
+"""
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+KDL = os.path.expanduser("~/.config/niri/cfg/animations.kdl")
+STATE = os.path.expanduser("~/.config/niri/state/ws-anim")
+MAIN = os.path.expanduser("~/.config/niri/config.kdl")
+
+PRESETS = {
+    # как было с переезда: плотно, без перелёта
+    "crisp":   ("Чётко (как было)",   "spring damping-ratio=1.0 stiffness=900 epsilon=0.0001"),
+    "soft":    ("Мягко",              "spring damping-ratio=0.85 stiffness=450 epsilon=0.0001"),
+    "glide":   ("Плавно, по кривой",  'duration-ms 420\n        curve "ease-out-expo"'),
+    "bounce":  ("С отскоком",         "spring damping-ratio=0.55 stiffness=500 epsilon=0.0001"),
+    "instant": ("Мгновенно",          "off"),
+}
+
+BLOCK = re.compile(r"(workspace-switch \{\n)(.*?)(\n    \})", re.S)
+
+
+def current(text):
+    m = BLOCK.search(text)
+    if not m:
+        return None
+    body = " ".join(m.group(2).split())
+    for key, (_n, val) in PRESETS.items():
+        if " ".join(val.split()) == body:
+            return key
+    return "custom"
+
+
+def apply(key):
+    text = open(KDL, encoding="utf-8").read()
+    was = current(text)
+    new = BLOCK.sub(lambda m: m.group(1) + "        " + PRESETS[key][1] + m.group(3), text, count=1)
+    backup = KDL + ".bak.wsanim-" + time.strftime("%H%M%S")
+    shutil.copy2(KDL, backup)
+    with open(KDL, "w", encoding="utf-8") as f:
+        f.write(new)
+    r = subprocess.run(["niri", "validate", "-c", MAIN], capture_output=True, text=True)
+    if r.returncode != 0:
+        shutil.copy2(backup, KDL)
+        print("niri не принял конфиг, вернул как было:\n" + (r.stderr or r.stdout)[-400:])
+        return 1
+    os.remove(backup)          # копия нужна только на время проверки
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    if was and was != key:
+        with open(STATE, "w") as f:
+            f.write(was)
+    # niri сам перечитывает конфиг при изменении файла; на всякий случай — явно.
+    subprocess.run(["niri", "msg", "action", "load-config-file"], capture_output=True)
+    print("смена стола: %s (%s)" % (key, PRESETS[key][0]))
+    return 0
+
+
+def main():
+    args = sys.argv[1:]
+    text = open(KDL, encoding="utf-8").read()
+    if not args:
+        print(current(text))
+        return 0
+    if args[0] == "list":
+        for k, (n, _v) in PRESETS.items():
+            print("%-8s %s" % (k, n))
+        return 0
+    if args[0] == "back":
+        try:
+            key = open(STATE).read().strip()
+        except OSError:
+            key = "crisp"
+        return apply(key if key in PRESETS else "crisp")
+    if args[0] in PRESETS:
+        return apply(args[0])
+    print(__doc__)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

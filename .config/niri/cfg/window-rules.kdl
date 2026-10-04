@@ -1,0 +1,324 @@
+// ═════════════════════════ ПРАВИЛА ОКОН ══════════════════════════
+
+// Скругление углов — state/window-rounding = 1.
+// clip-to-geometry обрезает содержимое по этому радиусу, иначе углы
+// скругляется только рамка.
+window-rule {
+    geometry-corner-radius 1
+    clip-to-geometry true
+    // Рамку niri по умолчанию рисует сплошным прямоугольником ПОД окном, и сквозь
+    // полупрозрачное окно она просвечивает. У kitty фон прозрачен на 38 %, активная
+    // рамка — светлый акцент, поэтому активный терминал выглядел серо-голубым, а
+    // неактивный (рамка почти прозрачная) — нормальным (21.09.2026). С false рамка
+    // рисуется только вокруг окна.
+    draw-border-with-background false
+}
+
+// Окна не разворачиваются сами при открытии. Браузеры (Zen, Helium) помнят, что
+// в прошлый раз были развёрнуты, и просят о том же при старте — в niri это давало
+// колонку во весь экран. В Hyprland то же самое глушило правило
+// suppress_event = "maximize" в workspace.lua. Развернуть руками можно всегда:
+// SUPER+SHIFT+F — колонка, SUPER+F — полный экран.
+window-rule {
+    open-maximized false
+    open-maximized-to-edges false
+}
+
+// Пределы ширины колонки — как было в Hyprland (ribbon_width в ribbon_binds.lua:
+// уже 22 % экрана не сжималась, шире экрана не раздувалась). Сам niri пределов
+// не ставит: SUPER+= может растянуть колонку хоть на три экрана — так задумано,
+// но непривычно. Только для окон ленты: плавающим (календарь 280 px, картинка
+// в картинке) минимум не нужен.
+// Верхний предел — НЕ здесь: max-width ограничивал только картинку, а ширина
+// внутри niri росла дальше. Настоящий предел держит scripts/colwidth (SUPER+= / −).
+window-rule {
+    match is-floating=false
+    min-width 420
+}
+
+// Spotify — «стекло», как в райсах: окно на 86 %, под ним общее размытие.
+// 23.09.2026 стояло 0.93: на 0.88 текст тускнел, потому что тема рисовала
+// панели РАЗНЫМИ оттенками и сквозь них проступала стопка плит. С 25.09
+// тема Jarvis плоская (все панели цвета --spice-main, границы — рамкой),
+// и стекло держит больше прозрачности без потери читаемости.
+// Сам Spotify прозрачным быть не умеет — прозрачность даёт композитор.
+window-rule {
+    match app-id=r#"^spotify$"#
+    opacity 0.86
+}
+
+// Размытие под полупрозрачными окнами — то, ради чего ждали 26.04.
+window-rule {
+    background-effect {
+        blur true
+    }
+}
+
+// Прозрачность окна НЕ зависит от фокуса (21.09.2026).
+//
+// Здесь стояло `match is-active=false → opacity 0.9` — попытка повторить
+// dim_inactive из Hyprland. Это оказалось противоположным по смыслу: затемнение
+// делает неактивное окно ТЕМНЕЕ, а прозрачность — СВЕТЛЕЕ, сквозь него сильнее
+// проступают обои. Замер на btop: окно в фокусе 42.9 яркости, без фокуса 51.8 —
+// и активное выглядело «потерявшим прозрачность» (пользователь заметил на btop).
+// Затемнения в niri нет вовсе, поэтому лучше никакой разницы, чем обратная:
+// фокус и так виден по цвету рамки.
+
+// ── Прозрачность отдельных программ (visuals.lua) ──
+
+// YouTube Music
+window-rule {
+    match app-id=r#"^(YouTube Music|youtube-music|com\.github\.th_ch\.youtube_music)$"#
+    opacity 0.78
+}
+
+// Яндекс Музыка — то же стекло, что у Spotify (25.09.2026). Своего фона
+// клиент не отдаёт (Electron), прозрачность даёт композитор; под окном
+// работает общее размытие.
+window-rule {
+    match app-id=r#"^YandexMusic$"#
+    opacity 0.86
+}
+
+// Obsidian — state/obsidian-opacity = 96.
+window-rule {
+    match app-id=r#"^md\.obsidian\.Obsidian$"#
+    opacity 0.96
+}
+
+// VS Code: у Electron своей прозрачности фона нет, поэтому её даёт
+// композитор — окном ЦЕЛИКОМ, вместе с текстом. Отсюда осторожные 5 %.
+window-rule {
+    match app-id=r#"^code$"#
+    opacity 0.95
+}
+
+// Helium (Chromium) рисуется с альфа-каналом, сквозь него проступают
+// размытые обои, а видео вдобавок ловит эффект вторым слоем.
+// Поэтому: без размытия и полностью непрозрачно.
+window-rule {
+    match app-id=r#"^helium$"#
+    opacity 1.0
+    background-effect {
+        blur false
+    }
+}
+
+// Видео — без прозрачности. Цепляемся за заголовок: Chromium не сообщает
+// тип содержимого поверхности, и по content:video не ловится (workspace.lua).
+window-rule {
+    match title=r#".*- YouTube -.*"#
+    opacity 1.0
+}
+
+// ── Плавающие окна (workspace.lua) ──
+
+// Микшер громкости — под иконкой звука, справа под баром
+window-rule {
+    match app-id=r#"(pwvucontrol|com\.saivert\.pwvucontrol|pavucontrol|org\.pulseaudio\.pavucontrol)"#
+    open-floating true
+    default-column-width { fixed 460; }
+    default-window-height { fixed 380; }
+    default-floating-position x=10 y=6 relative-to="top-right"
+}
+
+// Сеть — под баром справа
+window-rule {
+    match app-id=r#"^nm-connection-editor$"#
+    open-floating true
+    default-column-width { fixed 500; }
+    default-window-height { fixed 420; }
+    default-floating-position x=10 y=6 relative-to="top-right"
+}
+
+// Bluetooth — под баром справа
+window-rule {
+    match app-id=r#"^blueman-manager$"#
+    open-floating true
+    default-column-width { fixed 480; }
+    default-window-height { fixed 380; }
+    default-floating-position x=10 y=6 relative-to="top-right"
+}
+
+// Календарь GNOME. В Hyprland правило не срабатывало: GTK4 выставляет
+// app_id уже после маппинга окна, и окно просило float само, по своему pid
+// (_float_self в calendar_app.py). В niri матч работает штатно.
+window-rule {
+    match app-id=r#"^org\.gnome\.Calendar$"#
+    open-floating true
+}
+
+// Часы
+window-rule {
+    match app-id=r#"^org\.gnome\.clocks$"#
+    open-floating true
+}
+
+// Keypunch
+window-rule {
+    match app-id=r#"^no\.bragefuglseth\.Keypunch"#
+    open-floating true
+    // Своей прозрачности у GTK4/libadwaita нет — приложение красит фон
+    // сплошным. Поэтому её даёт композитор, окном целиком вместе с текстом;
+    // размытие уже включено общим правилом выше и проступает сквозь неё.
+    // 0.88 — текст ещё чёткий, обои уже видно (23.09.2026).
+    opacity 0.93
+}
+
+// Черновик (notepad.sh). Главное окно — на именованный стол "notepad",
+// остальные окна блокнота остаются плавающими там, где открылись.
+window-rule {
+    match app-id=r#"^org\.xfce\.mousepad$"#
+    open-floating true
+    default-column-width { fixed 900; }
+    default-window-height { fixed 600; }
+}
+
+// Главный черновик (SUPER+N) открывается сразу в «кармане»: оттуда его
+// достаёт и туда же прячет notepad.sh. Отдельного стола «notepad», как в
+// Hyprland, заводить не стали — именованные столы в niri занимают номер.
+window-rule {
+    match app-id=r#"^org\.xfce\.mousepad$"# title=r#".*scratchpad\.txt.*"#
+    open-on-workspace ""
+}
+
+// Wi-Fi (nmtui в терминале)
+window-rule {
+    match app-id=r#"^float-nmtui$"#
+    open-floating true
+    default-column-width { fixed 600; }
+    default-window-height { fixed 450; }
+}
+
+// Терминальный календарь
+window-rule {
+    match title=r#"^TerminalCalendar$"#
+    open-floating true
+    default-column-width { fixed 280; }
+    default-window-height { fixed 200; }
+}
+
+// Выбор обоев (waypaper, SUPER+SHIFT+W)
+window-rule {
+    match app-id=r#"^waypaper$"#
+    open-floating true
+    default-column-width { fixed 860; }
+    default-window-height { fixed 900; }
+}
+
+// Редакторы снимков — satty и ksnip (state/shot-editor = ksnip)
+window-rule {
+    match app-id=r#"^com\.gabm\.satty$"#
+    open-floating true
+}
+
+window-rule {
+    match app-id=r#"(?i)ksnip"#
+    open-floating true
+    default-column-width { fixed 1200; }
+    default-window-height { fixed 800; }
+}
+
+// «Настройки» (scripts/settings_app.py)
+window-rule {
+    match app-id=r#"^com\.jarvis\.settings$"#
+    open-floating true
+    // Было 780×560 → 960×680 (29.09.2026) → 1040×760 (30.09.2026): строки не влезали.
+    // 01.10.2026 → 860×620: окно стало компактнее (меньше шрифты, плитки, отступы).
+    // Тот же размер — WIN_W, WIN_H в settings_app.py.
+    default-column-width { fixed 860; }
+    default-window-height { fixed 620; }
+    // Своя рамка и полоса заголовка «как в XP» рисует само окно (01.10.2026):
+    // рамка niri налезала на полосу заголовка.
+    border { off; }
+    focus-ring { off; }
+}
+
+// Картинка в картинке (LibreWolf и Zen) — правый нижний угол, 640x360.
+window-rule {
+    match app-id=r#"^(librewolf|zen)$"# title=r#"^Picture-in-Picture$"#
+    open-floating true
+    // Без фокуса (24.09.2026): на русской раскладке CTRL+SHIFT+] браузер узнаёт
+    // только в основном окне. Когда фокус уходил в окошко картинки, повторное
+    // нажатие видело там «Ъ» вместо «]», и закрыть картинку было нечем.
+    open-focused false
+    default-column-width { fixed 640; }
+    default-window-height { fixed 360; }
+    default-floating-position x=20 y=20 relative-to="bottom-right"
+}
+
+// В Hyprland было "workspace 1 silent, class:^(hack-.*)$". В niri
+// open-on-workspace принимает только ИМЯ стола, а не номер, поэтому окна
+// hack-* открываются на текущем столе. Если нужен прежний ход — назвать
+// стол (workspace "hack") и вписать его имя сюда.
+
+// ── Игры (gaming.lua) ──
+// Перенесено: VRR (у монитора выше), без размытия, без прозрачности.
+// НЕ перенесено: allow_tearing — разрывов кадра niri не умеет вовсе.
+// Для CS2 это значит лишний кадр задержки против нынешнего.
+window-rule {
+    match app-id=r#"^(cs2|gamescope|steam_app_[0-9]+)$"#
+    // Всегда на MSI 300 Гц, куда бы ни смотрел фокус. Нет монитора — niri откроет на текущем.
+    open-on-output "DP-4"
+    open-fullscreen true
+    opacity 1.0
+    variable-refresh-rate true
+    background-effect {
+        blur false
+    }
+}
+
+// Пробные окна шейдеров (заголовок shadertest). Фокус НЕ забирают: иначе
+// всплывающее окно сбивает с работы. Монитор — основной (28.09.2026).
+window-rule {
+    match title="^shadertest$"
+    open-on-output "DP-4"
+    open-focused false
+}
+
+
+// Keypunch — тренажёр набора. Своей прозрачности у GTK-приложения нет, поэтому
+// её даёт композитор: окном ЦЕЛИКОМ, вместе с текстом. Поэтому чем прозрачнее,
+// тем бледнее буквы — держится на размытии под окном: оно гасит рисунок обоев,
+// и текст остаётся читаемым даже при заметной прозрачности.
+// 0.88 → 0.76 по просьбе 28.09.2026 («ещё прозрачнее»).
+window-rule {
+    match app-id=r#"^no\.bragefuglseth\.Keypunch(\.Devel)?$"#
+    opacity 0.76
+    background-effect {
+        blur true
+        xray false
+    }
+}
+
+// Окно со снимком из буфера (Ctrl+Super+V, hypr/scripts/pin_shot.py): плавающее,
+// размер задаёт сама картинка, один к одному. Скругление 0 — иначе у снимка
+// срезались бы углы.
+window-rule {
+    match app-id="^jarvis-pin$"
+    open-floating true
+    open-focused true
+    geometry-corner-radius 0
+}
+
+// Окно, которое сейчас записывается или транслируется (Recorder → Video (window),
+// демонстрация экрана в Discord/Telegram), — красная рамка, пока идёт запись
+// (30.09.2026: «хочу видеть, что запись идёт»). niri сам знает цель трансляции;
+// правило действует только на время записи и потом снимается само.
+window-rule {
+    match is-window-cast-target=true
+    border {
+        on
+        active-color "#ff4444"
+        inactive-color "#ff4444"
+    }
+}
+
+// btop из «Пуска» (окно общей копии kitty с заголовком из .desktop, «btop++»): ему нужно
+// минимум 80×24 — в узкой колонке он писал «Terminal size too small» (03.10.2026).
+// Ширина 1100 px ≈ 88 столбцов этим шрифтом; высота — для плавающего окна.
+window-rule {
+    match app-id=r#"^kitty$"# title=r#"^btop"#
+    default-column-width { fixed 1100; }
+    default-window-height { proportion 1.0; }   // по вертикали — во всю высоту (760 было мало)
+}

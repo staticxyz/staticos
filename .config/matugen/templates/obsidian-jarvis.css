@@ -1,0 +1,756 @@
+/* Jarvis — тема Obsidian в стиле рабочего стола пользователя (17.09.2026).
+   СОБИРАЕТСЯ matugen из ~/.config/matugen/templates/obsidian-jarvis.css при
+   каждой смене обоев (theme_changer.sh) — здесь не править, правки в шаблон.
+
+   Устройство:
+     1. палитра обоев  — --jv-*-rgb (тройки «r, g, b», чтобы брать с прозрачностью);
+     2. переменные Obsidian — через палитру: фон, текст, акцент, заголовки, код…;
+     3. вид «как рабочий стол» — панели-карточки с промежутками и рамкой акцентом
+        у активной (как окна Hyprland), вкладки-пилюли, плавающая строка
+        состояния, всплывающие окна с рамкой акцентом (как попапы waybar);
+     4. переключатели Style Settings (блок @settings ниже) — классы jv-* на body.
+   Шрифт по умолчанию — Hack (как в Zen).
+   Старый сниппет matugen-theme.css (перекраска ЛЮБОЙ темы) остался; эта тема
+   перебивает его селектором body:is(.theme-dark, .theme-light). */
+
+/* @settings
+
+name: Jarvis
+id: jarvis-theme
+settings:
+  -
+    id: jv-h-layout
+    title: Раскладка
+    type: heading
+    level: 2
+    collapsed: false
+  -
+    id: jv-cards
+    title: Панели-карточки
+    description: Панели с промежутками и скруглениями, как окна Hyprland
+    type: class-toggle
+    default: true
+  -
+    id: jv-gap
+    title: Промежуток между панелями
+    type: variable-number-slider
+    default: 8
+    min: 0
+    max: 20
+    step: 1
+    format: px
+  -
+    id: jv-radius
+    title: Скругление
+    type: variable-number-slider
+    default: 14
+    min: 0
+    max: 24
+    step: 1
+    format: px
+  -
+    id: jv-active-border
+    title: Рамка акцентом у активной панели
+    description: Выключена по умолчанию — окно уже обведено рамкой Hyprland, две рамки подряд некрасиво
+    type: class-toggle
+    default: false
+  -
+    id: jv-border-width
+    title: Толщина рамки активной панели
+    type: variable-number-slider
+    default: 2
+    min: 1
+    max: 4
+    step: 1
+    format: px
+  -
+    id: jv-pill-tabs
+    title: Вкладки-пилюли
+    type: class-toggle
+    default: true
+  -
+    id: jv-floating-status
+    title: Плавающая строка состояния
+    type: class-toggle
+    default: true
+  -
+    id: jv-hide-window-buttons
+    title: Скрыть кнопки окна
+    description: Свернуть / развернуть / закрыть — в Hyprland не нужны
+    type: class-toggle
+    default: true
+  -
+    id: jv-h-color
+    title: Цвет
+    type: heading
+    level: 2
+    collapsed: false
+  -
+    id: jv-accent
+    title: Акцент
+    description: Какой цвет обоев главный
+    type: class-select
+    allowEmpty: false
+    default: jv-accent-primary
+    options:
+      -
+        label: Основной (primary)
+        value: jv-accent-primary
+      -
+        label: Второй (secondary)
+        value: jv-accent-secondary
+      -
+        label: Третий (tertiary)
+        value: jv-accent-tertiary
+  -
+    id: jv-tint
+    title: Подкраска фона акцентом
+    description: 0 — нейтральные поверхности обоев, 20 — заметно цветные
+    type: variable-number-slider
+    default: 6
+    min: 0
+    max: 20
+    step: 1
+  -
+    id: jv-rainbow-headings
+    title: Разноцветные заголовки
+    description: H1 — акцент, дальше второй и третий цвета обоев
+    type: class-toggle
+    default: true
+  -
+    id: jv-heading-bar
+    title: Черта акцентом под H1 и H2
+    type: class-toggle
+    default: true
+  -
+    id: jv-cursorline
+    title: Подсветка строки под курсором
+    description: Как cursorline в Neovim
+    type: class-toggle
+    default: true
+  -
+    id: jv-popup-border
+    title: Рамка акцентом у меню и окон
+    description: Как у попапов waybar
+    type: class-toggle
+    default: true
+  -
+    id: jv-h-text
+    title: Текст
+    type: heading
+    level: 2
+    collapsed: false
+  -
+    id: jv-font-text
+    title: Шрифт заметок
+    type: variable-select
+    default: Hack
+    options:
+      - Hack
+      - JetBrainsMono Nerd Font
+      - Noto Sans
+  -
+    id: jv-font-ui
+    title: Шрифт интерфейса
+    type: variable-select
+    default: Hack
+    options:
+      - Hack
+      - JetBrainsMono Nerd Font
+      - Noto Sans
+  -
+    id: jv-line-width
+    title: Ширина текста
+    description: При включённой «Ограничить длину строки»
+    type: variable-number-slider
+    default: 820
+    min: 600
+    max: 1400
+    step: 20
+    format: px
+  -
+    id: jv-line-height
+    title: Межстрочный интервал
+    type: variable-number-slider
+    default: 1.6
+    min: 1.2
+    max: 2
+    step: 0.05
+*/
+
+/* ================================================================ 1. палитра */
+body:is(.theme-dark, .theme-light) {
+  --jv-primary-rgb: {{colors.primary.default.red}}, {{colors.primary.default.green}}, {{colors.primary.default.blue}};
+  --jv-secondary-rgb: {{colors.secondary.default.red}}, {{colors.secondary.default.green}}, {{colors.secondary.default.blue}};
+  --jv-tertiary-rgb: {{colors.tertiary.default.red}}, {{colors.tertiary.default.green}}, {{colors.tertiary.default.blue}};
+  --jv-error-rgb: {{colors.error.default.red}}, {{colors.error.default.green}}, {{colors.error.default.blue}};
+  --jv-primary-container-rgb: {{colors.primary_container.default.red}}, {{colors.primary_container.default.green}}, {{colors.primary_container.default.blue}};
+  --jv-on-primary-container: {{colors.on_primary_container.default.hex}};
+  --jv-on-primary: {{colors.on_primary.default.hex}};
+
+  --jv-base-rgb: {{colors.surface_container_lowest.default.red}}, {{colors.surface_container_lowest.default.green}}, {{colors.surface_container_lowest.default.blue}};
+  --jv-surface-rgb: {{colors.surface.default.red}}, {{colors.surface.default.green}}, {{colors.surface.default.blue}};
+  --jv-low-rgb: {{colors.surface_container_low.default.red}}, {{colors.surface_container_low.default.green}}, {{colors.surface_container_low.default.blue}};
+  --jv-mid-rgb: {{colors.surface_container.default.red}}, {{colors.surface_container.default.green}}, {{colors.surface_container.default.blue}};
+  --jv-high-rgb: {{colors.surface_container_high.default.red}}, {{colors.surface_container_high.default.green}}, {{colors.surface_container_high.default.blue}};
+  --jv-highest-rgb: {{colors.surface_container_highest.default.red}}, {{colors.surface_container_highest.default.green}}, {{colors.surface_container_highest.default.blue}};
+  --jv-outline-rgb: {{colors.outline.default.red}}, {{colors.outline.default.green}}, {{colors.outline.default.blue}};
+  --jv-outline-variant-rgb: {{colors.outline_variant.default.red}}, {{colors.outline_variant.default.green}}, {{colors.outline_variant.default.blue}};
+  --jv-on-surface: {{colors.on_surface.default.hex}};
+  --jv-on-surface-variant: {{colors.on_surface_variant.default.hex}};
+
+  /* акцент по выбору (class-select jv-accent-*) */
+  --jv-accent-rgb: var(--jv-primary-rgb);
+  --jv-accent2-rgb: var(--jv-tertiary-rgb);
+  --jv-accent3-rgb: var(--jv-secondary-rgb);
+
+  /* значения переключателей по умолчанию (Style Settings их перебивает) */
+  --jv-gap: 8px;
+  --jv-radius: 14px;
+  --jv-border-width: 2px;
+  --jv-tint: 6;
+  --jv-font-text: Hack;
+  --jv-font-ui: Hack;
+  --jv-line-width: 820px;
+  --jv-line-height: 1.6;
+}
+body.jv-accent-secondary {
+  --jv-accent-rgb: var(--jv-secondary-rgb);
+  --jv-accent2-rgb: var(--jv-primary-rgb);
+  --jv-accent3-rgb: var(--jv-tertiary-rgb);
+}
+body.jv-accent-tertiary {
+  --jv-accent-rgb: var(--jv-tertiary-rgb);
+  --jv-accent2-rgb: var(--jv-primary-rgb);
+  --jv-accent3-rgb: var(--jv-secondary-rgb);
+}
+
+/* ====================================================== 2. переменные Obsidian */
+body:is(.theme-dark, .theme-light) {
+  /* поверхности: цвета обоев + подкраска акцентом (--jv-tint, проценты) */
+  --jv-t: calc(var(--jv-tint) * 1%);
+  --jv-bg-base: color-mix(in srgb, rgb(var(--jv-accent-rgb)) var(--jv-t), rgb(var(--jv-base-rgb)));
+  --jv-bg-panel: color-mix(in srgb, rgb(var(--jv-accent-rgb)) var(--jv-t), rgb(var(--jv-low-rgb)));
+  --jv-bg-note: color-mix(in srgb, rgb(var(--jv-accent-rgb)) var(--jv-t), rgb(var(--jv-surface-rgb)));
+  --jv-bg-raised: color-mix(in srgb, rgb(var(--jv-accent-rgb)) var(--jv-t), rgb(var(--jv-high-rgb)));
+
+  --color-base-00: rgb(var(--jv-base-rgb));
+  --color-base-05: rgb(var(--jv-low-rgb));
+  --color-base-10: rgb(var(--jv-mid-rgb));
+  --color-base-20: rgb(var(--jv-high-rgb));
+  --color-base-25: rgb(var(--jv-highest-rgb));
+  --color-base-30: rgb(var(--jv-outline-variant-rgb));
+  --color-base-35: rgb(var(--jv-outline-variant-rgb));
+  --color-base-40: rgb(var(--jv-outline-rgb));
+  --color-base-50: rgb(var(--jv-outline-rgb));
+  --color-base-60: var(--jv-on-surface-variant);
+  --color-base-70: var(--jv-on-surface-variant);
+  --color-base-100: var(--jv-on-surface);
+
+  --accent-h: {{colors.primary.default.hue}};
+  --accent-s: {{colors.primary.default.saturation}}%;
+  --accent-l: {{colors.primary.default.lightness}}%;
+  --color-accent: rgb(var(--jv-accent-rgb));
+  --color-accent-1: rgb(var(--jv-accent-rgb));
+  --color-accent-2: rgb(var(--jv-accent2-rgb));
+  --interactive-accent: rgb(var(--jv-accent-rgb));
+  --interactive-accent-hover: color-mix(in srgb, rgb(var(--jv-accent-rgb)) 85%, white);
+  --text-on-accent: var(--jv-on-primary);
+  --text-accent: rgb(var(--jv-accent-rgb));
+  --text-accent-hover: color-mix(in srgb, rgb(var(--jv-accent-rgb)) 80%, white);
+
+  --color-red: rgb(var(--jv-error-rgb));
+  --color-orange: rgb(var(--jv-tertiary-rgb));
+  --color-yellow: rgb(var(--jv-tertiary-rgb));
+  --color-green: rgb(var(--jv-secondary-rgb));
+  --color-cyan: rgb(var(--jv-secondary-rgb));
+  --color-blue: rgb(var(--jv-primary-rgb));
+  --color-purple: rgb(var(--jv-tertiary-rgb));
+  --color-pink: rgb(var(--jv-tertiary-rgb));
+
+  --background-primary: var(--jv-bg-note);
+  --background-primary-alt: var(--jv-bg-panel);
+  --background-secondary: var(--jv-bg-panel);
+  --background-secondary-alt: var(--jv-bg-raised);
+  --background-modifier-hover: rgba(var(--jv-accent-rgb), 0.10);
+  --background-modifier-active-hover: rgba(var(--jv-accent-rgb), 0.18);
+  --background-modifier-border: rgba(var(--jv-outline-variant-rgb), 0.55);
+  --background-modifier-border-hover: rgba(var(--jv-outline-rgb), 0.70);
+  --background-modifier-border-focus: rgb(var(--jv-accent-rgb));
+  --background-modifier-form-field: rgba(var(--jv-high-rgb), 0.9);
+  --background-modifier-error: rgba(var(--jv-error-rgb), 0.25);
+  --background-modifier-success: rgba(var(--jv-secondary-rgb), 0.25);
+  --titlebar-background: var(--jv-bg-base);
+  --titlebar-background-focused: var(--jv-bg-base);
+  --ribbon-background: var(--jv-bg-base);
+  --ribbon-background-collapsed: var(--jv-bg-base);
+  --tab-container-background: transparent;
+  --divider-color: transparent;
+
+  --text-normal: var(--jv-on-surface);
+  --text-muted: var(--jv-on-surface-variant);
+  --text-faint: rgb(var(--jv-outline-rgb));
+  --text-selection: rgba(var(--jv-accent-rgb), 0.28);
+  --caret-color: rgb(var(--jv-accent-rgb));
+
+  /* текст */
+  --font-text-theme: var(--jv-font-text), "JetBrainsMono Nerd Font", "Noto Sans";
+  --font-interface-theme: var(--jv-font-ui), "JetBrainsMono Nerd Font", "Noto Sans";
+  --font-monospace-theme: Hack, "JetBrainsMono Nerd Font Mono";
+  --file-line-width: var(--jv-line-width);
+  --line-height-normal: var(--jv-line-height);
+  --bold-color: var(--jv-on-surface);
+  --italic-color: var(--jv-on-surface);
+
+  /* форма */
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: var(--jv-radius);
+  --radius-xl: calc(var(--jv-radius) + 4px);
+  --input-radius: 999px;
+  --checkbox-radius: 5px;
+
+  /* ссылки, теги */
+  --link-color: rgb(var(--jv-accent-rgb));
+  --link-color-hover: var(--text-accent-hover);
+  --link-external-color: rgb(var(--jv-accent3-rgb));
+  --link-external-color-hover: color-mix(in srgb, rgb(var(--jv-accent3-rgb)) 80%, white);
+  --link-unresolved-color: rgb(var(--jv-accent-rgb));
+  --link-unresolved-opacity: 0.55;
+  --tag-color: rgb(var(--jv-accent-rgb));
+  --tag-color-hover: rgb(var(--jv-accent-rgb));
+  --tag-background: rgba(var(--jv-accent-rgb), 0.14);
+  --tag-background-hover: rgba(var(--jv-accent-rgb), 0.24);
+  --tag-border-color: rgba(var(--jv-accent-rgb), 0.30);
+  --tag-border-width: 1px;
+  --tag-radius: 999px;
+  --tag-padding-x: 0.6em;
+
+  /* заголовки (цвет — в разделе 3, по переключателю) */
+  --inline-title-color: var(--jv-on-surface);
+  --inline-title-weight: 700;
+  --h1-weight: 700;
+  --h2-weight: 700;
+  --h3-weight: 650;
+
+  /* списки, цитаты, разделители */
+  --list-marker-color: rgb(var(--jv-accent-rgb));
+  --list-marker-color-hover: var(--text-accent-hover);
+  --blockquote-border-color: rgb(var(--jv-accent2-rgb));
+  --blockquote-border-thickness: 3px;
+  --blockquote-background-color: rgba(var(--jv-accent2-rgb), 0.06);
+  --hr-color: rgba(var(--jv-outline-variant-rgb), 0.8);
+  --indentation-guide-color: rgba(var(--jv-outline-variant-rgb), 0.45);
+  --indentation-guide-color-active: rgba(var(--jv-accent-rgb), 0.55);
+  --text-highlight-bg: rgba(var(--jv-accent2-rgb), 0.30);
+  --text-highlight-bg-active: rgba(var(--jv-accent2-rgb), 0.45);
+
+  /* флажки задач */
+  --checkbox-color: rgb(var(--jv-accent-rgb));
+  --checkbox-color-hover: var(--interactive-accent-hover);
+  --checkbox-border-color: rgb(var(--jv-outline-rgb));
+  --checkbox-border-color-hover: rgb(var(--jv-accent-rgb));
+  --checkbox-marker-color: var(--jv-on-primary);
+  /* ручка переключателя — светлая с обводкой подложки, как в попапах рабочего
+     стола: цветом --text-on-accent (тёмным) она выглядела «наоборот» */
+  --toggle-thumb-color: var(--jv-on-surface);
+
+  /* код */
+  --code-background: rgba(var(--jv-base-rgb), 0.65);
+  --code-normal: var(--jv-on-surface-variant);
+  --code-radius: 10px;
+  --code-comment: rgb(var(--jv-outline-rgb));
+  --code-function: rgb(var(--jv-primary-rgb));
+  --code-important: rgb(var(--jv-error-rgb));
+  --code-keyword: rgb(var(--jv-tertiary-rgb));
+  --code-operator: rgb(var(--jv-tertiary-rgb));
+  --code-property: rgb(var(--jv-primary-rgb));
+  --code-punctuation: var(--jv-on-surface-variant);
+  --code-string: rgb(var(--jv-secondary-rgb));
+  --code-tag: rgb(var(--jv-error-rgb));
+  --code-value: rgb(var(--jv-secondary-rgb));
+
+  /* таблицы */
+  --table-border-color: rgba(var(--jv-outline-variant-rgb), 0.7);
+  --table-header-background: rgba(var(--jv-accent-rgb), 0.10);
+  --table-header-background-hover: rgba(var(--jv-accent-rgb), 0.16);
+  --table-header-color: var(--jv-on-surface);
+  --table-row-alt-background: rgba(var(--jv-accent-rgb), 0.03);
+  --table-row-background-hover: rgba(var(--jv-accent-rgb), 0.07);
+  --table-selection: rgba(var(--jv-accent-rgb), 0.18);
+
+  /* выноски */
+  --callout-radius: 12px;
+  --callout-padding: 12px 16px;
+  --callout-default: var(--jv-primary-rgb);
+  --callout-info: var(--jv-primary-rgb);
+  --callout-note: var(--jv-primary-rgb);
+  --callout-summary: var(--jv-secondary-rgb);
+  --callout-tip: var(--jv-secondary-rgb);
+  --callout-success: var(--jv-secondary-rgb);
+  --callout-question: var(--jv-tertiary-rgb);
+  --callout-warning: var(--jv-tertiary-rgb);
+  --callout-todo: var(--jv-primary-rgb);
+  --callout-example: var(--jv-tertiary-rgb);
+  --callout-important: var(--jv-primary-rgb);
+  --callout-fail: var(--jv-error-rgb);
+  --callout-error: var(--jv-error-rgb);
+  --callout-bug: var(--jv-error-rgb);
+  --callout-quote: var(--jv-outline-rgb);
+
+  /* проводник */
+  --nav-item-radius: 999px;
+  --nav-item-color-active: rgb(var(--jv-accent-rgb));
+  --nav-item-background-active: rgba(var(--jv-accent-rgb), 0.20);
+  --nav-item-background-hover: rgba(var(--jv-accent-rgb), 0.09);
+  --nav-item-color-hover: var(--jv-on-surface);
+  --nav-item-weight-active: 600;
+  --nav-indentation-guide-color: rgba(var(--jv-outline-variant-rgb), 0.45);
+
+  /* вкладки */
+  --tab-radius: 999px;
+  --tab-radius-active: 999px;
+  --tab-text-color: var(--jv-on-surface-variant);
+  --tab-text-color-focused: var(--jv-on-surface-variant);
+  --tab-text-color-focused-active: var(--jv-on-surface);
+  --tab-text-color-focused-active-current: var(--jv-on-primary-container);
+  --tab-background-active: rgba(var(--jv-accent-rgb), 0.16);
+  --tab-outline-color: transparent;
+  --tab-divider-color: transparent;
+
+  /* строка состояния */
+  --status-bar-background: var(--jv-bg-raised);
+  --status-bar-border-color: rgba(var(--jv-outline-variant-rgb), 0.6);
+  --status-bar-text-color: var(--jv-on-surface-variant);
+
+  /* меню, окна, подсказки */
+  --menu-background: var(--jv-bg-raised);
+  --menu-radius: 12px;
+  --menu-border-color: rgba(var(--jv-outline-variant-rgb), 0.7);
+  --modal-background: var(--jv-bg-panel);
+  --modal-radius: calc(var(--jv-radius) + 4px);
+  --modal-border-color: rgba(var(--jv-outline-variant-rgb), 0.7);
+  --prompt-border-color: rgba(var(--jv-outline-variant-rgb), 0.7);
+  --shadow-s: 0 2px 10px rgba(0, 0, 0, 0.30);
+  --shadow-l: 0 10px 40px rgba(0, 0, 0, 0.45);
+
+  /* полосы прокрутки */
+  --scrollbar-thumb-bg: rgba(var(--jv-accent-rgb), 0.25);
+  --scrollbar-active-thumb-bg: rgba(var(--jv-accent-rgb), 0.45);
+  --scrollbar-radius: 999px;
+
+  /* холст и граф */
+  --canvas-background: var(--jv-bg-note);
+  --canvas-dot-pattern: rgba(var(--jv-outline-variant-rgb), 0.8);
+  --canvas-color-1: var(--jv-error-rgb);
+  --canvas-color-2: var(--jv-tertiary-rgb);
+  --canvas-color-3: var(--jv-tertiary-rgb);
+  --canvas-color-4: var(--jv-secondary-rgb);
+  --canvas-color-5: var(--jv-primary-rgb);
+  --canvas-color-6: var(--jv-tertiary-rgb);
+  --graph-node: rgb(var(--jv-accent-rgb));
+  --graph-node-focused: rgb(var(--jv-accent2-rgb));
+  --graph-node-tag: rgb(var(--jv-accent3-rgb));
+  --graph-node-attachment: rgb(var(--jv-error-rgb));
+  --graph-node-unresolved: rgb(var(--jv-outline-rgb));
+  --graph-line: rgba(var(--jv-accent-rgb), 0.35);
+  --graph-line-hover: rgb(var(--jv-accent2-rgb));
+}
+
+/* ======================================================= 3. вид «как рабочий стол» */
+
+/* --- фон окна: самый тёмный слой, на нём лежат панели --- */
+body:is(.theme-dark, .theme-light) .app-container,
+body:is(.theme-dark, .theme-light) .horizontal-main-container,
+body:is(.theme-dark, .theme-light) .workspace {
+  background-color: var(--jv-bg-base);
+}
+body:is(.theme-dark, .theme-light) .workspace-ribbon.mod-left {
+  border-right: none;
+}
+
+/* --- панели-карточки: промежутки и скругления, как окна Hyprland --- */
+body.jv-cards .workspace-split.mod-root,
+body.jv-cards .workspace-split.mod-left-split,
+body.jv-cards .workspace-split.mod-right-split {
+  margin: var(--jv-gap) 0 var(--jv-gap) var(--jv-gap);
+  /* Obsidian даёт панелям height: 100% — с отступами они вылезали за окно */
+  height: calc(100% - 2 * var(--jv-gap));
+  border-radius: var(--jv-radius);
+  overflow: hidden;
+  /* без обводки: карточку отделяет тон фона, а рамку окна рисует Hyprland
+     (17.09.2026, просьба: «тут 2 рамки, должна быть одна») */
+  border: none;
+  background-color: var(--jv-bg-panel);
+}
+body.jv-cards .workspace-split.mod-right-split {
+  margin-right: var(--jv-gap);
+}
+body.jv-cards .workspace-split.mod-root {
+  background-color: var(--jv-bg-note);
+}
+/* свёрнутая боковая панель — без отступа (класс в 1.13: is-sidedock-collapsed) */
+body.jv-cards .workspace-split.mod-left-split.is-sidedock-collapsed,
+body.jv-cards .workspace-split.mod-right-split.is-sidedock-collapsed {
+  margin: 0;
+  border: none;
+}
+/* обе боковые панели свёрнуты — заметка на всё окно, без полосы фона по краям:
+   иначе полоса внутри рамки Hyprland читается второй рамкой */
+body.jv-cards .workspace:not(.is-left-sidedock-open):not(.is-right-sidedock-open) > .workspace-split.mod-root {
+  margin: 0;
+  height: 100%;
+  border-radius: 0;
+}
+body.jv-cards .workspace-split.mod-root .workspace-tabs.mod-top .workspace-tab-header-container,
+body.jv-cards .mod-sidedock .workspace-tab-header-container {
+  background-color: transparent;
+  border-bottom: 1px solid rgba(var(--jv-outline-variant-rgb), 0.35);
+}
+body.jv-cards .mod-sidedock > .workspace-leaf-resize-handle,
+body.jv-cards .workspace-split.mod-left-split > .workspace-leaf-resize-handle,
+body.jv-cards .workspace-split.mod-right-split > .workspace-leaf-resize-handle {
+  background-color: transparent !important;
+  border: none !important;
+}
+/* заметки рядом в центре — тонкий разделитель между ними */
+body:is(.theme-dark, .theme-light) .workspace-split.mod-root .workspace-leaf-resize-handle {
+  border-color: rgba(var(--jv-outline-variant-rgb), 0.55) !important;
+}
+body:is(.theme-dark, .theme-light) .checkbox-container:after {
+  box-shadow: 0 0 0 2px rgb(var(--jv-surface-rgb));
+}
+body.jv-cards .workspace-split.mod-root .workspace-leaf,
+body.jv-cards .workspace-split.mod-root .view-header,
+body.jv-cards .workspace-split.mod-root .view-content {
+  background-color: var(--jv-bg-note);
+}
+
+/* активная заметка — рамка акцентом, как у активного окна */
+body.jv-active-border.jv-cards .workspace-split.mod-root:has(.workspace-leaf.mod-active),
+body.jv-active-border.jv-cards .workspace-split.mod-left-split:has(.workspace-leaf.mod-active),
+body.jv-active-border.jv-cards .workspace-split.mod-right-split:has(.workspace-leaf.mod-active) {
+  border: var(--jv-border-width) solid rgba(var(--jv-accent-rgb), 0.85);
+}
+/* несколько заметок рядом в центре — выделяется именно активная */
+body.jv-active-border .workspace-split.mod-root .workspace-split.mod-vertical > .workspace-tabs,
+body.jv-active-border .workspace-split.mod-root .workspace-split.mod-horizontal > .workspace-tabs {
+  border-radius: calc(var(--jv-radius) - 4px);
+  box-shadow: inset 0 0 0 1px transparent;
+}
+body.jv-active-border .workspace-split.mod-root .workspace-split > .workspace-tabs:has(.workspace-leaf.mod-active):not(:only-child) {
+  box-shadow: inset 0 0 0 1px rgba(var(--jv-accent-rgb), 0.55);
+}
+
+/* --- кнопки окна (свернуть/развернуть/закрыть) --- */
+body.jv-hide-window-buttons .titlebar-button-container.mod-right {
+  display: none;
+}
+body.jv-hide-window-buttons {
+  --frame-right-space: 0px;
+}
+
+/* --- заголовок заметки над текстом --- */
+body:is(.theme-dark, .theme-light) .view-header {
+  border-bottom: none;
+}
+body:is(.theme-dark, .theme-light) .view-header-title {
+  font-weight: 600;
+}
+
+/* --- вкладки-пилюли --- */
+body.jv-pill-tabs .workspace .mod-root .workspace-tab-header-container-inner {
+  gap: 4px;
+  padding: 5px 6px;
+}
+body.jv-pill-tabs .workspace .mod-root .workspace-tab-header {
+  border-radius: 999px;
+  margin: 0;
+  padding: 0;
+}
+body.jv-pill-tabs .workspace .mod-root .workspace-tab-header::before,
+body.jv-pill-tabs .workspace .mod-root .workspace-tab-header::after {
+  display: none;
+}
+body.jv-pill-tabs .workspace .mod-root .workspace-tab-header-inner {
+  border-radius: 999px;
+  padding: 0 10px;
+}
+body.jv-pill-tabs .workspace .mod-root .workspace-tab-header-inner::after {
+  display: none;
+}
+body.jv-pill-tabs .workspace .mod-root .workspace-tab-header.is-active {
+  background-color: rgba(var(--jv-accent-rgb), 0.16);
+  box-shadow: inset 0 0 0 1px rgba(var(--jv-accent-rgb), 0.45);
+}
+/* вкладка активной заметки — залита акцентом, как активный стол в waybar */
+body.jv-pill-tabs .workspace .mod-root .workspace-tabs.mod-active .workspace-tab-header.is-active {
+  background-color: rgb(var(--jv-accent-rgb));
+  box-shadow: none;
+  --tab-text-color-focused-active-current: var(--jv-on-primary);
+  --icon-color: var(--jv-on-primary);
+}
+body.jv-pill-tabs .workspace .mod-root .workspace-tabs.mod-active .workspace-tab-header.is-active .workspace-tab-header-inner-title,
+body.jv-pill-tabs .workspace .mod-root .workspace-tabs.mod-active .workspace-tab-header.is-active .workspace-tab-header-inner-close-button {
+  color: var(--jv-on-primary);
+  font-weight: 600;
+}
+body.jv-pill-tabs .workspace .mod-root .workspace-tab-header:not(.is-active):hover {
+  background-color: rgba(var(--jv-accent-rgb), 0.09);
+}
+body.jv-pill-tabs .workspace .mod-root .workspace-tabs:not(.mod-active) .workspace-tab-header.is-active .workspace-tab-header-inner-icon {
+  color: rgb(var(--jv-accent-rgb));
+}
+
+/* --- проводник: активный файл — подкрашенная пилюля цветом акцента --- */
+body:is(.theme-dark, .theme-light) .nav-files-container .tree-item-self.is-active {
+  color: rgb(var(--jv-accent-rgb));
+}
+body:is(.theme-dark, .theme-light) .nav-folder-title-content {
+  font-weight: 600;
+}
+body:is(.theme-dark, .theme-light) .nav-folder.mod-root > .nav-folder-title {
+  color: rgb(var(--jv-accent-rgb));
+}
+
+/* --- заголовки --- */
+body.jv-rainbow-headings {
+  --h1-color: rgb(var(--jv-accent-rgb));
+  --h2-color: color-mix(in srgb, rgb(var(--jv-accent-rgb)) 55%, rgb(var(--jv-accent2-rgb)));
+  --h3-color: rgb(var(--jv-accent2-rgb));
+  --h4-color: color-mix(in srgb, rgb(var(--jv-accent2-rgb)) 50%, rgb(var(--jv-accent3-rgb)));
+  --h5-color: rgb(var(--jv-accent3-rgb));
+  --h6-color: var(--jv-on-surface-variant);
+}
+body.jv-heading-bar .markdown-rendered h1,
+body.jv-heading-bar .markdown-rendered h2 {
+  padding-bottom: 0.25em;
+  border-bottom: 2px solid rgba(var(--jv-accent-rgb), 0.35);
+}
+body.jv-heading-bar .markdown-rendered h1 {
+  border-bottom-color: rgba(var(--jv-accent-rgb), 0.65);
+}
+body.jv-heading-bar .markdown-source-view.mod-cm6 .HyperMD-header-1 {
+  box-shadow: inset 0 -2px 0 rgba(var(--jv-accent-rgb), 0.65);
+}
+body.jv-heading-bar .markdown-source-view.mod-cm6 .HyperMD-header-2 {
+  box-shadow: inset 0 -2px 0 rgba(var(--jv-accent-rgb), 0.35);
+}
+
+/* --- строка под курсором --- */
+body.jv-cursorline .markdown-source-view.mod-cm6 .cm-line.cm-active {
+  background-color: rgba(var(--jv-accent-rgb), 0.07);
+  border-radius: 6px;
+}
+
+/* --- встроенный код и блоки кода --- */
+body:is(.theme-dark, .theme-light) .markdown-rendered :not(pre) > code,
+body:is(.theme-dark, .theme-light) .markdown-source-view.mod-cm6 .cm-inline-code:not(.cm-formatting) {
+  background-color: rgba(var(--jv-accent-rgb), 0.12);
+  color: rgb(var(--jv-accent-rgb));
+  border-radius: 6px;
+  padding: 0.1em 0.35em;
+}
+body:is(.theme-dark, .theme-light) .markdown-rendered pre,
+body:is(.theme-dark, .theme-light) .markdown-source-view.mod-cm6 .HyperMD-codeblock-bg {
+  border: 1px solid rgba(var(--jv-outline-variant-rgb), 0.55);
+}
+
+/* --- выноски: полоса акцентом слева --- */
+body:is(.theme-dark, .theme-light) .callout {
+  border: 1px solid rgba(var(--callout-color), 0.25);
+  border-left: 3px solid rgb(var(--callout-color));
+  background-color: rgba(var(--callout-color), 0.08);
+}
+
+/* --- таблицы: скруглённая рамка --- */
+body:is(.theme-dark, .theme-light) .markdown-rendered table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--table-border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+body:is(.theme-dark, .theme-light) .markdown-rendered :is(th, td) {
+  border-width: 0 0 1px 0;
+}
+body:is(.theme-dark, .theme-light) .markdown-rendered tr:last-child td {
+  border-bottom: none;
+}
+
+/* --- выполненные задачи приглушены --- */
+body:is(.theme-dark, .theme-light) .markdown-rendered .task-list-item.is-checked,
+body:is(.theme-dark, .theme-light) .markdown-source-view.mod-cm6 .HyperMD-task-line[data-task="x"] {
+  color: var(--text-faint);
+}
+
+/* --- свойства (frontmatter) — пилюли --- */
+body:is(.theme-dark, .theme-light) .metadata-container {
+  border-radius: 12px;
+  padding: 6px 10px;
+  background-color: rgba(var(--jv-accent-rgb), 0.04);
+  border: 1px solid rgba(var(--jv-outline-variant-rgb), 0.4);
+}
+body:is(.theme-dark, .theme-light) .multi-select-pill {
+  border-radius: 999px;
+  background-color: rgba(var(--jv-accent-rgb), 0.14);
+  color: rgb(var(--jv-accent-rgb));
+}
+
+/* --- строка состояния плавающей пилюлей --- */
+body.jv-floating-status .status-bar {
+  border-radius: 999px;
+  border: 1px solid rgba(var(--jv-outline-variant-rgb), 0.6);
+  margin: 0 calc(var(--jv-gap) + 8px) calc(var(--jv-gap) + 8px) 0;
+  padding: 2px 10px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+
+/* --- меню, окна, подсказки: рамка акцентом, как у попапов waybar --- */
+body.jv-popup-border .menu,
+body.jv-popup-border .suggestion-container,
+body.jv-popup-border .prompt,
+body.jv-popup-border .modal {
+  border: 2px solid rgba(var(--jv-accent-rgb), 0.85);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), var(--shadow-l);
+}
+body:is(.theme-dark, .theme-light) .menu-item.selected:not(.is-disabled):not(.is-label),
+body:is(.theme-dark, .theme-light) .suggestion-item.is-selected {
+  background-color: rgba(var(--jv-accent-rgb), 0.18);
+  border-radius: 8px;
+}
+body:is(.theme-dark, .theme-light) .modal-bg {
+  background-color: rgba(var(--jv-base-rgb), 0.55);
+}
+
+/* --- поле поиска и ввода — пилюли с рамкой акцентом в фокусе --- */
+body:is(.theme-dark, .theme-light) input[type="search"]:focus,
+body:is(.theme-dark, .theme-light) input[type="text"]:focus {
+  box-shadow: 0 0 0 2px rgba(var(--jv-accent-rgb), 0.55);
+}
+
+/* --- плагины хранилища --- */
+/* Kanban: карточки и колонки */
+body:is(.theme-dark, .theme-light) .kanban-plugin__lane {
+  border-radius: 12px;
+  background-color: rgba(var(--jv-high-rgb), 0.55);
+  border: 1px solid rgba(var(--jv-outline-variant-rgb), 0.45);
+}
+body:is(.theme-dark, .theme-light) .kanban-plugin__item {
+  border-radius: 10px;
+  border-color: rgba(var(--jv-outline-variant-rgb), 0.55);
+}
+body:is(.theme-dark, .theme-light) .kanban-plugin__item:hover {
+  border-color: rgba(var(--jv-accent-rgb), 0.6);
+}
+/* Ninja Cursor: след курсора цветом акцента */
+body:is(.theme-dark, .theme-light) .x-cursor,
+body:is(.theme-dark, .theme-light) .x-cursor0,
+body:is(.theme-dark, .theme-light) .x-cursor1 {
+  background-color: rgb(var(--jv-accent-rgb));
+}
+/* Dataview: таблицы как обычные */
+body:is(.theme-dark, .theme-light) .table-view-table > thead > tr > th {
+  background-color: var(--table-header-background);
+  border-bottom: 1px solid var(--table-border-color);
+}

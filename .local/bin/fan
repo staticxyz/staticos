@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#
+# Вентиляторы ноутбука st101k (Clevo V150RNJS) — как кнопка в фирменной утилите Windows.
+#
+#   fan           — что сейчас: режим, обороты в процентах, температуры контроллера
+#   fan max       — оба вентилятора на 100%
+#   fan auto      — вернуть автоматику контроллера (EC)
+#   fan 70        — вручную 70% (от 40 до 100)
+#   fan toggle    — max ↔ auto, для клавиши SUPER+ALT+F
+#
+# Саму работу делает /usr/local/bin/fanctl-helper от root (правило /etc/sudoers.d/fanctl);
+# исходник — ~/.local/share/fanctl/fanctl-helper, установка — ~/.local/share/fanctl/install.sh.
+
+set -u
+STATE="$HOME/.cache/fan-mode"
+HELPER=/usr/local/bin/fanctl-helper
+c_ok=$'\033[38;5;79m'; c_warn=$'\033[38;5;179m'; c_dim=$'\033[2m'; c_b=$'\033[1m'; c_off=$'\033[0m'; c_key=$'\033[38;5;245m'
+
+[ -x "$HELPER" ] || { echo "Помощник не установлен: bash ~/.local/share/fanctl/install.sh"; exit 1; }
+helper() { sudo -n "$HELPER" "$@" 2>/dev/null || sudo "$HELPER" "$@"; }
+mode()   { cat "$STATE" 2>/dev/null || echo auto; }
+note()   { command -v notify-send >/dev/null && notify-send -a "Вентиляторы" -t 2500 "$1" "${2:-}"; }
+
+show() {
+    local json="$1" m; m=$(mode)
+    printf "\n  ${c_b}Вентиляторы:${c_off} %s\n" "$([ "$m" = auto ] && echo "${c_ok}автоматика${c_off}" || echo "${c_warn}вручную $m%${c_off}")"
+    python3 - "$json" <<'PY'
+import json, sys
+names = {1: "процессор", 2: "видеокарта", 3: "третий"}
+for f in json.loads(sys.argv[1]):
+    bar = "█" * round(f["percent"] / 5) + "·" * (20 - round(f["percent"] / 5))
+    print(f"  \033[38;5;245m{names.get(f['fan'], f['fan']):<11}\033[0m {f['percent']:>3}%  {bar}  {f['temp']}°C")
+PY
+    echo
+}
+
+case "${1:-status}" in
+    status) show "$(helper status)" ;;
+    max)    out=$(helper max)  && { echo max > "$STATE"; show "$out"; } ;;
+    auto)   out=$(helper auto) && { echo auto > "$STATE"; show "$out"; } ;;
+    toggle) if [ "$(mode)" = auto ]; then helper max  >/dev/null && { echo max  > "$STATE"; note "Вентиляторы: 100%" "SUPER+ALT+F — вернуть автоматику"; }
+            else                          helper auto >/dev/null && { echo auto > "$STATE"; note "Вентиляторы: автоматика"; }; fi ;;
+    [0-9]*) out=$(helper set "$1") && { echo "$1" > "$STATE"; show "$out"; } ;;
+    *)      sed -n '3,9p' "$0" | sed 's/^# \{0,1\}//' ;;
+esac

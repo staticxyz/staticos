@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Держать тему курсора одинаковой во всех подсистемах.
+#
+# Раньше это была строка прямо в autostart.lua, и она не работала НИ РАЗУ:
+# внутри sh -c '...' стояло tr -d "'", и одинарная кавычка закрывала строку
+# досрочно. Оболочка отвечала "unexpected EOF while looking for matching '",
+# сторож молча не запускался, а курсор в Hyprland оставался прежним.
+#
+# Следим и за темой, и за размером: nwg-look меняет их по отдельности.
+#
+# Тему курсора читают ЧЕТЫРЕ независимых механизма, и nwg-look обновляет
+# не все сразу:
+#   gsettings + settings.ini + xsettingsd -> приложения GTK
+#   hyprctl setcursor                     -> сам Hyprland
+#   ~/.icons/default/index.theme          -> libXcursor: Xwayland, Qt, SDL
+# Когда index.theme отстаёт, курсор меняется на лету при переходе между
+# окнами — GTK рисует одну тему, Xwayland другую. Выглядит как "курсор сам
+# по себе прыгает". Поэтому index.theme пишем здесь же, из того же значения.
+set -uo pipefail
+
+# "default" — не название темы курсора, это служебное имя-заглушка из мира
+# ГЛАВНЫХ (icon-theme), где оно означает «взять системный набор». Как имя
+# ТЕМЫ КУРСОРА оно ни разу не валидно — ни одна тема курсора так не
+# называется. Тем не менее gsettings один раз уже отдал ровно это значение
+# (см. dconf dump — оно лежало там персистентно, пережив перезагрузку), и
+# раньше apply() бездумно скармливала что угодно в hyprctl setcursor: курсор
+# менялся на системный по умолчанию без единого сообщения об ошибке.
+#
+# Ищем каталог cursors/ в реальных путях тем — если его нет, значение
+# однозначно не тема курсора, и остаёмся на прежней (последней применённой).
+theme_installed() {
+    local t="$1"
+    [ -d "$HOME/.icons/$t/cursors" ] && return 0
+    [ -d "$HOME/.local/share/icons/$t/cursors" ] && return 0
+    [ -d "/usr/share/icons/$t/cursors" ] && return 0
+    return 1
+}
+
+# Запасной вариант на случай, если и последняя применённая тема почему-то
+# не установлена (первый запуск, index.theme ещё не существует).
+FALLBACK_THEME="breeze_cursors"
+
+apply() {
+    local theme size
+    theme=$(gsettings get org.gnome.desktop.interface cursor-theme | tr -d "'")
+    size=$(gsettings get org.gnome.desktop.interface cursor-size)
+    [ -z "$theme" ] && return
+
+    if ! theme_installed "$theme"; then
+        local last
+        last=$(sed -n 's/^Inherits=//p' "$HOME/.icons/default/index.theme" 2>/dev/null)
+        theme_installed "$last" && theme="$last" || theme="$FALLBACK_THEME"
+    fi
+
+    hyprctl setcursor "$theme" "$size" >/dev/null
+
+    # libXcursor смотрит сюда, а переменной XCURSOR_THEME у нас нет.
+    # Пишем только при расхождении: файл читается при старте каждого
+    # X-приложения, и лишняя перезапись ничего не даёт.
+    local idx="$HOME/.icons/default/index.theme"
+    if [ "$(sed -n 's/^Inherits=//p' "$idx" 2>/dev/null)" != "$theme" ]; then
+        mkdir -p "$(dirname "$idx")"
+        printf '[Icon Theme]\nName=Default\nComment=Default Cursor Theme\nInherits=%s\n' \
+            "$theme" > "$idx"
+    fi
+}
+
+# nwg-look, выбирая тему, подменяет ~/.config/gtk-4.0/gtk.css симлинком на
+# gtk.css выбранной темы. Импорты matugen при этом теряются, приложения GTK4
+# остаются без именованных цветов (window_bg_color, card_bg_color, accent_color)
+# и откатываются к синему Adwaita — окна внезапно выглядят чужими. За один день
+# это случилось дважды, поэтому проверяем здесь: сторож и так просыпается на
+# каждую правку gsettings, а nwg-look пишет их вместе с подменой файла.
+guard_gtk_css() {
+    local css="$HOME/.config/gtk-4.0/gtk.css"
+    local keep="$css.matugen"
+    [ -f "$keep" ] || return 0
+    if [ -L "$css" ] || ! cmp -s "$css" "$keep"; then
+        rm -f "$css"
+        cp "$keep" "$css"
+    fi
+    return 0
+}
+
+apply           # применить текущее значение при старте
+guard_gtk_css
+
+gsettings monitor org.gnome.desktop.interface | while read -r line; do
+    guard_gtk_css        # тему могли сменить, не трогая курсор
+    case "$line" in
+        *cursor-theme*|*cursor-size*) apply ;;
+    esac
+done

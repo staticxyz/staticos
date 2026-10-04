@@ -1,0 +1,12 @@
+[Unit]
+# Ночной свет по расписанию 22:00–5:00.
+# В Hyprland расписание вёл сам hyprsunset по своим профилям; в Niri его нет,
+# и без этого таймера расписание не исполнялось бы вовсе (21.09.2026).
+Description=Ночной свет по расписанию
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.config/hypr/scripts/night_mode.py schedule
+# gammastep, поднятый отсюда, должен пережить окончание службы (05.10.2026):
+# по умолчанию systemd убивает всю группу процессов вместе с ним.
+KillMode=process

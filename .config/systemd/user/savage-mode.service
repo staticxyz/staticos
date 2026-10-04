@@ -1,0 +1,15 @@
+[Unit]
+Description=Savage mode (24/7) - keeps the laptop from suspending
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/systemd-inhibit --what=idle "--why=24/7 mode" /usr/bin/sleep infinity
+ExecStartPost=/usr/bin/sh -c 'echo $MAINPID > /tmp/savage_mode.pid'
+ExecStopPost=/usr/bin/rm -f /tmp/savage_mode.pid
+SuccessExitStatus=SIGTERM SIGINT
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

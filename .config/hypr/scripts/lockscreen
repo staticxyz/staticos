@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Запуск экрана блокировки.
+#
+# Перед стартом пишет приветствие по времени суток в файл, который hyprlock
+# подключает через source. Так сделано потому, что placeholder_text не умеет
+# выполнять команды — в отличие от label, где работает cmd[update:N].
+#
+# Заодно это дешевле: приветствие считается ОДИН раз в момент блокировки,
+# а не пересчитывается по таймеру, пока экран заблокирован.
+#
+# Раскладка переключается на первую (латиницу) до блокировки — иначе пароль
+# пришлось бы вводить кириллицей и он молча не подходил бы.
+#
+# Стиль (14.09.2026): ~/.config/hypr/state/lock-style, выбор в «Настройках» →
+# «Экран» → «Экран блокировки» (scripts/lock_style.py). Нет файла — «current».
+# Любой стиль, и «Как сейчас» тоже (15.09.2026): lock_style.py prepare собирает
+# из шаблона hyprlock-astronaut.conf готовый ~/.cache/lock-style/hyprlock.conf
+# (вид стиля, наши детали, свежая палитра обоев), и hyprlock запускается с ним.
+# Прежний hyprlock.conf — страховка: он запускается, если сборка не удалась или
+# собранный конфиг не поднялся. LOCK_STYLE в окружении перебивает файл (для
+# проверок).
+set -uo pipefail
+
+h=$(date +%-H)
+if   [ "$h" -lt 6  ]; then g="Good night, Sir"
+elif [ "$h" -lt 12 ]; then g="Good morning, Sir"
+elif [ "$h" -lt 18 ]; then g="Good afternoon, Sir"
+else                       g="Good evening, Sir"
+fi
+printf '$GREETING = %s\n' "$g" > "$HOME/.cache/hyprlock-greeting.conf"
+
+# Уже заблокировано — не запускать второй раз. Считаем ТОЛЬКО hyprlock своего
+# сеанса: 21.09.2026 SUPER+O молча не работал, потому что от закрытого ночного
+# сеанса niri остался осиротевший hyprlock, и pidof видел его.
+for _p in $(pidof hyprlock 2>/dev/null); do
+    if grep -qz "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}" "/proc/$_p/environ" 2>/dev/null; then
+        exit 0
+    fi
+done
+# Английская раскладка перед блокировкой — иначе пароль уйдёт кириллицей.
+# Скрипт общий для Hyprland и niri (21.09.2026): у каждого своя команда.
+if [ -n "${NIRI_SOCKET:-}" ]; then
+    niri msg action switch-layout 0 >/dev/null 2>&1
+else
+    hyprctl switchxkblayout all 0 >/dev/null 2>&1
+fi
+
+# Свой экран блокировки (30.09.2026) — scripts/jarvis_lock.py, с настоящим
+# наведением на кнопках питания. Только если выбран: в state/lock-engine
+# написано «jarvis»; нет файла или там другое — hyprlock, как раньше.
+# hyprlock — страховка в обе стороны. jarvis_lock не смог запереть сеанс
+# (код 2, нет gtk-session-lock, ошибка) — hyprlock сразу. Умер, уже держа
+# блокировку (сеанс остаётся запертым протоколом ext-session-lock), —
+# hyprlock подхватывает её. 0 — разблокирован паролем, 3 — уже запущен.
+# Журнал — $XDG_RUNTIME_DIR/jarvis-lock.log (пароль туда не пишется).
+engine=$(cat "$HOME/.config/hypr/state/lock-engine" 2>/dev/null | tr -d '[:space:]')
+if [ "$engine" = jarvis ]; then
+    jlog="${XDG_RUNTIME_DIR:-/tmp}/jarvis-lock.log"
+    python3 "$HOME/.config/hypr/scripts/jarvis_lock.py" 2>>"$jlog"
+    rc=$?
+    case $rc in 0|3) exit 0 ;; esac
+    echo "$(date '+%F %T') jarvis_lock: код $rc — запускаю hyprlock" >>"$jlog"
+    built="$HOME/.cache/lock-style/hyprlock.conf"
+    if [ -f "$built" ]; then
+        start=$(date +%s)
+        hyprlock -c "$built" && exit 0
+        [ $(( $(date +%s) - start )) -lt 3 ] || exit 1
+    fi
+    exec hyprlock
+fi
+
+style="${LOCK_STYLE:-$(cat "$HOME/.config/hypr/state/lock-style" 2>/dev/null)}"
+style="${style:-current}"
+
+# Подготовка не удалась (нет фона, ошибка) — блокируем привычным видом.
+if ! python3 "$HOME/.config/hypr/scripts/lock_style.py" prepare "$style" >/dev/null 2>&1; then
+    exec hyprlock
+fi
+start=$(date +%s)
+hyprlock -c "$HOME/.cache/lock-style/hyprlock.conf" && exit 0
+# Страховка: если стиль не поднялся (ошибка в конфиге — hyprlock выходит сразу),
+# экран всё равно блокируется привычным видом, а не остаётся открытым. Долгий
+# выход с ошибкой — это уже не старт, его не трогаем.
+if [ $(( $(date +%s) - start )) -lt 3 ]; then
+    exec hyprlock
+fi
+exit 1

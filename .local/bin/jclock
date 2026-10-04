@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""jclock — блочные часы вместо tty-clock, с честным центрированием.
+
+Зачем: tty-clock 2.3 центрирует не сам циферблат, а рамку вместе с датой,
+поэтому в узком окне промахивается на пару колонок, и поправить это ключами
+нельзя. Плюс середину она считает один раз, при запуске.
+
+Здесь цифры те же (3x5 точек, каждая точка — два символа █), цвет тот же —
+ANSI-слот 4, который tclock подменяет на акцент обоев. Отличия: середина
+считается на каждый кадр, изменение окна обрабатывается сразу.
+
+Ключи:
+  -s, --seconds   показывать секунды (по умолчанию да)
+  -D, --no-date   не показывать дату (по умолчанию её и нет)
+      --date      показывать дату под часами
+  -t, --12h       12-часовой формат
+  -C, --color N   номер ANSI-цвета 0..7 (по умолчанию 4)
+Выход: q, Esc или Ctrl+C.
+"""
+
+import os
+import signal
+import sys
+import termios
+import time
+import tty
+
+# 3x5 точек на цифру, как в tty-clock
+GLYPHS = {
+    "0": ("111", "101", "101", "101", "111"),
+    # Единица — в ОДНУ точку шириной, как двоеточие ниже, а не в три. Пока она
+    # занимала полную клетку, пустые колонки по бокам складывались с зазором
+    # между глифами, и «1» отходила от соседней цифры втрое дальше обычного —
+    # сперва вправо, потом, после центрирования глифа, в обе стороны
+    # (23.09.2026). Теперь зазоры везде одинаковые.
+    "1": ("1", "1", "1", "1", "1"),
+    "2": ("111", "001", "111", "100", "111"),
+    "3": ("111", "001", "111", "001", "111"),
+    "4": ("101", "101", "111", "001", "001"),
+    "5": ("111", "100", "111", "001", "111"),
+    "6": ("111", "100", "111", "101", "111"),
+    "7": ("111", "001", "001", "001", "001"),
+    "8": ("111", "101", "111", "101", "111"),
+    "9": ("111", "101", "111", "001", "111"),
+    # Двоеточие — одна точка в ширину, как у tty-clock: тогда весь циферблат
+    # занимает 47 колонок, а не 51, и в узком окне остаётся место по краям.
+    ":": ("0", "1", "0", "1", "0"),
+}
+
+BLOCK = "██"          # одна точка глифа — два символа в ширину
+GAP = " "             # между глифами
+HEIGHT = 5
+
+
+def parse_args(argv):
+    opts = {"seconds": True, "date": False, "hour12": False, "color": 4}
+    it = iter(argv)
+    for a in it:
+        if a in ("-s", "--seconds"):
+            opts["seconds"] = True
+        elif a in ("-D", "--no-date"):
+            opts["date"] = False
+        elif a == "--date":
+            opts["date"] = True
+        elif a in ("-t", "--12h"):
+            opts["hour12"] = True
+        elif a in ("-C", "--color"):
+            try:
+                opts["color"] = int(next(it))
+            except (StopIteration, ValueError):
+                pass
+        elif a.startswith("-C"):
+            try:
+                opts["color"] = int(a[2:])
+            except ValueError:
+                pass
+        # прочие ключи tty-clock (-c, -b, -x…) молча игнорируем: центрирование
+        # здесь всегда включено, рамка не рисуется
+    return opts
+
+
+def render(text):
+    """Вернуть HEIGHT строк с блочным изображением text."""
+    rows = [""] * HEIGHT
+    for i, ch in enumerate(text):
+        glyph = GLYPHS.get(ch)
+        if glyph is None:
+            continue
+        for r in range(HEIGHT):
+            if i:
+                rows[r] += GAP
+            rows[r] += "".join(BLOCK if bit == "1" else "  " for bit in glyph[r])
+    return rows
+
+
+class Clock:
+    def __init__(self, opts):
+        self.opts = opts
+        self.resized = True
+        self.prev = None
+
+    def on_winch(self, *_):
+        self.resized = True
+
+    def timestring(self):
+        fmt = "%I:%M" if self.opts["hour12"] else "%H:%M"
+        if self.opts["seconds"]:
+            fmt += ":%S"
+        return time.strftime(fmt)
+
+    def draw(self, force=False):
+        now = self.timestring()
+        if not force and now == self.prev:
+            return
+        self.prev = now
+
+        cols, rows = os.get_terminal_size()
+        art = render(now)
+        block_h = HEIGHT + (2 if self.opts["date"] else 0)
+
+        # Центрируем по ЧЕРНИЛАМ, а не по номинальной ширине строки: пустые
+        # колонки по краям глифов увели бы середину в сторону. Сейчас пустых
+        # краёв нет ни у одного глифа, но подстраховка ничего не стоит.
+        ink_left = min((len(line) - len(line.lstrip(" ")) for line in art if line.strip()),
+                       default=0)
+        ink_right = max((len(line.rstrip(" ")) for line in art), default=0)
+        left = max((cols - (ink_right - ink_left)) // 2 - ink_left, 0)
+        top = max((rows - block_h) // 2, 0)
+
+        out = [f"\033[{self.opts['color'] + 30}m"]
+        for i, line in enumerate(art):
+            out.append(f"\033[{top + i + 1};1H\033[K{' ' * left}{line}")
+        if self.opts["date"]:
+            date = time.strftime("%d.%m.%Y")
+            dleft = max((cols - len(date)) // 2, 0)
+            out.append(f"\033[{top + HEIGHT + 2};1H\033[K{' ' * dleft}{date}")
+        sys.stdout.write("".join(out))
+        sys.stdout.flush()
+
+    def run(self):
+        signal.signal(signal.SIGWINCH, self.on_winch)
+        fd = sys.stdin.fileno()
+        saved = None
+        try:
+            saved = termios.tcgetattr(fd)
+            tty.setcbreak(fd)
+        except termios.error:
+            pass                      # stdin не терминал — просто рисуем
+
+        sys.stdout.write("\033[?25l\033[2J")   # спрятать курсор, очистить
+        try:
+            while True:
+                if self.resized:
+                    self.resized = False
+                    sys.stdout.write("\033[2J")
+                    self.draw(force=True)
+                else:
+                    self.draw()
+
+                if saved is not None:
+                    import select
+
+                    r, _, _ = select.select([fd], [], [], 0.2)
+                    if r:
+                        key = os.read(fd, 8)
+                        if key in (b"q", b"Q", b"\x1b", b"\x03"):
+                            break
+                else:
+                    time.sleep(0.2)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            if saved is not None:
+                termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+            sys.stdout.write("\033[0m\033[?25h\033[2J\033[H")
+            sys.stdout.flush()
+
+
+if __name__ == "__main__":
+    Clock(parse_args(sys.argv[1:])).run()

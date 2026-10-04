@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Вид уведомлений swaync: как в Noctalia или обычный. 30.09.2026.
+#
+#   notif-look on       включить вид Noctalia
+#   notif-look off      вернуть обычный
+#   notif-look status   on / off
+#
+# Вид Noctalia лежит в ~/.config/swaync/looks/noctalia.css. Он вставляется в
+# КОНЕЦ style.css между метками, а не через @import: в CSS GTK @import можно
+# только в начале файла, и тогда наши же правила ниже перебивали бы его.
+# Заодно карточки уже — 440 вместо 500, как у Noctalia (config.json).
+set -u
+CSS="$HOME/.config/swaync/style.css"
+CFG="$HOME/.config/swaync/config.json"
+LOOK="$HOME/.config/swaync/looks/noctalia.css"
+B="/* NOCTALIA-LOOK-BEGIN */"
+E="/* NOCTALIA-LOOK-END */"
+
+strip() { sed -i "\|^/\* NOCTALIA-LOOK-BEGIN \*/\$|,\|^/\* NOCTALIA-LOOK-END \*/\$|d" "$CSS"; }
+width() { sed -i -E "s/(\"notification-window-width\": )[0-9]+/\1$1/" "$CFG"; }
+reload() { swaync-client -R >/dev/null 2>&1; swaync-client -rs >/dev/null 2>&1; }
+
+case "${1:-status}" in
+    on)  strip; { echo "$B"; cat "$LOOK"; echo "$E"; } >> "$CSS"; width 440; reload; echo on ;;
+    off) strip; width 500; reload; echo off ;;
+    status) grep -qF "$B" "$CSS" && echo on || echo off ;;
+    *) echo "notif-look on|off|status" >&2; exit 1 ;;
+esac
