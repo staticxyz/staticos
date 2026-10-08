@@ -41,6 +41,10 @@ Every color comes from your wallpaper.
 
 ## Screenshots
 
+![staticOS with the XP-style taskbar and desktop widgets](assets/desktop-xp.png)
+
+<p align="center"><i>The other layout: desktop widgets and an XP-style taskbar with a Start button instead of the top bar.</i></p>
+
 | | |
 |:-:|:-:|
 | ![Discipline: alarm](assets/alarm.png) | ![Discipline: focus](assets/focus.png) |

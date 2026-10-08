@@ -41,6 +41,10 @@
 
 ## Снимки
 
+![staticOS с панелью XP и виджетами](assets/desktop-xp.png)
+
+<p align="center"><i>Другая раскладка: виджеты на обоях и панель в духе XP с «Пуском» вместо верхнего бара.</i></p>
+
 | | |
 |:-:|:-:|
 | ![Discipline: будильник](assets/alarm.png) | ![Discipline: фокус](assets/focus.png) |
