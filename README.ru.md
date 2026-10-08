@@ -41,16 +41,13 @@
 
 ## Снимки
 
-![staticOS с панелью XP и виджетами](assets/desktop-xp.png)
+![Focus](assets/desktop-focus.png)
 
-<p align="center"><i>Другая раскладка: виджеты на обоях и панель в духе XP с «Пуском» вместо верхнего бара.</i></p>
+<p align="center"><i>С верхним баром и Focus: блокировка сайтов и программ на время сессии.</i></p>
 
-<details>
-<summary>С верхним баром</summary>
+![Настройки](assets/desktop-settings.png)
 
-![staticOS с верхним баром](assets/desktop-bar.png)
-
-</details>
+<p align="center"><i>Настройки: панели, шрифты, виджеты, экран блокировки и прочее в одном окне.</i></p>
 
 | | |
 |:-:|:-:|

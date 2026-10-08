@@ -5,52 +5,13 @@
 A pixel-styled [niri](https://github.com/YaLTeR/niri) desktop for Arch Linux.<br>
 Every color comes from your wallpaper.
 
-![staticOS desktop](assets/desktop.png)
+![Focus](assets/desktop-focus.png)
 
-![niri](https://img.shields.io/badge/niri-26.04-8fa0ff?style=flat-square&labelColor=15161e)
-![arch](https://img.shields.io/badge/Arch%20Linux-%E2%9C%93-8fa0ff?style=flat-square&labelColor=15161e)
-![palette](https://img.shields.io/badge/palette-from%20wallpaper-8fa0ff?style=flat-square&labelColor=15161e)
-![license](https://img.shields.io/badge/license-MIT-8fa0ff?style=flat-square&labelColor=15161e)
+<p align="center"><i>With the top bar and Focus: block distracting sites and apps for a session.</i></p>
 
-[Install](docs/install.md) · [User guide](docs/guide.md) · [Alarm](docs/alarm.md)
+![Settings](assets/desktop-settings.png)
 
-**English** · [Русский](README.ru.md)
-
-</div>
-
-> [!NOTE]
-> Screenshots show demo data: a made-up alarm plan and no chats or notifications of anyone's.
-> The windows are drawn by the same scripts that run on the desktop.
-
-## Highlights
-
-- **One palette everywhere.** Change the wallpaper and the bar, terminal, notifications,
-  GTK/Qt apps, cursor, icons and even the keyboard backlight follow it.
-- **Settings in one window** — `Super+/`. Bars, panels, fonts, lock screen, shaders, widgets,
-  sounds: no config files to edit. Three looks: Default, Skeet, Beta.
-- **An alarm you cannot sleep through.** It stops only when you type a phrase, checks on you
-  again later, and a daytime Watchman keeps you from dozing off. [How it works →](docs/alarm.md)
-- **Focus and pomodoro.** Block distracting sites and apps for a session, with a pomodoro on top.
-- **App list** — `Super+Alt+T`. Programs and packages with versions, one-key rollback to an
-  older version, hold, cleanup of package caches and logs, and a full system summary.
-- **Desktop widgets and an XP-style taskbar.** Clocks, player, weather, system monitor and more
-  as little `.exe` windows; an optional bottom panel with a Start button.
-- **Screenshots, OCR and recording.** Annotate, pin a screenshot on top, copy text off the screen,
-  record GIFs, videos and Telegram stickers.
-- **Own clipboard, Alt+Tab, lock screen and screensaver**, all keyboard-driven with vim keys.
-
-## Screenshots
-
-![staticOS with the XP-style taskbar and desktop widgets](assets/desktop-xp.png)
-
-<p align="center"><i>The other layout: desktop widgets and an XP-style taskbar with a Start button instead of the top bar.</i></p>
-
-<details>
-<summary>With the top bar</summary>
-
-![staticOS with the top bar](assets/desktop-bar.png)
-
-</details>
+<p align="center"><i>Settings: one window for bars, fonts, widgets, lock screen and more.</i></p>
 
 | | |
 |:-:|:-:|

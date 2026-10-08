@@ -12,7 +12,7 @@
   • каждая встреча с запрещённым окном — «отвлечение», счёт за день виден в окне
     Routine (вкладка Focus) и в `focus status`.
 Фокус — сессия на время (25m, 1h…) или до отмены; можно ещё «авто с помидором»
-(включён, пока идёт рабочий отрезок pomo) и «перерывы свободны» (на перерыве pomo
+(включён, пока идёт рабочий отрезок pomo) и «перерывы» (на перерыве pomo
 блокировки нет).
 
     focus_mode.py on [ВРЕМЯ]     начать: 25m, 1h30m, 90 (минуты); без времени — до отмены
@@ -56,12 +56,13 @@ DEFAULT_BLOCKS = [
     {"label": "Reddit", "match": "reddit", "on": True},
     {"label": "VK", "match": "вконтакте|vk видео|vk\\.com|vkvideo", "on": True},
     {"label": "Rutube", "match": "rutube", "on": True},
-    {"label": "Кинопоиск", "match": "кинопоиск|kinopoisk", "on": True},
     {"label": "Netflix", "match": "netflix", "on": True},
     {"label": "Steam", "app": "^steam$", "on": False},
     {"label": "CS2", "app": "^cs2$|gamescope", "on": False},
     {"label": "Discord", "app": "discord|vesktop", "on": False},
     {"label": "Telegram", "app": "org\\.telegram\\.desktop", "on": False},
+    {"label": "Claude", "match": "claude", "on": False},
+    {"label": "Codex", "match": "codex", "on": False},
 ]
 # Учёба по видео: слово из списка в заголовке/названии — ролик можно и в фокусе
 # (только для правил по заголовку; правила по app-id исключений не знают).
