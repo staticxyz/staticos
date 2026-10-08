@@ -45,6 +45,13 @@
 
 <p align="center"><i>Другая раскладка: виджеты на обоях и панель в духе XP с «Пуском» вместо верхнего бара.</i></p>
 
+<details>
+<summary>С верхним баром</summary>
+
+![staticOS с верхним баром](assets/desktop-bar.png)
+
+</details>
+
 | | |
 |:-:|:-:|
 | ![Discipline: будильник](assets/alarm.png) | ![Discipline: фокус](assets/focus.png) |
