@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Авто-«Не беспокоить» на время записи и трансляции экрана. 02.10.2026.
+"""Авто-«Не беспокоить» на время записи и трансляции экрана и на время игры. 02.10.2026.
 
     auto_dnd.py              сторож (автозапуск niri; второй экземпляр выходит)
     auto_dnd.py on|off       включить / выключить (Настройки → Misc)
@@ -16,6 +16,7 @@
     в момент остановки, ДО уведомления «Сохранено», — оно должно всплыть как обычно;
   * активная трансляция экрана через niri (Telegram, Discord, OBS, браузер) —
     события Cast* из `niri msg event-stream`.
+  * запущена игра (cs2, gamescope) — с 06.10.2026, проверка раз в 5 с.
 Replay (gpu-screen-recorder в фоне, «задним числом») записью НЕ считается: он
 работает часами, DND на всё это время никому не нужен. niri его и не видит (KMS).
 
@@ -86,9 +87,27 @@ def niri_casts():
         return {}
 
 
+GAMES = (b"cs2", b"gamescope")
+
+
+def gaming():
+    """Запущена игра (06.10.2026, Просьба: «почему во время запуска игры не включается
+    Выключить уведомления?»). Те же процессы, что у ui_sound / сторожа бара."""
+    for p in os.listdir("/proc"):
+        if p.isdigit():
+            try:
+                if open("/proc/%s/comm" % p, "rb").read().strip() in GAMES:
+                    return True
+            except OSError:
+                pass
+    return False
+
+
 def busy(casts):
     if os.path.exists(REC_PID):
         return "запись (rec_area)"
+    if gaming():
+        return "игра"
     for c in casts.values():
         if c.get("is_active", True):
             return "трансляция экрана"
@@ -195,7 +214,8 @@ def main():
     while True:
         fds = [ino] + ([stream.stdout.fileno()] if stream else [])
         try:
-            r, _, _ = select.select(fds, [], [], None if stream else 5)
+            # раз в 5 с — даже без событий: запуск и выход из игры событий не дают
+            r, _, _ = select.select(fds, [], [], 5)
         except (OSError, ValueError):
             r = []
         if not stream:

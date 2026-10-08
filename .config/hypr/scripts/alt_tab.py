@@ -44,7 +44,14 @@ STYLE_FILE = os.path.expanduser("~/.config/hypr/state/alttab-style")
 HIDDEN_APPS = ("dash-",)            # окна «Dashboard» на первом столе — виджеты, не окна
 COLS = 7
 ICON = 40
-TILE = 64
+TILE = 72                # 05.10.2026: шире — под подписью короткое имя окна
+CAP = 8                 # знаков в подписи
+# Подгонка под Cozette (cozette_fit.py, 08.10.2026): текст 13 px вместо 16, знак 6 px вместо 8 —
+# плитки 72 px стояли полупустыми. Плитка 60, подпись 9 знаков; значки 40 px как были.
+FIT = (os.path.exists(os.path.expanduser("~/.config/fontconfig/conf.d/61-cozette-trial.conf"))
+       and os.path.exists(os.path.expanduser("~/.config/hypr/state/cozette-fit")))
+if FIT:
+    TILE, CAP = 60, 9
 
 
 def log(msg):
@@ -87,14 +94,26 @@ if sys.argv[1:2] in (["next"], ["prev"]):
 if sys.argv[1:2] != ["daemon"]:
     print(__doc__)
     sys.exit(0)
-if alive_pid() and alive_pid() != os.getpid():
+# Один резидент — по блокировке файла, а не по pid-файлу: 05.10.2026 бинд и перезапуск
+# стартовали в одну секунду, pid-файла ещё не было, и поднялись ДВА резидента на одном
+# канале — окна дрались за клавиатуру. Второй отдаёт команду первому и выходит.
+import fcntl  # noqa: E402
+_LOCK = os.open(os.path.join(RUN, "jarvis-alttab.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+try:
+    fcntl.flock(_LOCK, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except OSError:
+    first = sys.argv[2] if len(sys.argv) > 2 else None
+    if first in ("next", "prev") and os.path.exists(FIFO):
+        time.sleep(0.3)                    # первый ещё может открывать канал
+        send(first)
     sys.exit(0)
 
 import gi  # noqa: E402
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
-from gi.repository import Gdk, Gio, GLib, Gtk, GtkLayerShell, Pango  # noqa: E402
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, GtkLayerShell, Pango  # noqa: E402
 
 sys.path.insert(0, HERE)
 import xp_calendar  # noqa: E402  — цвета трёх стилей (colors), шрифт
@@ -127,10 +146,47 @@ def ts(w):
 _apps = {}
 
 
+def steam_game(app_id):
+    """Окно игры Steam (06.10.2026, Просьба: «у КС иконка как у картинки»): у gamescope и
+    steam_app_N своего .desktop нет, значок по имени не находился — рисовалась заглушка.
+    Номер игры — из steam_app_N или из запущенного «SteamLaunch AppId=N» (gamescope);
+    значок — steam_icon_N (его кладёт Steam, есть и в пиксельной теме), название — из
+    ярлыка Steam с этим значком. None — не игра Steam."""
+    low = app_id.lower()
+    num = low[len("steam_app_"):] if low.startswith("steam_app_") else None
+    if low in ("gamescope", "cs2") and not num:
+        for pid in os.listdir("/proc"):
+            if pid.isdigit():
+                try:
+                    argv = open("/proc/%s/cmdline" % pid, "rb").read().split(b"\0")
+                except OSError:
+                    continue
+                for a in argv:
+                    if a.startswith(b"AppId="):
+                        num = a[6:].decode(errors="replace")
+                        break
+                if num:
+                    break
+    if not num or not num.isdigit():
+        return None
+    name = ""
+    for a in Gio.AppInfo.get_all():
+        ic = a.get_icon()
+        if ic is not None and ic.to_string() == "steam_icon_" + num:
+            name = a.get_name() or ""
+            break
+    return (name or ("Counter-Strike 2" if num == "730" else "Steam")), \
+        Gio.ThemedIcon.new_with_default_fallbacks("steam_icon_" + num)
+
+
 def app_info(app_id):
     """(название, Gio.Icon) программы по app_id — через .desktop, как в нижней панели."""
     if app_id in _apps:
         return _apps[app_id]
+    game = steam_game(app_id)
+    if game:
+        _apps[app_id] = game
+        return game
     info = None
     for cand in (app_id, app_id.lower(), app_id.split(".")[-1].lower()):
         try:
@@ -149,8 +205,54 @@ def app_info(app_id):
     if icon is None:
         icon = Gio.ThemedIcon.new_with_default_fallbacks(app_id.lower() or "application-x-executable")
     name = (info.get_name() if info else "") or app_id or "Окно"
+    if info is None and app_id.lower() in ("gamescope", "cs2"):
+        return name, icon                 # игра ещё не видна — не запоминать заглушку
     _apps[app_id] = (name, icon)
     return _apps[app_id]
+
+
+# ── окна терминала: что в них запущено (05.10.2026, Просьба: «все kitty — один значок,
+# не понимаю, где что») — значок программы по заголовку и короткая подпись ──
+TERMINALS = {"kitty", "foot", "alacritty", "org.wezfurlong.wezterm", "com.mitchellh.ghostty"}
+PROGRAM_ICONS = {"btop": "btop", "btop++": "btop", "htop": "htop", "top": "utilities-system-monitor",
+                 "nvim": "nvim", "vim": "vim", "vi": "vim", "python": "python", "python3": "python",
+                 "ipython": "python", "git": "git", "lazygit": "git", "yazi": "yazi", "node": "node",
+                 "java": "java", "man": "accessories-text-editor", "nano": "accessories-text-editor"}
+SHELLS = {"fish", "zsh", "bash", "sh"}
+def short(text):
+    text = text.strip()
+    return text if len(text) <= CAP else text[:CAP - 1].rstrip() + "…"
+
+
+def term_view(title):
+    """(имя значка | None, подпись) для окна терминала по его заголовку."""
+    t = (title or "").strip()
+    word = t.split()[0] if t.split() else ""
+    base = os.path.basename(word)
+    if not word or word.startswith(("~", "/")) or base in SHELLS:
+        place = os.path.basename(word.rstrip("/")) if word not in ("", "~") else "~"
+        return None, short(place or "~")
+    rest = t[len(word):].strip()
+    if base.lower() in ("nvim", "vim") and rest:
+        # nvim пишет в заголовок открытые файлы, текущий первым (07.10.2026, autocmds.lua):
+        # «nvim A.java · B.md». Запущенный до этого — заголовок от fish: «nvim АРГУМЕНТ
+        # ПАПКА» («nvim . ~/java-practice», «nvim Junior\ Рыцарь ~/D/P/Generator»).
+        if " · " not in rest:
+            arg, _sp, cwd = rest.replace("\\ ", " ").rpartition(" ")
+            if cwd.startswith(("~", "/")):
+                rest = os.path.basename(cwd.rstrip("/")) or cwd if arg in ("", ".") \
+                    else os.path.basename(arg.rstrip("/")) or arg
+        return PROGRAM_ICONS.get(base.lower()), short(rest.split(" · ")[0])
+    return PROGRAM_ICONS.get(base.lower()), short(base)
+
+
+def window_caption(w, app_name):
+    t = (w.get("title") or "").strip()
+    for sep in (" — ", " - ", " – ", " | "):
+        if sep in t:
+            t = t.split(sep)[0]
+            break
+    return short(t or app_name)
 
 
 class Switcher:
@@ -159,6 +261,7 @@ class Switcher:
         self.ws = {}                  # id стола → стол niri
         self.items = []
         self.sel = 0
+        self.scope = None             # None — все мониторы, иначе имя выхода (клавиша `)
         self.shown = False
         self.focused_in = False
         self.css_key = None
@@ -180,6 +283,7 @@ class Switcher:
 
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.box.get_style_context().add_class("at-box")
+        self.box.set_size_request(320, -1)      # с 1–2 окнами строка под значками не обрезается
         self.grid = Gtk.FlowBox()
         self.grid.set_selection_mode(Gtk.SelectionMode.NONE)
         self.grid.set_homogeneous(True)
@@ -194,6 +298,14 @@ class Switcher:
         self.sub = Gtk.Label(xalign=0.5)
         self.sub.set_ellipsize(Pango.EllipsizeMode.END)
         self.sub.get_style_context().add_class("at-sub")
+        # Ширину панели задаёт только сетка плиток (05.10.2026, Просьба: «при переходах размер
+        # alt+tab меняется на пару пикселей»): у меток с многоточием «желаемая» ширина — весь
+        # текст, и длинное имя окна раздвигало панель. max_width_chars 1 — желаемая ширина
+        # минимальна, метка растягивается по ширине панели и сокращается многоточием.
+        for lab in (self.title, self.sub):
+            lab.set_max_width_chars(1)
+            lab.set_hexpand(True)
+            lab.set_single_line_mode(True)
         self.box.pack_start(self.grid, False, False, 0)
         self.box.pack_start(self.title, False, False, 0)
         self.box.pack_start(self.sub, False, False, 0)
@@ -387,7 +499,11 @@ class Switcher:
         return None
 
     def open(self, step):
+        # Два режима (05.10.2026, Просьба: «окна этого монитора и другого, только 2 режима»):
+        # открывается с окнами монитора в фокусе, ` — окна другого монитора и обратно.
+        self.scope = self.focused_output()
         if not self.build(step):
+            self.scope = None
             log("окон нет — нечего показывать")
             return
         self.show()
@@ -395,6 +511,8 @@ class Switcher:
     def build(self, step):
         wins = [w for w in self.windows.values()
                 if not (w.get("app_id") or "").startswith(HIDDEN_APPS)]
+        if self.scope:
+            wins = [w for w in wins if (self.ws.get(w.get("workspace_id")) or {}).get("output") == self.scope]
         if not wins:
             return False
         wins.sort(key=lambda w: (not w.get("is_focused"), -ts(w)))
@@ -404,14 +522,29 @@ class Switcher:
         for ch in list(self.grid.get_children()):
             self.grid.remove(ch)
         self.tiles = []
+        theme = Gtk.IconTheme.get_default()
         for i, w in enumerate(wins):
-            _name, icon = app_info(w.get("app_id") or "")
-            img = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.DIALOG)
+            app_id = w.get("app_id") or ""
+            name, icon = app_info(app_id)
+            img = None
+            if app_id.lower() in TERMINALS:
+                which, cap = term_view(w.get("title"))
+                if which and theme.has_icon(which):
+                    img = Gtk.Image.new_from_icon_name(which, Gtk.IconSize.DIALOG)
+            else:
+                cap = window_caption(w, name)
+            if img is None:
+                img = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.DIALOG)
             img.set_pixel_size(ICON)
+            label = Gtk.Label(label=cap)
+            label.get_style_context().add_class("at-cap")
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            inner.pack_start(img, False, False, 0)
+            inner.pack_start(label, False, False, 0)
             tile = Gtk.EventBox()
-            tile.set_size_request(TILE, TILE)
+            tile.set_size_request(TILE, -1)
             tile.get_style_context().add_class("at-tile")
-            tile.add(img)
+            tile.add(inner)
             tile.connect("button-press-event", lambda _t, _e, k=i: self.pick(k))
             self.grid.add(tile)
             self.tiles.append(tile)
@@ -427,6 +560,7 @@ class Switcher:
         if mon:
             GtkLayerShell.set_monitor(self.win, mon)
         self.focused_in = False
+        self.reshown = False
         self.shown = True
         self.opened_at = time.monotonic()
         self.win.show()
@@ -441,9 +575,32 @@ class Switcher:
         self.title.set_text(w.get("title") or name)
         s = self.ws.get(w.get("workspace_id")) or {}
         where = "стол %s" % s["idx"] if s.get("idx") else ""
-        if s.get("output") and s.get("output") != self.focused_output():
+        if not self.scope and s.get("output") and s.get("output") != self.focused_output():
             where += (", " if where else "") + s["output"]
-        self.sub.set_text(name + (" · " + where if where else ""))
+        scope = "все мониторы" if not self.scope else self.monitor_name(self.scope)
+        self.sub.set_text(name + (" · " + where if where else "") + "   [` " + scope + "]")
+
+    _mon_names = {}
+
+    def monitor_name(self, out):
+        if out not in self._mon_names:
+            if out.startswith("eDP"):
+                self._mon_names[out] = "ноутбук"
+            else:
+                make = ((niri_json("outputs") or {}).get(out) or {}).get("make") or ""
+                self._mon_names[out] = "MSI" if "Microstep" in make or "MSI" in make else out
+        return self._mon_names[out]
+
+    def move_row(self, d):
+        """Строка вверх/вниз в сетке; за краем — по кругу в том же столбце."""
+        if not self.items:
+            return
+        n = min(COLS, len(self.items))
+        col, rows = self.sel % n, (len(self.items) + n - 1) // n
+        row = (self.sel // n + d) % rows
+        i = row * n + col
+        self.sel = i if i < len(self.items) else len(self.items) - 1
+        self.mark()
 
     def move(self, step):
         if not self.items:
@@ -494,6 +651,12 @@ class Switcher:
             if not self.alt_down():
                 self.commit()
                 return False
+        elif not self.reshown and time.monotonic() - self.opened_at > 0.4:
+            # фокус не пришёл — показать заново: niri отдаёт клавиатуру при новом показе
+            self.reshown = True
+            log("фокус не пришёл за 0,4 с — показываю заново")
+            self.win.hide()
+            self.win.show()
         elif time.monotonic() - self.opened_at > 1.5:
             log("фокус клавиатуры не пришёл — закрываю с выбором")
             self.commit()
@@ -509,13 +672,35 @@ class Switcher:
         k = ev.keyval
         if k == Gdk.KEY_Escape:
             self.hide()
-        elif k in (Gdk.KEY_Tab, Gdk.KEY_Right, Gdk.KEY_Down):
+        # h/j/k/l как в nvim (05.10.2026); на русской раскладке те же клавиши — р/о/л/д
+        elif k in (Gdk.KEY_Tab, Gdk.KEY_Right, Gdk.KEY_l, Gdk.KEY_L, Gdk.KEY_Cyrillic_de, Gdk.KEY_Cyrillic_DE):
             self.move(1)
-        elif k in (Gdk.KEY_ISO_Left_Tab, Gdk.KEY_Left, Gdk.KEY_Up):
+        elif k in (Gdk.KEY_ISO_Left_Tab, Gdk.KEY_Left, Gdk.KEY_h, Gdk.KEY_H,
+                   Gdk.KEY_Cyrillic_er, Gdk.KEY_Cyrillic_ER):
             self.move(-1)
+        elif k in (Gdk.KEY_Down, Gdk.KEY_j, Gdk.KEY_J, Gdk.KEY_Cyrillic_o, Gdk.KEY_Cyrillic_O):
+            self.move_row(1)
+        elif k in (Gdk.KEY_Up, Gdk.KEY_k, Gdk.KEY_K, Gdk.KEY_Cyrillic_el, Gdk.KEY_Cyrillic_EL):
+            self.move_row(-1)
         elif k in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_space):
             self.commit()
+        elif k in (Gdk.KEY_grave, Gdk.KEY_asciitilde, Gdk.KEY_Cyrillic_io, Gdk.KEY_Cyrillic_IO):
+            self.next_scope()
         return True
+
+    def next_scope(self):
+        """` (на русской раскладке — ё): этот монитор ↔ другой (05.10.2026)."""
+        outs = sorted({s.get("output") for s in self.ws.values() if s.get("output")},
+                      key=lambda o: (not o.startswith("eDP"), o))
+        order = outs or [None]
+        i = order.index(self.scope) if self.scope in order else 0
+        for _ in order:                       # пропустить мониторы, где окон нет
+            i = (i + 1) % len(order)
+            self.scope = order[i]
+            if self.build(1):
+                return
+        self.scope = None
+        self.build(1)
 
     # ── вид ──
     def apply_css(self):
@@ -548,7 +733,12 @@ def css_for(style, c):
     .at-grid flowboxchild { padding: 0; margin: 0; background: transparent; border-radius: 0; }
     .at-title { font-size: 16px; margin-top: 8px; }
     .at-sub { font-size: 12px; margin-top: 2px; }
+    .at-cap { font-size: 12px; opacity: 0.75; margin-bottom: 2px; }
+    .at-grid flowboxchild.at-sel .at-cap { opacity: 1; }
+    .at-tile { padding-top: 4px; }
     """ % c
+    if FIT:
+        common += ".at-title { margin-top: 6px; }\n"
     if style == "skeet":
         dark = ", ".join(xp_calendar._mix(x, "#000000", 0.55) for x in c["strip"])
         c = dict(c, strip=", ".join(c["strip"]), strip_d=dark,
@@ -608,7 +798,9 @@ def main():
     sw = Switcher()
     first = sys.argv[2] if len(sys.argv) > 2 else None
     if first in ("next", "prev"):
-        GLib.idle_add(lambda: (sw.command(first), False)[1])
+        # первый показ сразу после старта клавиатуру не получал (05.10.2026) — подождать,
+        # пока окно и соединение с niri готовы
+        GLib.timeout_add(250, lambda: (sw.command(first), False)[1])
     log("запущен, pid %d" % os.getpid())
     Gtk.main()
 

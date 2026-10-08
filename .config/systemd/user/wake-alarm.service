@@ -1,0 +1,10 @@
+[Unit]
+# Будильник режима сна (05.10.2026). Расписание: wake-alarm status.
+# Пока звонит, служба активна — повторные срабатывания таймера ничего не делают.
+Description=Утренний будильник
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.config/hypr/scripts/wake_alarm.py check
+# серия проверок длится до 65 мин (T−5 … T+30 и полчаса последнего звонка)
+TimeoutStartSec=16h

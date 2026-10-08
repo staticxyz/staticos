@@ -60,7 +60,7 @@ window-rule {
 // dim_inactive из Hyprland. Это оказалось противоположным по смыслу: затемнение
 // делает неактивное окно ТЕМНЕЕ, а прозрачность — СВЕТЛЕЕ, сквозь него сильнее
 // проступают обои. Замер на btop: окно в фокусе 42.9 яркости, без фокуса 51.8 —
-// и активное выглядело «потерявшим прозрачность» (пользователь заметил на btop).
+// и активное выглядело «потерявшим прозрачность» (Пользователь заметил на btop).
 // Затемнения в niri нет вовсе, поэтому лучше никакой разницы, чем обратная:
 // фокус и так виден по цвету рамки.
 
@@ -219,6 +219,35 @@ window-rule {
     default-window-height { fixed 800; }
 }
 
+// «Discipline» — будильник, фокус и помидор (scripts/routine_app.py, 06.10.2026;
+// было Alarm, потом Routine). Размер — W и высота раскладки; рамку рисует само окно.
+window-rule {
+    match app-id=r#"^com\.jarvis\.(discipline|routine)$"#
+    open-floating true
+    // Размер задаёт само окно (запомненный, state/discipline-size), 07.10.2026: растягивается.
+    border { off; }
+    focus-ring { off; }
+}
+
+// «App list» — программы, версии, сведения о системе (scripts/app_list.py, 06.10.2026).
+// Размер — W, H в app_list.py; рамку рисует само окно.
+window-rule {
+    match app-id=r#"^com\.jarvis\.applist$"#
+    open-floating true
+    default-column-width { fixed 980; }
+    default-window-height { fixed 640; }
+    border { off; }
+    focus-ring { off; }
+}
+
+// Терминал действий App list (удалить, обновить, откат): пароль sudo и вывод pacman.
+window-rule {
+    match app-id=r#"^com\.jarvis\.applist\.term$"#
+    open-floating true
+    default-column-width { fixed 760; }
+    default-window-height { fixed 440; }
+}
+
 // «Настройки» (scripts/settings_app.py)
 window-rule {
     match app-id=r#"^com\.jarvis\.settings$"#
@@ -236,7 +265,7 @@ window-rule {
 
 // Картинка в картинке (LibreWolf и Zen) — правый нижний угол, 640x360.
 window-rule {
-    match app-id=r#"^(librewolf|zen)$"# title=r#"^Picture-in-Picture$"#
+    match app-id=r#"^(librewolf|zen)$"# title=r#"^(Picture-in-Picture|Картинка в картинке)$"#
     open-floating true
     // Без фокуса (24.09.2026): на русской раскладке CTRL+SHIFT+] браузер узнаёт
     // только в основном окне. Когда фокус уходил в окошко картинки, повторное
@@ -281,7 +310,7 @@ window-rule {
 // её даёт композитор: окном ЦЕЛИКОМ, вместе с текстом. Поэтому чем прозрачнее,
 // тем бледнее буквы — держится на размытии под окном: оно гасит рисунок обоев,
 // и текст остаётся читаемым даже при заметной прозрачности.
-// 0.88 → 0.76 по просьбе 28.09.2026 («ещё прозрачнее»).
+// 0.88 → 0.76 по просьбе пользователя 28.09.2026 («ещё прозрачнее»).
 window-rule {
     match app-id=r#"^no\.bragefuglseth\.Keypunch(\.Devel)?$"#
     opacity 0.76
@@ -321,4 +350,17 @@ window-rule {
     match app-id=r#"^kitty$"# title=r#"^btop"#
     default-column-width { fixed 1100; }
     default-window-height { proportion 1.0; }   // по вертикали — во всю высоту (760 было мало)
+}
+
+// Просмотр фото и видео в Telegram — плавающим окном по центру (06.10.2026, пользователь:
+// «медиа в телеграме — в плавающем режиме по центру»). Окно просмотрщика Telegram Desktop
+// называется «Media viewer» (интерфейс на английском; русские названия — на всякий случай).
+// Само просит полный экран — open-fullscreen false его не пускает.
+window-rule {
+    match app-id=r#"^org\.telegram\.desktop$"# title=r#"^(Media viewer|Просмотр медиа|Медиапросмотр)$"#
+    open-floating true
+    open-fullscreen false
+    open-maximized false
+    default-column-width { proportion 0.7; }
+    default-window-height { proportion 0.75; }
 }

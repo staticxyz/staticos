@@ -22,6 +22,12 @@ def main():
     if game_running():
         print("идёт игра — блокировка пропущена")
         return 0
+    from idle_guard import video_in_focus, hold
+    v = video_in_focus()
+    if v:                                        # видео в фокусе — не запирать (07.10.2026)
+        hold("lock")
+        print("смотрят видео (%s) — блокировка пропущена" % v)
+        return 0
     dry = os.environ.get("IDLE_LOCK_DRYRUN") == "1"
     if dry:
         print("экран бы заблокировался")

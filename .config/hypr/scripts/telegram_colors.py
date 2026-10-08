@@ -38,6 +38,9 @@ OUT = os.environ.get("TG_OUT", os.path.expanduser(
 # а голый .tdesktop-palette — нет.
 THEME_OUT = os.environ.get("TG_THEME_OUT", os.path.expanduser(
     "~/.cache/matugen/matugen.tdesktop-theme"))
+# Плитка фона отдельно — на случай ручной установки в Настройках чатов.
+TILE_OUT = os.environ.get("TG_TILE_OUT", os.path.expanduser(
+    "~/.cache/matugen/telegram-tile.png"))
 
 # Диапазон тонов, который в штатной палитре занимает фирменный синий Telegram.
 BLUE_LO, BLUE_HI = 180.0, 260.0
@@ -150,20 +153,80 @@ def recolor(value, accent_h, surface_h):
     return value                              # смысловой цвет — не трогать
 
 
+def _rgb(h):
+    return tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
+
+
 def _solid_png(hex_color, size=64):
     """PNG size×size одного цвета, без внешних библиотек (zlib + struct)."""
+    return _png([[_rgb(hex_color)] * size for _ in range(size)])
+
+
+# Узор фона чата (08.10.2026, Просьба: «как у angelOS, только не сердечки, а то,
+# что у меня» — искорка кнопки «Пуск», xpbar.Sparkle). Пиксели 1:1, без
+# сглаживания; цвета — примесь акцента к фону, чтобы узор шёл фоном, а не
+# спорил с сообщениями. Каждая метка: (x, y, вид); плитка повторяется.
+TILE = 144
+TILE_MARKS = [(36, 40, "spark"), (108, 112, "spark"),
+              (100, 30, "plus"), (24, 104, "plus"), (66, 76, "plus"),
+              (130, 66, "twinkle"), (58, 10, "twinkle"), (8, 70, "dot"),
+              (84, 132, "dot"), (122, 12, "dot"), (46, 128, "twinkle")]
+
+
+def _sparkle_tile(bg, acc, gain=1.0):
+    """Плитка TILE×TILE: фон bg, искорки цветом acc (#rrggbb) разной силы.
+    gain усиливает звёзды (обоям sparkle_wallpaper.py нужно ярче, чем чату)."""
+    base = _rgb(bg)
+    a = _rgb(acc)
+    px = [[base] * TILE for _ in range(TILE)]
+
+    def put(x, y, t):
+        x, y = x % TILE, y % TILE                 # плитка бесшовная
+        old = px[y][x]
+        t = min(1.0, t * gain)
+        px[y][x] = tuple(round(o + (c - o) * t) for o, c in zip(old, a))
+
+    def rect(x, y, w, h, t):
+        for j in range(h):
+            for i in range(w):
+                put(x + i, y + j, t)
+
+    for cx, cy, kind in TILE_MARKS:
+        if kind == "spark":                       # как Sparkle в xpbar.py
+            rect(cx - 5, cy - 5, 11, 11, 0.06)    # свечение
+            rect(cx - 7, cy - 2, 15, 5, 0.04)
+            rect(cx - 2, cy - 7, 5, 15, 0.04)
+            rect(cx, cy - 8, 1, 17, 0.30)         # лучи
+            rect(cx - 8, cy, 17, 1, 0.30)
+            rect(cx - 1, cy - 3, 3, 7, 0.38)
+            rect(cx - 3, cy - 1, 7, 3, 0.38)
+            rect(cx - 1, cy - 1, 3, 3, 0.55)      # ядро
+            rect(cx - 8, cy - 8, 2, 2, 0.22)      # пара крошечных искр
+            rect(cx + 7, cy + 7, 2, 2, 0.22)
+        elif kind == "plus":                      # «+» 5×5
+            rect(cx, cy - 2, 1, 5, 0.22)
+            rect(cx - 2, cy, 5, 1, 0.22)
+        elif kind == "twinkle":                   # крестик 3×3
+            rect(cx, cy - 1, 1, 3, 0.18)
+            rect(cx - 1, cy, 3, 1, 0.18)
+        else:                                     # точка 2×2
+            rect(cx, cy, 2, 2, 0.16)
+    return px
+
+
+def _png(px):
+    """PNG из строк пикселей (r, g, b), без внешних библиотек (zlib + struct)."""
     import struct
     import zlib
-    r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
-    row = b"\x00" + bytes((r, g, b)) * size
-    raw = row * size
+    h, w = len(px), len(px[0])
+    raw = b"".join(b"\x00" + bytes(c for p in row for c in p) for row in px)
 
     def chunk(tag, data):
         c = struct.pack(">I", len(data)) + tag + data
         return c + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
 
     return (b"\x89PNG\r\n\x1a\n"
-            + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw, 9))
             + chunk(b"IEND", b""))
 
@@ -273,12 +336,23 @@ def main():
     # акцент на его фоне читался (22.09.2026). Файл — background.png, а не
     # tiled.png: с tiled.png клиент показал штатный светлый узор, то есть
     # плитку не взял; background.png — основной путь формата.
+    #
+    # 08.10.2026: пробовали узор искорок файлом tiled.png — клиент опять его
+    # не взял (как 22.09), фон слетел на штатный. Поэтому по умолчанию снова
+    # одноцветный background.png; узор — только TG_TILE=sparkle (и копия
+    # плитки в TILE_OUT для ручной установки «Мозаикой»).
     bg = roles.get("surface") or roles.get("surface_container") or "#141414"
-    tile = _solid_png(bg, size=512)
+    if os.environ.get("TG_TILE") != "sparkle":
+        name, tile = "background.png", _solid_png(bg, size=512)
+    else:
+        name, tile = "tiled.png", _png(_sparkle_tile(bg, roles["primary"]))
+        with open(TILE_OUT + ".tmp", "wb") as f:
+            f.write(tile)
+        os.replace(TILE_OUT + ".tmp", TILE_OUT)
     tmp = THEME_OUT + ".tmp"
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("colors.tdesktop-theme", content)
-        z.writestr("background.png", tile)
+        z.writestr(name, tile)
     os.replace(tmp, THEME_OUT)
     if fixed:
         print("telegram_colors: контраст поправлен у %d пар" % fixed)

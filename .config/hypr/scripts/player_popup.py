@@ -98,7 +98,7 @@ def metadata(player):
         # ещё не наполнил метаданные — helium так делает первые секунды после
         # запуска видео, и попап показывал «Сейчас ничего не играет» при
         # играющем ролике. Берём то немногое, что известно с шины и из окна.
-        for r in mpris_common.players():
+        for r in mpris_common.players(include_ignored=True):
             if r["instance"] == player:
                 return {"title": r["title"] or "Без названия", "artist": r["artist"],
                         "art": "", "length": 0.0, "status": r["status"],
@@ -112,10 +112,34 @@ def metadata(player):
         pos = float(pc("-p", player, "position") or 0)
     except ValueError:
         pos = 0.0
+    artist = mpris_common.clean_artist(parts[1])
+    if "blanket" in player.lower():
+        artist = blanket_line()
     return {"title": mpris_common.clean_title(parts[0]) or window_title(player) or "Без названия",
-            "artist": mpris_common.clean_artist(parts[1]),
+            "artist": artist,
             "art": parts[2], "length": length, "status": parts[4],
             "position": pos}
+
+
+def blanket_line():
+    """«Blanket · 2 звука»: какие именно звуки включены, Blanket наружу не сообщает (настройки
+    пишет только при выходе, потоки в PipeWire безымянные) — видно лишь, сколько его потоков
+    играет: по потоку на звук."""
+    try:
+        objs = json.loads(subprocess.run(["pw-dump"], capture_output=True, text=True, timeout=3).stdout or "[]")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return "Blanket"
+    n = 0
+    for o in objs:
+        info = o.get("info") or {}
+        props = info.get("props") or {}
+        if props.get("application.name") == "Blanket" and info.get("state") == "running" \
+                and props.get("media.class", "Stream/Output/Audio") == "Stream/Output/Audio":
+            n += 1
+    if not n:
+        return "Blanket"
+    word = "звук" if n % 10 == 1 and n % 100 != 11 else ("звука" if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14) else "звуков")
+    return "Blanket · %d %s" % (n, word)
 
 
 def fmt_time(sec):
@@ -151,7 +175,9 @@ def window_pid_for(player):
 def player_rows():
     """Все плееры для попапа, в порядке бара: играющий первым, потом свежее окно."""
     # Остановленные (крестик на карточке шлёт stop) в попап не попадают.
-    rows = [r for r in mpris_common.players() if r["status"] != "Stopped"]
+    # Blanket — тоже (07.10.2026, Просьба: «добавить в плеер, если запущу Blanket… только один»):
+    # у него один плеер MPRIS на все звуки, так что карточка одна.
+    rows = [r for r in mpris_common.players(include_ignored=True) if r["status"] != "Stopped"]
     order = {"Playing": 0, "Paused": 1}
     return sorted(rows, key=lambda r: (order.get(r["status"], 2), r["hist"]))
 
@@ -159,7 +185,7 @@ def player_rows():
 class PlayerCard(Gtk.Box):
     """Карточка одного плеера: обложка, название, перемотка, кнопки.
 
-    17.09.2026 (просьба: «включаю и музыку, и видос в браузере — может показать
+    17.09.2026 (Просьба: «включаю и музыку, и видос в браузере — может показать
     оба?»): попап раньше знал один плеер; теперь по карточке на каждый, у каждой
     своё состояние и свои кнопки.
     """
@@ -220,7 +246,7 @@ class PlayerCard(Gtk.Box):
         # Кнопка ВСЕГДА занимает своё место, даже когда плеер «Нравится» не
         # умеет: ответ приходит через секунду, и если её тогда показать или
         # спрятать, карточка меняет ширину и окно дёргается вбок (замечено
-        # пользователем 21.09.2026). Невидимой её делает прозрачность, а не hide().
+        # Пользователем 21.09.2026). Невидимой её делает прозрачность, а не hide().
         self.btn_like.set_opacity(0.0)
         self.btn_like.set_sensitive(False)
         self.btn_like.set_valign(Gtk.Align.CENTER)
@@ -232,7 +258,8 @@ class PlayerCard(Gtk.Box):
         info.pack_start(self.lbl_artist, False, False, 0)
         info.pack_start(self.actions, False, False, 4)
         top.pack_start(info, True, True, 0)
-        # Крестик — остановить плеер и убрать карточку (17.09.2026, просьба: # «маленькие крестики, чтобы закрывать если что»).
+        # Крестик — остановить плеер и убрать карточку (17.09.2026, пользователь:
+        # «маленькие крестики, чтобы закрывать если что»).
         btn_close = Gtk.Button(label=ICON_CLOSE)
         btn_close.get_style_context().add_class("close")
         btn_close.set_valign(Gtk.Align.START)
@@ -246,7 +273,7 @@ class PlayerCard(Gtk.Box):
         self.scale.set_draw_value(False)
         self.scale.connect("change-value", self.on_seek)
         # Время — по краям полосы в одну строку, а не отдельной строкой под ней:
-        # карточка ниже на строку (30.09.2026, просьба: «ужать сверху и снизу»).
+        # карточка ниже на строку (30.09.2026, Просьба: «ужать сверху и снизу»).
         times = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.lbl_pos = Gtk.Label(xalign=0)
         self.lbl_len = Gtk.Label(xalign=1)
@@ -437,7 +464,18 @@ class PlayerCard(Gtk.Box):
         return False
 
     def on_close(self, _b):
-        pc("-p", self.player, "stop")
+        # Метка для player.exe (06.10.2026): Яндекс на «стоп» может ответить паузой —
+        # виджет всё равно уберёт этот трек сразу, пока он не заиграет снова.
+        try:
+            import os as _os
+            title = subprocess.run(["playerctl", "-p", self.player, "metadata", "title"],
+                                   capture_output=True, text=True, timeout=2).stdout.strip()
+            path = _os.path.join(_os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-player-dismissed")
+            with open(path, "a") as f:
+                f.write("%s\t%s\n" % (self.player, title))
+        except Exception:
+            pass
+        pc("-p", self.player, "stop")          # после метки: событие плеера придёт уже к ней
         # Карточку убираем сразу, не дожидаясь, пока плеер доложит «Stopped».
         popup = self.get_toplevel()
         if hasattr(popup, "dismiss"):

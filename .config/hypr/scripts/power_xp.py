@@ -3,7 +3,7 @@
 
     power_xp.py          показать окно (второй запуск при открытом — закрыть)
 
-пользователь прислал снимок XP-диалога: экран тускнеет, посередине окно с синей шапкой
+Пользователь прислал снимок XP-диалога: экран тускнеет, посередине окно с синей шапкой
 «Выключить компьютер» и тремя большими кнопками, внизу «Отмена». У нас кнопки —
 Выход, Выключение, Перезагрузка (Блокировка, Заставка и Сон стоят в подвале «Пуска»).
 Действие уходит в power_menu.py --only КЛЮЧ — с его отсчётом и отменой, как у
@@ -51,6 +51,23 @@ BTN = 60                      # квадрат кнопки
 ITEMS = [("logout", "Выход", "\U000f0343", "secondary", "в"),
          ("shutdown", "Выключение", "\U000f0425", "error", "ы"),
          ("reboot", "Перезагрузка", "\U000f0709", "tertiary", "п")]
+
+
+def glib_signal_add(prio, signum, handler):
+    """Сигнал в главный цикл GLib. GLib.unix_signal_add устарел (PyGObject 3.52+) и однажды
+    исчезнет — тогда программа перестала бы запускаться (08.10.2026). Сначала замена
+    GLibUnix.signal_add, без неё — старое имя, без обоих — обычный signal.signal."""
+    from gi.repository import GLib
+    try:
+        from gi.repository import GLibUnix
+        return GLibUnix.signal_add(prio, signum, handler)
+    except (ImportError, AttributeError):
+        pass
+    try:
+        return GLib.unix_signal_add(prio, signum, handler)
+    except AttributeError:
+        import signal as _signal
+        _signal.signal(signum, lambda *_a: GLib.idle_add(lambda: handler() and False))
 
 
 def rgb(h):
@@ -347,7 +364,7 @@ def main():
     with open(PIDFILE, "w") as f:
         f.write(str(os.getpid()))
     app = App()
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, app.quit)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, app.quit)
     Gtk.main()
 
 

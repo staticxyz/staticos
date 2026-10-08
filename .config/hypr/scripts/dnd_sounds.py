@@ -36,6 +36,14 @@ import time
 # Имя программы в уведомлении (app_name, без регистра) → бинарник её потоков.
 APPS = {"telegram": "Telegram", "telegram desktop": "Telegram",
         "zapzap": "zapzap", "discord": "Discord", "vesktop": "vesktop"}
+# Telegram — вне «Не беспокоить» (07.10.2026, Просьба: «исключить телеграм из DND… очень
+# важно, чтобы громкость звонка не прерывалась и его никто не трогал»). Его потоки
+# безымянные: звонок от уведомления не отличить, поэтому не трогаем его вовсе — ни
+# тишиной вне фокуса, ни приглушением на уведомление. Вернуть: False.
+TG_EXEMPT = True
+if TG_EXEMPT:
+    for _k in ("telegram", "telegram desktop"):
+        APPS.pop(_k, None)
 if os.environ.get("JARVIS_DND_TEST"):             # проверка: "имя:бинарник"
     _a, _b = os.environ["JARVIS_DND_TEST"].split(":", 1)
     APPS[_a.lower()] = _b
@@ -206,7 +214,7 @@ def evaluate():
 
 
 def _evaluate_now():
-    want = state["dnd"] and silent["focus"] != SILENT["Telegram"]
+    want = state["dnd"] and silent["focus"] != SILENT["Telegram"] and not TG_EXEMPT
     if want and not silent["on"]:
         silence_on()
     elif not want and silent["on"]:
@@ -341,6 +349,8 @@ def main():
     except (OSError, ValueError):
         pass
     set_flag(silent["on"])        # флаг для WirePlumber — по сохранённому состоянию
+    if TG_EXEMPT and (silent["on"] or silent.get("pending")):
+        silence_off()             # Telegram вне DND: вернуть громкость и снять флаг сразу
     threading.Thread(target=follow_dnd, daemon=True).start()
     threading.Thread(target=follow_streams, daemon=True).start()
     threading.Thread(target=follow_focus, daemon=True).start()

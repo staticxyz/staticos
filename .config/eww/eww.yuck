@@ -138,16 +138,27 @@
 (defvar layout-name "US")
 (defvar layout-icon "󰌌")
 (defvar layout-mode "lang")
+;; Вид подсказки (06.10.2026): normal — пилюля со значком Nerd Font; pixel — тёмная плашка
+;; с пиксельной клавиатурой (картинка в цветах обоев, её рисует layout_osd) и буквами
+;; пиксельным шрифтом. Выбор — Настройки → Нижняя панель / state/layout-osd-look.
+(defvar layout-look "normal")
+(defvar layout-img "")
 
 (defwindow layout-osd
   :monitor '["MAG 255XF", 0]'
   ;; Размер не задаём: карточка сжимается по содержимому, как уведомление.
+  ;; 07.10.2026: «ещё ниже» — 90 → 50 → 20 → 6 → 0 px, затем «верни как неделю назад» — снова 90 px
   :geometry (geometry :x "0px" :y "90px" :width "1px" :height "1px"
                       :anchor "bottom center")
   :stacking "overlay"
   :exclusive false
   :focusable false
-  (box :class "layout-osd" :space-evenly false :spacing 11
-    (box :class "layout-osd-chip ${layout-mode}" :space-evenly false
-      (label :class "layout-osd-icon ${layout-mode}" :text layout-icon :show-truncated false))
-    (label :class "layout-osd-text" :text layout-name :show-truncated false)))
+  ;; Два вида — две коробки с ПОСТОЯННЫМИ классами (06.10.2026): класс-выражение eww при
+  ;; смене не снимает прежний класс, и пилюля «normal» проступала за пиксельной плашкой.
+  (box :space-evenly false
+    (box :class "layout-osd-pill" :space-evenly false :spacing 11 :visible {layout-look != "pixel"}
+      (box :class "layout-osd-chip ${layout-mode}" :space-evenly false
+        (label :class "layout-osd-icon ${layout-mode}" :text layout-icon :show-truncated false))
+      (label :class "layout-osd-text" :text layout-name :show-truncated false))
+    (box :class "layout-osd-pixel" :space-evenly false :visible {layout-look == "pixel"}
+      (image :class "layout-osd-img" :path layout-img))))

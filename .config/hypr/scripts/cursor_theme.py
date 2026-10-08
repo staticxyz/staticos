@@ -26,21 +26,25 @@ JARVIS = "jarvis"
 # ключ, подпись, xcursor-size
 THEMES = [
     (JARVIS, "Jarvis · цвета обоев", cursor_colors.SIZE),
+    ("bit-wall", "Jarvis Bit · цвета обоев", cursor_colors.SIZE),   # свой пиксельный, bit_cursor.py (07.10.2026)
     ("pebble-wall", "Галька · цвета обоев", 32),
-    ("Jarvis-Pebble-Blue", "Галька · синий", 32),
-    ("Jarvis-Pebble-Navy", "Галька · тёмно-синий", 32),
-    ("Jarvis-Pebble-Sky", "Галька · голубой", 32),
-    ("Jarvis-Pebble-Black", "Галька · чёрный", 32),
+    # Гальки синий/тёмно-синий/голубой/чёрный и Yamikai розовый убраны 07.10.2026 (Пользователь:
+    # «убери все, что не берут из акцента») — файлы тем в ~/.local/share/icons остались.
     # Пиксельные курсоры из поиска 30.09.2026 (~/.local/share/icons, ссылки в ~/.icons
     # для Steam). Размер — родной или кратный: там они чёткие.
     # Retrosmart-Win убран из списка 02.10.2026: почти не отличается от Chicago95, а
-    # пользователь попросил оставить одну из двух (выбрана у него Chicago95, и набор у неё
+    # Пользователь попросил оставить одну из двух (выбрана у него Chicago95, и набор у неё
     # полнее). Файлы темы лежат в ~/.local/share/icons — вернуть строку, если понадобится.
     ("Retrosmart-Mac", "Retrosmart · классический Mac", 32),
     ("Chicago95", "Chicago95 · Windows 95", 32),
     ("Pixel-MacOS", "Pixel MacOS · чёрно-белый", 24),
+    # Пиксельные из AUR (07.10.2026, пользователь поставил на пробу): xcursor-hackneyed-light/-dark,
+    # xcursor-pixelfun-all, xcursor-openzone — в /usr/share/icons. Размеры — родные.
+    # Оставлены только PixelFun 3 и Eclipse (остальные отвергнуты); у них нет имени default —
+    # исправленные копии в ~/.local/share/icons (ссылки default→left_ptr и др.).
+    ("pixelfun3", "PixelFun 3", 32),
+    ("pixelfun3-eclipse", "PixelFun 3 · Eclipse", 32),
     ("yamikai-wall", "Yamikai · цвета обоев", cursor_colors.SIZE),
-    ("Yamikai", "Yamikai · розовый", 32),
     ("breeze_cursors", "Breeze", 24),
 ]
 
@@ -66,6 +70,8 @@ def theme_dir(key):
         name = now if now.startswith("Jarvis-Pebble-Wall") else "Jarvis-Pebble-Wall-A"
     elif key == YAMIKAI_WALL:
         name = now if now.startswith("Yamikai-Wall") else "Yamikai-Wall-A"
+    elif key == "bit-wall":
+        name = now if now.startswith("Jarvis-Bit") else "Jarvis-Bit-A"
     else:
         name = key
     for base in (pathlib.Path.home() / ".local/share/icons", pathlib.Path("/usr/share/icons")):
@@ -89,6 +95,9 @@ def set_theme(key):
     elif key == YAMIKAI_WALL:
         import yamikai_wall
         cursor_colors.activate(yamikai_wall.build(cursor_colors.current_name() or ""), size)
+    elif key == "bit-wall":
+        import bit_cursor
+        cursor_colors.activate(bit_cursor.build(cursor_colors.current_name() or ""), size)
     else:
         cursor_colors.activate(key, size)
     print("курсор:", key)
@@ -110,6 +119,11 @@ def refresh():
     elif key == WALL:
         name = build_wall()
         cursor_colors.activate(name, 32)
+        print("курсор:", name)
+    elif key == "bit-wall":
+        import bit_cursor
+        name = bit_cursor.build(cursor_colors.current_name() or "")
+        cursor_colors.activate(name, cursor_colors.SIZE)
         print("курсор:", name)
     elif key == YAMIKAI_WALL:
         import yamikai_wall

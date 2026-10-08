@@ -1,0 +1,21 @@
+#!/bin/sh
+# termlook — пробовать вид терминала вживую (07.10.2026).
+#   termlook font "ИМЯ"     шрифт kitty во всех окнах (то же, что Настройки → Шрифты)
+#   termlook fonts          какие моноширинные шрифты есть
+#   termlook opacity 0.8    непрозрачность фона (0.5 прозрачнее … 1.0 сплошной)
+#   termlook blur 5         сила размытия под окнами (niri, 2…10)
+#   termlook back           вернуть как было до опытов 07.10 (0.62, размытие 3, шрифт PxPlus)
+S=$HOME/.config/hypr/scripts; K=$HOME/.config/kitty/kitty.conf; B=$HOME/.config/niri/cfg/blur.kdl
+socks() { for p in $(pgrep -x kitty); do [ -S /tmp/kitty-$p ] && echo /tmp/kitty-$p; done; }
+case "$1" in
+  font)    python3 $S/app_fonts.py set kitty "$2" ;;
+  fonts)   python3 $S/app_fonts.py list kitty | cut -f1 ;;
+  opacity) sed -i "s/^background_opacity .*/background_opacity $2/" "$K"
+           for s in $(socks); do kitty @ --to unix:$s set-background-opacity --all "$2" 2>/dev/null; done ;;
+  blur)    sed -i "s/^    offset [0-9.]*$/    offset $2/" "$B" ;;
+  back)    sed -i "s/^background_opacity .*/background_opacity 0.62/" "$K"
+           for s in $(socks); do kitty @ --to unix:$s set-background-opacity --all 0.62 2>/dev/null; done
+           sed -i "s/^    offset [0-9.]*$/    offset 3.0/" "$B"
+           python3 $S/app_fonts.py set kitty "PxPlus HP 100LX 6x8" ;;
+  *)       sed -n '2,8p' "$0" ;;
+esac

@@ -41,7 +41,7 @@ layer-rule {
 // Буфер обмена (SUPER+ALT+V, scripts/clipboard_win.py). Окно — слой ровно по
 // размеру окна; вокруг — прозрачные слои-ловцы «jarvis-clipboard-catch» во весь
 // экран на каждом мониторе (ловят щелчок мимо). С 03.10.2026 размываются и они:
-// весь экран не в фокусе, как под rofi (просьба: «как в Super+Space»). Когда окно
+// весь экран не в фокусе, как под rofi (Просьба: «как в Super+Space»). Когда окно
 // закреплено, ловцов нет — размыто только под окном. xray false — как у rofi:
 // размывать настоящее содержимое, а не обои.
 layer-rule {
@@ -54,6 +54,25 @@ layer-rule {
 
 layer-rule {
     match namespace=r#"^jarvis-clipboard-catch$"#
+    background-effect {
+        blur true
+        xray false
+    }
+}
+
+// Окно «сохранить пресет виджетов» (scripts/preset_ask.py, 05.10.2026) — родня буфера
+// обмена: окно «jarvis-preset» и слои-ловцы «jarvis-preset-catch» во весь экран, размытие
+// то же, что у буфера (blur, xray false).
+layer-rule {
+    match namespace=r#"^jarvis-preset$"#
+    background-effect {
+        blur true
+        xray false
+    }
+}
+
+layer-rule {
+    match namespace=r#"^jarvis-preset-catch$"#
     background-effect {
         blur true
         xray false
@@ -95,3 +114,13 @@ layer-rule {
 // Виджеты на обоях (scripts/desktop_widgets.py) — без правила: размытые обои под
 // плашкой виджет рисует сам (сила настраивается, и niri не тратит кадр на восемь
 // размытий). Правило с blur true стояло здесь 02.10.2026 несколько часов.
+
+// Слой «Фокус» поверх запрещённого окна (scripts/focus_mode.py overlay, 06.10.2026):
+// окно под ним размыто — видно, что там что-то есть, но смотреть нельзя.
+layer-rule {
+    match namespace=r#"^jarvis-focus-block$"#
+    background-effect {
+        blur true
+        xray false
+    }
+}

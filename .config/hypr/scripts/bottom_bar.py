@@ -74,8 +74,26 @@ def pids_of(name):
     return out
 
 
+def split():
+    """Панели по мониторам (panels.py): у мониторов может быть и XP, и док."""
+    try:
+        sys.path.insert(0, HERE)
+        import panels
+        return panels.per_monitor()
+    except Exception:
+        return False
+
+
 def toggle():
     import signal
+    if split():
+        for target in ("xpbar.py", "dock.py"):          # Super+S — всем панелям, что есть
+            for pid in pids_of(target):
+                try:
+                    os.kill(pid, signal.SIGUSR1)
+                except OSError:
+                    pass
+        return
     kind = get()
     target = {"xp": "xpbar.py", "dock": "dock.py"}.get(kind)
     if not target:
@@ -118,7 +136,10 @@ def apply(kind):
 
 def main():
     a = sys.argv[1:]
-    if not a:
+    if not a and split():
+        # автозапуск при панелях по мониторам: XP и/или док — по выбору мониторов
+        _run(os.path.join(HERE, "panels.py"), "apply", "bottom")
+    elif not a:
         apply(get())
     elif a[0] == "get":
         print(get())

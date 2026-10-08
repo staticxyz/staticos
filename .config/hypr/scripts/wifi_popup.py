@@ -455,7 +455,7 @@ class WifiPopup(Gtk.Window):
 
         msg = Gtk.Label(xalign=0)
         msg.set_line_wrap(True)
-        msg.set_max_width_chars(34)
+        msg.set_max_width_chars(25)   # 34 знака при 11 px; кегль 16 (сетка шрифта) — та же ширина
         msg.set_no_show_all(True)
         detail.pack_start(msg, False, False, 0)
         row["msg"], row["btns"] = msg, btns

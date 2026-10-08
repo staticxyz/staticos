@@ -126,8 +126,10 @@ def clean_artist(a):
     return out or a
 
 
-def players():
+def players(include_ignored=False):
     """Список плееров: instance, name, status, title, artist, from_window.
+    include_ignored — и Blanket тоже (попап плеера, 07.10.2026; бар, тексты и
+    уведомление о треке его по-прежнему не видят).
 
     `title` уже подставлен из заголовка окна, если MPRIS его не дал;
     `from_window` говорит, что название взято оттуда, а не из метаданных.
@@ -141,7 +143,7 @@ def players():
         if len(parts) != 5:
             continue
         instance, name, status, title, artist = parts
-        if any(i in instance.lower() for i in IGNORED):
+        if not include_ignored and any(i in instance.lower() for i in IGNORED):
             continue
         rows.append({"instance": instance, "name": name, "status": status,
                      "title": clean_title(title), "artist": clean_artist(artist), "from_window": False,
@@ -171,14 +173,35 @@ def players():
     return rows
 
 
+def ignored(r):
+    return any(i in r["instance"].lower() for i in IGNORED)
+
+
 def pick(rows=None):
-    """Кого показывать: играющий важнее; при равенстве — чьё окно свежее."""
-    rows = players() if rows is None else rows
+    """Кого показывать: играющий важнее; при равенстве — чьё окно свежее.
+    Blanket (07.10.2026) — только когда ничего другого не играет и не на паузе:
+    шум фоном не должен заслонять музыку, но лучше остановленного голосового Telegram."""
+    rows = players(include_ignored=True) if rows is None else rows
     if not rows:
         return None
     order = {"Playing": 0, "Paused": 1}
-    return min(rows, key=lambda r: (order.get(r["status"], 2), r["hist"]))
+    def rank(r):
+        o = order.get(r["status"], 2)
+        if ignored(r):
+            o = 2 if r["status"] == "Playing" else 4    # после настоящих, до остановленных
+        else:
+            o = o if o < 2 else 3
+        return (o, r["hist"])
+    return min(rows, key=rank)
 
+
+if __name__ == "__main__" and sys.argv[1:2] == ["toggle"]:
+    # Щелчок по плееру в баре: пауза/воспроизведение ровно того, кого бар показывает
+    # (раньше playerctl play-pause брал «последний активный» — мог быть не он).
+    best = pick()
+    if best:
+        _run(["playerctl", "-p", best["instance"], "play-pause"])
+    sys.exit(0)
 
 if __name__ == "__main__":
     for r in players():

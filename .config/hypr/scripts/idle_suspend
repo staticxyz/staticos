@@ -42,6 +42,19 @@ def main():
     if game_running():
         print("идёт игра — сон пропущен")
         return 0
+    from idle_guard import video_in_focus, hold
+    if video_in_focus():                         # видео в фокусе — не спать (07.10.2026)
+        hold("suspend")
+        print("смотрят видео — сон пропущен")
+        return 0
+    # Утренний будильник (wake_alarm.py) из сна разбудить не может — RTC без root.
+    try:
+        from wake_alarm import due_within
+        if due_within(14):
+            print("скоро будильник — сон пропущен")
+            return 0
+    except Exception as e:
+        print("будильник не проверен: %s" % e, file=sys.stderr)
     if dry:
         print("сон бы состоялся (Savage Mode выключен)")
         return 0

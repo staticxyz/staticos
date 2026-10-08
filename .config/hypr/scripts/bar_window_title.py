@@ -17,16 +17,25 @@ import re
 import socket
 import sys
 
-# Предел длины считается по месту, а не одним числом (24.09.2026): заголовок начинается
-# тем правее, чем больше столов в баре и колонок на карте ленты, а pomo стоит на месте.
-# Замеры по снимку бара (пиксельный шрифт, 1920 px): значок стола 42 px, точка ленты
-# 14 px, знак заголовка 10 px; при 6 столах и 3 колонках заголовок начинается на 332,
-# pomo — на 626. Зазор до pomo — не меньше 16 px.
-# 30.09.2026: pomo сдвинут правее (отступ 126 → 60 px), левый край идущего таймера
-# «00:00» — на ~702 по снимку; предел длины поднят 40 → 55 («лимиты чуть поднять»).
-POMO_LEFT, GAP, CHAR_W = 702, 16, 10
-WS_W, COL_W, BASE = 42, 14, 332 - 6 * 42 - 3 * 14
-MIN_LEN, MAX_LEN = 15, 55
+# Предел длины — по замерам бара (07.10.2026, переделано: пользователь попросил «посчитать
+# максимум, насколько растут элементы справа»). Правая группа шире половины бара, поэтому
+# средняя прижата к ней: всё, на что вырастут средняя и правая, сдвигает левый край
+# средней, и заголовок должен кончаться раньше него. Иначе бар уезжает за правый край.
+#
+# Замеры по снимкам (1920 px): заголовок начинается на LEFT0 + 42 px на значок стола
+# в баре + 14 px на точку ленты (лента видна от 2 колонок). Левый край средней группы —
+# CENTER0 при: часы показывают время, значков приватности нет, записи нет, Bluetooth
+# выключен, трек есть (≤14 знаков), числа двузначные, помидор «44:54».
+LEFT0, WS_W, COL_W = 72, 42, 14
+CENTER0 = 722               # 688 при одном значке микрофона + его 34 px
+CHAR_W, GAP = 10.6, 16
+DATE_W = 46                 # дата «07.10.2026» вместо «21:43» (waybar_clock: side-файл)
+# Запас на то, что меняется чаще, чем обновляется заголовок: CPU 100% (+2 знака),
+# звук «Muted» (+2), помидор дольше часа (+2), значок фокуса у помидора (16 px).
+GROW = 21 + 21 + 21 + 16
+BT_ICON = 28                # значок Bluetooth с полями, когда он включён
+MIN_LEN, MAX_LEN = 15, 90
+SIDE_FILE = os.path.expanduser("~/.cache/waybar-calendar-side")
 REWRITE = [         # срезаем имя программы: его и так видно по значку стола
     (r"(.*) — Zen Browser$", r"\1"),
     (r"(.*) - Helium$", r"\1"),
@@ -70,20 +79,81 @@ def reserve():
     return px
 
 
+def ws_in_bar():
+    """Есть ли столы в верхнем баре ЭТОГО монитора (у каждого свой config-niri-ВЫХОД)."""
+    if ws_in_bar.cache is None:
+        ws_in_bar.cache = False
+        for name in ("config-niri-%s.jsonc" % OUTPUT, "config-niri.jsonc"):
+            try:
+                txt = open(os.path.expanduser("~/.config/waybar/" + name)).read()
+            except OSError:
+                continue
+            left = re.search(r'"modules-left"\s*:\s*\[(.*?)\]', txt, re.S)
+            ws_in_bar.cache = bool(left and "workspaces" in left.group(1))
+            break
+    return ws_in_bar.cache
+
+
+ws_in_bar.cache = None
+
+
+def bluetooth_px(cache={"t": 0, "px": 0}):
+    """Ширина Bluetooth в баре: выключен — 0, включён — значок, подключён — значок и
+    «имя NN%». Опрос bluetoothctl не чаще раза в 10 с."""
+    import subprocess
+    import time
+    if time.monotonic() - cache["t"] < 10:
+        return cache["px"]
+    cache["t"], px = time.monotonic(), 0
+    try:
+        run = lambda *a: subprocess.run(["bluetoothctl", *a], capture_output=True, text=True,
+                                        timeout=2).stdout
+        if "Powered: yes" in run("show"):
+            px = BT_ICON
+            for line in run("devices", "Connected").splitlines():
+                alias = line.split(" ", 2)[2] if line.count(" ") >= 2 else ""
+                px += round((len(alias) + 5) * CHAR_W)      # « имя 85%»
+    except (OSError, subprocess.SubprocessError):
+        pass
+    cache["px"] = px
+    return px
+
+
+def shows_date():
+    try:
+        return open(SIDE_FILE).read().strip() == OUTPUT
+    except OSError:
+        return False
+
+
 def current_title():
-    """(заголовок, сколько знаков влезает до pomo)"""
+    """(заголовок, сколько знаков влезает до средней группы)"""
     wss = request("Workspaces")["Workspaces"]
     mine = [w for w in wss if OUTPUT is None or w["output"] == OUTPUT]
     ws = next((w for w in mine if w["is_active"]), None)
     if not ws or ws.get("active_window_id") is None:
-        return "", MAX_LEN
+        return "", MIN_LEN
     wins = request("Windows")["Windows"]
     win = next((w for w in wins if w["id"] == ws["active_window_id"]), None)
     cols = max([(w.get("layout") or {}).get("pos_in_scrolling_layout") or [0] for w in wins
                 if w["workspace_id"] == ws["id"] and not w["is_floating"]] or [[0]])[0]
-    start = BASE + WS_W * len(mine) + COL_W * max(cols, 1)
-    fit = (POMO_LEFT - reserve() - GAP - start) // CHAR_W
+    start = LEFT0 + (WS_W * len(mine) if ws_in_bar() else 0) + (COL_W * cols if cols >= 2 else 0)
+    center = CENTER0 - reserve() - (DATE_W if shows_date() else 0) - bluetooth_px() - GROW
+    fit = int((center - GAP - start) // CHAR_W)
     return (win or {}).get("title") or "", max(MIN_LEN, min(MAX_LEN, fit))
+
+
+def ws_place():
+    st = os.path.expanduser("~/.config/hypr/state")
+    try:
+        if open(os.path.join(st, "top-bar")).read().strip() == "off":
+            return "bottom"
+    except OSError:
+        pass
+    try:
+        return open(os.path.join(st, "ws-place")).read().strip() or "top"
+    except OSError:
+        return "top"
 
 
 def render(title, limit=MAX_LEN):

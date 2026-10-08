@@ -1,0 +1,11 @@
+#!/bin/sh
+# font-sample — один и тот же образец текста для сравнения шрифтов терминала (07.10.2026)
+R='\033[0m'; B='\033[1;34m'; G='\033[32m'; Y='\033[33m'; M='\033[35m'; C='\033[36m'; D='\033[2m'
+printf "${B}%s${R}\n\n" "${1:-шрифт}"
+printf "${G}user@staticos${R} ${B}~/staticos${R} \$ ls -la\n"
+printf "drwxr-xr-x  static  4.0K  ${B}.config${R}\n-rw-r--r--  static   12K  README.md\n-rwxr-xr-x  static  3.1K  ${G}install.sh${R}\n\n"
+printf "${M}def${R} ${Y}greet${R}(name: str) -> None:\n    print(f\"Привет, {name}!\")  ${D}# комментарий${R}\n\n"
+printf "Съешь же ещё этих мягких булок. Ёё Щщ Ыы Жж Юю Ъъ\n"
+printf "0123456789  O0 Il1|  {}[]()<>  != == => -> && || ;: #@\$%%^&*\n"
+printf "${C}┌──────┬──────┐${R}  ▁▂▃▄▅▆▇█  ✓ ✗ ● ○ →\n${C}│ box  │ ok   │${R}\n${C}└──────┴──────┘${R}\n\n"
+exec "${SHELL:-/bin/sh}"

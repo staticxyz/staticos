@@ -147,20 +147,22 @@ _YA_JS = """(async()=>{
   const H={'Authorization':'OAuth '+tok,'X-Yandex-Music-Client':'YandexMusicAndroid/24023621'};
   const q=%s, dur=%s;
   const s=await (await fetch('https://api.music.yandex.net/search?type=track&page=0&text='+encodeURIComponent(q),{headers:H})).json();
-  const list=(s.result&&s.result.tracks&&s.result.tracks.results||[]).slice(0,8)
-     .filter(t=>t.lyricsInfo&&t.lyricsInfo.hasAvailableSyncLyrics);
-  const out=[];
-  for(const tr of list){
-    if(dur && Math.abs(tr.durationMs/1000-dur)>3) continue;
+  const all=(s.result&&s.result.tracks&&s.result.tracks.results||[]).slice(0,8)
+     .filter(t=>!dur || Math.abs(t.durationMs/1000-dur)<=3);
+  // сначала текст с таймингами (LRC); нет ни у кого — обычный текст (TEXT), 06.10.2026
+  const sync=all.filter(t=>t.lyricsInfo&&t.lyricsInfo.hasAvailableSyncLyrics);
+  const text=all.filter(t=>t.lyricsInfo&&t.lyricsInfo.hasAvailableTextLyrics&&!t.lyricsInfo.hasAvailableSyncLyrics);
+  for(const [fmt,list] of [['LRC',sync],['TEXT',text]]) for(const tr of list){
     const id=String(tr.id), ts=Math.floor(Date.now()/1000), enc=new TextEncoder();
     const key=await crypto.subtle.importKey('raw',enc.encode('p93jhgh689SBReK6ghtw62'),{name:'HMAC',hash:'SHA-256'},false,['sign']);
     const sig=btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign('HMAC',key,enc.encode(id+ts)))));
-    const r=await fetch('https://api.music.yandex.net/tracks/'+id+'/lyrics?format=LRC&timeStamp='+ts+'&sign='+encodeURIComponent(sig),{headers:H});
+    const r=await fetch('https://api.music.yandex.net/tracks/'+id+'/lyrics?format='+fmt+'&timeStamp='+ts+'&sign='+encodeURIComponent(sig),{headers:H});
     if(!r.ok) continue;
     const j=await r.json();
     if(!(j.result&&j.result.downloadUrl)) continue;
-    const lrc=await (await fetch(j.result.downloadUrl)).text();
-    return JSON.stringify({id:id,title:tr.title,artists:tr.artists.map(a=>a.name),lrc:lrc});
+    const body=await (await fetch(j.result.downloadUrl)).text();
+    return JSON.stringify(Object.assign({id:id,title:tr.title,artists:tr.artists.map(a=>a.name)},
+                                        fmt==='LRC'?{lrc:body}:{plain:body}));
   }
   return JSON.stringify(null);
  }catch(e){return JSON.stringify({err:String(e)});}
@@ -178,12 +180,15 @@ def yandex_lyrics(artists, titles, dur):
                            json.dumps(float(dur or 0)))
             raw = player_like.ws_eval(url, js, timeout=15)
             d = json.loads(raw) if raw else None
-            if not d or d.get("err") or not d.get("lrc"):
+            if not d or d.get("err") or not (d.get("lrc") or d.get("plain")):
                 continue
             if not any(_title_ok(x, d.get("title", "")) for x in titles):
                 continue
-            return {"found": True, "instrumental": False, "synced": d["lrc"],
-                    "source": "yandex:%s" % d.get("id")}
+            if d.get("lrc"):
+                return {"found": True, "instrumental": False, "synced": d["lrc"],
+                        "source": "yandex:%s" % d.get("id")}
+            return {"found": False, "instrumental": False, "synced": "", "plain": d["plain"],
+                    "source": "yandex-text:%s" % d.get("id")}
     except Exception as e:
         print("lyrics_bar: yandex: %r" % e, file=sys.stderr)
     return None
@@ -197,6 +202,13 @@ def fetch_lyrics(artist, title, dur, album=""):
     if ct and ct != title:
         titles.append(ct)
     artists = split_artists(artist) or [artist]
+    # Текст без таймингов (06.10.2026): если синхронного нигде нет, но есть обычный
+    # (plainLyrics у lrclib или TEXT у Яндекса) — его разложат по длине трека примерно.
+    plain = {"text": "", "source": ""}
+
+    def keep_plain(r, src):
+        if not plain["text"] and (r.get("plainLyrics") or "").strip() and not r.get("instrumental"):
+            plain["text"], plain["source"] = r["plainLyrics"], src
 
     if dur:
         for t in titles:
@@ -211,6 +223,7 @@ def fetch_lyrics(artist, title, dur, album=""):
                 if r.get("syncedLyrics"):
                     return {"found": True, "instrumental": False,
                             "synced": r["syncedLyrics"], "source": "get:%s" % r.get("id")}
+                keep_plain(r, "get-plain:%s" % r.get("id"))
 
     queries = []
     for t in titles:
@@ -231,7 +244,7 @@ def fetch_lyrics(artist, title, dur, album=""):
             if r.get("id") in seen:
                 continue
             seen.add(r.get("id"))
-            if not r.get("syncedLyrics") or r.get("instrumental"):
+            if r.get("instrumental"):
                 continue
             if not any(_title_ok(t, r.get("trackName", "")) for t in titles):
                 continue
@@ -239,6 +252,11 @@ def fetch_lyrics(artist, title, dur, album=""):
                 continue
             d = abs((r.get("duration") or 0) - dur) if dur else 0
             if dur and d > 3:
+                # другая версия трека: тайминги не подойдут, а обычный текст — тот же
+                keep_plain(r, "search-plain:%s" % r.get("id"))
+                continue
+            if not r.get("syncedLyrics"):
+                keep_plain(r, "search-plain:%s" % r.get("id"))
                 continue
             score = (d, 0 if _norm(r.get("trackName")) in map(_norm, titles) else 1)
             if best is None or score < best[0]:
@@ -252,9 +270,10 @@ def fetch_lyrics(artist, title, dur, album=""):
     # В lrclib нет — спросить у самой Яндекс Музыки (02.10.2026): у неё своя база
     # текстов с таймингами, и многие русские треки есть только там.
     ya = yandex_lyrics(artists, titles, dur)
-    if ya:
+    if ya and (ya.get("found") or not plain["text"]):
         return ya
-    return {"found": False, "instrumental": False, "synced": "", "source": ""}
+    return {"found": False, "instrumental": False, "synced": "", "plain": plain["text"],
+            "source": plain["source"]}
 
 
 def cached_lyrics(artist, title, dur):
@@ -265,6 +284,9 @@ def cached_lyrics(artist, title, dur):
     except (OSError, ValueError):
         return None
     if not d.get("found") and not d.get("instrumental") and time.time() - d.get("ts", 0) > NEG_TTL:
+        return None
+    # запись до 06.10.2026 («текста нет») не искала обычный текст — поискать ещё раз
+    if not d.get("found") and not d.get("instrumental") and "plain" not in d:
         return None
     return d
 
@@ -309,6 +331,52 @@ def parse_lrc(text):
             out.append((max(0.0, s), line))
     out.sort(key=lambda x: x[0])
     return out
+
+
+class Approx(list):
+    """Строки с ПРИМЕРНЫМ временем (из текста без таймингов) — рисуются ровным бледным
+    цветом, без подсветки слов: точно, где поют, мы не знаем."""
+    approx = True
+
+
+_SECTION = re.compile(r"^\s*[\[(][^\])]{1,40}[\])]\s*$")    # [Припев], (Куплет 2)
+
+
+def approx_lines(plain, dur):
+    """Обычный текст → строки, разложенные по треку пропорционально длине: вступление
+    и концовка (до 7 %, не больше 15 с) — пустые; пустая строка текста — короткая пауза."""
+    rows = []
+    for r in (plain or "").splitlines():
+        r = " ".join(r.split())
+        if _SECTION.match(r):
+            continue
+        rows.append(r)
+    while rows and not rows[0]:
+        rows.pop(0)
+    while rows and not rows[-1]:
+        rows.pop()
+    out = Approx()
+    if not rows or not dur or dur < 30:
+        return out
+    pad = min(dur * 0.07, 15.0)
+    start, end = pad, dur - pad
+    weights = [len(r) + 8 if r else 6 for r in rows]
+    total = float(sum(weights))
+    t = start
+    for r, w in zip(rows, weights):
+        out.append((t, r))
+        t += (end - start) * w / total
+    out.append((end, ""))
+    return out
+
+
+def lines_of(d, dur):
+    """Запись кэша → строки: синхронный текст — как есть, обычный — примерно."""
+    if d.get("found"):
+        return parse_lrc(d.get("synced", ""))
+    if d.get("plain"):
+        return approx_lines(d["plain"], dur)
+    return []
 
 
 # ─────────────────────────── отрисовка строки ───────────────────────────
@@ -368,8 +436,12 @@ def _esc(s):
     return html.escape(s, quote=False)
 
 
-def render(text, done, accent):
-    """Pango-разметка: пропетое — акцентом, остальное приглушено; окно в MAX_LEN."""
+APPROX_ALPHA = "75%"   # строка с примерным временем — вся этим цветом
+
+
+def render(text, done, accent, approx=False):
+    """Pango-разметка: пропетое — акцентом, остальное приглушено; окно в MAX_LEN.
+    approx — время примерное: окно едет так же, но строка ровного бледного цвета."""
     n = len(text)
     flags = [i < done for i in range(n)]
     if n <= MAX_LEN:
@@ -386,12 +458,17 @@ def render(text, done, accent):
             chars = list(zip(text[:span].rstrip(), flags[:span])) + [("…", flags[span])]
         elif w + MAX_LEN - 1 >= n:
             w = n - (MAX_LEN - 1)
+            # конец строки — тоже с начала слова, а не «…икто» (06.10.2026)
+            nxt = [s for s in word_starts(text) if s >= w]
+            w = nxt[0] if nxt and nxt[0] < n else w
             chars = [("…", flags[w])] + list(zip(text[w:], flags[w:]))
         else:
             span = MAX_LEN - 2
             seg = text[w:w + span]
             chars = [("…", flags[w])] + list(zip(seg, flags[w:w + span]))
             chars = chars[:1 + len(seg.rstrip())] + [("…", flags[w + span])]
+    if approx:
+        return '<span alpha="%s">%s</span>' % (APPROX_ALPHA, _esc("".join(c for c, _f in chars)))
     out, run, cur = [], "", None
     for ch, f in chars + [(None, None)]:
         if f != cur or ch is None:
@@ -677,10 +754,27 @@ class App:
     def want_lyrics(self, p):
         k = p.track_key()
         if k in self.lyrics:
+            cur = self.lyrics[k]
+            # Нет текста или он примерный — свой синхронный мог дописать lyrics_sync.py
+            # (06.10.2026): файл кэша поменялся — перечитать. stat — микросекунды.
+            if cur is not None and (not cur or getattr(cur, "approx", False)):
+                try:
+                    mt = os.stat(os.path.join(CACHE_DIR, cache_key(*k) + ".json")).st_mtime
+                except OSError:
+                    mt = None
+                seen = getattr(self, "lyrics_mt", {})
+                self.lyrics_mt = seen
+                if k not in seen:
+                    seen[k] = mt
+                elif mt != seen[k]:
+                    seen[k] = mt
+                    d = cached_lyrics(*k)
+                    if d is not None:
+                        self.lyrics[k] = lines_of(d, p.length)
             return self.lyrics[k]
         d = cached_lyrics(*k)
         if d is not None:
-            self.lyrics[k] = parse_lrc(d.get("synced", "")) if d.get("found") else []
+            self.lyrics[k] = lines_of(d, p.length)
             return self.lyrics[k]
         self.lyrics[k] = None
         artist, title, dur, album = p.artist, p.title, p.length, p.album
@@ -689,7 +783,7 @@ class App:
             try:
                 d = store_lyrics(artist, title, int(round(dur)),
                                  fetch_lyrics(artist, title, dur, album))
-                res = parse_lrc(d["synced"]) if d.get("found") else []
+                res = lines_of(d, dur)
             except Exception as e:
                 print("lyrics_bar: fetch %s — %s: %r" % (artist, title, e), file=sys.stderr)
                 res = "fail"
@@ -784,10 +878,10 @@ class App:
             start, dur, line_end = line_timing(lines, i, p.length)
             elapsed = pos - start
             done = sung_chars(lines[i][1], elapsed, dur)
-            text = render(lines[i][1], done, self.accent)
+            text = render(lines[i][1], done, self.accent, getattr(lines, "approx", False))
             nw = next_word_time(lines[i][1], start, elapsed, dur)
             nxt_t = min(nw, line_end) if nw else (line_end if i + 1 < len(lines) else None)
-        # Нота перед строкой (30.09.2026, просьба: «забыли иконку ноты»): сразу
+        # Нота перед строкой (30.09.2026, Просьба: «забыли иконку ноты»): сразу
         # видно, что это текст песни, а не заголовок окна. В проигрыше — только нота.
         note = '<span foreground="%s">\U000f075a</span>' % self.accent
         text = note if "gap" in cls else note + "  " + text
@@ -833,8 +927,10 @@ def cmd_lookup(args):
     dur = float(args[2]) if len(args) > 2 else 0
     album = args[3] if len(args) > 3 else ""
     d = fetch_lyrics(artist, title, dur, album)
-    lines = parse_lrc(d.get("synced", ""))
-    print("найдено: %s, источник %s, строк %d" % (d["found"], d["source"] or "—", len(lines)))
+    lines = lines_of(d, dur)
+    print("найдено: %s, источник %s, строк %d%s" % (d["found"], d["source"] or "—", len(lines),
+                                                  " (обычный текст, время примерное)"
+                                                  if getattr(lines, "approx", False) else ""))
     for t, s in lines[:12]:
         print("  [%02d:%05.2f] %s" % (t // 60, t % 60, s))
 

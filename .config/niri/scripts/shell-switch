@@ -57,8 +57,11 @@ stop_mine() {
 start_mine() {
     python3 "$WB_GEN" >/dev/null 2>&1
     WB_CSS="$HOME/.config/waybar/style-niri.css"
+    # панели по мониторам (hypr/scripts/panels.py) — свой waybar на каждый монитор
+    if [ "$(python3 "$HOME/.config/hypr/scripts/panels.py" same 2>/dev/null)" = no ]; then
+        (setsid python3 "$HOME/.config/hypr/scripts/panels.py" launch-top >/dev/null 2>&1 &)
     # верхний бар выключен (hypr/scripts/top_bar.py set off) — waybar не запускаем
-    if [ "$(cat "$HOME/.config/hypr/state/top-bar" 2>/dev/null)" = off ]; then
+    elif [ "$(cat "$HOME/.config/hypr/state/top-bar" 2>/dev/null)" = off ]; then
         :
     elif [ -f "$WB_CFG" ] && [ -f "$WB_CSS" ]; then
         (setsid waybar -c "$WB_CFG" -s "$WB_CSS" >/dev/null 2>&1 &)

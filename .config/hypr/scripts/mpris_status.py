@@ -43,6 +43,8 @@ def main():
     # редактировании этого файла, и иконка Playing стала пустой строкой.
     icon = "\uf04c" if status == "Playing" else "\uf04b"  # nf-fa-pause / nf-fa-play
     label = f"{title} - {artist}" if artist else title
+    if mpris_common.ignored(best):                    # Blanket: пресет «Default» сам по себе ни о чём
+        label, title, artist = "Blanket", "Blanket", f"пресет «{title}»"
     if len(label) > MAX_LEN:
         label = label[: MAX_LEN - 1].rstrip() + "…"
 

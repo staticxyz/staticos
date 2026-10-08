@@ -13,6 +13,13 @@
     dashboard add <имя> <команда…>   новое окно: запись в json (600×300 в левом верхнем
                                      углу), правило, окно открывается — расставьте и save
     dashboard remove <имя>           закрыть окно, убрать из json и из правил
+    dashboard mode [off|terminal|widgets] [--keep]  режим дашборда (Настройки → Applications
+                                     → Дашборд; его же хранят пресеты виджетов): off — стола
+                                     и окон нет; terminal — окна kitty; widgets — без окон,
+                                     на столе только виджеты. Применяется сразу (--keep —
+                                     только записать)
+    dashboard apply                  применить записанный режим
+    dashboard focus                  перейти на стол дашборда (SUPER+D)
 
 Как это устроено. Каждое окно запускается как kitty с app-id «dash-<имя>», а
 dashboard-rules.kdl (include в config.kdl) для каждого app-id задаёт стол, плавание,
@@ -38,6 +45,15 @@ PREFIX = "dash-"
 OFF_FLAG = HOME / ".config/niri/dashboard.off"   # есть файл — при входе не открывать
 KITTY_CONF = HOME / ".config/kitty/kitty.conf"
 FONT_KITTEN = HOME / ".config/kitty/font_size_of.py"
+# Dashboard mode (05.10.2026, Просьба: «Terminal dashboard (как сейчас, по умолчанию) и Widget
+# dashboard — авто-спавн моих виджетов вместо терминальных; и для них специальная иконка
+# на столе»). Значок стола = его имя в niri (бар показывает имя как есть): terminal — радар
+# U+F0437 (ключ workspace), widgets — md-widgets U+F072C (ключ widget_workspace; глиф есть в
+# JarvisBarIcons, EXTRA в build_bar_icons.py). Стол один и тот же — переименовывается.
+MODE_FILE = HOME / ".config/niri/dashboard-mode"
+WS_KDL = HOME / ".config/niri/cfg/workspaces.kdl"
+WIDGETS = HOME / ".config/hypr/scripts/desktop_widgets.py"
+WIDGET_WS = "\U000f072c"
 
 
 def default_font_size():
@@ -121,11 +137,156 @@ def dash_windows():
     return found
 
 
+def get_mode():
+    try:
+        m = MODE_FILE.read_text().strip()
+    except OSError:
+        m = ""
+    return m if m in ("terminal", "widgets", "off") else "terminal"
+
+
+def desk_names(cfg):
+    """(имя стола в режиме terminal, в режиме widgets)."""
+    return cfg.get("workspace"), cfg.get("widget_workspace") or WIDGET_WS
+
+
+def live_desk_name(cfg):
+    """Имя стола дашборда, какое он носит сейчас (по живым столам, иначе по режиму)."""
+    term, wid = desk_names(cfg)
+    try:
+        names = {w.get("name") for w in niri_json("workspaces")}
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        names = set()
+    if wid in names and term not in names:
+        return wid
+    if term in names:
+        return term
+    return wid if get_mode() == "widgets" else term
+
+
+def rename_desk(old, new):
+    """Стол дашборда old → new: живой стол переименовать (окна и место остаются), затем
+    объявление в cfg/workspaces.kdl. Порядок важен: niri при перечитывании конфига
+    создаёт объявленный именованный стол, если такого имени нет (ensure_named_workspace),
+    а снятое из конфига имя «осиротевшему» столу снимает (unname_workspace) — проверено по
+    исходникам niri 26.04. Сначала живое имя, потом файл — лишний пустой стол не появится."""
+    if not old or not new or old == new:
+        return
+    names = {w.get("name") for w in niri_json("workspaces")}
+    if new not in names and old in names:
+        subprocess.run(["niri", "msg", "action", "set-workspace-name", new, "--workspace", old],
+                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    txt = WS_KDL.read_text()
+    a, b = f'workspace "{old}" {{', f'workspace "{new}" {{'
+    if a in txt and b not in txt:
+        tmp = WS_KDL.with_suffix(".tmp")
+        tmp.write_text(txt.replace(a, b, 1))
+        tmp.replace(WS_KDL)
+        subprocess.run(["niri", "msg", "action", "load-config-file"], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # привязки виджетов к столу — на новое имя (сторож и сам узнаёт стол по обоим именам)
+    subprocess.run(["python3", str(WIDGETS), "dashboard", "rename", old, new], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def close_terminals():
+    """Закрыть окна дашборда (kill по pid: close-window упирается в вопрос kitty)."""
+    n = 0
+    for name, w in dash_windows().items():
+        if w.get("pid"):
+            try:
+                os.kill(w["pid"], 15)
+                n += 1
+            except OSError:
+                pass
+    return n
+
+
+def widgets_run(*args):
+    r = subprocess.run(["python3", str(WIDGETS), "dashboard", *args], capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+DESK_MARK = "// DASHBOARD-DESK: стол дашборда выключен (scripts/dashboard mode off)"
+
+
+def desk_declared():
+    """Имя стола дашборда в cfg/workspaces.kdl или None (режим off — объявления нет)."""
+    cfg = load()
+    txt = WS_KDL.read_text()
+    for n in desk_names(cfg):
+        if n and f'workspace "{n}" {{' in txt:
+            return n
+    return None
+
+
+def declare_desk(name):
+    """Вернуть объявление стола дашборда (после off) — на место метки, иначе первым
+    среди столов. niri при перечитывании создаст именованный стол сам."""
+    cfg = load()
+    block = f'workspace "{name}" {{\n    open-on-output "{cfg["output"]}"\n}}'
+    txt = WS_KDL.read_text()
+    if DESK_MARK in txt:
+        txt = txt.replace(DESK_MARK, block, 1)
+    else:
+        i = txt.find('workspace "')
+        txt = txt[:i] + block + "\n" + txt[i:] if i >= 0 else txt + "\n" + block + "\n"
+    tmp = WS_KDL.with_suffix(".tmp")
+    tmp.write_text(txt)
+    tmp.replace(WS_KDL)
+    subprocess.run(["niri", "msg", "action", "load-config-file"], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def undeclare_desk():
+    """Режим off: убрать объявление стола дашборда (вместо него — метка). niri снимает имя
+    «осиротевшему» столу; пустой безымянный стол исчезает, виджеты его стола прячутся
+    (desktop_widgets не перепривязывает их, пока стола нет)."""
+    name = desk_declared()
+    if not name:
+        return
+    txt = WS_KDL.read_text()
+    txt = re.sub(r'workspace "%s" \{\n[^}]*\}' % re.escape(name), DESK_MARK, txt, count=1)
+    tmp = WS_KDL.with_suffix(".tmp")
+    tmp.write_text(txt)
+    tmp.replace(WS_KDL)
+    subprocess.run(["niri", "msg", "action", "load-config-file"], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def apply_mode(mode=None, login=False):
+    """Привести стол дашборда к режиму. login — при входе (из restore --login).
+
+    05.10.2026 (Просьба: «иногда хочу дашборд, иногда важные виджеты на втором мониторе…
+    пусть дашборд работает с пресетами вместе»): режимов три — off / terminal / widgets.
+    Виджеты на столе дашборда — обычные виджеты этого стола, их хранят пресеты; режим
+    тоже хранит пресет. Отдельного набора дашборда больше нет."""
+    mode = mode or get_mode()
+    cfg = load()
+    term, wid = desk_names(cfg)
+    if mode == "off":
+        n = close_terminals()
+        undeclare_desk()
+        print(f"дашборд выключен: окон закрыто {n}, стола нет")
+        return
+    want, other = (wid, term) if mode == "widgets" else (term, wid)
+    if not desk_declared():
+        declare_desk(want)
+    else:
+        rename_desk(other, want)
+    if mode == "widgets":
+        n = 0 if login else close_terminals()
+        print(f"режим widgets: стол «{wid}», окон закрыто: {n}")
+    else:
+        print(f"режим terminal: стол «{term}»")
+        restore([])
+
+
 def write_rules(cfg):
     # Стол дашборда — именованный стол niri (workspace "…" { open-on-output "eDP-1" }
     # в config.kdl): он есть всегда, и окна идут на него по имени, а не на «активный
     # стол экрана» — иначе при входе они садились на карман (24.09.2026).
-    ws = cfg.get("workspace")
+    ws = live_desk_name(cfg)
     out = cfg["output"]
     WORK_OFFSET = work_offset()
     lines = [
@@ -171,7 +332,9 @@ def wait_bar(timeout=15):
             layers = subprocess.run(["niri", "msg", "layers"], capture_output=True, text=True).stdout
         except OSError:
             layers = ""
-        if "waybar" in layers or "noctalia" in layers or "quickshell" in layers:
+        # tb-always / tb-hover — бары по мониторам (hypr/scripts/panels.py): ключ "name"
+        # у waybar меняет и имя слоя
+        if any(n in layers for n in ("waybar", "tb-always", "tb-hover", "noctalia", "quickshell")):
             time.sleep(1)
             return
         time.sleep(0.5)
@@ -215,6 +378,16 @@ def restore(args):
             print("автозапуск дашборда выключен (Настройки → Окна)")
             return
         wait_bar()
+        # режим, выбранный в Настройках, вступает в силу при входе (05.10.2026)
+        if get_mode() in ("widgets", "off"):
+            apply_mode(get_mode(), login=True)
+            return
+        cfg = load()
+        term, wid = desk_names(cfg)
+        if desk_declared():
+            rename_desk(wid, term)
+        else:
+            declare_desk(term)
     cfg = load()
     write_rules(cfg)          # правила заново: высота бара могла измениться с прошлого раза
     have = dash_windows()
@@ -237,7 +410,7 @@ def save():
     cfg = load()
     have = dash_windows()
     spaces = {w["id"]: w for w in niri_json("workspaces")}
-    dash_ws = next((i for i, w in spaces.items() if w.get("name") == cfg.get("workspace")), None)
+    dash_ws = next((i for i, w in spaces.items() if w.get("name") in desk_names(cfg)), None)
     n = 0
     for e in cfg["windows"]:
         w = have.get(e["name"])
@@ -291,7 +464,7 @@ def save():
 
 
 # Окна, открытые руками на столе дашборда (app-id не dash-…), save забирает в
-# дашборд сам (28.09.2026, просьба: «я же не буду каждый раз через тебя это
+# дашборд сам (28.09.2026, Просьба: «я же не буду каждый раз через тебя это
 # сохранять»). Раньше он их только перечислял и просил dashboard add.
 SHELLS = {"fish", "bash", "zsh", "sh", "dash"}
 INTERPRETERS = {"bash", "sh", "dash", "python3", "python", "perl", "node"}
@@ -442,6 +615,16 @@ def main():
         restore(args[1:])
     elif args[0] == "save":
         save()
+    elif args[0] == "focus":
+        # SUPER+D (05.10.2026): на стол дашборда по ЖИВОМУ имени — оно разное в режимах
+        # terminal и widgets, поэтому не focus-workspace "имя" прямо в бинде
+        if get_mode() == "off":
+            subprocess.run(["notify-send", "-a", "Dashboard", "Дашборд выключен",
+                            "Включить: Настройки → Applications → Дашборд или пресет с дашбордом"],
+                           check=False)
+        else:
+            subprocess.run(["niri", "msg", "action", "focus-workspace", live_desk_name(load())],
+                           check=False)
     elif args[0] == "rules":
         write_rules(load())
         print("правила пересобраны:", RULES)
@@ -449,6 +632,16 @@ def main():
         add(args[1:])
     elif args[0] == "remove":
         remove(args[1:])
+    elif args[0] == "mode":
+        # mode X — записать и сразу применить (05.10.2026); --keep — только записать
+        if len(args) > 1 and args[1] in ("terminal", "widgets", "off"):
+            MODE_FILE.write_text(args[1] + "\n")
+            if "--keep" not in args:
+                apply_mode(args[1])
+        else:
+            print(get_mode())
+    elif args[0] == "apply":
+        apply_mode()
     elif args[0] == "autostart":
         mode = args[1] if len(args) > 1 else "status"
         if mode == "on":

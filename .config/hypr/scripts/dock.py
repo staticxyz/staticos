@@ -33,6 +33,23 @@ MODE_FILE = os.path.expanduser("~/.config/hypr/state/dock-mode")
 
 
 
+def glib_signal_add(prio, signum, handler):
+    """Сигнал в главный цикл GLib. GLib.unix_signal_add устарел (PyGObject 3.52+) и однажды
+    исчезнет — тогда программа перестала бы запускаться (08.10.2026). Сначала замена
+    GLibUnix.signal_add, без неё — старое имя, без обоих — обычный signal.signal."""
+    from gi.repository import GLib
+    try:
+        from gi.repository import GLibUnix
+        return GLibUnix.signal_add(prio, signum, handler)
+    except (ImportError, AttributeError):
+        pass
+    try:
+        return GLib.unix_signal_add(prio, signum, handler)
+    except AttributeError:
+        import signal as _signal
+        _signal.signal(signum, lambda *_a: GLib.idle_add(lambda: handler() and False))
+
+
 def _die_with_parent():
     """preexec_fn для фоновых подписок (pactl subscribe, swaync-client -swb,
     niri event-stream): ядро убьёт их вместе с этим процессом (PR_SET_PDEATHSIG).
@@ -591,6 +608,17 @@ class Dock(Gtk.Window):
         self.area.set_apps(groups)
 
 
+def dock_here(conn):
+    """Панели по мониторам (panels.py, 06.10.2026): док только там, где выбран «Док».
+    Общий режим — на всех мониторах, как раньше."""
+    try:
+        import panels
+        d = panels.load()
+        return not panels.per_monitor(d) or panels.bottom_for(conn, d) == "dock"
+    except Exception:
+        return True
+
+
 def main():
     pal = popup_theme.palette()
     css = popup_theme.css("""
@@ -644,6 +672,8 @@ def main():
         conn = by_model.get(mon.get_model() or "", "")
         if not conn:     # модель не совпала — по порядку
             conn = sorted(outs)[i] if i < len(outs) else ""
+        if not dock_here(conn):
+            continue
         docks.append(Dock(mon, conn))
 
     # SIGUSR1 — показать док на мониторе в фокусе (для бинда и для проверки):
@@ -660,7 +690,7 @@ def main():
                     GLib.source_remove(d.hide_id)
                 d.hide_id = GLib.timeout_add(3000, d.hide_now)
         return True
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, on_usr1)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, on_usr1)
 
     # События niri (смена стола, окна открылись/закрылись/переехали) — сразу
     # обновить док. Раньше список обновлялся только при появлении и раз в

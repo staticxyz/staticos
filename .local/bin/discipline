@@ -1,0 +1,4 @@
+#!/bin/sh
+# Окно Discipline (будильник · фокус · помидор); второй запуск поднимает уже открытое.
+#   discipline [alarm|focus|pomo] [--toggle]
+exec python3 $HOME/.config/hypr/scripts/routine_app.py "$@"

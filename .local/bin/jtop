@@ -1,0 +1,660 @@
+#!/usr/bin/env python3
+"""jtop — кто сколько ест, по программам, а не по процессам. 06.10.2026.
+
+Пользователь про список процессов btop: «непонятно, что это за процессы, какие это окна…
+можешь объединять». btop имена не переименовать — поэтому свой список:
+
+  * процессы собраны по программам; названия — те же, что в appmem / Super+Alt+X
+    (label_of оттуда): «Isolated Web Co» ×10 — это Zen, python3 ×40 — staticOS;
+  * память — PSS: общая память браузера не считается по десять раз (как у btop);
+  * процессор — доля ВСЕГО процессора, как в btop без per-core;
+  * у каждой программы — её окна (niri) и процессы с пояснением: вкладки Zen,
+    какие это скрипты staticOS, что открыто в nvim.
+
+    jtop            живой список (раз в 2 с)
+    jtop --once     один снимок текстом
+
+Клавиши — как в nvim пользователя (раскладка не важна: «о» = «j»):
+  j/k ↓/↑ — строка · gg / G — начало / конец · Ctrl+D/U — полстраницы · Ctrl+F/B — страница
+  l, Enter, → — раскрыть · h, ← — свернуть · za — раскрыть/свернуть · zR / zM — всё
+  / — поиск (Enter, jj, оо, Ctrl+E — готово; Esc — отмена) · n / N — следующее / прошлое
+  : — команда (:q  :sort mem|cpu  :kill) · m / c — сортировка по памяти / процессору
+  dd — завершить процесс (или программу целиком), спросит «точно?» · ? — справка · q — выход
+"""
+import collections
+import curses
+import importlib.machinery
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import unicodedata
+
+HOME = os.path.expanduser("~")
+A = importlib.machinery.SourceFileLoader("appmem", os.path.join(HOME, ".local/bin/appmem")).load_module()
+NCPU = os.cpu_count() or 1
+TICK = 2.0
+
+# русская раскладка → латиница (клавиши работают в любой раскладке, как в nvim с «оо»)
+_RU = "ёйцукенгшщзхъфывапролджэячсмитьбюЁЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ"
+_EN = "`qwertyuiop[]asdfghjkl;'zxcvbnm,.~QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>"
+LATIN = dict(zip(_RU, _EN))
+# программу целиком через dd не завершить: без них сессия развалится
+PROTECTED = {"System services", "niri", "Audio (PipeWire)", "SDDM login screen", "Network",
+             "Portals", "kitty terminal", "Xwayland", "zram (compressed swap)", "staticOS",
+             "Waybar", "System journal", "Keyring"}
+
+# процессы Zen (Firefox) по comm — что это для человека
+ZEN_KIND = {
+    "Isolated Web Co": "site", "Web Content": "spare tab", "WebExtensions": "extensions",
+    "RDD Process": "video/audio decoder", "Privileged Cont": "browser pages",
+    "Socket Process": "network", "Utility Process": "helper", "GPU Process": "graphics",
+    "forkserver": "process starter", "Isolated Servic": "service worker",
+}
+# скрипты staticOS: имя файла → что это
+SCRIPT = {
+    "desktop_widgets": "desktop widgets", "xpbar": "bottom panel", "top_bar": "top bar watcher",
+    "lyrics_sync": "lyrics sync", "lyrics_bar": "lyrics", "screentime_daemon": "screen time",
+    "mem-guard": "memory guard", "cursor_shake": "shake to find cursor",
+    "ui_sound_watch": "UI sounds", "hot_corners": "hot corners", "dnd_sounds": "DND silence",
+    "notif_log": "notification log", "track_notify": "track notifications",
+    "cpu_hog_watch": "CPU hog watch", "bar_watch": "bar watcher", "focus_mode": "focus mode",
+    "layout_osd": "layout indicator", "kbdlight_watch": "keyboard light", "super_tap": "Super tap",
+    "app_volume": "app volume", "desktop_menu": "desktop menu", "pair_center": "window centering",
+    "no_self_maximize": "no self-maximize", "settings_app": "Settings", "alt_tab": "Alt+Tab",
+    "dock": "dock", "clipboard_win": "clipboard window", "bongo_cat": "Bongo Cat",
+    "cava_bar": "equalizer", "wb_persist": "bar module", "privacy_status": "privacy indicators",
+    "bar_window_title": "window title", "niri_bar": "workspaces", "control_center": "control center",
+    "player_popup": "player popup", "screensaver": "screensaver", "auto_dnd": "auto DND",
+    "x-clip-pull": "clipboard bridge",
+    "taskbar": "taskbar", "start_button": "Start button", "routine_app": "Routine",
+    "idle_suspend": "idle suspend", "jarvis_lock": "lock screen", "kbd_colors": "keyboard colors",
+}
+
+
+def niri_windows():
+    """pid → заголовки окон."""
+    try:
+        ws = json.loads(subprocess.run(["niri", "msg", "-j", "windows"], capture_output=True,
+                                       text=True, timeout=2).stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {}
+    out = collections.defaultdict(list)
+    for w in ws:
+        out[w.get("pid")].append((w.get("title") or w.get("app_id") or "?").strip())
+    return out
+
+
+def short_path(s):
+    return s.replace(HOME, "~")
+
+
+def describe(p, label):
+    """Что это за процесс, коротко."""
+    argv = [a for a in p["cmd"].split("\0") if a]
+    comm = p["comm"]
+    if label == "Zen":
+        return ZEN_KIND.get(comm, "main window" if comm in ("zen", "zen-bin") else comm)
+    for a in argv[:3]:
+        name = os.path.basename(a)
+        if a.endswith(".py") or "/scripts/" in a or "/.local/bin/" in a:
+            key = name[:-3] if name.endswith(".py") else name
+            rest = " ".join(x for x in argv[argv.index(a) + 1:] if "/" not in x)[:30]
+            return SCRIPT.get(key, key) + (" · " + rest if rest else "")
+    if comm == "nvim":
+        files = [x for x in argv[1:] if not x.startswith("-")]
+        return "editing " + short_path(files[0]) if files else "editor"
+    if comm == "waybar":
+        m = re.search(r"config-niri-([\w-]+)\.jsonc", p["cmd"])
+        return "bar on " + m.group(1) if m else "bar"
+    if comm in A.SHELLS:
+        return "shell"
+    tail = " ".join(short_path(x) for x in argv[1:3] if not x.startswith("-"))[:40]
+    return comm + (" " + tail if tail else "")
+
+
+class Snapshot:
+    def __init__(self):
+        self.prev, self.prev_t, self.pss, self.n = {}, 0.0, {}, 0
+
+    def take(self):
+        procs = A.scan()
+        now = time.time()
+        dt = max(now - self.prev_t, 0.1) if self.prev_t else None
+        fresh_pss = self.n % 3 == 0          # PSS дорогой (~0,1 с на все) — раз в 6 с
+        self.n += 1
+        wins = niri_windows()
+        groups = {}
+        for pid, p in procs.items():
+            old = self.prev.get(pid)
+            cpu = ((p["cpu"] - old["cpu"]) / dt * 100 / NCPU) if (dt and old) else 0.0
+            if fresh_pss or pid not in self.pss:
+                self.pss[pid] = A.pss_kb(pid)[0]
+            label = A.label_of(p, procs)
+            g = groups.setdefault(label, {"name": label, "mem": 0, "cpu": 0.0, "procs": [], "wins": []})
+            g["mem"] += self.pss[pid]
+            g["cpu"] += cpu
+            g["procs"].append({"pid": int(pid), "mem": self.pss[pid], "cpu": cpu, "comm": p["comm"],
+                               "what": describe(p, label)})
+            for t in wins.get(int(pid), []):
+                g["wins"].append(t)
+        self.pss = {k: v for k, v in self.pss.items() if k in procs}
+        z = zram_kb()
+        if z:
+            groups["zram"] = {"name": "zram (compressed swap)", "mem": z, "cpu": 0.0,
+                              "procs": [], "wins": [], "note": "RAM that holds squeezed swap"}
+        self.prev, self.prev_t = procs, now
+        for g in groups.values():
+            g["procs"].sort(key=lambda r: -r["mem"])
+            g["summary"] = summary(g)
+        return list(groups.values())
+
+
+def zram_kb():
+    try:
+        return int(open("/sys/block/zram0/mm_stat").read().split()[2]) // 1024
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def summary(g):
+    """Одна строка «что внутри» для свёрнутой программы."""
+    if g.get("note"):
+        return g["note"]
+    kinds = collections.Counter(r["what"] for r in g["procs"])
+    if g["name"] == "Zen":
+        tabs = kinds.get("site", 0)
+        s = "%d site%s loaded" % (tabs, "" if tabs == 1 else "s")
+        return s + (" · " + g["wins"][0] if g["wins"] else "")
+    if g["name"] == "Waybar":
+        bars = sum(n for k, n in kinds.items() if k == "bar" or k.startswith("bar on "))
+        return "%d bar%s · %d modules" % (bars, "" if bars == 1 else "s", len(g["procs"]) - bars)
+    if g["wins"] and g["name"] not in ("staticOS", "System services"):
+        return " · ".join(g["wins"])
+    seen = []
+    for r in g["procs"]:                      # уже по памяти: сначала крупные
+        short = r["what"].split(" · ")[0]
+        if g["name"] == "System services":
+            short = short.split(" ")[0]
+        if short not in seen:
+            seen.append(short)
+    return " · ".join(seen)
+
+
+def cells(ch):
+    if unicodedata.combining(ch) or ch in "\ufe0f\u200d\u200e\u2068\u2069":
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+
+def fit(text, width):
+    """Обрезать по ширине в клетках терминала (эмодзи — две клетки)."""
+    out, used = [], 0
+    for ch in text:
+        c = cells(ch)
+        if used + c > width:
+            break
+        out.append(ch)
+        used += c
+    return "".join(out), used
+
+
+def human(kb):
+    return "%.1fG" % (kb / 1048576) if kb >= 1048576 else "%dM" % round(kb / 1024)
+
+
+def meminfo_line():
+    m = A.meminfo()
+    used = (m["MemTotal"] - m["MemAvailable"]) / 1048576
+    total = m["MemTotal"] / 1048576
+    swap = (m["SwapTotal"] - m["SwapFree"]) / 1048576
+    return used, total, swap
+
+
+# ── текстом ─────────────────────────────────────────────────────────────────
+
+def once():
+    s = Snapshot()
+    s.take()
+    time.sleep(1.5)
+    groups = sorted(s.take(), key=lambda g: -g["mem"])
+    used, total, swap = meminfo_line()
+    print("RAM %.1f / %.1f GiB · swap %.1f GiB · CPU %.0f%%\n"
+          % (used, total, swap, sum(g["cpu"] for g in groups)))
+    for g in groups[:25]:
+        print("%-24s %6s %5.1f%% %3d  %s" % (g["name"][:24], human(g["mem"]), g["cpu"], len(g["procs"]),
+                                             g["summary"][:90]))
+    return 0
+
+
+# ── живой список ────────────────────────────────────────────────────────────
+
+class UI:
+    def __init__(self, scr):
+        self.scr = scr
+        self.snap = Snapshot()
+        self.groups = []
+        self.open = set()
+        self.sort = "mem"
+        self.sel = ("g", "")           # ("g", имя) или ("p", pid)
+        self.top = 0
+        self.mode = "normal"           # normal | search | command | confirm | help
+        self.buf = ""
+        self.query = ""
+        self.pend = ""                 # первая буква двухбуквенных: gg, dd, za, zR…
+        self.msg, self.msg_until = "", 0
+        self.confirm = None            # (вопрос, действие)
+        self.last_j = 0
+        curses.curs_set(0)
+        curses.use_default_colors()
+        for i, c in enumerate((4, 8, 1, 3, 2), 1):
+            curses.init_pair(i, c if c < curses.COLORS else -1, -1)
+        self.ACC, self.DIM, self.HOT, self.WARM, self.OK = (curses.color_pair(i) for i in range(1, 6))
+        scr.timeout(200)
+
+    def refresh_data(self):
+        self.groups = self.snap.take()
+
+    def rows(self):
+        key = (lambda g: -g["mem"]) if self.sort == "mem" else (lambda g: -g["cpu"])
+        out = []
+        for g in sorted(self.groups, key=key):
+            out.append(("g", g["name"], g))
+            if g["name"] in self.open:
+                for t in g["wins"]:
+                    out.append(("w", g["name"] + t, t))
+                procs = sorted(g["procs"], key=(lambda r: -r["mem"]) if self.sort == "mem" else (lambda r: -r["cpu"]))
+                for r in procs[:40]:
+                    out.append(("p", r["pid"], r))
+                if len(procs) > 40:
+                    out.append(("x", g["name"] + "+", "… and %d more" % (len(procs) - 40)))
+        return out
+
+    def put(self, y, x, text, attr=0):
+        """Строка с позиции x; возвращает, где она кончилась (в клетках)."""
+        h, w = self.scr.getmaxyx()
+        if not (0 <= y < h and x < w):
+            return x
+        text, used = fit(text, w - x - (1 if y == h - 1 else 0))
+        try:
+            self.scr.addstr(y, x, text, attr)
+        except curses.error:
+            pass
+        return x + used
+
+    def bar(self, frac, width):
+        full = max(0, min(width, round(frac * width)))
+        return "█" * full + "░" * (width - full)
+
+    def heat(self, cpu, mem_kb):
+        if cpu >= 25 or mem_kb >= 1572864:
+            return self.HOT
+        if cpu >= 5 or mem_kb >= 524288:
+            return self.WARM
+        return 0
+
+    def draw(self):
+        scr = self.scr
+        scr.erase()
+        h, w = scr.getmaxyx()
+        used, total, swap = meminfo_line()
+        cpu_all = sum(g["cpu"] for g in self.groups)
+        self.put(0, 1, "jtop", self.ACC | curses.A_BOLD)
+        self.put(0, 6, " RAM %.1f/%.1f GiB " % (used, total))
+        x = 6 + len(" RAM %.1f/%.1f GiB " % (used, total))
+        self.put(0, x, self.bar(used / total, 12), self.ACC)
+        tail = "  swap %.1f GiB   CPU %3.0f%% " % (swap, cpu_all)
+        self.put(0, x + 12, tail)
+        self.put(0, x + 12 + len(tail), self.bar(cpu_all / 100, 10), self.ACC)
+        # колонки: название · память · полоска · ЦП · процессов (у процесса — pid) · что внутри
+        nw = min(24, max(14, w // 5))
+        head = "  %-*s %6s %-8s %5s %7s  %s" % (nw, "application", "mem", "", "CPU%", "proc", "what's inside")
+        self.put(2, 0, head, self.DIM | curses.A_BOLD)
+        rows = self.rows()
+        keys = [(k, i) for k, i, _ in rows]
+        if self.sel not in keys:
+            self.sel = keys[0] if keys else ("g", "")
+        idx = keys.index(self.sel) if self.sel in keys else 0
+        body = h - 5
+        if idx < self.top:
+            self.top = idx
+        elif idx >= self.top + body:
+            self.top = idx - body + 1
+        biggest = max([g["mem"] for g in self.groups] + [1])
+        for n, (kind, ident, obj) in enumerate(rows[self.top:self.top + body]):
+            y = 3 + n
+            rev = curses.A_REVERSE if (kind, ident) == self.sel else 0
+            if rev:
+                self.put(y, 0, " " * w, rev)
+            if kind in ("g", "p"):
+                r = obj
+                heat = self.heat(r["cpu"], r["mem"])
+                if kind == "g":
+                    mark = "▾ " if r["name"] in self.open else "▸ "
+                    name, attr, count = r["name"], (heat or curses.A_BOLD), str(len(r["procs"]) or "")
+                    what, bar = r["summary"], self.bar(r["mem"] / biggest, 8)
+                else:
+                    mark, name, attr, count = "    ", r["comm"], heat, str(r["pid"])
+                    what, bar = r["what"], ""
+                x = self.put(y, 0, mark, self.ACC | rev)
+                x = self.put(y, x, fit(name, nw - len(mark) + 2)[0].ljust(nw - len(mark) + 2), attr | rev)
+                x = self.put(y, x, " %6s " % human(r["mem"]), attr | rev)
+                x = self.put(y, x, bar.ljust(8), self.ACC | rev)
+                x = self.put(y, x, " %5.1f" % r["cpu"], attr | rev)
+                x = self.put(y, x, " %7s  " % count, self.DIM | rev)
+                self.put(y, x, what, (0 if kind == "p" else self.DIM) | rev)
+            elif kind == "w":
+                self.put(y, 0, "    ▢ window: " + obj, self.ACC | rev)
+            else:
+                self.put(y, 0, "    " + obj, self.DIM | rev)
+        self.draw_status(h, w)
+        if self.mode == "help":
+            self.draw_help(h, w)
+        scr.refresh()
+        return keys, idx
+
+    def flash(self, text, secs=3):
+        self.msg, self.msg_until = text, time.time() + secs
+
+    def draw_status(self, h, w):
+        y = h - 1
+        if self.mode in ("search", "command"):
+            x = self.put(y, 0, ("/" if self.mode == "search" else ":") + self.buf)
+            self.put(y, x, " ", curses.A_REVERSE)
+            return
+        if self.mode == "confirm":
+            x = self.put(y, 0, " " + self.confirm[0] + " ", self.HOT | curses.A_BOLD)
+            self.put(y, x + 1, "y — да · n — нет", self.DIM)
+            return
+        badge = " NORMAL "
+        x = self.put(y, 0, badge, self.ACC | curses.A_REVERSE)
+        if self.msg and time.time() < self.msg_until:
+            self.put(y, x + 1, self.msg)
+        else:
+            q = ("  /%s (n/N)" % self.query) if self.query else ""
+            self.put(y, x + 1, "sort: %s%s  ·  ? keys  ·  q quit" % (self.sort, q), self.DIM)
+
+    HELP = (("j k  ↓ ↑", "move"), ("gg  G", "top / bottom"), ("Ctrl+D  Ctrl+U", "half page"),
+            ("Ctrl+F  Ctrl+B", "page"), ("l  Enter  →", "open"), ("h  ←", "close"),
+            ("za  zR  zM", "toggle / open all / close all"), ("/  n  N", "search, next, previous"),
+            ("m  c", "sort by memory / CPU"), ("dd", "end process (asks first)"),
+            (":q  :sort cpu  :kill", "commands"), ("jj  оо  Ctrl+E", "finish typing"),
+            ("q  Esc", "quit"))
+
+    def draw_help(self, h, w):
+        bw, bh = 52, len(self.HELP) + 4
+        x0, y0 = max(0, (w - bw) // 2), max(0, (h - bh) // 2)
+        for i in range(bh):
+            self.put(y0 + i, x0, " " * bw, curses.A_REVERSE)
+        self.put(y0 + 1, x0 + 2, "jtop — keys (any key closes)", curses.A_REVERSE | curses.A_BOLD)
+        for i, (k, d) in enumerate(self.HELP):
+            self.put(y0 + 3 + i, x0 + 2, "%-22s %s" % (k, d), curses.A_REVERSE)
+
+    def run(self):
+        self.refresh_data()
+        time.sleep(0.5)
+        self.refresh_data()
+        last = time.time()
+        dirty = True
+        keys, idx = [], 0
+        while True:
+            if dirty:                          # рисовать только по делу: клавиша или новые данные
+                keys, idx = self.draw()
+            try:
+                ch = self.scr.get_wch()
+            except curses.error:
+                ch = None
+            dirty = ch is not None
+            if ch is not None and self.key(ch, keys, idx) == "quit":
+                return
+            if time.time() - last >= TICK:
+                self.refresh_data()
+                last = time.time()
+                dirty = True
+            if self.msg and time.time() >= self.msg_until and self.msg_until:
+                self.msg_until = 0
+                dirty = True
+
+    def page(self):
+        return max(1, self.scr.getmaxyx()[0] - 5)
+
+    def key(self, ch, keys, idx):
+        """Одна клавиша. ch — str (буква) или int (стрелки и т. п.)."""
+        if isinstance(ch, str) and len(ch) == 1:
+            code = ord(ch)
+            c = LATIN.get(ch, ch)
+        else:
+            code, c = ch, ""
+        if self.mode == "help":
+            self.mode = "normal"
+            return None
+        if self.mode == "confirm":
+            if c in ("y", "Y") or code in (10, 13):
+                self.confirm[1]()
+            else:
+                self.flash("отменено")
+            self.mode, self.confirm = "normal", None
+            return None
+        if self.mode in ("search", "command"):
+            return self.key_line(ch, code, c)
+        # — normal —
+        pend, self.pend = self.pend, ""
+        n = len(keys)
+        move = None
+        if pend == "g" and c == "g":
+            move = 0
+        elif pend == "d" and c == "d":
+            self.ask_kill()
+        elif pend == "z" and c in ("a", "o", "c", "R", "M"):
+            self.fold(c)
+        elif c in ("g", "d", "z"):
+            self.pend = c
+        elif c == "j" or code == curses.KEY_DOWN:
+            move = idx + 1
+        elif c == "k" or code == curses.KEY_UP:
+            move = idx - 1
+        elif c == "G" or code == curses.KEY_END:
+            move = n - 1
+        elif code == curses.KEY_HOME:
+            move = 0
+        elif code == 4:                                   # Ctrl+D
+            move = idx + self.page() // 2
+        elif code == 21:                                  # Ctrl+U
+            move = idx - self.page() // 2
+        elif code in (6, curses.KEY_NPAGE):               # Ctrl+F
+            move = idx + self.page()
+        elif code in (2, curses.KEY_PPAGE):               # Ctrl+B
+            move = idx - self.page()
+        elif c == "l" or code in (10, 13, curses.KEY_RIGHT, curses.KEY_ENTER):
+            self.fold("o")
+        elif c == "h" or code == curses.KEY_LEFT:
+            self.fold("c")
+        elif c in ("/", "."):                              # «.» — это «/» в русской раскладке
+            self.mode, self.buf = "search", ""
+        elif c == ":":
+            self.mode, self.buf = "command", ""
+        elif c == "n":
+            self.jump(1)
+        elif c == "N":
+            self.jump(-1)
+        elif c == "m":
+            self.sort = "mem"
+        elif c == "c":
+            self.sort = "cpu"
+        elif c in ("?", ","):                              # «,» — это «?» в русской раскладке
+            self.mode = "help"
+        elif c == "q":
+            return "quit"
+        elif code == 27:
+            if self.query:
+                self.query = ""
+                self.flash("поиск снят")
+            else:
+                return "quit"
+        if move is not None and n:
+            self.sel = keys[max(0, min(n - 1, move))]
+        return None
+
+    def key_line(self, ch, code, c):
+        """Ввод после / или :. Готово — Enter, jj, оо, Ctrl+E; отмена — Esc."""
+        if code == 27:
+            self.mode, self.buf = "normal", ""
+            return None
+        done = code in (10, 13, 5, curses.KEY_ENTER)     # 5 — Ctrl+E
+        if c == "j" and self.buf.endswith(("j", "о")) and time.time() - self.last_j < 0.6:
+            self.buf, done = self.buf[:-1], True
+        if done:
+            text, mode = self.buf.strip(), self.mode
+            self.mode, self.buf = "normal", ""
+            if mode == "search":
+                self.query = text
+                if text:
+                    self.jump(1, from_top=True)
+            else:
+                return self.command(text)
+            return None
+        if code in (8, 127, curses.KEY_BACKSPACE):
+            self.buf = self.buf[:-1]
+        elif code == 23:                                  # Ctrl+W — стереть слово
+            self.buf = self.buf.rstrip().rpartition(" ")[0]
+        elif isinstance(ch, str) and ch.isprintable():
+            self.buf += ch
+            if c == "j":
+                self.last_j = time.time()
+        return None
+
+    def command(self, text):
+        word = text.split()
+        if not word:
+            return None
+        if word[0] in ("q", "q!", "qa", "quit", "wq", "x"):
+            return "quit"
+        if word[0] == "sort" and len(word) > 1 and word[1] in ("mem", "cpu"):
+            self.sort = word[1]
+        elif word[0] == "kill":
+            self.ask_kill()
+        elif word[0] in ("help", "h"):
+            self.mode = "help"
+        else:
+            self.flash("нет такой команды: " + text)
+        return None
+
+    def matches(self, kind, obj):
+        q = self.query.lower()
+        alt = "".join({**{v: k for k, v in LATIN.items()}, **LATIN}.get(ch, ch) for ch in q)
+        if kind == "g":
+            hay = (obj["name"] + " " + obj["summary"]).lower()
+        elif kind == "p":
+            hay = ("%s %s %d" % (obj["comm"], obj["what"], obj["pid"])).lower()
+        else:
+            return False
+        return q in hay or alt in hay
+
+    def jump(self, step, from_top=False):
+        """n / N: к следующему совпадению; совпавший процесс в свёрнутой программе раскрывает её."""
+        if not self.query:
+            self.flash("сначала / и текст")
+            return
+        flat = []
+        key = (lambda g: -g["mem"]) if self.sort == "mem" else (lambda g: -g["cpu"])
+        for g in sorted(self.groups, key=key):
+            flat.append(("g", g["name"], g, g["name"]))
+            for r in g["procs"]:
+                flat.append(("p", r["pid"], r, g["name"]))
+        hits = [i for i, (k, ident, obj, _g) in enumerate(flat) if self.matches(k, obj)]
+        if not hits:
+            self.flash("не найдено: " + self.query)
+            return
+        cur = next((i for i, f in enumerate(flat) if (f[0], f[1]) == self.sel), -1)
+        if from_top:
+            target = hits[0]
+        elif step > 0:
+            target = next((i for i in hits if i > cur), hits[0])
+        else:
+            target = next((i for i in reversed(hits) if i < cur), hits[-1])
+        k, ident, _obj, gname = flat[target]
+        if k == "p":
+            self.open.add(gname)
+        self.sel = (k, ident)
+        self.flash("%d из %d" % (hits.index(target) + 1, len(hits)))
+
+    def fold(self, how):
+        name = self.group_of_sel()
+        if how == "R":
+            self.open = {g["name"] for g in self.groups}
+        elif how == "M":
+            self.open = set()
+            if name:
+                self.sel = ("g", name)
+        elif name:
+            if how == "o" or (how == "a" and name not in self.open):
+                self.open.add(name)
+            else:
+                self.open.discard(name)
+            self.sel = ("g", name)
+
+    def ask_kill(self):
+        """dd: завершить процесс или программу целиком — только после «точно?» (y)."""
+        kind, ident = self.sel
+        g = next((x for x in self.groups if x["name"] == self.group_of_sel()), None)
+        if kind == "p" and g:
+            r = next((x for x in g["procs"] if x["pid"] == ident), None)
+            if not r:
+                return
+            if r["pid"] in (1, os.getpid()) or r["comm"] in ("niri", "systemd", "Xwayland"):
+                self.flash("этот процесс завершать нельзя")
+                return
+            what = "%s (%s, pid %d)" % (r["what"][:30], r["comm"], r["pid"])
+            self.confirm = ("Завершить %s?" % what, lambda: self.kill([r["pid"]], what))
+        elif kind == "g" and g:
+            if g["name"] in PROTECTED or not g["procs"]:
+                self.flash("«%s» целиком не завершаю — раскройте (l) и выберите процесс" % g["name"])
+                return
+            pids = [r["pid"] for r in g["procs"]]
+            self.confirm = ("Закрыть %s целиком (%d процесс.)? Несохранённое пропадёт"
+                            % (g["name"], len(pids)), lambda: self.kill(pids, g["name"]))
+        else:
+            return
+        self.mode = "confirm"
+
+    def kill(self, pids, what):
+        import signal
+        done = 0
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                done += 1
+            except OSError:
+                pass
+        self.flash("завершено: %s" % what if done else "не вышло (нет прав?)")
+
+    def group_of_sel(self):
+        kind, ident = self.sel
+        if kind == "g":
+            return ident
+        current = None
+        for k, i, obj in self.rows():
+            if k == "g":
+                current = i
+            if (k, i) == self.sel:
+                return current
+        return None
+
+
+def main():
+    if "--once" in sys.argv:
+        return once()
+    if any(a in ("-h", "--help") for a in sys.argv[1:]):
+        print(__doc__)
+        return 0
+    curses.wrapper(lambda scr: UI(scr).run())
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        pass

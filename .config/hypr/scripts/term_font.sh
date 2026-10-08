@@ -16,6 +16,8 @@ SIZE_DEFAULT=12
 FONT="$1"
 [ -n "$FONT" ] || FONT=$(python3 "$HOME/.config/hypr/scripts/app_fonts.py" get termalt 2>/dev/null)
 [ -n "$FONT" ] || FONT="PxPlus HP 100LX 6x8"
+# Cozette нарисован на сетке 13 px: чёткий на 9.75 pt, на 12 pt замыливается.
+case "$FONT" in Cozette*) SIZE_DEFAULT=9.75 ;; esac
 SIZE="${2:-$SIZE_DEFAULT}"
 
 exec kitty --class jarvis-term-font --title "$FONT $SIZE pt" \

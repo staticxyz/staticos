@@ -160,7 +160,7 @@
     font-size: 16px;
 }
 
-/* Одна рамка, а не «рамка в рамке» (30.09.2026). Базовая тема swaync
+/* Одна рамка, а не «рамка в рамке» (30.09.2026, пользователь). Базовая тема swaync
    рисует внутри карточки ещё одну — .notification со своим фоном, рамкой и
    скруглением; наша рамка стоит снаружи, на .notification-background. Внутреннюю
    делаем прозрачной и без рамки. Полоска срочных слева остаётся (правило выше). */
@@ -204,7 +204,7 @@
 .notification-row .notification-background .notification .notification-default-action .notification-content {
     /* 30.09.2026: компактнее («уведомления стали большие, но не переборщить»):
        было 14/16 и картинка 56 — карточка выходила выше старой. */
-    padding: 2px 8px 3px 5px;       /* 01.10.2026: без больших пустот; «чуть-чуть увеличь» — +1–3 px */
+    padding: 1px 8px 1px 5px;       /* 07.10.2026: «чуть компактней» — было 2/3 (01.10: «чуть-чуть увеличь» от 1/2) */
 }
 .notification-row .notification-background .notification .notification-default-action .notification-content .image {
     /* Аватарка 36×36, круглая (01.10.2026). Картинка swaync растягивается по ВЫСОТЕ
@@ -217,20 +217,20 @@
        проверено перебором правил */
     margin: 4px 8px 4px 0;
 }
-/* 01.10.2026: убраны пустоты вокруг содержимого (пользователь отметил все стороны).
+/* 01.10.2026: убраны пустоты вокруг содержимого (Пользователь отметил все стороны).
    Отступы у swaync вложены: карточка 6/12 + область нажатия 4 + содержимое +
    поля кнопок действий — в сумме ~26 px слева и ~14 снизу. Ужато до 3–6 px. */
 .floating-notifications .notification-row .notification-background,
-.notification-row .notification-background { padding: 4px 5px; }
-.notification-row .notification-background .notification .notification-default-action { padding: 8px 2px 2px 2px; }   /* сверху 8: полоска-таймер (3 px) рисуется на .notification, заголовок не должен в неё упираться */
+.notification-row .notification-background { padding: 3px 5px; }   /* 07.10: было 4px 5px */
+.notification-row .notification-background .notification .notification-default-action { padding: 6px 2px 1px 2px; }   /* 07.10: 8→6, снизу 2→1; сверху 6: полоска-таймер (3 px) рисуется на .notification, заголовок не должен в неё упираться */
 .notification-row .notification-background .notification .notification-alt-actions { padding: 2px 3px 4px 3px; }
 .notification-row .notification-background .notification .notification-action { margin: 0 2px; }
 .notification-row .notification-background .notification .notification-action > button { margin: 0; padding: 2px 8px; }
 .notification-row .notification-background .notification .notification-default-action .notification-content .text-box .summary {
     color: var(--text-color);
     font-weight: bold;
-    font-size: 16px;
-    margin-bottom: 2px;
+    font-size: 12px;              /* 07.10.2026: «огромные» — 16 → 12, как текст под ним */
+    margin-bottom: 0;              /* 07.10: было 2px */
 }
 /* Кнопки действий («Mark as read») — мельче текста сообщения, а не крупнее
    (01.10.2026: «элементы не соразмерны»). */
@@ -269,7 +269,7 @@
     color: var(--accent);
 }
 
-/* Полоса-таймер сверху, как у Noctalia (пользователь прислал снимок, 30.09.2026):
+/* Полоса-таймер сверху, как у Noctalia (Пользователь прислал снимок, 30.09.2026):
    сжимается с обеих сторон к центру; исчезла — уведомление закрывается.
    Длительность = таймауты swaync из config.json: обычные 7 с, маловажные 4 с (было 8/4 — «долго висят», 5/3 — «очень быстро», 30.09.2026),
    у срочных таймаута нет — нет и полосы. Только у всплывающих, не в центре
@@ -333,7 +333,7 @@
 .notification-group.collapsed:hover .notification-row:not(:only-child) .notification {
     background-color: transparent;
 }
-/* Серые зоны вокруг раскрытой группы (04.10.2026, просьба: «что это за серые зоны»):
+/* Серые зоны вокруг раскрытой группы (04.10.2026, Просьба: «что это за серые зоны»):
    базовая тема красит строку с фокусом — .notification-row:focus, --noti-bg-focus.
    Группа получает фокус от щелчка, и вся её область становилась серой. */
 .notification-row:focus,

@@ -28,6 +28,7 @@ clipboard.rasi). Просьба: «то как он сейчас выгляди�
     Enter, щелчок по строке                        — посмотреть запись целиком (просмотр)
     в просмотре: Enter, «Скопировать»              — положить в буфер и закрыть
                  Esc, Backspace, «Назад»           — назад к списку; ↑↓ PgUp/PgDn — прокрутка
+                 Delete, d, корзина                — удалить запись и назад к списку (05.10.2026)
     ПКМ по строке, Ctrl+C                          — положить в буфер сразу, без просмотра
     Ctrl+S, щелчок по звезде                       — в избранное / из избранного
     Delete                                         — удалить запись (в «Избранном» —
@@ -294,14 +295,22 @@ gi.require_version("GtkLayerShell", "0.1")
 from gi.repository import Gdk, GLib, Gtk, GtkLayerShell, Pango, PangoCairo  # noqa: E402
 
 FONT = "PxPlus HP 100LX 6x8 Jarvis"
+# Проба Cozette (07.10.2026, Просьба: «попробуй clipboard.exe на Cozette, не понравится — откатим»).
+# Включено, пока есть файл state/clipboard-font со словом cozette; откат — удалить файл.
+try:
+    COZETTE = open(os.path.expanduser("~/.config/hypr/state/clipboard-font")).read().strip() == "cozette"
+except OSError:
+    COZETTE = False
+if COZETTE:
+    FONT = "CozetteVector"
 NAMESPACE = "jarvis-clipboard"
-TITLE = "Clipboard.exe"          # пользователь, 03.10.2026 (было «Буфер_обмена.txt»)
+TITLE = "Clipboard.exe"          # Пользователь, 03.10.2026 (было «Буфер_обмена.txt»)
 GAMES = (b"cs2", b"gamescope")
 
 # ── размеры ─────────────────────────────────────────────────────────────────
 # 600, а не 560: знак пиксельного шрифта — 12 px, и четыре вкладки со счётчиками
 # в 560 не помещаются.
-W, H = 600, 640
+W, H = 880, 700          # 07.10.2026: шире (600→880); выше (540→700)
 # Размытие вокруг окна (03.10.2026: «не вижу блюра вокруг окна. Как в
 # Super+Space»): размыт весь экран, как под rofi, — это делают слои-ловцы
 # «jarvis-clipboard-catch» во весь экран (правило niri blur, xray false), они же
@@ -366,19 +375,22 @@ def set_geometry(style):
     global X0, CW, SEARCH_Y, SEARCH_H, TABS_Y, TAB_H, LIST_Y, LIST_H, LX, LW
     global FOOT_H, FOOT_Y, IMG_ROW, TXT_ROW, TXT_ROW_S, TW, TH
     if style == "skeet":
-        # 12 px, как у Skeet в Настройках (там .skeet label { font-size: 12px })
-        BORDER, TOP, TB, CAP, PAD, PX, LINE = 6, 8, 20, 14, 10, 12, 15
-        SEARCH_H, TAB_H, FOOT_H, GAP, K, BAR, DLG_B = 22, 20, 14, 2, 1, 4, 2
-        TW, TH, pad = 112, 63, 7
+        # 16 px (05.10.2026: пиксельный шрифт чёткий только на 8/16/24 px; было 12 — мылилось,
+        # а правило fontconfig «12 → 16» ломало строки, рассчитанные под 12)
+        BORDER, TOP, TB, CAP, PAD, PX, LINE = 6, 8, 24, 14, 10, 16, 20
+        SEARCH_H, TAB_H, FOOT_H, GAP, K, BAR, DLG_B = 26, 24, 18, 2, 1, 4, 2
+        TW, TH, pad = 80, 45, 5          # 07.10.2026: записи мельче (было 112×63, 7)
     elif style == "beta":
         BORDER, TOP, TB, CAP, PAD, PX, LINE = 2, 2, 26, 18, 10, 16, 20
         SEARCH_H, TAB_H, FOOT_H, GAP, K, BAR, DLG_B = 30, 26, 18, 0, 2, 4, 1
-        TW, TH, pad = 144, 81, 9
+        TW, TH, pad = 96, 54, 6
     else:
         BORDER, TOP, TB, CAP, PAD, PX, LINE = 3, 3, 22, 16, 10, 16, 20
         SEARCH_H, TAB_H, FOOT_H, GAP, K, BAR, DLG_B = 32, 26, 18, 4, 2, 6, 3
-        TW, TH, pad = 144, 81, 9
+        TW, TH, pad = 96, 54, 6
     ADV = PX * 3 // 4                  # знак PxPlus — 0,75 кегля
+    if COZETTE:                        # Cozette чёткий на 13 px, знак 6 px, строка плотнее
+        PX, LINE, ADV = 13, 17, 6
     STAR = 9 * K                       # значки 9×9 «пикселями» шрифта
     X0 = BORDER + PAD
     CW = W - 2 * X0
@@ -397,9 +409,10 @@ def set_geometry(style):
         LIST_Y = TABS_Y + TAB_H + 8
         LX, LW = X0, CW
         LIST_H = FOOT_Y - 6 - LIST_Y
-    IMG_ROW = TH + (13 if style != "skeet" else 10)
-    TXT_ROW = 2 * pad + 3 * LINE - (LINE - PX) + 2      # две строки текста и строка сведений
-    TXT_ROW_S = 2 * pad + 2 * LINE - (LINE - PX) + 2    # одна строка текста и строка сведений
+    IMG_ROW = TH + 8                    # 07.10.2026: картинка + одна строка сведений
+    # 07.10.2026, Просьба: «сделай компактнее» — запись текста в одну строку: текст слева,
+    # размер справа (было: 1–2 строки текста + строка «Текст · 106 Б»)
+    TXT_ROW = TXT_ROW_S = 2 * pad + PX + 4
 
 
 set_geometry("default")
@@ -715,7 +728,12 @@ class Entry:
             return IMG_ROW
         return TXT_ROW if len(self.preview) > (LW - BAR - 4 - 34 - STAR) // ADV else TXT_ROW_S
 
-    def meta_line(self):
+    def meta_line(self, short=False):
+        if short and self.kind != "image":      # строка списка: только размер и строки
+            parts = [fmt_size(self.size)] if self.size is not None else []
+            if self.lines and self.lines > 1:
+                parts.append("%d стр." % self.lines)
+            return " · ".join(parts)
         if self.kind == "image":
             return " · ".join(p for p in ("%d×%d" % (self.w, self.h) if self.w else "",
                                           fmt_size(self.size), self.fmt.upper()) if p)
@@ -880,7 +898,7 @@ class Win(Gtk.Window):
 
 
 class App:
-    # Режимы, как в nvim (03.10.2026): обычный — буквы управляют (H/L вкладки,
+    # Режимы, как в nvim (03.10.2026, пользователь): обычный — буквы управляют (H/L вкладки,
     # j/k строки, g/G начало/конец, y скопировать, d удалить, / — в поиск), ничего не
     # вводится; поиск — буквы идут в строку, Esc — обратно в обычный. Ctrl+E — сменить режим.
     # l — зайти в запись, h — выйти; вкладки — Shift+H/L или Tab (уточнение пользователя).
@@ -1469,13 +1487,24 @@ class App:
             self.refilter(keep=True)
         self.win.area.queue_draw()
 
-    def delete(self):
-        e = self.current()
-        if e is None:
-            return
+    def is_fav(self, e):
+        """Запись в избранном: сама из «Избранного» или та же запись в истории."""
         if e.src == "fav":
-            self.unfav(e.sha)
-            return
+            return True
+        if e.sha is None:                             # фоновый счёт ещё не дошёл — посчитать сейчас
+            data = self.content(e)
+            import hashlib
+            e.sha = hashlib.sha256(data).hexdigest() if data else ""
+        return bool(e.sha) and any(r["sha"] == e.sha for r in self.favs)
+
+    def delete(self, e=None):
+        """Избранное не удаляется — сначала снять звезду (F). 08.10.2026."""
+        e = e or self.current()
+        if e is None:
+            return False
+        if self.is_fav(e):
+            self.say("В избранном — сначала снимите F")
+            return False
         run([CLIPHIST, "delete"], (e.cid + "\t" + e.preview + "\n").encode())
         try:
             os.remove(os.path.join(THUMBS, e.cid + ".png"))
@@ -1486,6 +1515,23 @@ class App:
         self.meta_dirty = True
         self.refilter(keep=True)
         self.win.area.queue_draw()
+        return True
+
+    def view_delete(self):
+        """Удалить открытую в просмотре запись и вернуться к списку (05.10.2026).
+        То же удаление, что Delete в списке: в «Избранном» — убрать из избранного."""
+        e = self.view
+        if e is None:
+            return
+        if self.is_fav(e):                           # избранное не удаляется, просмотр остаётся
+            self.say("В избранном — сначала снимите F")
+            return
+        self.sound("click")
+        self.back()
+        if e in self.rows:                           # вернуть выбор на неё — refilter(keep) встанет рядом
+            self.sel = self.rows.index(e)
+        if self.delete(e):
+            self.say("Удалено")
 
     def wipe(self):
         """Очистить всю историю cliphist. Избранное лежит отдельно и остаётся."""
@@ -1572,6 +1618,8 @@ class App:
             return True
         if k == K.KEY_Escape:
             self.close("Esc")
+        elif ctrl and (code == 24 or k in (K.KEY_q, K.KEY_Q, K.KEY_Cyrillic_shorti, K.KEY_Cyrillic_SHORTI)):
+            self.close("Ctrl+Q")
         elif k in (K.KEY_Return, K.KEY_KP_Enter) and ctrl:  # Ctrl+Enter — скопировать сразу
             self.activate()
         elif k in (K.KEY_Return, K.KEY_KP_Enter):
@@ -1683,12 +1731,19 @@ class App:
         K = Gdk
         _x, _y, h, _t, s = self.sc()
         plain = not ctrl and not alt
+        if ctrl and (code == 24 or k in (K.KEY_q, K.KEY_Q, K.KEY_Cyrillic_shorti, K.KEY_Cyrillic_SHORTI)):
+            self.close("Ctrl+Q")
+            return True
         if ctrl and code in (40, 30):                      # Ctrl+D / Ctrl+U — полэкрана
             self.set_sc(s + (h // 2 if code == 40 else -(h // 2)))
             self.win.area.queue_draw()
             return True
         if k in (K.KEY_Escape, K.KEY_BackSpace) or (plain and code == 43):   # h — назад
             self.back()
+        elif (k in (K.KEY_Delete, K.KEY_KP_Delete) and not self.shift_now) \
+                or (plain and code == 40 and not self.shift_now):   # Del, d — удалить (05.10.2026)
+            self.view_delete()
+            return True
         elif k in (K.KEY_Return, K.KEY_KP_Enter) or copy_key or (plain and code in (29, 54)) \
                 or (plain and k == K.KEY_space):           # y, c, Space
             self.activate(self.view)
@@ -1719,10 +1774,13 @@ class App:
 
     # ── просмотр записи целиком ────────────────────────────────────────────
     def view_btns(self):
-        """Кнопки просмотра: («Назад», «Скопировать») — в строке поиска."""
+        """Кнопки просмотра: («Назад», «Удалить», «Скопировать») — в строке поиска.
+        «Удалить» (05.10.2026) — квадрат с корзиной, как «очистить» в списке, слева от «Скопировать»."""
         pad = 8 if self.style == "skeet" else 12
         bw, cw = 7 * ADV + 2 * pad, 11 * ADV + 2 * pad
-        return (X0, SEARCH_Y, bw, SEARCH_H), (X0 + CW - cw, SEARCH_Y, cw, SEARCH_H)
+        copy = (X0 + CW - cw, SEARCH_Y, cw, SEARCH_H)
+        dele = (copy[0] - (6 if self.style == "skeet" else 8) - SEARCH_H, SEARCH_Y, SEARCH_H, SEARCH_H)
+        return (X0, SEARCH_Y, bw, SEARCH_H), dele, copy
 
     def view_box(self):
         top = TABS_Y + (PX // 2 + 2 if self.style == "skeet" else 0)
@@ -1761,6 +1819,7 @@ class App:
                 c.paint()
                 v["surf"] = out
                 v["cap"] = "Картинка · %d×%d · %s · %s" % (w, h, fmt_size(len(data)), (e.fmt or "").upper())
+                v["cap_short"] = "%d×%d · %s" % (w, h, fmt_size(len(data)))
         else:
             v["w"] = bw - 2 * pad - BAR - 6
             text = data.decode("utf-8", "replace")
@@ -1789,6 +1848,8 @@ class App:
             v.update(lay=lay, lines=lines, total=lay.get_pixel_size()[1] + 4)
             v["cap"] = "Текст · %s · %d %s" % (fmt_size(len(data)), n_lines,
                                                plural(n_lines, "строка", "строки", "строк"))
+            v["cap_short"] = "%s · %d %s" % (fmt_size(len(data)), n_lines,
+                                            plural(n_lines, "строка", "строки", "строк"))
         self.vdata = v
         self.win.area.queue_draw()
 
@@ -1933,9 +1994,11 @@ class App:
         if self.inside(self.zone_close(), x, y):
             self.close("крестик")
         elif self.view is not None:
-            back, copy = self.view_btns()
+            back, dele, copy = self.view_btns()
             if self.inside(back, x, y):
                 self.back()
+            elif self.inside(dele, x, y):
+                self.view_delete()
             elif self.inside(copy, x, y):
                 self.activate(self.view)
             elif self.thumb_geom() and self.inside(self.zone_bar(), x, y):
@@ -1987,7 +2050,7 @@ class App:
         if not self.confirm:
             zones = [("pin", self.zone_pin()), ("close", self.zone_close())]
             if self.view is not None:
-                zones += list(zip(("back", "copy"), self.view_btns()))
+                zones += list(zip(("back", "del", "copy"), self.view_btns()))
             else:
                 zones.append(("trash", self.zone_trash()))
             for name, zone in zones:
@@ -2374,12 +2437,18 @@ class App:
     # ── просмотр ───────────────────────────────────────────────────────────
     def draw_view(self, cr):
         C, st, v = self.C, self.style, self.vdata
-        back, copy = self.view_btns()
+        back, dele, copy = self.view_btns()
         self.button(cr, back, kind="dlg", label="← Назад", hover=self.hover == "back")
+        self.button(cr, dele, kind="trash", bmp=TRASH_BMP, hover=self.hover == "del")
         self.button(cr, copy, on=True, kind="dlg", label="Скопировать", hover=self.hover == "copy")
-        cx = back[0] + back[2] + 10
-        self.text(cr, v.get("cap", ""), cx, SEARCH_Y + (SEARCH_H - PX) // 2, C["dim"],
-                  copy[0] - 10 - cx, align=Pango.Alignment.CENTER)
+        cx = back[0] + back[2] + 8
+        room = dele[0] - 8 - cx
+        cap = v.get("cap", "")
+        # подпись не влезает между кнопками — короткая, без «Текст ·»/«Картинка ·» (05.10.2026)
+        if self.layout(cr, cap).get_pixel_size()[0] > room:
+            cap = v.get("cap_short", cap)
+        self.text(cr, cap, cx, SEARCH_Y + (SEARCH_H - PX) // 2, C["dim"],
+                  room, align=Pango.Alignment.CENTER)
         bx, by, bw, bh = self.view_box()
         if st == "skeet":
             self.rect_fill(cr, bx, by, bw, bh, C["gdark"], 0.55)
@@ -2509,24 +2578,20 @@ class App:
                 draw_bitmap(cr, IMG_BMP, px + (TW - 9 * (K + 1)) // 2, py + (TH - 7 * (K + 1)) // 2, K + 1)
             if st == "skeet":
                 self.rect_line(cr, px - 1, py - 1, TW + 2, TH + 2, C["line3"])
+            # 07.10.2026: одна строка — «777×730 · 34 КБ · PNG»; слово «Картинка» и подсказка
+            # убраны (картинку видно по миниатюре, Enter/ПКМ — в подсказке внизу)
             tx = px + TW + 14
             tw = sx - 10 - tx
-            n = 3 if sel else 2
-            ty = y + (h - (n * LINE - (LINE - PX))) // 2
-            cr.set_source_rgb(*fg)
-            draw_bitmap(cr, IMG_BMP, tx, ty + (PX - 7 * K) // 2, K)
-            self.text(cr, "Картинка", tx + 9 * K + 8, ty, fg, tw - 26)
-            self.text(cr, e.meta_line(), tx, ty + LINE, dim, tw)
-            if sel:
-                self.text(cr, "Enter — посмотреть · ПКМ — в буфер", tx, ty + 2 * LINE, dim, tw)
+            ty = y + (h - PX) // 2
+            self.text(cr, e.meta_line(), tx, ty, fg if sel else dim, tw)
         else:
             tx = x + 10
-            tw = sx - 12 - tx
-            long = h == TXT_ROW
-            n = 3 if long else 2
-            ty = y + (h - (n * LINE - (LINE - PX) + 2)) // 2
-            self.text(cr, e.preview or "(пусто)", tx, ty, fg, tw, 2 if long else 1)
-            self.text(cr, e.meta_line(), tx, ty + (2 * LINE if long else LINE) + 2, dim, tw)
+            meta = e.meta_line(short=True)
+            mw = self.layout(cr, meta).get_pixel_size()[0] if meta else 0
+            ty = y + (h - PX) // 2
+            self.text(cr, e.preview or "(пусто)", tx, ty, fg, sx - 12 - tx - (mw + 14 if mw else 0))
+            if meta:
+                self.text(cr, meta, sx - 16 - mw, ty, dim)
         if starred:
             cr.set_source_rgb(*(C["sel_star"] if sel else C["star_on"]))
         else:
@@ -2538,7 +2603,9 @@ class App:
         hints = {"pin": "Открепить" if self.pinned else "Закрепить: окно не закроется после вставки",
                  "close": "Закрыть (Esc)", "trash": "Очистить историю (Shift+Del)",
                  "bar": "Тяните ползунок или щёлкните по полосе",
-                 "back": "Назад к списку (Esc)", "copy": "Положить в буфер (Enter, ПКМ, Ctrl+C)"}
+                 "back": "Назад к списку (Esc)", "copy": "Положить в буфер (Enter, ПКМ, Ctrl+C)",
+                 "del": "Удалить (Del)" if not (self.view and self.is_fav(self.view))
+                 else "В избранном — удалить можно, сняв F"}
         left, color = self.status, C["accent"]
         if not left and self.hover in hints:
             left, color = hints[self.hover], C["text"]
@@ -2546,10 +2613,15 @@ class App:
             left = "Закреплено — окно не закроется после вставки"
         if not left and self.query.strip():
             left = "найдено: %d" % len(self.rows)
-        lay = self.layout(cr, "Enter — скопировать · Esc — назад" if self.view is not None
+        lay = self.layout(cr, "Enter — скопировать · Del — удалить · Esc — назад" if self.view is not None
                           else ("-- ПОИСК -- · Esc — выйти" if self.insert
+                                else "Enter — посмотреть · ПКМ — в буфер · f — избранное"
+                                if (self.current() is not None and self.current().kind == "image")
                                 else "f — избранное · Ctrl+E — режим"))
         hw = lay.get_pixel_size()[0]
+        if hw > CW and self.view is not None:          # 16 px шрифт: полная строка шире окна (05.10.2026)
+            lay = self.layout(cr, "Enter — копия · Del — удалить · Esc — назад")
+            hw = lay.get_pixel_size()[0]
         lw = self.text(cr, left, X0, FOOT_Y, color, CW)[0] if left else 0
         if lw + 24 <= CW - hw:                        # подсказка — если рядом с сообщением есть место
             cr.set_source_rgba(*C["dim"], 0.8)

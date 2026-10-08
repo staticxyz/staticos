@@ -5,6 +5,8 @@
     monitor_brightness.py get         яркость 0..100 (спрашивает монитор, ~0,3 с)
     monitor_brightness.py last        последняя известная яркость, мгновенно
     monitor_brightness.py set N       поставить яркость
+    monitor_brightness.py contrast get|set N
+                                      контраст (VCP 12) — для глубокого приглушения
 
 Экран ноутбука DDC не умеет — его яркость у brightnessctl. MSI MAG 255XF
 отвечает по шине i2c без root: у шин монитора права выдаёт вход в систему
@@ -107,6 +109,22 @@ def main():
                 return 1
             print(v)
             return 0
+        if args[:1] == ["contrast"] and len(args) in (2, 3):
+            bus, _ = bus_and_value()
+            if not bus:
+                return 1
+            if args[1:] == ["get"]:
+                r = subprocess.run(DDC + ["--bus", bus, "getvcp", "12", "--brief"],
+                                   capture_output=True, text=True, timeout=10)
+                m = re.search(r"VCP 12 C (\d+) (\d+)", r.stdout)
+                if not m:
+                    return 1
+                print(round(int(m.group(1)) * 100 / (int(m.group(2)) or 100)))
+                return 0
+            if args[1] == "set" and len(args) == 3 and args[2].isdigit():
+                n = max(0, min(100, int(args[2])))
+                return subprocess.run(DDC + ["--bus", bus, "setvcp", "12", str(n), "--noverify"],
+                                      capture_output=True, timeout=10).returncode
         if len(args) == 2 and args[0] == "set" and args[1].isdigit():
             n = max(0, min(100, int(args[1])))
             bus, _ = bus_and_value()

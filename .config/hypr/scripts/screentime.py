@@ -43,7 +43,7 @@ MONTHS_RU = ["января", "февраля", "марта", "апреля", "м
              "августа", "сентября", "октября", "ноября", "декабря"]
 
 # Имена, которые .desktop даёт неудачно или не даёт вовсе. Английские —
-# пользователь просил названия программ по-английски (память appmem-names).
+# Пользователь просил названия программ по-английски (память appmem-names).
 NAMES = {
     "kitty": "kitty terminal",
     "zen": "Zen Browser",
@@ -235,6 +235,28 @@ def app_name(app_id):
 
 # ── сводки ────────────────────────────────────────────────────────────────
 
+def focus_stats(date):
+    """Фокус и помидор за день (focus_mode.day_stats) или None, если модуля нет."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import focus_mode
+        return focus_mode.day_stats(date)
+    except Exception:
+        return None
+
+
+def focus_line(st):
+    """«Фокус 1 ч 20 мин · помидоров 3 · отвлечений 2» — или пусто."""
+    if not st or (st["focus"] < 60 and not st["pomos"] and not st["blocks"]):
+        return ""
+    parts = ["Фокус " + fmt_dur(st["focus"])]
+    if st["pomos"]:
+        parts.append("помидоров %d" % st["pomos"])
+    if st["blocks"]:
+        parts.append("отвлечений %d" % st["blocks"])
+    return " · ".join(parts)
+
+
 def summary(kind):
     poke_daemon()
     today = datetime.date.today()
@@ -272,12 +294,22 @@ def print_text(kind):
         avg = s["total"] / len(active) if active else 0
         print("Экранное время за 7 дней (%s — %s): %s, в среднем %s в день"
               % (s["from"], s["to"], fmt_dur(s["total"]), fmt_dur(avg)))
+        fs = [focus_stats(datetime.date.fromisoformat(d["date"])) for d in s["days"]]
+        if all(fs):
+            tot = {"focus": sum(f["focus"] for f in fs), "pomos": sum(f["pomos"] for f in fs),
+                   "blocks": sum(f["blocks"] for f in fs)}
+            fl = focus_line(tot)
+            if fl:
+                print("  " + fl)
         for d in s["days"]:
             dt = datetime.date.fromisoformat(d["date"])
             print("  %s %s  %s" % (DAYS_RU[dt.weekday()], dt.strftime("%d.%m"),
                                    fmt_dur(d["total"]) if d["total"] >= 60 else "—"))
     else:
         print("Экранное время сегодня (%s): %s" % (s["date"], fmt_dur(s["total"])))
+        fl = focus_line(focus_stats(datetime.date.today()))
+        if fl:
+            print("  " + fl)
         if s["hours"]:
             peak = max(s["hours"].items(), key=lambda x: x[1])
             print("  Больше всего в час %s:00–%s:00 — %s"
@@ -500,7 +532,7 @@ def build_view_class():
 
             left = 46 if hourly else 0     # место под «30 м» / «1 ч» слева
             top = 12 if hourly else 22      # у недели сверху подписи сумм
-            base = h - 22                  # ось; под ней подписи
+            base = h - 24                  # ось; под ней полоса фокуса и подписи
             ch = base - top
             if hourly:
                 vmax = 3600
@@ -520,7 +552,7 @@ def build_view_class():
                 cr.line_to(w, y)
                 cr.stroke()
                 if hourly:
-                    self.text(cr, lab, left - 6, y - 6, dim, align="right")
+                    self.text(cr, lab, left - 6, y - 6, dim, px=8, align="right")   # 16 px не влезает в левое поле
             cr.set_source_rgba(*rgba(pal["on_surface_variant"], 0.40))
             cr.move_to(left, base + 0.5)
             cr.line_to(w, base + 0.5)
@@ -557,6 +589,17 @@ def build_view_class():
                             cr.rectangle(x, y - gh, bw, gh)
                         cr.fill()
                     y -= sh
+                # Полоса фокуса под осью: доля часа (дня — доля экранного времени),
+                # проведённая в фокусе или на рабочем отрезке помидора (06.10.2026).
+                fsec = v.focus_of(i)
+                if fsec >= 60:
+                    frac = min(1.0, fsec / (3600 if hourly else max(total, fsec)))
+                    cr.set_source_rgba(*rgba(pal["primary"], 0.25))
+                    cr.rectangle(x, base + 2, bw, 3)
+                    cr.fill()
+                    cr.set_source_rgba(*rgba(pal["primary"]))
+                    cr.rectangle(x, base + 2, max(2, round(bw * frac)), 3)
+                    cr.fill()
                 if not hourly and total >= 60:
                     self.text(cr, fmt_dur(total, short=True), x + bw / 2, y - 18,
                               rgba(pal["on_surface"] if current else pal["on_surface_variant"]))
@@ -566,11 +609,11 @@ def build_view_class():
                 if hourly and current and i % 3 != 0:
                     # Текущий час отмечен точкой: число здесь налезло бы на соседние.
                     cr.set_source_rgba(*rgba(pal["primary"]))
-                    cr.rectangle(x + bw / 2 - 2, base + 6, 4, 4)
+                    cr.rectangle(x + bw / 2 - 2, base + 8, 4, 4)
                     cr.fill()
                     continue
                 col = rgba(pal["primary"]) if current else dim
-                self.text(cr, label, left + i * pitch + pitch / 2, base + 5, col)
+                self.text(cr, label, left + i * pitch + pitch / 2, base + 7, col)
             return True
 
     class View(Gtk.Box):
@@ -609,6 +652,11 @@ def build_view_class():
             self.lbl_sub.get_style_context().add_class("sub")
             tot.pack_start(self.lbl_total, False, False, 0)
             tot.pack_start(self.lbl_sub, False, False, 0)
+            self.lbl_focus = Gtk.Label(xalign=0)
+            self.lbl_focus.get_style_context().add_class("sub")
+            self.lbl_focus.get_style_context().add_class("focus")
+            self.lbl_focus.set_no_show_all(True)
+            tot.pack_start(self.lbl_focus, False, False, 0)
             self.pack_start(tot, False, False, 0)
 
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -651,6 +699,23 @@ def build_view_class():
                                    for x in dates]
             self.rank = ranked(self.apps)
             self.order = [a for a, _s in self.rank[:TOP]]
+            # фокус и помидор: по часам сегодня или по дням недели
+            if self.mode == "today":
+                st = focus_stats(today)
+                self._focus = [(st or {}).get("hours", {}).get(hh, 0) for hh in range(24)]
+                self._focus_total = st
+            else:
+                sts = [focus_stats(x) for x in dates]
+                self._focus = [(x or {}).get("focus", 0) for x in sts]
+                self._focus_total = None if not all(sts) else {
+                    "focus": sum(x["focus"] for x in sts), "pomos": sum(x["pomos"] for x in sts),
+                    "blocks": sum(x["blocks"] for x in sts)}
+
+        def focus_of(self, i):
+            try:
+                return self._focus[i]
+            except (AttributeError, IndexError):
+                return 0
 
         def bars(self):
             return self._bars
@@ -681,6 +746,9 @@ def build_view_class():
                 if active:
                     sub += " · в среднем %s в день" % fmt_dur(total / len(active))
             self.lbl_sub.set_text(sub)
+            fl = focus_line(self._focus_total)
+            self.lbl_focus.set_text(fl)
+            self.lbl_focus.set_visible(bool(fl))
             self.show_hover(None)
             self.fill_list()
             self.lbl_foot.set_text(
@@ -706,6 +774,9 @@ def build_view_class():
                 return
             top = ranked(apps)[:2]
             parts = ", ".join("%s %s" % (app_name(a), fmt_dur(s)) for a, s in top)
+            fsec = self.focus_of(i)
+            if fsec >= 60:
+                parts += " · фокус " + fmt_dur(fsec)
             self.lbl_hover.set_text("%s — %s: %s" % (self._bar_names[i], fmt_dur(tot), parts))
 
         def fill_list(self):
@@ -814,6 +885,7 @@ def build_view_class():
         label.title { color: %(primary)s; font-size: 16px; }
         label.total { color: %(on_surface)s; font-size: 32px; }
         label.sub { color: %(on_surface_variant)s; font-size: 12px; }
+        label.focus { color: %(primary)s; }
         label.hover { color: %(on_surface_variant)s; font-size: 12px; }
         label.foot { color: alpha(%(on_surface_variant)s, 0.7); font-size: 12px; }
         label.name { color: %(on_surface)s; font-size: 16px; }

@@ -17,7 +17,7 @@
 (прозрачный, ввод только на рамке и плашке), рамка рисуется в координатах области и у
 края экрана просто уходит за него.
 
-Перетаскивание (04.10.2026): полоса вокруг области (снаружи, ~11 px) и
+Перетаскивание (04.10.2026, пользователь): полоса вокруг области (снаружи, ~11 px) и
 плашка — перенос; уголки и метки посередине сторон — размер. Пока тянут, запись на
 паузе: файл $S/hold, rec_session дописывает сегмент. Отпустили — новая область
 в $S/geom ("X,Y WxH", ширина и высота чётные), hold снят, rec_session начинает
@@ -42,6 +42,23 @@ from gi.repository import Gdk, GLib, Gtk, GtkLayerShell, Pango, PangoCairo  # no
 # Pango, а не cairo.show_text: только он подбирает запасной шрифт для значков
 # (у PxPlus их нет, а имена Nerd Font fontconfig подменяет на PxPlus же).
 FONT = Pango.FontDescription("PxPlus HP 100LX 6x8 Jarvis 12")   # 16 px — сетка шрифта
+
+
+def glib_signal_add(prio, signum, handler):
+    """Сигнал в главный цикл GLib. GLib.unix_signal_add устарел (PyGObject 3.52+) и однажды
+    исчезнет — тогда программа перестала бы запускаться (08.10.2026). Сначала замена
+    GLibUnix.signal_add, без неё — старое имя, без обоих — обычный signal.signal."""
+    from gi.repository import GLib
+    try:
+        from gi.repository import GLibUnix
+        return GLibUnix.signal_add(prio, signum, handler)
+    except (ImportError, AttributeError):
+        pass
+    try:
+        return GLib.unix_signal_add(prio, signum, handler)
+    except AttributeError:
+        import signal as _signal
+        _signal.signal(signum, lambda *_a: GLib.idle_add(lambda: handler() and False))
 
 
 def text_at(cr, s, x, cy, rgba):
@@ -85,7 +102,7 @@ def _rgb(v):
 
 C = {k: ([_rgb(x) for x in v] if isinstance(v, list) else _rgb(v))
      for k, v in rec_style.colors(STYLE).items()}
-if STYLE == "skeet":                          # 12 px, как Skeet в Настройках
+if STYLE == "skeet":                          # 16 px (12 pt): 12 px (9 pt) мылится — сетка 8 px, 05.10.2026
     FONT = Pango.FontDescription("PxPlus HP 100LX 6x8 Jarvis 9")
 
 
@@ -503,8 +520,8 @@ def main():
     win.show_all()
     win.get_window().input_shape_combine_region(cairo.Region(), 0, 0)
     GLib.timeout_add(500, tick)
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, quit_)
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, quit_)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, quit_)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, quit_)
     GLib.timeout_add_seconds(4 * 3600, quit_)  # страховка, если хозяин пропал
     Gtk.main()
 

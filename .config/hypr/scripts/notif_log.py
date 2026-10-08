@@ -86,7 +86,63 @@ def add(payload):
     save(items)
 
 
+# ── Обрезка центра уведомлений (07.10.2026) ──────────────────────────────────
+# Просьба: «достаточно очищать с конца, а не весь журнал: свежие могут быть нужны, старые нет».
+# swaync держал 139 уведомлений и 231 МиБ (сутки назад — 117). Списка по D-Bus он не
+# отдаёт, но номера уведомлений растут по порядку, а CloseNotification(номер) убирает
+# одно из центра. Поэтому: больше KEEP_CC — закрываем по возрастанию номера, то есть
+# самые старые, пока не останется KEEP_CC. Курсор (с какого номера искать) помнится,
+# пока жив тот же swaync; закрытие несуществующего номера ничего не делает.
+KEEP_CC = 50
+_trim = {"cursor": 1, "pid": None, "timer": None}
+
+
+def _cc(method, args=None, rtype=None):
+    from gi.repository import Gio, GLib
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+    r = bus.call_sync("org.erikreider.swaync.cc", "/org/erikreider/swaync/cc", "org.erikreider.swaync.cc",
+                      method, args, GLib.VariantType(rtype) if rtype else None, 0, 3000, None)
+    return r.unpack()[0] if rtype else None
+
+
+def trim_center():
+    from gi.repository import GLib
+    try:
+        pid = subprocess.run(["pgrep", "-xo", "swaync"], capture_output=True, text=True).stdout.strip()
+        if pid != _trim["pid"]:
+            _trim.update(pid=pid, cursor=1)
+        count = _cc("NotificationCount", None, "(u)")
+        tries = 0
+        while count > KEEP_CC and tries < 20000:
+            for _ in range(max(1, min(20, count - KEEP_CC))):   # не больше, чем надо убрать
+                _cc("CloseNotification", GLib.Variant("(u)", (_trim["cursor"],)))
+                _trim["cursor"] += 1
+                tries += 1
+            count = _cc("NotificationCount", None, "(u)")
+    except Exception:
+        pass
+
+
+def trim_spawn():
+    """Обрезка — в отдельном коротком процессе: gi (D-Bus) весит ~10 МиБ, сторожу он
+    нужен раз в несколько минут, держать его в памяти всё время незачем (07.10.2026)."""
+    subprocess.Popen([sys.executable, os.path.abspath(__file__), "trim"], stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def trim_later():
+    """Не на каждое уведомление сразу: через 5 с после последнего из пачки."""
+    import threading
+    t = _trim.get("timer")
+    if t:
+        t.cancel()
+    _trim["timer"] = threading.Timer(5, trim_spawn)
+    _trim["timer"].daemon = True
+    _trim["timer"].start()
+
+
 def watch():
+    trim_later()
     while True:
         try:
             p = subprocess.Popen(["busctl", "--user", "monitor", "--json=short", "--match=" + MATCH],
@@ -101,6 +157,7 @@ def watch():
                     continue
                 if msg.get("type") == "method_call" and msg.get("member") == "Notify":
                     add(msg.get("payload") or {})
+                    trim_later()
         except OSError:
             pass
         time.sleep(3)
@@ -113,6 +170,20 @@ def main():
         for e in load()[:n]:
             print(time.strftime("%d.%m %H:%M", time.localtime(e["t"])), "|", e["app"], "|",
                   e["summary"], "|", e["body"].replace("\n", " ")[:70])
+        return
+    if a[:1] == ["trim"]:
+        # курсор между запусками: файл в /run, сбрасывается с новым PID swaync
+        cur = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-notif-trim")
+        try:
+            pid, c = open(cur).read().split()
+            _trim.update(pid=pid, cursor=int(c))
+        except (OSError, ValueError):
+            pass
+        trim_center()
+        try:
+            open(cur, "w").write("%s %d" % (_trim["pid"], _trim["cursor"]))
+        except OSError:
+            pass
         return
     if a[:1] == ["clear"]:
         save([])

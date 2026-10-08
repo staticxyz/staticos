@@ -59,7 +59,7 @@ window { background-color: transparent; }
     /* Тёмный контур 1px снаружи рамки (14.09.2026): на светлых обоях светлая
        рамка акцента сливалась с фоном (календарь поверх #85a8e2). Мягкую тень
        с размытием убрали: окно обрезало её краем, и вокруг попапа стояла
-       полупрозрачная серая полоса (просьба: «некрасивая рамка»). Контуру
+       полупрозрачная серая полоса (Просьба: «некрасивая рамка»). Контуру
        хватает поля 2px. */
     margin: 2px;
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.60);
@@ -280,7 +280,49 @@ def add_ears(align, bottom=False):
     return True
 
 
-def css(extra="", **over):
+# Масштаб под системный шрифт (08.10.2026). Плашки рисовались под PxPlus 16 px; Cozette
+# чёткий только на 13 px — текст стал в 13/16 меньше, а кнопки, поля и ползунки остались
+# прежними («шрифт меньше стал, поэтому не сочетаются»). Пока действует правило fontswap
+# (61-cozette-trial.conf), CSS и явные размеры ужимаются в 13/16; под PxPlus — 1, всё как было.
+COZETTE_RULE = os.path.expanduser("~/.config/fontconfig/conf.d/61-cozette-trial.conf")
+FIT_FLAG = os.path.expanduser("~/.config/hypr/state/cozette-fit")   # cozette_fit.py on|off
+SCALE = 13 / 16 if os.path.exists(COZETTE_RULE) and os.path.exists(FIT_FLAG) else 1.0
+
+
+def px(n):
+    """Размер в пикселях под текущий шрифт. 1–3 px (рамки, волоски) не трогаются."""
+    if SCALE == 1 or not isinstance(n, (int, float)) or abs(n) <= 3:
+        return n
+    return int(round(n * SCALE))
+
+
+def scale_css(text):
+    """Ужимает px в CSS под шрифт, кроме font-size (кегль подравнивает правило fontconfig)
+    и значений до 3 px. Под PxPlus возвращает текст как есть."""
+    if SCALE == 1:
+        return text
+    import re
+
+    def decl(m):
+        prop = m.group(1).strip().lower()
+        if prop == "font-size":
+            # Cozette чёткий только на 13/26/39 px — 12 и 16 мылились (12 px подписи рядом
+            # с 13 px заголовками — «вид пока ужас»). Правило 61 ровняет кегль лишь у
+            # запросов к PxPlus, а плашки просят шрифт системы — ровняем здесь.
+            def snap(v):
+                n = float(v.group(1))
+                return "%dpx" % (13 if n < 20 else 26 if n < 33 else 39) if n > 3 else v.group(0)
+            return m.group(1) + ":" + re.sub(r"(\d+(?:\.\d+)?)px", snap, m.group(2))
+        if prop == "letter-spacing":
+            return m.group(0)
+        val = re.sub(r"(-?\d+(?:\.\d+)?)px",
+                     lambda v: "%dpx" % px(float(v.group(1))) if abs(float(v.group(1))) > 3
+                     else v.group(0), m.group(2))
+        return m.group(1) + ":" + val
+    return re.sub(r"([\w-]+)\s*:([^;{}]*)", decl, text)
+
+
+def css(extra="", scale=True, **over):
     """Готовый CSS: общий каркас + `extra`, подстановка ролей палитры.
 
     `over` добавляет свои имена в подстановку — так попап задаёт, какой ролью
@@ -291,6 +333,8 @@ def css(extra="", **over):
     # иначе строка подставляется как есть (можно передать готовый #rrggbb).
     p.update({k: p.get(v, v) for k, v in over.items()})
     out = BASE_CSS + extra
+    if scale:
+        out = scale_css(out)
     return (out % p).encode()
 
 
@@ -396,6 +440,12 @@ def cursor_local_x():
     return (spot["x"], spot["w"]) if spot else None
 
 
+# Попап открыт из нижней XP-панели (xpbar.py ставит JARVIS_POPUP_FROM=xpbar, 05.10.2026:
+# «ПКМ по звуку внизу — плашка открывается сверху, прилепленная к верхнему бару, криво»):
+# для него «бар снизу» — встаёт над нижней панелью, отдельной плашкой, без ушек.
+FROM_XPBAR = os.environ.get("JARVIS_POPUP_FROM") == "xpbar"
+
+
 def bar_position():
     """Где стоит бар: "top" или "bottom" — по текущему виду (looks/current.jsonc).
 
@@ -403,6 +453,8 @@ def bar_position():
     НАД ним, а не у верхнего края экрана, где бара нет.
     """
     import re
+    if FROM_XPBAR:
+        return "bottom"
     try:
         raw = open(os.path.expanduser("~/.config/waybar/looks/current.jsonc"),
                    encoding="utf-8").read()
@@ -420,7 +472,7 @@ def pill_span_at(mon, x, bar_h=32, gap_px=4):
     return None
 
 
-def pill_runs(mon, bar_h=32, gap_px=4):
+def pill_runs(mon, bar_h=32, gap_px=4, tight=False):
     """Границы пилюли бара под точкой x на мониторе mon: (left, right) или None.
 
     Waybar геометрию модулей не отдаёт, а попапу нужно встать ровно под
@@ -460,6 +512,28 @@ def pill_runs(mon, bar_h=32, gap_px=4):
                 start = v
             prev = v
         runs.append((int(start), int(prev)))
+        if tight:
+            # Между пилюлями бывает не тёмная подложка, а полупрозрачная полоса чуть
+            # светлее (08.10.2026: плеер и группа сети слиплись — щель 20 при фоне 14
+            # и пилюлях 37). Делим участок там, где ≥ 4 px заметно темнее фона пилюли.
+            out = []
+            for a, b in runs:
+                seg = col[a:b + 1]
+                dark = seg < np.percentile(seg, 25) - 8
+                cut, i = a, 0
+                while i < len(seg):
+                    if dark[i]:
+                        j = i
+                        while j < len(seg) and dark[j]:
+                            j += 1
+                        if j - i >= 4 and i > 0 and j < len(seg):
+                            out.append((cut, a + i - 1))
+                            cut = a + j
+                        i = j
+                    else:
+                        i += 1
+                out.append((cut, b))
+            runs = out
         return runs
     except Exception:
         return None
@@ -491,11 +565,19 @@ def bar_edge():
 # Попапы правой группы бара (network + bluetooth, затем раскладка, громкость):
 # откуда считать место, если курсор неизвестен — край пилюли группы и отступ, px.
 GROUP_ANCHOR = {"bluetooth_popup.py": ("left", 65),
+                "bt_stats_popup.py": ("left", 65),   # анализ Bluetooth — тот же значок
                 "wifi_popup.py": ("right", 174),
                 "volume_popup.py": ("right", 52),
                 # микрофон — в выдвижной группе звука, левее громкости (когда группа
                 # раскрыта); без курсора плашка уезжала к правому краю экрана
-                "mic_popup.py": ("right", 120)}
+                "mic_popup.py": ("right", 120),
+                # «lan» — первый модуль группы, у её левого края (05.10.2026)
+                "lan_popup.py": ("left", 32)}
+
+
+# Попапы, чьё место надёжнее взять по пилюле бара, чем по курсору:
+# (номер пилюли в снимке бара, отступ середины попапа от её левого края, px).
+PILL_PICK = {"lan_popup.py": (-3, 36)}
 
 
 def place_under_cursor(align, gap=6, edge=20, snap_to_pill=False, pill_width=None):
@@ -516,12 +598,14 @@ def place_under_cursor(align, gap=6, edge=20, snap_to_pill=False, pill_width=Non
     # Бар снизу (вид «Снизу») — попап над ним, у нижнего края слоя.
     if bar_position() == "bottom":
         align.set_valign(Gtk.Align.END)
-        align.set_margin_bottom(gap)
+        # над XP-панелью: слой кончается у её зоны, а панель заходит выше на bottom_overlap
+        align.set_margin_bottom(gap + (bottom_overlap() if FROM_XPBAR else 0))
     else:
         align.set_valign(Gtk.Align.START)
         if not attached_now:
             align.set_margin_top(gap)
     cur = cursor_local_x()
+    placed_by_pill = False
     # Слой — на монитор под указателем. Нужно для niri (см. pointer_spot); в
     # Hyprland монитор и так совпадает, там ничего не трогаем.
     if on_niri() and pointer_monitor() is not None:
@@ -570,6 +654,19 @@ def place_under_cursor(align, gap=6, edge=20, snap_to_pill=False, pill_width=Non
                 if run:
                     side, off = anchor
                     cur = (run[0] + off if side == "left" else run[1] - off, cur[1])
+    # «lan» — первый модуль группы, а группа — третья пилюля с конца (за ней часы и
+    # питание). Курсору тут не верим: niri отдаёт положение мыши только после движения,
+    # и плашка вставала на 50–150 px левее (журнал 08.10.2026: «щелчок» 1321 при lan
+    # на 1440–1490; Просьба: «иногда чуть левее»). Место — от левого края пилюли группы.
+    pick = PILL_PICK.get(key.split(":")[0])
+    if pick:
+        from gi.repository import Gdk
+        mon = pointer_monitor() or Gdk.Display.get_default().get_monitor(0)
+        runs = [r for r in (pill_runs(mon, bar_h=bar_height(), tight=True) or []) if r[1] - r[0] >= 10]
+        idx, off = pick
+        if len(runs) >= abs(idx) and 120 <= runs[idx][1] - runs[idx][0] <= 900:
+            cur = (runs[idx][0] + off, mon.get_geometry().width)
+            placed_by_pill = True
     if not cur:
         align.set_halign(Gtk.Align.END)
         align.set_margin_end(edge)
@@ -653,7 +750,7 @@ def place_under_cursor(align, gap=6, edge=20, snap_to_pill=False, pill_width=Non
     except OSError:
         pass
 
-    src = "курсор" if cursor_local_x() else "память"
+    src = "пилюля" if placed_by_pill else "курсор" if cursor_local_x() else "память"
 
     def on_alloc(widget, alloc):
         left = int(x - alloc.width / 2)
@@ -893,7 +990,7 @@ def place_side(align, spot=PLACE_DEFAULT, gap=6, edge=20, detach_in_hover=False)
     """Поставить карточку у края экрана: «<верх|низ>-<лево|центр|право>».
 
     Для окон, которые зовут с клавиши: под курсором они «прыгали» бы по
-    экрану — мышь в этот момент где угодно (пользователь 24.09.2026). «cursor»
+    экрану — мышь в этот момент где угодно (Пользователь 24.09.2026). «cursor»
     остаётся у попапов бара, его ставит place_under_cursor.
 
     Зазор считается от края слоя, а слой начинается уже под панелью (у бара

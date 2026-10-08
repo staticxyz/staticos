@@ -9,8 +9,13 @@
     top_bar.py apply               применить заново (пересобрать конфиг бара, перезапустить панели)
     top_bar.py opacity always|hover [20–100|default]   плотность фона бара (Настройки)
     top_bar.py blur [on|off]       размытие под баром в режиме «всегда» (Настройки)
+    top_bar.py watch ВЫХОД         сторож наведения одного монитора (панели по мониторам)
 
-пользователь (03.10.2026): «верхний бар пусть умеет исчезать и появляться по наведению —
+Панели по мониторам (panels.py, 06.10.2026): переключатель «На всех мониторах» снят —
+у каждого монитора свой waybar и свой режим; сторож наведения — свой на каждый монитор
+в режиме hover (`top_bar.py watch eDP-1`), автозапуск без аргументов их поднимает.
+
+Пользователь (03.10.2026): «верхний бар пусть умеет исчезать и появляться по наведению —
 снизу такое уже есть»; «хочу выбор: столы и окна только в панели снизу (XP) — тогда
 верхний waybar исчезает, а столы появляются снизу»; «и ещё выбор: обе панели, столы —
 в нижней, в верхней всё остальное, и она прячется и появляется при наведении».
@@ -49,6 +54,23 @@ BARFIX = os.path.expanduser("~/.local/bin/barfix")
 GAMES = (b"cs2", b"gamescope")
 
 
+def glib_signal_add(prio, signum, handler):
+    """Сигнал в главный цикл GLib. GLib.unix_signal_add устарел (PyGObject 3.52+) и однажды
+    исчезнет — тогда программа перестала бы запускаться (08.10.2026). Сначала замена
+    GLibUnix.signal_add, без неё — старое имя, без обоих — обычный signal.signal."""
+    from gi.repository import GLib
+    try:
+        from gi.repository import GLibUnix
+        return GLibUnix.signal_add(prio, signum, handler)
+    except (ImportError, AttributeError):
+        pass
+    try:
+        return GLib.unix_signal_add(prio, signum, handler)
+    except AttributeError:
+        import signal as _signal
+        _signal.signal(signum, lambda *_a: GLib.idle_add(lambda: handler() and False))
+
+
 def _read(path, allowed, default):
     try:
         v = open(path).read().strip()
@@ -68,9 +90,29 @@ def get_mode():
     return _read(MODE, MODES, "always")
 
 
+def panels_mod():
+    try:
+        sys.path.insert(0, HERE)
+        import panels
+        return panels if panels.per_monitor() else None
+    except Exception:
+        return None
+
+
+def modes_in_use():
+    """Режимы верхнего бара на мониторах: {выход: режим}; общий режим — {None: режим}."""
+    pn = panels_mod()
+    if pn is None:
+        return {None: get_mode()}
+    d = pn.load()
+    return {out: pn.top_for(out, d) for out in pn.top_outputs(d)}
+
+
 def ws_place():
     """Где столы на самом деле: без верхнего бара — только внизу."""
-    return "bottom" if get_mode() == "off" else _read(WS, ("top", "bottom"), "top")
+    if set(modes_in_use().values()) == {"off"}:
+        return "bottom"
+    return _read(WS, ("top", "bottom"), "top")
 
 
 def session_pids(name):
@@ -86,18 +128,31 @@ def session_pids(name):
     return out
 
 
-def daemon_pids():
+def daemon_pids(which=None):
+    """Сторожа наведения. which=None — общий (без аргументов); "*" — все, и общий, и
+    по мониторам; "eDP-1" — сторож этого монитора (`top_bar.py watch eDP-1`)."""
     me, out = os.getpid(), []
     for p in os.listdir("/proc"):
         if p.isdigit() and int(p) != me:
             try:
-                argv = open("/proc/%s/cmdline" % p, "rb").read().split(b"\0")
+                argv = [a for a in open("/proc/%s/cmdline" % p, "rb").read().split(b"\0") if a]
             except OSError:
                 continue
-            if len(argv) >= 2 and b"python" in os.path.basename(argv[0]) \
-                    and os.path.basename(argv[1]) == b"top_bar.py" and (len(argv) == 2 or argv[2] == b""):
+            if len(argv) < 2 or b"python" not in os.path.basename(argv[0]) \
+                    or os.path.basename(argv[1]) != b"top_bar.py":
+                continue
+            rest = argv[2:]
+            if (which is None and not rest) or (which == "*" and (not rest or rest[0] == b"watch")) \
+                    or (which not in (None, "*") and rest == [b"watch", which.encode()]):
                 out.append(int(p))
     return out
+
+
+def spawn_watchers():
+    """Панели по мониторам: по сторожу на каждый монитор в режиме hover."""
+    for out, mode in modes_in_use().items():
+        if out and mode == "hover" and not daemon_pids(out):
+            spawn_detached(sys.executable, os.path.abspath(__file__), "watch", out)
 
 
 def spawn_detached(*argv):
@@ -128,13 +183,19 @@ def blur_rule(mode):
     спрятанный waybar остаётся прозрачной поверхностью, и niri размывал под ним обои
     (сверху висела размытая полоса, 04.10.2026). Силу размытия niri задаёт одну на всю
     систему (cfg/blur.kdl), отдельно для бара её не бывает — поэтому здесь только вкл/выкл."""
+    ns = "waybar"
+    if panels_mod() is not None:
+        # Панели по мониторам: ключ "name" у waybar задаёт и имя слоя — tb-always / tb-hover.
+        # Размытие — только барам «всегда»; спрятанные hover-бары без него.
+        ns = "tb-always"
+        mode = "always" if "always" in modes_in_use().values() else "hover"
     if mode == "hover" or not blur_on():
         body = "// Пишет top_bar.py (blur_rule): без размытия под баром (%s).\n" % (
             "режим «при наведении»" if mode == "hover" else "выключено в Настройках")
     else:
         body = ("// Пишет top_bar.py (blur_rule): размытие под верхним баром.\n"
-                "layer-rule {\n    match namespace=r#\"^waybar$\"#\n"
-                "    background-effect {\n        blur true\n    }\n}\n")
+                "layer-rule {\n    match namespace=r#\"^%s$\"#\n"
+                "    background-effect {\n        blur true\n    }\n}\n" % ns)
     try:
         if open(BLUR_KDL).read() == body:
             return
@@ -180,20 +241,28 @@ def opacity_rule(mode=None):
     Что красить, зависит от вида бара: у «островов» фон у .modules-*, у «прозрачного»
     его нет вовсе (прозрачность — суть вида, не трогаем). bar_style.py зовёт это заново
     при смене вида. style.css импортирует файл — он должен существовать всегда."""
-    mode = mode or get_mode()
-    kind = "hover" if mode == "hover" else "always"
-    pct = get_opacity(kind)
     look = look_name()
-    if pct is None or look == "transparent":
-        body = "/* Пишет top_bar.py (opacity_rule): прозрачность — как у вида бара. */\n"
-    else:
+
+    def rule(kind, cls):
+        pct = get_opacity(kind)
+        if pct is None:
+            return ""
         a = "%.2f" % (pct / 100)
         if look == "islands":
-            sel = ", ".join("window#waybar.mode-default .modules-%s" % x for x in ("left", "center", "right"))
+            sel = ", ".join("window#waybar%s.mode-default .modules-%s" % (cls, x) for x in ("left", "center", "right"))
         else:
-            sel = "window#waybar.mode-default"
-        body = ("/* Пишет top_bar.py (opacity_rule): %s, плотность %d%%. */\n%s { background-color: %s; }\n"
+            sel = "window#waybar%s.mode-default" % cls
+        return ("/* Пишет top_bar.py (opacity_rule): %s, плотность %d%%. */\n%s { background-color: %s; }\n"
                 % (kind, pct, sel, "@bar-bg" if pct >= 100 else "alpha(@bar-bg, %s)" % a))
+    if look == "transparent":
+        body = ""
+    elif panels_mod() is not None:
+        # панели по мониторам: у каждого бара свой класс (waybar_niri.per_output)
+        body = rule("always", ".tb-always") + rule("hover", ".tb-hover")
+    else:
+        mode = mode or get_mode()
+        body = rule("hover" if mode == "hover" else "always", "")
+    body = body or "/* Пишет top_bar.py (opacity_rule): прозрачность — как у вида бара. */\n"
     try:
         if open(OPACITY_CSS).read() == body:
             return
@@ -206,15 +275,18 @@ def opacity_rule(mode=None):
 
 def apply():
     mode, ws = get_mode(), ws_place()
+    per = panels_mod() is not None
     opacity_rule(mode)
     blur_rule(mode)
-    for pid in daemon_pids():                     # сторож наведения — заново, под новый режим
+    for pid in daemon_pids("*"):                  # сторожа наведения — заново, под новый режим
         try:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             pass
     subprocess.run([sys.executable, GEN], capture_output=True)
-    if mode == "off":
+    if per:
+        subprocess.run([BARFIX], capture_output=True)       # barfix сам поднимет бары по мониторам
+    elif mode == "off":
         for pid in session_pids("waybar"):
             try:
                 os.kill(pid, signal.SIGTERM)
@@ -232,7 +304,9 @@ def apply():
         was_ws = ""
     _write(applied, ws)
     if was_ws == ws:
-        if mode == "hover":
+        if per:
+            spawn_watchers()
+        elif mode == "hover":
             spawn_detached(sys.executable, os.path.abspath(__file__))
         return
     # нижняя панель: со столами внизу она нужна обязательно — включаем XP, «всегда»
@@ -255,7 +329,9 @@ def apply():
             time.sleep(2.2)
             if not os.path.exists(flag):
                 subprocess.run([sys.executable, bb, "toggle"], capture_output=True)
-    if mode == "hover":
+    if per:
+        spawn_watchers()
+    elif mode == "hover":
         spawn_detached(sys.executable, os.path.abspath(__file__))
 
 
@@ -296,10 +372,18 @@ def cli(a):
         print(__doc__)
 
 
+WATCH_OUT = None          # сторож одного монитора (панели по мониторам)
 if __name__ != "__main__":
     pass
+elif sys.argv[1:2] == ["watch"] and len(sys.argv) == 3:
+    WATCH_OUT = sys.argv[2]
+    if panels_mod() is None or modes_in_use().get(WATCH_OUT) != "hover" or daemon_pids(WATCH_OUT):
+        sys.exit(0)
 elif sys.argv[1:]:
     cli(sys.argv[1:])
+    sys.exit(0)
+elif panels_mod() is not None:
+    spawn_watchers()          # автозапуск: по сторожу на монитор в режиме hover
     sys.exit(0)
 elif get_mode() != "hover" or daemon_pids():
     sys.exit(0)
@@ -321,15 +405,48 @@ if __name__ == "__main__":
     STRIP_H = 26           # высота нижней полоски (мышь не перепрыгнет)
     CHECK_S = 3            # как часто сверять, где мышь, пока бар показан
 
+    def niri_json(what):
+        try:
+            return json.loads(subprocess.run(["niri", "msg", "-j", what], capture_output=True,
+                                             text=True, timeout=3).stdout)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return None
+
     def gaming():
+        """Мониторы, где игра СЕЙЧАС на экране (её окно на активном столе монитора).
+        06.10.2026, Просьба: «верхний waybar перестал открываться на MSI» — раньше «идёт
+        игра» убирало датчики на всех мониторах, даже если с игрового стола ушли.
+        Игры нет среди процессов — пустое множество, к niri не ходим."""
+        running = False
         for p in os.listdir("/proc"):
             if p.isdigit():
                 try:
                     if open("/proc/%s/comm" % p, "rb").read().strip() in GAMES:
-                        return True
+                        running = True
+                        break
                 except OSError:
                     pass
-        return False
+        if not running:
+            return frozenset()
+        wins, wss = niri_json("windows"), niri_json("workspaces")
+        if wins is None or wss is None:
+            return frozenset(["*"])               # не узнали — по-старому, везде
+        active = {w["id"]: w.get("output") for w in wss if w.get("is_active")}
+        outs = set()
+        for w in wins:
+            app = (w.get("app_id") or "").lower()
+            if app in ("gamescope", "cs2") or app.startswith("steam_app_"):
+                if w.get("workspace_id") in active:
+                    outs.add(active[w["workspace_id"]])
+        return frozenset(outs)
+
+    def output_of(monitor):
+        g = monitor.get_geometry()
+        for name, o in (niri_json("outputs") or {}).items():
+            lg = o.get("logical") or {}
+            if (lg.get("x"), lg.get("y")) == (g.x, g.y):
+                return name
+        return ""
 
     def bar_bottom():
         """Нижний край бара от верха экрана: высота вида + отступ «от края экрана»."""
@@ -348,7 +465,8 @@ if __name__ == "__main__":
 
         def __init__(self, owner, monitor, top):
             super().__init__()
-            self.owner, self.top = owner, top
+            self.owner, self.top, self.monitor_ = owner, top, monitor
+            self.out = ""
             GtkLayerShell.init_for_window(self)
             GtkLayerShell.set_namespace(self, "jarvis-topbar-sensor")
             GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
@@ -384,7 +502,7 @@ if __name__ == "__main__":
             self.shown = False
             self.pid = None
             self.timer = None
-            self.game = False
+            self.game = frozenset()
             self.bad = 0          # сколько проверок подряд бар виден, хотя должен быть спрятан
             self.last_fix = 0.0
             self.tops, self.bottoms = [], []
@@ -402,33 +520,83 @@ if __name__ == "__main__":
                 out.append((g.x, g.y, g.width, g.height))
             return tuple(out)
 
+        def my_monitors(self):
+            """Мониторы сторожа: все — или один (`watch ВЫХОД`), по месту из niri."""
+            d = Gdk.Display.get_default()
+            mons = [d.get_monitor(i) for i in range(d.get_n_monitors())]
+            if not WATCH_OUT:
+                return mons
+            try:
+                o = json.loads(subprocess.run(["niri", "msg", "-j", "outputs"], capture_output=True,
+                                              text=True, timeout=3).stdout).get(WATCH_OUT) or {}
+                lg = o.get("logical") or {}
+            except (OSError, ValueError, subprocess.SubprocessError):
+                return []
+            return [m for m in mons if lg and (m.get_geometry().x, m.get_geometry().y) == (lg.get("x"), lg.get("y"))]
+
         def build_strips(self):
             """Полоски-датчики — по две на каждый монитор. Пересоздаются при смене набора
             мониторов (04.10.2026: подключили второй монитор — у него датчиков не было,
             и бар на нём не прятался и не выезжал)."""
             for s in self.tops + self.bottoms:
                 s.destroy()
-            d = Gdk.Display.get_default()
-            mons = [d.get_monitor(i) for i in range(d.get_n_monitors())]
+            mons = self.my_monitors()
             self.tops = [Strip(self, m, True) for m in mons]
             self.bottoms = [Strip(self, m, False) for m in mons]
+            for s in self.tops + self.bottoms:
+                s.out = output_of(s.monitor_)
             self.sig = self.mon_sig()
 
         def bar_visible_anywhere(self):
             """Есть ли у waybar поверхность в слое Top (показана): спрятанный бар лежит в
             Bottom. У каждого монитора своя поверхность, и показ/скрытие по сигналу у них
             могут разойтись — например, бар на только что подключённом мониторе стартует
-            показанным, пока бар на старом спрятан."""
+            показанным, пока бар на старом спрятан.
+            05.10.2026 (оптимизация): спрашиваем сокет niri напрямую — раньше раз в 2 с
+            запускался `niri msg -j layers` (~7 мс процессора на запуск); запасной путь — он же."""
+            layers = None
             try:
-                out = subprocess.run(["niri", "msg", "-j", "layers"], capture_output=True,
-                                     text=True, timeout=3).stdout
-                return any(l.get("namespace") == "waybar" and l.get("layer") == "Top"
-                           for l in json.loads(out))
+                import socket
+                sk = socket.socket(socket.AF_UNIX)
+                sk.settimeout(3)
+                sk.connect(os.environ["NIRI_SOCKET"])
+                sk.sendall(b'"Layers"\n')
+                layers = json.loads(sk.makefile("rb").readline())["Ok"]["Layers"]
+                sk.close()
+            except (OSError, ValueError, KeyError, TypeError):
+                layers = None
+            try:
+                if layers is None:
+                    out = subprocess.run(["niri", "msg", "-j", "layers"], capture_output=True,
+                                         text=True, timeout=3).stdout
+                    layers = json.loads(out)
+                return any(l.get("namespace") in ("waybar", "tb-always", "tb-hover") and l.get("layer") == "Top"
+                           and (not WATCH_OUT or l.get("output") == WATCH_OUT)
+                           for l in layers)
             except (OSError, ValueError, subprocess.SubprocessError):
                 return False
 
         def waybar(self):
+            # 05.10.2026 (оптимизация): пока прежний waybar жив — не запускать pgrep раз в
+            # 2 с; новый поиск — только когда процесс сменился (перезапуск бара).
+            if self.pid:
+                try:
+                    if open("/proc/%d/comm" % self.pid, "rb").read().strip() == b"waybar":
+                        return self.pid
+                except OSError:
+                    pass
             p = session_pids("waybar")
+            if WATCH_OUT:
+                # свой бар монитора — по конфигу в командной строке
+                want = ("config-niri-%s.jsonc" % WATCH_OUT).encode()
+                mine = []
+                for q in p:
+                    try:
+                        if any(a.endswith(want) for a in open("/proc/%d/cmdline" % q, "rb").read().split(b"\0")):
+                            mine.append(q)
+                    except OSError:
+                        pass
+                p = mine
             return p[0] if p else None
 
         def sync(self):
@@ -459,10 +627,15 @@ if __name__ == "__main__":
             return True
 
         def arrange(self):
+            def in_game(s):
+                return "*" in self.game or s.out in self.game
+            if os.environ.get("TOPBAR_DEBUG"):
+                print("arrange: pid=%s shown=%s game=%s полоски=%s" % (
+                    self.pid, self.shown, sorted(self.game), [s.out for s in self.tops]), flush=True)
             for s in self.tops:
-                (s.show_all if (not self.shown and self.pid and not self.game) else s.hide)()
+                (s.show_all if (not self.shown and self.pid and not in_game(s)) else s.hide)()
             for s in self.bottoms:
-                (s.show_all if (self.shown and not self.game) else s.hide)()
+                (s.show_all if (self.shown and not in_game(s)) else s.hide)()
 
         def set_bar(self, on):
             self.timer = None
@@ -508,7 +681,7 @@ if __name__ == "__main__":
             return False
 
         def popup_open(self):
-            """Открыта плашка бара — бар не прячем (04.10.2026, просьба: «пока плашка из
+            """Открыта плашка бара — бар не прячем (04.10.2026, Просьба: «пока плашка из
             waybar открыта, не скрывать бар»). Раньше проверялся признак клавиатуры у
             слоёв, но niri его в `layers` не отдаёт — проверка всегда была «нет».
             Теперь — по процессам: питон, запустивший *_popup.py или центр управления."""
@@ -541,13 +714,20 @@ if __name__ == "__main__":
             d = Gdk.Display.get_default()
             found, probes = {}, []
             loop = GLib.MainLoop()
+            def geo(m):
+                g = m.get_geometry()
+                return (g.x, g.y, g.width, g.height)
+            mine = [geo(m) for m in self.my_monitors()] if WATCH_OUT else None
 
-            def hit(_w, ev):
-                found.setdefault("y", ev.y)
+            def hit(w, ev):
+                # сторож одного монитора: мышь на другом мониторе — «далеко», бар прятать
+                far = mine is not None and geo(w.mon) not in mine
+                found.setdefault("y", 10 ** 6 if far else ev.y)
                 loop.quit()
                 return False
             for i in range(d.get_n_monitors()):
                 pw = Gtk.Window()
+                pw.mon = d.get_monitor(i)
                 GtkLayerShell.init_for_window(pw)
                 GtkLayerShell.set_namespace(pw, "jarvis-pointer-probe")
                 GtkLayerShell.set_layer(pw, GtkLayerShell.Layer.OVERLAY)
@@ -581,6 +761,6 @@ if __name__ == "__main__":
             except OSError:
                 pass
         os._exit(0)
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, bye)
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, bye)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, bye)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, bye)
     Gtk.main()

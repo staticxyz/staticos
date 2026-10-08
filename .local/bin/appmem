@@ -61,7 +61,7 @@ def scan():
 def pss_kb(pid):
     """(килобайты, точно ли). PSS честен, но читать smaps_rollup чужого или
     защищённого процесса нельзя: у VirtualBoxVM он setuid root, и виртуалка с
-    её четырьмя гигабайтами просто не попадала в список (пользователь 25.09.2026).
+    её четырьмя гигабайтами просто не попадала в список (Пользователь 25.09.2026).
     Для таких берём VmRSS из status — он читается всегда; для одиночного
     процесса это то же самое, для многопроцессных завышает (общая память
     считается у каждого), поэтому такие строки помечаются звёздочкой.
@@ -141,6 +141,9 @@ BY_COMM = {
     "upowerd": "System services", "udisksd": "System services",
     "thermald": "System services", "wpa_supplicant": "Network",
     "polkitd": "System services", "(sd-pam)": "System services",
+    # 06.10.2026, для jtop: имена, которые в списке были непонятны
+    "plasma-systemmo": "KDE System Monitor", "drkonqi-coredum": "Crash reporter",
+    "agy": "Antigravity CLI", "nvim": "Neovim", "nvidia-smi": "GPU monitor",
 }
 SYSTEM_PREFIX = ("systemd", "dbus-", "gvfs", "at-spi", "dconf")
 SHELLS = ("fish", "bash", "zsh", "sh", "kitten")
@@ -163,8 +166,24 @@ def _is_dash(q):
     return q["comm"] == "kitty" and "\0--app-id\0dash-" in "\0" + q["cmd"]
 
 
+OURS_EXCLUDE = ()
+HELPERS = ("cat", "sh", "bash", "sleep", "busctl", "playerctl", "inotifywait", "pactl", "wpctl",
+           "pw-cat", "pw-play", "grim", "wl-paste", "wl-copy", "niri")
+
+
+def _ours(p):
+    """Наш скрипт (staticOS): путь из scripts / ~/.local/bin в первых аргументах."""
+    for a in [x for x in p["cmd"].split("\0") if x][:3]:
+        if not a.startswith("-") and any(d in a for d in SCRIPT_DIRS) \
+                and os.path.basename(a) not in OURS_EXCLUDE:
+            return True
+    return False
+
+
 def label_of(p, procs=None):
-    """Название программы для людей. procs — весь снимок scan(), для родителей."""
+    """Название программы для людей. procs — весь снимок scan(), для родителей.
+    07.10.2026, пользователь: наши дотфайлы — одной строкой «staticOS» (было «Jarvis scripts»;
+    теперь сюда же модули верхней панели и их помощники — cat, sh, playerctl…)."""
     cmd = p["cmd"].replace("\0", " ")
     for key, name in BY_CMD:
         if key in cmd:
@@ -172,9 +191,13 @@ def label_of(p, procs=None):
     if _is_dash(p):
         return "Dashboard"
     chain = _chain(p, procs)
+    if any(_is_dash(q) for q in chain):
+        return "Dashboard"
+    if _ours(p):
+        return "staticOS"
+    if p["comm"] in HELPERS and any(_ours(q) for q in chain[:3]):
+        return "staticOS"
     for q in chain:
-        if _is_dash(q):
-            return "Dashboard"
         if q["comm"] == "waybar":
             return "Waybar"
     g = group_of(p)
@@ -185,7 +208,7 @@ def label_of(p, procs=None):
     if p["comm"].startswith(SYSTEM_PREFIX):
         return "System services"
     if any(d in cmd for d in SCRIPT_DIRS):
-        return "staticOS scripts"
+        return "staticOS"
     if p["comm"] in SHELLS and any(q["comm"] == "kitty" for q in chain):
         return "kitty terminal"
     return g

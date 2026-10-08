@@ -1,0 +1,40 @@
+#!/bin/sh
+# fontswap — проба шрифта на всю систему одним правилом fontconfig (07.10.2026).
+#   fontswap cozette [СЕМЕЙСТВО]  Cozette вместо PxPlus HP 100LX везде (13/26 px);
+#                        СЕМЕЙСТВО — CozetteVector (по умолчанию) или CozetteVectorBold
+#   fontswap back        вернуть PxPlus (удалить правило)
+#   fontswap status      что сейчас
+# Файлы, подогнанные под шрифт (CSS, размеры в скриптах), — профили fontprofile:
+# back раскладывает версии под PxPlus, cozette — под Cozette.
+# Сразу перезапускаются верхний бар, нижняя панель и виджеты; остальные окна —
+# при следующем открытии, всё целиком — после перелогина.
+D=$HOME/.config/fontconfig/conf.d; F=$D/61-cozette-trial.conf; S=$HOME/.config/hypr/scripts
+# процесс по ИМЕНИ СКРИПТА во втором аргументе (python3 …/имя.py): pgrep -f ловил и саму
+# вызывающую команду, если в ней было это имя, — и убивал её (07.10.2026)
+script_pids() { for p in /proc/[0-9]*; do a=$(tr '\0' '\n' < "$p/cmdline" 2>/dev/null | sed -n 2p)
+    [ "$(basename "$a" 2>/dev/null)" = "$1" ] && echo "${p#/proc/}"; done; }
+refresh() {
+    fc-cache -f >/dev/null 2>&1
+    python3 "$HOME/.config/niri/scripts/waybar_niri.py" >/dev/null 2>&1   # style-niri.css из style.css профиля
+    setsid -f barfix >/dev/null 2>&1 </dev/null
+    python3 "$S/xpbar.py" restart >/dev/null 2>&1 &
+    for p in $(script_pids desktop_widgets.py); do kill -TERM "$p" 2>/dev/null; done
+    sleep 2; (cd "$S" && setsid -f python3 desktop_widgets.py on >/dev/null 2>&1 </dev/null)
+    # Alt+Tab — резидент: шрифт и подгонка (FIT) берутся при старте, поэтому перезапуск
+    # (09.10.2026: после возврата на PxPlus переключатель остался на Cozette)
+    ap=$(cat "${XDG_RUNTIME_DIR:-/tmp}/jarvis-alttab.pid" 2>/dev/null)
+    if [ -n "$ap" ] && grep -qa alt_tab.py "/proc/$ap/cmdline" 2>/dev/null; then
+        kill -TERM "$ap" 2>/dev/null; sleep 0.5
+        (cd "$S" && setsid -f python3 alt_tab.py daemon >/dev/null 2>&1 </dev/null)
+    fi
+    # Настройки поднимутся при открытии; если шрифт меняют из самих Настроек (app_fonts.py
+    # ставит FONTSWAP_KEEP_SETTINGS), окно не гасим — оно бы пропало из-под руки (08.10.2026)
+    [ -n "$FONTSWAP_KEEP_SETTINGS" ] || for p in $(script_pids settings_app.py); do kill -TERM "$p" 2>/dev/null; done
+}
+case "$1" in
+  cozette) FAM=${2:-CozetteVector}   # 08.10.2026: семейство выбирают в Настройках → Шрифты
+           sed "s|<string>CozetteVector</string>|<string>$FAM</string>|" "$HOME/.config/fontconfig/cozette-trial.conf.keep" > "$F.tmp" && mv "$F.tmp" "$F"; fontprofile use cozette >/dev/null; notif-look on >/dev/null 2>&1; refresh; echo "шрифт системы: $FAM" ;;
+  back)    rm -f "$F"; fontprofile use pxplus >/dev/null; notif-look on >/dev/null 2>&1; refresh; echo "шрифт системы: PxPlus HP 100LX (как было)" ;;
+  status)  [ -f "$F" ] && sed -n "s|.*mode=\"prepend\".*<string>\(.*\)</string>.*|\1|p" "$F" | head -n1 || echo "PxPlus HP 100LX" ;;
+  *)       sed -n '2,7p' "$0" ;;
+esac

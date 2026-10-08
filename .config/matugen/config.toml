@@ -121,6 +121,9 @@ output_path = "~/Documents/Obsidian/.obsidian/themes/Jarvis/theme.css"
 input_path = "~/.config/matugen/templates/discord.css"
 output_path = "~/.config/Vencord/themes/matugen.css"
 
+# Пиксельный вид поверх (08.10.2026): собирается в кэш, в Vencord его кладёт
+# discord_pixel.py sync (из theme_changer.sh) — включённым или заглушкой.
+
 # Sublime Text следит за Packages/User и перечитывает схему сам — палитра
 # доезжает в открытый редактор без перезапуска. Схема выбирается в
 # Preferences.sublime-settings ключом "color_scheme".

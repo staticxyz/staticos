@@ -56,6 +56,7 @@ HUE_OFFSETS = {"sensor-cpu": 0, "sensor-mem": 40, "sensor-temp": -40}
 # the dark surfaces while being far enough from white to show its hue.
 VIVID_LIGHT = 0.68
 VIVID_SAT_MIN, VIVID_SAT_MAX = 0.55, 0.85
+BORDER_LIGHT, BORDER_SAT = 0.55, 0.32     # рамка окон niri, см. main()
 
 
 def main():
@@ -90,6 +91,22 @@ def main():
     # контраст с текстом панели остаётся выше 12:1.
     bar_bg = colorsys.hls_to_rgb(accent_hue / 360, 0.09, 0.85)
     lines.append(f"@define-color bar-bg {rgb_to_hex(bar_bg)};")
+
+    # Рамка активного окна niri (08.10.2026, Просьба: «на уровне этого скрина» — рамка angelOS
+    # #6a70ae). Пастельный primary (#b4c5ff) даже на 100 % выглядел белёсым: на образце цвет
+    # не светлее, а насыщеннее. Тот же оттенок обоев, светлота 0.55, насыщенность 0.32,
+    # без прозрачности. matugen к этому моменту уже собрал niri-colors.kdl (theme_changer.sh) —
+    # здесь подменяется только active-color; неактивная остаётся из шаблона.
+    border = colorsys.hls_to_rgb(accent_hue / 360, BORDER_LIGHT, BORDER_SAT)
+    niri_colors = os.path.expanduser("~/.cache/matugen/niri-colors.kdl")
+    try:
+        import re
+        txt = open(niri_colors).read()
+        new = re.sub(r'(\n\s*active-color )"[^"]*"', r'\1"%s"' % rgb_to_hex(border), txt, count=1)
+        if new != txt:
+            open(niri_colors, "w").write(new)
+    except OSError:
+        pass
 
     # Same colour for consumers that need a plain hex file (termdown wrapper).
     with open(os.path.expanduser("~/.cache/matugen/vivid.txt"), "w") as fh:

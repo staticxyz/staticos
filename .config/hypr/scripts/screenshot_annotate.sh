@@ -56,6 +56,11 @@ note "снимок: код $?, размер $(stat -c %s "$shot" 2>/dev/null || 
 [ -s "$shot" ] || { note "снимок пустой — выхожу"; rm -f "$shot"; exit 1; }
 
 note "редактор: ${editor:-ksnip}"
+# Снимок заморозки больше не нужен — убрать ДО exec: exec заменяет скрипт редактором, и
+# уборка по trap EXIT уже не срабатывает — в /tmp (он в памяти) копились снимки по 12 МБ,
+# к 06.10.2026 набралось 22 штуки, 256 МБ.
+freeze_cleanup
+trap - EXIT
 if [ "$editor" = satty ]; then
     exec satty --filename "$shot" --copy-command wl-copy \
          --actions-on-enter save-to-clipboard,exit --actions-on-escape exit \

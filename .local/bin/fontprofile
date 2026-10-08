@@ -1,0 +1,18 @@
+#!/bin/sh
+# fontprofile — профили файлов под шрифт системы (07.10.2026).
+#   fontprofile keep ФАЙЛ…   перед правкой под Cozette: сохранить оригинал в профиль pxplus
+#                            (только первый раз — повторный вызов оригинал не затирает)
+#   fontprofile commit       записать текущие версии всех файлов профиля в профиль cozette
+#   fontprofile use pxplus|cozette   разложить файлы профиля по местам
+#   fontprofile list         какие файлы в профилях
+B=$HOME/.local/share/fontswap
+case "$1" in
+  keep)   shift; for f in "$@"; do f=$(realpath "$f"); d="$B/pxplus$f"
+              [ -e "$d" ] || { mkdir -p "$(dirname "$d")"; cp -a "$f" "$d"; echo "сохранён: $f"; }; done ;;
+  commit) (cd "$B/pxplus" && find . -type f) | while read -r r; do f="${r#.}"
+              mkdir -p "$(dirname "$B/cozette$f")"; cp -a "$f" "$B/cozette$f"; done; echo "профиль cozette записан" ;;
+  use)    P="$B/$2"; [ -d "$P" ] || exit 1
+          (cd "$P" && find . -type f) | while read -r r; do f="${r#.}"; cp -a "$P$f" "$f"; done; echo "разложен профиль $2" ;;
+  list)   (cd "$B/pxplus" && find . -type f | sed 's|^\.||') ;;
+  *)      sed -n '2,7p' "$0" ;;
+esac

@@ -1,0 +1,9 @@
+[Unit]
+Description=Утренний будильник (проверка раз в минуту)
+
+[Timer]
+OnCalendar=*-*-* *:*:05
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

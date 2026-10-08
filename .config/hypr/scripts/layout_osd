@@ -41,6 +41,128 @@ HIDE_AFTER = 0.9          # секунд на экране
 CAPS_LEDS = "/sys/class/leds/*::capslock/brightness"
 CAPS_POLL = 0.12          # sysfs светодиодов не умеет poll(), только опрос
 
+LOOK_FILE = os.path.expanduser("~/.config/hypr/state/layout-osd-look")   # normal | pixel
+KBD_PNG = os.path.expanduser("~/.cache/jarvis/kbd-osd-%s.png")
+# Пиксельный вид (06.10.2026, по образцу пользователя, разглядан крупно): белая рамка клавиатуры,
+# тёмная середина, два ряда клавиш-точек (акцент обоев и второй тон) и сплошной пробел
+# акцентом; рядом — буквы 4×5. Всё одной картинкой, клетка 2×2 px.
+KBD = ("FFFFFFFFFFFFFFF", "F.............F", "F.1.2.1.2.1.2.F", "F.............F",
+       "F.2.1.2.1.2.1.F", "F.............F", "F..333333333..F", "F.............F",
+       "FFFFFFFFFFFFFFF")
+LETTERS = {     # 4×6 (было 4×5 — «шрифт чуть крупнее», 06.10.2026)
+    "A": ("0110", "1001", "1001", "1111", "1001", "1001"), "E": ("1111", "1000", "1110", "1000", "1000", "1111"),
+    "K": ("1001", "1010", "1100", "1010", "1001", "1001"), "N": ("1001", "1101", "1101", "1011", "1011", "1001"),
+    "R": ("1110", "1001", "1001", "1110", "1010", "1001"), "U": ("1001", "1001", "1001", "1001", "1001", "0110"),
+    "Z": ("1111", "0001", "0010", "0100", "1000", "1111"), "S": ("0111", "1000", "0110", "0001", "0001", "1110"),
+    "D": ("1110", "1001", "1001", "1001", "1001", "1110"), "B": ("1110", "1001", "1110", "1001", "1001", "1110"),
+    "Y": ("1001", "1001", "0110", "0010", "0010", "0010"), "?": ("1110", "0001", "0010", "0100", "0000", "0100"),
+    "C": ("0111", "1000", "1000", "1000", "1000", "0111"), "P": ("1110", "1001", "1001", "1110", "1000", "1000"),
+    "O": ("0110", "1001", "1001", "1001", "1001", "0110"), "F": ("1111", "1000", "1110", "1000", "1000", "1000"),
+}
+# CapsLock в пиксельном виде — стрелка вверх вместо клавиатуры (цвет: вкл — акцент, выкл — серый)
+ARROW = ("....A....", "...AAA...", "..AAAAA..", ".AAAAAAA.", "...AAA...", "...AAA...", "...AAA...",
+         ".........", "...AAA...")
+
+
+def kbd_icon(label="EN"):
+    """Картинка «клавиатура + буквы» в цветах обоев (перерисовка при смене палитры)."""
+    import json
+    path = KBD_PNG % "".join(ch for ch in label if ch.isalnum())
+    srcs = [os.path.expanduser("~/.cache/matugen/colors.json"),
+            os.path.expanduser("~/.cache/matugen/vivid.txt"), os.path.abspath(__file__)]
+    try:
+        if os.path.exists(path) and all(os.path.getmtime(x) <= os.path.getmtime(path)
+                                        for x in srcs if os.path.exists(x)):
+            return path
+        from PIL import Image
+        cols = json.load(open(srcs[0]))
+
+        def pick(name, d):
+            v = cols.get(name, d)
+            return v if isinstance(v, str) and v.startswith("#") else d
+        try:
+            vivid = open(srcs[1]).read().strip()
+        except OSError:
+            vivid = pick("primary", "#b4c5ff")
+        # клавиши чередуются: акцент обоев и второй тон (у образца — жёлтые и сиреневые)
+        pal = {"F": "#f2f2f4", "1": vivid, "2": pick("tertiary", "#d2bdf6"),
+               "3": vivid, ".": "#15161a", "T": "#f2f2f4"}
+
+        def rgb(c):
+            c = c.lstrip("#")
+            return tuple(int(c[t:t + 2], 16) for t in (0, 2, 4)) + (255,)
+        k = 2
+        caps = label.upper().startswith("CAPS")
+        icon = ARROW if caps else KBD
+        if caps:
+            pal["A"] = vivid if label.upper().endswith("ON") else "#8a8c94"
+        # пробел в надписи — промежуток в 3 клетки
+        letters = [None if ch == " " else LETTERS.get(ch, LETTERS["?"]) for ch in label.upper()]
+        tw = sum(3 if g is None else 5 for g in letters) - 1 if letters else 0
+        # Плашка целиком в картинке (06.10.2026: CSS-тень с отступами давала круглое пятно):
+        # тёмно-серый фон, ОДНА тонкая светлая обводка, блик сверху, жёсткая тень 2 px.
+        PADX, PADY, SH = 3, 2, 0                        # поля в клетках по 2 px (07.10.2026: «компактнее», было 5, 3); тень — ниже, мягкая
+        cw = len(icon[0]) + 4 + tw                      # содержимое, клетки
+        ch_ = len(icon)
+        pw, ph = cw + 2 * PADX + 2, ch_ + 2 * PADY + 2  # плашка с обводкой
+        im = Image.new("RGBA", ((pw + SH) * k, (ph + SH) * k), (0, 0, 0, 0))
+        px = im.load()
+
+        def rect(x, y, w, h, color):
+            for yy in range(y * k, (y + h) * k):
+                for xx in range(x * k, (x + w) * k):
+                    px[xx, yy] = color
+        surf = rgb(pick("surface", "#10131c"))
+        plate = tuple(int(surf[i] * 0.35 + (0x2a, 0x2a, 0x2e)[i] * 0.65) for i in range(3)) + (250,)
+        # обводка — акцентом обоев (07.10.2026: тонкая полупрозрачная сливалась с тёмными окнами)
+        rect(0, 0, pw, ph, rgb(vivid)[:3] + (230,))
+        rect(1, 1, pw - 2, ph - 2, plate)                          # фон
+        rect(1, 1, pw - 2, 1, tuple(min(255, c + 18) for c in plate[:3]) + (250,))  # блик
+
+        def put(i, j, color):
+            rect(i, j, 1, 1, color)
+        ox, oy = 1 + PADX, 1 + PADY
+        for j, row in enumerate(icon):
+            for i, ch in enumerate(row):
+                if ch in pal and not (caps and ch == "."):
+                    put(ox + i, oy + j, rgb(pal[ch]))
+        x0, y0 = ox + len(icon[0]) + 4, oy + (ch_ - 6) // 2
+        for g in letters:
+            if g is None:
+                x0 += 3
+                continue
+            for j, row in enumerate(g):
+                for i, b in enumerate(row):
+                    if b == "1":
+                        put(x0 + i, y0 + j, rgb(pal["T"]))
+            x0 += 5
+        # Мягкая тень, как у образца (06.10.2026: «тени не реалистичные»): тёмный прямоугольник
+        # под плашкой со сдвигом вниз, размытый по Гауссу; плашка — поверх.
+        from PIL import ImageFilter
+        M = 10                                          # поле под размытие, px
+        canvas = Image.new("RGBA", (im.width + 2 * M, im.height + 2 * M), (0, 0, 0, 0))
+        shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        sh = Image.new("RGBA", (im.width, im.height), (0, 0, 0, 175))
+        shadow.paste(sh, (M + 1, M + 3))
+        shadow = shadow.filter(ImageFilter.GaussianBlur(4))
+        canvas = Image.alpha_composite(canvas, shadow)
+        canvas.alpha_composite(im, (M, M))
+        im = canvas
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        im.save(path + ".tmp.png")
+        os.replace(path + ".tmp.png", path)
+    except Exception as e:
+        print("kbd icon:", e, file=sys.stderr)
+    return path
+
+
+def look():
+    try:
+        return "pixel" if open(LOOK_FILE).read().strip() == "pixel" else "normal"
+    except OSError:
+        return "normal"
+
+
 _timer = None
 _lock = threading.Lock()  # notify зовут два потока: сокет и опрос CapsLock
 
@@ -62,6 +184,9 @@ def notify(name):
             icon, mode = "\U000f0632", "off" if label.endswith("OFF") else "on"
         else:
             icon, mode = "\U000f030c", "lang"
+        lk = look()
+        extra = ["layout-look=" + lk] + (["layout-img=" + kbd_icon(label)] if lk == "pixel" else [])
+        subprocess.run(["eww", "update", *extra], capture_output=True)
         subprocess.run(["eww", "update", "layout-icon=" + icon], capture_output=True)
         subprocess.run(["eww", "update", "layout-mode=" + mode], capture_output=True)
         subprocess.run(["eww", "update", "layout-name=" + label], capture_output=True)

@@ -265,7 +265,8 @@ class MemPopup(Gtk.Window):
             padding: 10px 11px 8px 11px;
             margin: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.60);
         }
-        /* Размеры — крупнее обычного (01.10.2026). Строки и шапка 16 px, подписи 12 px. */
+        /* Размеры — крупнее обычного (01.10.2026). Строки и шапка 16 px, подписи 12 px.
+           05.10.2026: подписи тоже 16 — 12 px у пиксельного шрифта мылится. */
         .head { font-size: 16px; color: %(on_surface)s; }
         .subtitle { font-size: 12px; color: %(on_surface_variant)s; }
         .col { font-size: 12px; color: %(on_surface_variant)s; }
@@ -287,7 +288,9 @@ class MemPopup(Gtk.Window):
             color: %(on_surface_variant)s;
         }
         button.more:hover { color: %(primary)s; }
-        """ % p).encode()
+        """ % p)
+        css = popup_theme.scale_css(css).encode()   # Cozette: поля ×13/16, кегль 13/26
+
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_screen(

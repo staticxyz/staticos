@@ -1,0 +1,3 @@
+#!/bin/sh
+# Discipline на вкладке Alarm.
+exec $HOME/.local/bin/discipline alarm "$@"

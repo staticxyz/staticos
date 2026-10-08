@@ -1,2 +1,4 @@
+/* Пишет top_bar.py (opacity_rule): always, плотность 80%. */
+window#waybar.tb-always.mode-default { background-color: alpha(@bar-bg, 0.80); }
 /* Пишет top_bar.py (opacity_rule): hover, плотность 100%. */
-window#waybar.mode-default { background-color: @bar-bg; }
+window#waybar.tb-hover.mode-default { background-color: @bar-bg; }

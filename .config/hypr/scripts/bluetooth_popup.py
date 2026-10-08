@@ -224,7 +224,7 @@ class BluetoothPopup(Gtk.Window):
         # Сообщения о питании и поиске. Пустая — не видна и места не занимает.
         self.status = Gtk.Label(label="", xalign=0)
         self.status.set_line_wrap(True)
-        self.status.set_max_width_chars(30)
+        self.status.set_max_width_chars(22)   # 30 знаков при 11 px; кегль 16 (сетка шрифта) — та же ширина
         self.status.set_no_show_all(True)
         vbox.pack_start(self.status, False, False, 0)
 
@@ -431,7 +431,7 @@ class BluetoothPopup(Gtk.Window):
             caption = "Новое устройство — при подключении будет сопряжено"
         cap = Gtk.Label(label=caption, xalign=0)
         cap.set_line_wrap(True)
-        cap.set_max_width_chars(34)
+        cap.set_max_width_chars(25)
         cap.get_style_context().add_class("dim")
         detail.pack_start(cap, False, False, 0)
 
@@ -449,7 +449,7 @@ class BluetoothPopup(Gtk.Window):
 
         msg = Gtk.Label(xalign=0)
         msg.set_line_wrap(True)
-        msg.set_max_width_chars(34)
+        msg.set_max_width_chars(25)
         msg.set_no_show_all(True)
         detail.pack_start(msg, False, False, 0)
         row["msg"], row["btns"] = msg, btns

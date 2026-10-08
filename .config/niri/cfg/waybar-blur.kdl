@@ -1,1 +1,7 @@
-// Пишет top_bar.py (blur_rule): без размытия под баром (режим «при наведении»).
+// Пишет top_bar.py (blur_rule): размытие под верхним баром.
+layer-rule {
+    match namespace=r#"^tb-always$"#
+    background-effect {
+        blur true
+    }
+}

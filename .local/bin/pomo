@@ -479,9 +479,11 @@ cmd_ring() {
 # Окно «на сколько ставим» (SUPER+T). Сверху готовые длины и то, что ставил
 # недавно, но можно набрать своё: «40m», «1h30m отчёт», «1ч20м» — первое слово
 # время, остальное задача. Без времени («отчёт») — обычный помидор с задачей.
-cmd_ask() {
-    command -v rofi >/dev/null 2>&1 || { echo 'Нужен rofi.' >&2; return 1; }
-    pick=$(
+# Окно Pomo.exe в стиле системы (06.10.2026; было rofi -dmenu): то же окно, что
+# Preset.exe и Timer.exe буфера обмена, стиль — state/clipboard-style. Повторный
+# SUPER+T закрывает его (popup-toggle знает только rofi — поэтому проверка здесь).
+ASK="$HOME/.config/hypr/scripts/preset_ask.py"
+ask_items() {
         {
             printf '%s\n' 25m 15m 45m 1h 1h30m
             [ -s "$LOG" ] && tail -n 300 "$LOG" | awk -F'\t' '
@@ -492,9 +494,23 @@ cmd_ask() {
                 }
                 $3 == "work" && $7 != "" { l[++n] = fmt($4) " " $7 }
                 END { for (i = n; i >= 1 && c < 5; i--) if (!(l[i] in seen)) { seen[l[i]] = 1; print l[i]; c++ } }'
-        } | rofi -dmenu -i -p "$ICON_WORK" \
-                -theme-str 'entry { placeholder: "25m, 1h30m, 40m отчёт…"; }'
-    ) || return 0
+        }
+}
+
+cmd_ask() {
+    if pkill -f "preset_ask.py --ask Pomo.exe" 2>/dev/null; then return 0; fi
+    if [ -r "$ASK" ]; then
+        items=$(ask_items)
+        old_ifs=$IFS; IFS='
+'
+        set -f; set -- $items; set +f; IFS=$old_ifs
+        pick=$(python3 "$ASK" --ask Pomo.exe "25m, 1h30m, 40m отчёт…" "Помидор" \
+                   "Enter — старт · Esc — отмена" "$@" 2>/dev/null)
+    else
+        command -v rofi >/dev/null 2>&1 || { echo 'Нужен rofi.' >&2; return 1; }
+        pick=$(ask_items | rofi -dmenu -i -p "$ICON_WORK" \
+                -theme-str 'entry { placeholder: "25m, 1h30m, 40m отчёт…"; }') || return 0
+    fi
     set -f; set -- $pick; set +f
     [ $# -gt 0 ] || return 0
     if parse_dur "$1" >/dev/null; then

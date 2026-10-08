@@ -67,6 +67,11 @@ def pixelated(path, size=SIZE):
     """Путь к пиксельной копии (делается при первом обращении); None — не вышло."""
     if not path or path.lower().endswith((".gif", ".webm", ".mp4")):
         return None
+    # Обои, которые уже пиксель-арт (в имени «pixelart», напр. искорки из
+    # sparkle_wallpaper.py), показываются как есть: усреднение и растр съели
+    # бы лучи толщиной в 2 px (08.10.2026).
+    if "pixelart" in os.path.basename(path).lower():
+        return None
     try:
         st = os.stat(path)
     except OSError:

@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Текст из буфера X-программ (:1) → в общий буфер Wayland. 06.10.2026.
+
+    x-clip-pull            следить (автозапуск niri)
+    x-clip-pull --once     перенести то, что лежит сейчас, и выйти
+
+Просьба: «в КС не работает копирование — копировал айпи сервера в браузере Steam внутри
+КС, в буфер не переводит». Браузер оверлея Steam — это steamwebhelper на X-дисплее :1
+(мост xwayland-satellite); текст он кладёт в X-буфер :1, а satellite его в Wayland НЕ
+переносит (в :1 был «connect 45.136.205.212:27041», в Wayland — старая картинка).
+Дальше в игру его уже отдаёт game-clip-push (wl-paste --watch).
+
+Без опроса: XFixes присылает событие при смене владельца буфера. Только текст; картинки
+и файлы не трогаем. Круга нет: когда текст пришёл из Wayland, satellite становится
+владельцем :1 с тем же текстом — он совпадает с Wayland, и мы ничего не делаем.
+"""
+import ctypes
+import ctypes.util
+import os
+import subprocess
+import sys
+import time
+
+DISPLAY = os.environ.get("X_CLIP_DISPLAY", ":1")
+XCLIP = "/usr/bin/xclip"          # настоящий, не обёртка ~/.local/bin/xclip
+TEXT_T = ("UTF8_STRING", "text/plain;charset=utf-8", "STRING", "TEXT", "text/plain")
+
+
+def run(args, data=None, timeout=2):
+    try:
+        r = subprocess.run(args, input=data, capture_output=True, timeout=timeout)
+        return r.stdout if r.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def pull():
+    targets = (run([XCLIP, "-display", DISPLAY, "-selection", "clipboard", "-t", "TARGETS", "-o"]) or b"")
+    targets = targets.decode("utf-8", "replace").split()
+    if "text/uri-list" in targets or not any(t in targets for t in TEXT_T):
+        return
+    t = "UTF8_STRING" if "UTF8_STRING" in targets else next(t for t in TEXT_T if t in targets)
+    text = run([XCLIP, "-display", DISPLAY, "-selection", "clipboard", "-t", t, "-o"])
+    if not text or not text.strip():
+        return
+    cur = run(["wl-paste", "--no-newline", "--type", "text"]) or b""
+    if cur.rstrip(b"\n") == text.rstrip(b"\n"):
+        return
+    subprocess.run(["wl-copy", "--type", "text/plain;charset=utf-8"], input=text, timeout=3)
+
+
+def watch():
+    x11 = ctypes.CDLL(ctypes.util.find_library("X11"))
+    xf = ctypes.CDLL(ctypes.util.find_library("Xfixes"))
+    x11.XOpenDisplay.restype = ctypes.c_void_p
+    x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    x11.XDefaultRootWindow.restype = ctypes.c_ulong
+    x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+    x11.XInternAtom.restype = ctypes.c_ulong
+    x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+    x11.XNextEvent.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    xf.XFixesQueryExtension.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)]
+    xf.XFixesSelectSelectionInput.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+    dpy = None
+    while not dpy:
+        dpy = x11.XOpenDisplay(DISPLAY.encode())
+        if not dpy:
+            time.sleep(5)                     # :1 ещё не поднялся (вход в сеанс)
+    ev_base, err_base = ctypes.c_int(), ctypes.c_int()
+    if not xf.XFixesQueryExtension(dpy, ctypes.byref(ev_base), ctypes.byref(err_base)):
+        sys.exit("нет XFixes на %s" % DISPLAY)
+    clip = x11.XInternAtom(dpy, b"CLIPBOARD", 0)
+    xf.XFixesSelectSelectionInput(dpy, x11.XDefaultRootWindow(dpy), clip, 1)   # SetSelectionOwner
+    ev = ctypes.create_string_buffer(192)
+    while True:
+        x11.XNextEvent(dpy, ev)
+        if ctypes.c_int.from_buffer(ev).value == ev_base.value:                 # XFixesSelectionNotify
+            time.sleep(0.15)                  # владелец успевает приготовить данные
+            try:
+                pull()
+            except Exception as e:
+                print("x-clip-pull: %r" % e, file=sys.stderr)
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["--once"]:
+        pull()
+    else:
+        watch()

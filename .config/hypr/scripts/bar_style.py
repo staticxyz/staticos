@@ -97,7 +97,19 @@ def restart_waybar():
     # Журнал — в ~/.cache/waybar.log: по нему видно, если вид не влез в
     # свою высоту ("minimum height") или конфиг не разобрался.
     log = open(os.path.expanduser("~/.cache/waybar.log"), "w")
-    subprocess.Popen(bar_argv(), stdin=subprocess.DEVNULL,
+    argv = bar_argv()
+    if on_niri():
+        # панели по мониторам (panels.py, 06.10.2026) — свой waybar на каждый монитор
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import panels
+            if panels.per_monitor():
+                log.close()
+                panels.launch_top(os.path.expanduser("~/.cache/waybar.log"))
+                return
+        except Exception as e:
+            print("bar_style: панели по мониторам: %s" % e, file=sys.stderr)
+    subprocess.Popen(argv, stdin=subprocess.DEVNULL,
                      stdout=log, stderr=subprocess.STDOUT,
                      start_new_session=True)
 

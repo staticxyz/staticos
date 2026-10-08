@@ -12,7 +12,7 @@ mpris_common.clean_title, что и бар. Не показывает:
   * повтор того же трека в течение DEDUP_S;
   * пока выключено (флаг ~/.config/hypr/state/track-notify-off) — сторож
     при этом живёт, просто молчит: включение действует сразу.
-  * видео в браузере (03.10.2026, просьба: «пусть определяет, когда открываю видос в
+  * видео в браузере (03.10.2026, Просьба: «пусть определяет, когда открываю видос в
     ютубе в браузере, и не показывает их, а только треки»). Песня или видео — как у
     текстов песен (lyrics_bar.py): решает личность плеера (MPRIS Identity), у браузера
     объявляются только вкладки музыкальных сервисов по xesam:url (music.youtube.com,
@@ -165,6 +165,10 @@ def main():
                 continue
             inst, status, title, artist, art, url = parts
             if any(i in inst.lower() for i in mpris_common.IGNORED):
+                continue
+            # Telegram отдаёт в MPRIS голосовые и кружки («today at 4:32 PM» / «You») — это
+            # не музыка, уведомлять не нужно (07.10.2026, пользователь)
+            if "telegram" in inst.lower() or "telegram" in identity(inst).lower():
                 continue
             title = mpris_common.clean_title(title)
             artist = mpris_common.clean_artist(artist)

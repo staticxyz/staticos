@@ -8,6 +8,7 @@
     app_fonts.py scope new|all             переключить
     app_fonts.py zenfonts                  on|off — навязывать ли шрифт сайтам
     app_fonts.py zenfonts on|off           переключить
+    app_fonts.py zenfont [ИМЯ|off]         свой шрифт только для Zen (проба), off — как в системе
     app_fonts.py apply                     применить сохранённое для Obsidian
                                            (зовёт theme_changer.sh после matugen)
 
@@ -114,11 +115,15 @@ def families(mono=False):
             spacing = int(tail)
         except ValueError:
             spacing = 0
-        for fam in head.split(","):
+        for i, fam in enumerate(head.split(",")):
             fam = fam.strip()
             if not fam or fam in ICON_FAMILIES:
                 continue
-            if STYLE_SUFFIX.search(fam) or SHORT_NF.search(fam):
+            # Начертания («Hack Bold», «JetBrainsMono NF Light») fontconfig
+            # перечисляет после основного имени. Первое имя — само семейство,
+            # даже если кончается на Bold: CozetteVectorBold — отдельный шрифт,
+            # и раньше он выпадал из списка (08.10.2026).
+            if i and (STYLE_SUFFIX.search(fam) or SHORT_NF.search(fam)):
                 continue
             names[fam] = max(names.get(fam, 0), spacing)
     if mono:
@@ -129,7 +134,7 @@ def families(mono=False):
     return sorted(names, key=str.lower) or ["Hack"]
 
 
-APPS = ("obsidian", "system", "kitty", "termalt")
+APPS = ("obsidian", "system", "kitty", "termalt", "zen")
 
 
 def choices(app):
@@ -140,11 +145,13 @@ def choices(app):
         return [(f, f) for f in families()] + [("default", "Как было")]
     if app in ("kitty", "termalt"):
         return [(f, f) for f in families(mono=True)]
+    if app == "zen":
+        return [("default", "Как в системе")] + [(f, f) for f in families()]
     raise ValueError("нет раздела %r" % app)
 
 
 DEFAULTS = {"obsidian": "Hack", "system": "default", "kitty": "Noto Sans Mono",
-            "termalt": "PxPlus HP 100LX 6x8"}
+            "termalt": "PxPlus HP 100LX 6x8", "zen": "default"}
 
 
 def load():
@@ -178,6 +185,9 @@ def scope():
     return value if value in ("new", "all") else "new"
 
 
+ICON_FONTS_PREF = 'user_pref("browser.display.use_document_fonts.icon_font_allowlist", "Material Icons, Material Icons Extended, Material Icons Outlined, Material Icons Round, Material Icons Sharp, Material Icons Two Tone, Google Material Icons, Google Material Icons Filled, Material Symbols Outlined, Material Symbols Round, Material Symbols Rounded, Material Symbols Sharp, Google Symbols, FontAwesome, Luminous Symbols, Font Awesome 6 Free, Font Awesome 6 Brands, Font Awesome 6 Pro, Font Awesome 5 Free, Font Awesome 5 Brands, Font Awesome 5 Pro, bootstrap-icons, codicon, Phosphor, remixicon, Ionicons, feather, icomoon, tabler-icons, lucide, boxicons, Line Awesome Free, Line Awesome Brands");'
+
+
 def zen_fonts():
     """Навязывать ли выбранный шрифт содержимому страниц в Zen."""
     value = load().get("zen_document_fonts", "off")
@@ -188,8 +198,26 @@ def set_zen_fonts(value):
     if value not in ("on", "off"):
         raise ValueError("zenfonts: on или off, не %r" % value)
     save({"zen_document_fonts": value})
-    apply_zen(get("system"))
+    apply_zen(zen_font())
     return value
+
+
+def zen_font(system=None):
+    """Шрифт для Zen: свой (ключ zen, 08.10.2026 — Настройки → Шрифты → «Zen»)
+    или системный («default»). Свой переживает смену системного шрифта."""
+    own = get("zen")
+    if own != "default":
+        return own
+    return system or get("system")
+
+
+def apply_zen_choice(_key):
+    return apply_zen(zen_font())
+
+
+def set_zen_font(value):
+    set_font("zen", "default" if value == "off" else value)
+    return zen_font()
 
 
 def browser_fonts(name):
@@ -266,7 +294,9 @@ UI_SIZE_DEFAULT = 10
 # дают 13.3 px — буквы мылит (23.09.2026, бар и уведомления).
 # «… Jarvis» — та же PxPlus, но длинное тире в две клетки (в оригинале тире и дефис
 # нарисованы одинаково); ~/.local/share/fonts/PxPlus_HP_100LX_6x8_Jarvis.ttf, 23.09.2026.
-UI_SIZE = {"PxPlus HP 100LX 6x8": 12, "PxPlus HP 100LX 6x8 Jarvis": 12}
+UI_SIZE = {"PxPlus HP 100LX 6x8": 12, "PxPlus HP 100LX 6x8 Jarvis": 12,
+           # Cozette нарисован на сетке 13 px: чёткий на 9.75 pt, на 10 pt (13,3 px) мылится.
+           "CozetteVector": 9.75, "CozetteVectorBold": 9.75}
 
 
 def apply_ui_font(family, size):
@@ -277,27 +307,27 @@ def apply_ui_font(family, size):
         except OSError:
             continue
         new_text = re.sub(r"(?m)^gtk-font-name\s*=.*$",
-                          "gtk-font-name=%s %d" % (family, size), text)
+                          "gtk-font-name=%s %g" % (family, size), text)
         if new_text != text:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(new_text)
     subprocess.run(["gsettings", "set", "org.gnome.desktop.interface",
-                    "font-name", "%s %d" % (family, size)], capture_output=True)
+                    "font-name", "%s %g" % (family, size)], capture_output=True)
     # Моноширинный шрифт GNOME — отдельная настройка, и её мало кто вспоминает.
     # Её берут виджеты GTK со свойством monospace: текст в Keypunch, поля ввода
     # в GNOME-программах, терминал GNOME. Без этой строки они оставались на
     # Hack, пока весь остальной интерфейс уже был на выбранном шрифте
     # (замечено пользователем на Keypunch 23.09.2026).
     subprocess.run(["gsettings", "set", "org.gnome.desktop.interface",
-                    "monospace-font-name", "%s %d" % (family, size)],
+                    "monospace-font-name", "%s %g" % (family, size)],
                    capture_output=True)
     try:
         text = open(QT6CT, encoding="utf-8").read()
     except OSError:
         return
     qt_family, qt_size = (family, size) if family != QT_FONT_DEFAULT[0] else QT_FONT_DEFAULT
-    new_text = re.sub(r'(?m)^(general|fixed)="[^",]+,\d+',
-                      lambda m: '%s="%s,%d' % (m.group(1), qt_family, qt_size), text)
+    new_text = re.sub(r'(?m)^(general|fixed)="[^",]+,[\d.]+',   # кегль бывает дробным (Cozette 9.75)
+                      lambda m: '%s="%s,%g' % (m.group(1), qt_family, qt_size), text)
     if new_text != text:
         with open(QT6CT, "w", encoding="utf-8") as f:
             f.write(new_text)
@@ -333,6 +363,9 @@ def apply_zen(font):
         'user_pref("theme.custom_uifont.default", "Custom");',
         'user_pref("browser.display.use_document_fonts", %d);'
         % (0 if zen_fonts() == "on" else 1),
+        # шрифты-значки, которым сайт может отдать свой шрифт и при «0» (07.10.2026: у Gemini
+        # вместо значков были буквы — его шрифт «Luminous Symbols» не входил в список Zen)
+        ICON_FONTS_PREF,
     ]
     if zen_fonts() == "on" and font != "default":
         for group in ("x-western", "x-cyrillic"):
@@ -414,6 +447,7 @@ def apply_librewolf(font):
             for kind in ("serif", "sans-serif", "monospace"):
                 ulines.append('user_pref("font.name.%s.%s", %s);' % (kind, group, json.dumps(font)))
     ulines.append('user_pref("browser.display.use_document_fonts", %d);' % (0 if on else 1))
+    ulines.append(ICON_FONTS_PREF)
     ulines.append(LW_MARK_CLOSE)
     ublock = "\n".join(ulines)
     done = False
@@ -544,6 +578,22 @@ def apply_system(font):
     # Ключ выбора и есть имя семейства («Hack», «Noto Sans», …).
     family, size = UI_FONT_DEFAULT if font == "default" else (font, UI_SIZE.get(font, UI_SIZE_DEFAULT))
     apply_ui_font(family, size)
+    # Оболочка (бар, «Пуск», попапы, виджеты) просит PxPlus по имени и выверена под его
+    # клетку. Для Cozette есть подогнанный профиль: fontswap подменяет PxPlus правилом
+    # fontconfig с кеглями 13/26/39 px и раскладывает файлы профиля; для любого другого
+    # шрифта профиль возвращается к PxPlus (08.10.2026). fontswap сам перезапускает бар.
+    fontswap = os.path.expanduser("~/.local/bin/fontswap")
+    env = dict(os.environ, FONTSWAP_KEEP_SETTINGS="1")
+    swapped = False
+    if os.path.exists(fontswap):
+        st = subprocess.run([fontswap, "status"], capture_output=True, text=True).stdout.strip()
+        if font.startswith("CozetteVector"):
+            if st != font:
+                subprocess.run([fontswap, "cozette", font], capture_output=True, timeout=60, env=env)
+                swapped = True
+        elif st.startswith("CozetteVector"):
+            subprocess.run([fontswap, "back"], capture_output=True, timeout=60, env=env)
+            swapped = True
     # Бар — сразу: остальное (попапы, лаунчер, блокировка, Настройки) запускается
     # заново при каждом открытии и подхватит шрифт само.
     import importlib.util
@@ -551,8 +601,9 @@ def apply_system(font):
         "bar_style", os.path.join(os.path.dirname(os.path.abspath(__file__)), "bar_style.py"))
     bar = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(bar)
-    bar.restart_waybar()
-    apply_zen(font)
+    if not swapped:
+        bar.restart_waybar()
+    apply_zen(zen_font(font))
     apply_librewolf(font)
     apply_helium(font)
     # Яндекс Музыка — Electron с веб-плеером, шрифт ему приходит с сервера, и
@@ -581,7 +632,10 @@ def apply_kitty(font):
     if scope() != "all":
         # Открытые окна не трогаем: у другого шрифта другая ширина клетки, и
         # подогнанные руками размеры окон съезжают. Новые терминалы прочтут
-        # конфиг сами. Включается в Настройках → Шрифты.
+        # конфиг сами: общую копию запускает kitty_shared.sh, и её группа
+        # зависит от шрифта — новое окно поднимет новую копию (08.10.2026; до
+        # того окна вливались в старую копию со старым шрифтом). Включается в
+        # Настройках → Шрифты.
         return True
     # Сокет /tmp/kitty-PID остаётся и после выхода kitty — берём только живые.
     for pid in subprocess.run(["pgrep", "-x", "kitty"], capture_output=True, text=True).stdout.split():
@@ -619,7 +673,7 @@ def apply_termalt(font):
 
 
 APPLY = {"obsidian": apply_obsidian, "system": apply_system, "kitty": apply_kitty,
-         "termalt": apply_termalt}
+         "termalt": apply_termalt, "zen": apply_zen_choice}
 
 
 def set_font(app, key):
@@ -645,6 +699,10 @@ def main():
             print(zen_fonts())
         elif len(args) == 2 and args[0] == "zenfonts":
             print(set_zen_fonts(args[1]))
+        elif args == ["zenfont"]:
+            print(zen_font())
+        elif len(args) == 2 and args[0] == "zenfont":
+            print(set_zen_font(args[1]))
         elif args and args[0] in ("lwfonts", "hefonts"):
             name = "librewolf" if args[0] == "lwfonts" else "helium"
             if len(args) == 1:

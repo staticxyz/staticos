@@ -63,6 +63,28 @@ def palette():
 
 
 def root_css(p):
+    lines = ["    %s: %d, %d, %d;" % (k, *c) for k, c in colors(p).items()]
+    return ":root {\n" + "\n".join(lines) + "\n}\n"
+
+
+def save_colors(p):
+    """Цвета и в настройки Millennium (themes.themeColors.SpaceTheme).
+
+    Millennium читает root.css только пока у темы нет сохранённых цветов, а потом
+    берёт свои из config.json — и они застряли на обоях 28.09 (07.10.2026). Поэтому
+    те же значения пишутся и туда; правка цветов руками в Millennium до смены обоев.
+    """
+    with open(MCONF) as f:
+        conf = json.load(f)
+    want = {k: "%d, %d, %d" % c for k, c in colors(p).items()}
+    tc = conf.setdefault("themes", {}).setdefault("themeColors", {})
+    if tc.get("SpaceTheme") == want:
+        return False
+    tc["SpaceTheme"] = want
+    return write(MCONF, json.dumps(conf, ensure_ascii=False, indent=2) + "\n")
+
+
+def colors(p):
     vivid = rgb(p["vivid"])
     v = {
         "--st-accent-1": vivid,
@@ -83,9 +105,8 @@ def root_css(p):
         "--st-yellow": retone(p["tertiary"], (239, 141, 75)),
         "--st-yellow-hover": retone(p["tertiary"], (239, 141, 75)),
     }
-    # Формат — как в оригинале: Millennium разбирает этот файл для своих настроек цвета.
-    lines = ["    %s: %d, %d, %d;" % (k, *c) for k, c in v.items()]
-    return ":root {\n" + "\n".join(lines) + "\n}\n"
+    # Формат — как в оригинале: Millennium разбирает root.css для своих настроек цвета.
+    return v
 
 
 def write(path, text):
@@ -132,6 +153,7 @@ def main():
     if cmd == "apply":
         changed = write(os.path.join(THEME, "src/css/root.css"), root_css(palette()))
         changed = add_font() or changed
+        changed = save_colors(palette()) or changed
         print("SpaceTheme: %s" % ("обновлена (Steam подхватит после перезапуска)" if changed else "без изменений"))
         return 0
     if cmd in ("on", "off"):

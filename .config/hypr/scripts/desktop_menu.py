@@ -63,9 +63,26 @@ QUICK_N = 5            # значков в верхнем ряду
 QUICK_MIN_S = 60       # меньше минуты за неделю — не «часто используемая»
 QUICK_PX = 32          # размер значка (Papirus рисует 16/24/32/48 — 32 чёткий)
 
-KITTY = ["kitty", "--single-instance", "--instance-group", "jarvis"]
+KITTY = [os.path.expanduser("~/.config/hypr/scripts/kitty_shared.sh")]
 SETTINGS = ["python3", os.path.join(HERE, "settings_app.py")]
 WIDGETS = os.path.join(HERE, "desktop_widgets.py")
+
+
+def glib_signal_add(prio, signum, handler):
+    """Сигнал в главный цикл GLib. GLib.unix_signal_add устарел (PyGObject 3.52+) и однажды
+    исчезнет — тогда программа перестала бы запускаться (08.10.2026). Сначала замена
+    GLibUnix.signal_add, без неё — старое имя, без обоих — обычный signal.signal."""
+    from gi.repository import GLib
+    try:
+        from gi.repository import GLibUnix
+        return GLibUnix.signal_add(prio, signum, handler)
+    except (ImportError, AttributeError):
+        pass
+    try:
+        return GLib.unix_signal_add(prio, signum, handler)
+    except AttributeError:
+        import signal as _signal
+        _signal.signal(signum, lambda *_a: GLib.idle_add(lambda: handler() and False))
 
 
 def desktop_dir():
@@ -165,7 +182,7 @@ ACTIONS = {
     "overview": [["niri", "msg", "action", "toggle-overview"]],
     "menu-off": [["python3", os.path.abspath(__file__), "off"]],
     "settings": [SETTINGS],
-    # 02.10.2026: таймер, запись видео и виджеты — по просьбе
+    # 02.10.2026: таймер, запись видео и виджеты — по просьбе пользователя
     "timer": [[os.path.join(HERE, "timer_ask.sh")]],
     "record-video": [["env", "REC_TOP=Video", os.path.join(HERE, "rec_area.sh")]],
     "widgets-edit": [["python3", WIDGETS, "edit"]],
@@ -331,7 +348,7 @@ SUB_MORE = [
     ("\U000f0489", "Снимок области", "screenshot", "Print"),
     ("\U000f0570", "Обзор столов", "overview", "Super+G"),
     ("\U000f00e3", "Внешний вид", "look", ""),
-    # «Убрать это меню» убран (05.10.2026, просьба: «случайно нажал — убери кнопку»);
+    # «Убрать это меню» убран (05.10.2026, Просьба: «случайно нажал — убери кнопку»);
     # выключить меню можно в Настройках или `desktop_menu.py off`.
 ]
 SUB_WIDGET = [(i, t, "widget-" + k, "") for k, i, t in WIDGET_KINDS]
@@ -339,39 +356,68 @@ SUB_WIDGET = [(i, t, "widget-" + k, "") for k, i, t in WIDGET_KINDS]
 SUB_COUNT = [
     ("\U000f051b", "hh", "timer-hh", ""),
 ]
-# «Управление виджетами» (02.10.2026): пресет — раскладка виджетов (места, размеры,
-# столы). «Восстановить» виден, только когда есть что восстанавливать — сохранённый пресет
-# или раскладка, запомненная перед «Удалить все».
+# «Управление виджетами» (02.10.2026; переделано 05.10.2026). Утром 05.10 пункты
+# работали только на стол, где открыли меню, — пользователь передумал: «как мне понять, на каком
+# столе восстанавливать? Сделай как раньше — на все виджеты»; и «пресетов несколько, легко
+# переключаться». Теперь: «Сохранить пресет…» — окошко с названием (rofi, как у «Создать
+# таймер…»), снимок ВСЕХ виджетов; «Загрузить пресет ▸» — список имён, строится при каждом
+# открытии меню; «Удалить все виджеты» — все (копия в «отмену»).
+def _sub_presets():
+    """Подменю «Загрузить пресет»: имена пресетов (свежие сверху) + «Как было до этого»."""
+    try:
+        names = subprocess.run(["python3", WIDGETS, "preset", "list"], capture_output=True,
+                               text=True, timeout=3).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError):
+        names = []
+    out = []
+    try:
+        cur = open(os.path.join(_STATE, "widget-preset-current")).read().strip()
+    except (OSError, NameError):
+        cur = ""
+    for n in [x for x in names if x.strip()]:
+        key = "preset-load:" + n
+        ACTIONS[key] = (lambda name: lambda dry: [["python3", WIDGETS, "preset", "load", name]])(n)
+        # текущий (state/widget-preset-current) — галочкой (05.10.2026)
+        out.append(("\U000f012c" if n == cur else "\U000f0570", n, key, "сейчас" if n == cur else ""))
+    if not out:
+        out.append(("\U000f0450", "Пресетов пока нет", "noop", ""))
+    if os.path.exists(os.path.join(_STATE, "desktop-widgets-undo.json")):
+        out += [None, ("\U000f054c", "Как было до этого", "widgets-undo", "")]
+    return out
+
+
+def _sub_presets_del():
+    """Подменю «Удалить пресет» (05.10.2026, Просьба: «добавь возможность удалять пресеты»).
+    Файл не стирается, а уходит в widget-presets/.deleted — промах можно вернуть руками."""
+    try:
+        names = subprocess.run(["python3", WIDGETS, "preset", "list"], capture_output=True,
+                               text=True, timeout=3).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError):
+        names = []
+    out = []
+    for n in [x for x in names if x.strip()]:
+        key = "preset-del:" + n
+        # защита от промаха (05.10.2026, Просьба: «подтверждение — отдельное окно по центру»):
+        # delete-ask показывает окно Preset.exe «Удалить пресет «…»?», удаляет только «Удалить»
+        ACTIONS[key] = (lambda name: lambda dry: [["python3", WIDGETS, "preset", "delete-ask", name]])(n)
+        out.append(("\U000f01b4", n, key, ""))
+    return out or [("\U000f0450", "Пресетов пока нет", "noop", "")]
+
+
 SUB_CONTROL = [
-    ("\U000f0193", "Сохранить пресет", "widgets-save", ""),
-    ("\U000f0450", "Восстановить виджеты", "widgets-restore", ""),
+    ("\U000f0193", "Сохранить пресет…", "widgets-save", ""),
+    ("\U000f0450", "Загрузить пресет", _sub_presets, ""),
+    ("\U000f01b4", "Удалить пресет", _sub_presets_del, ""),
     None,
     ("\U000f01b4", "Удалить все виджеты", "widgets-clear", ""),
 ]
-# Пресет, восстановление и очистка — только СТОЛ, где открыли меню (05.10.2026):
-# точка щелчка here=X,Y → монитор и его стол (desktop_widgets.py desk_at).
-def _desk(*args):
-    def act(dry):
-        pt = LAST_CLICK[0]
-        if not pt:                          # без щелчка — центр монитора в фокусе, но не «все»
-            try:
-                o = json.loads(subprocess.run(["niri", "msg", "-j", "focused-output"],
-                                              capture_output=True, text=True, timeout=2).stdout)
-                lg = o["logical"]
-                pt = (lg["x"] + lg["width"] // 2, lg["y"] + lg["height"] // 2)
-            except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
-                pt = (0, 0)
-        return [["python3", WIDGETS, *args, "here=%d,%d" % pt]]
-    return act
-
-
-ACTIONS["widgets-save"] = _desk("preset", "save")
-ACTIONS["widgets-restore"] = _desk("preset", "restore")
-ACTIONS["widgets-clear"] = _desk("clear")
+ACTIONS["widgets-save"] = [["python3", WIDGETS, "preset", "ask"]]
+ACTIONS["widgets-undo"] = [["python3", WIDGETS, "preset", "undo"]]
+ACTIONS["widgets-clear"] = [["python3", WIDGETS, "clear"]]
+ACTIONS["noop"] = []
 _STATE = os.path.expanduser("~/.config/hypr/state")
 # пункт показывается, только пока условие истинно
-VISIBLE = {"widgets-restore": lambda: os.path.exists(os.path.join(_STATE, "desktop-widgets-desks.json"))
-           or os.path.exists(os.path.join(_STATE, "desktop-widgets-desks-undo.json"))}
+VISIBLE = {}
 MENU = [
     ("\U000f0704", "Создать", SUB_NEW, ""),
     ("\U000f0770", "Открыть", SUB_OPEN, ""),
@@ -413,7 +459,7 @@ menu.jd {
     margin: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.60);
     font-family: '%(font)s', sans-serif; font-size: 14px; font-weight: normal;
 }
-/* 04.10.2026, просьба: «чуть компактнее» — было 16px, отступы 4px, высота 24px.
+/* 04.10.2026, Просьба: «чуть компактнее» — было 16px, отступы 4px, высота 24px.
    Бэкап desktop_menu.py.bak-compact-classic. */
 menu.jd menuitem {
     padding: 2px 8px 2px 5px; border-radius: 6px; min-height: 20px;
@@ -460,7 +506,7 @@ tooltip label {
 """
 
 
-# Вид «XP» (01.10.2026, просьба: «компактнее, рамки системные убери, сделай
+# Вид «XP» (01.10.2026, Просьба: «компактнее, рамки системные убери, сделай
 # собственную в стиле Windows XP, и само меню перерисуй в стиле XP»): прямые углы,
 # объёмная кромка в два тона (светлая сверху-слева, тёмная снизу-справа) и тень
 # со сдвигом, полоса выделения во всю ширину акцентом, мелкий шрифт 12 px, значки
@@ -595,6 +641,8 @@ def build_menu(Gtk, on_action, on_quick, quick=None):
                 it = Gtk.SeparatorMenuItem()
             else:
                 icon, title, what, accel = e
+                if callable(what):            # подменю, которое строится при открытии меню
+                    what = what()
                 if not isinstance(what, list) and what in VISIBLE and not VISIBLE[what]():
                     continue
                 it = Gtk.MenuItem()
@@ -602,8 +650,11 @@ def build_menu(Gtk, on_action, on_quick, quick=None):
                 if isinstance(what, list):
                     sub = Gtk.Menu()
                     sub.get_style_context().add_class("jd")
+                    sub.set_reserve_toggle_size(False)
                     fill(sub, what)
                     it.set_submenu(sub)
+                elif what == "noop":
+                    it.set_sensitive(False)
                 else:
                     if what == "refresh" and not shell_mine:
                         it.set_sensitive(False)
@@ -654,6 +705,34 @@ def running_pid():
     return None
 
 
+def inherited_children():
+    """pid детей, доставшихся от прошлого образа процесса. restart() делает execv: pid тот же,
+    а подписка niri event-stream (её гасит PDEATHSIG) и звуки «timeout pw-play» прошлого
+    образа остаются нашими детьми, которых новый образ не ждёт, — зомби копились
+    (07.10.2026: 50 «[niri] <defunct>» за полтора суток, по одному на смену курсора)."""
+    me, out = str(os.getpid()), set()
+    for d in os.listdir("/proc"):
+        if d.isdigit():
+            try:
+                s = open("/proc/%s/stat" % d).read()
+                if s[s.rindex(")") + 2:].split()[1] == me:
+                    out.add(int(d))
+            except (OSError, ValueError, IndexError):
+                pass
+    return out
+
+
+def reap_inherited(pids):
+    """Подобрать завершившихся из inherited_children(); живых — при следующем вызове."""
+    for pid in list(pids):
+        try:
+            done = os.waitpid(pid, os.WNOHANG)[0]
+        except ChildProcessError:
+            done = pid
+        if done:
+            pids.discard(pid)
+
+
 def niri_json(*what):
     try:
         out = subprocess.run(["niri", "msg", "-j", *what], capture_output=True,
@@ -696,7 +775,9 @@ def run(dry_run=False):
 
     _fill_dirs()
     E = GtkLayerShell.Edge
-    st = {"wins": [], "menu": None, "cursor": _mtimes(), "restart": False}
+    st = {"wins": [], "menu": None, "cursor": _mtimes(), "restart": False,
+          "inherited": inherited_children()}      # до первого своего запуска
+    reap_inherited(st["inherited"])
 
     def reap(pid):
         GLib.child_watch_add(GLib.PRIORITY_DEFAULT, pid, lambda *_: None)
@@ -723,7 +804,7 @@ def run(dry_run=False):
             GLib.timeout_add(300, restart)
 
     def fit_menus(menu, py, surf_h):
-        """Меню и подменю — целиком НАД нижней панелью (05.10.2026, просьба: «меню
+        """Меню и подменю — целиком НАД нижней панелью (05.10.2026, Просьба: «меню
         должно быть видно полностью; не хватает места — пусть открывается выше»).
         niri ограничивает всплывающие меню только краем экрана, а XP-панель лежит поверх
         них — низ подменю уходил под неё. Поэтому место считаем сами: где кончается
@@ -741,6 +822,11 @@ def run(dry_run=False):
                     r = mm.child_get_property(c, "top-attach")
                 except TypeError:
                     r = id(c)
+                # пункт, добавленный append (не attach), — top-attach −1 у всех: без этого
+                # длинное подменю («Создать виджет», 19 строк) считалось одной строкой и не
+                # поднималось над панелью (05.10.2026)
+                if r is None or r < 0:
+                    r = id(c)
                 rows[r] = max(rows.get(r, 0), c.get_preferred_height()[1])
             return sum(rows.values()) + 16
 
@@ -750,19 +836,51 @@ def run(dry_run=False):
         menu.set_property("rect-anchor-dy", int(dy))
         tops[menu] = py + dy
 
+        # Сдвиг подменю. GTK, открывая подменю (gtk_menu_item popup_submenu), САМ ставит ему
+        # rect-anchor-dy (минус верхнее поле — первый пункт вровень с пунктом-родителем) и
+        # затирает наш — поэтому ни расчёт заранее, ни по «select» не действовали, а то,
+        # что подменю всё же поднималось, делал niri, прижимая его к краю монитора, — низ
+        # длинного «Создать виджет» уходил под панель (05.10.2026). Теперь ловим запись GTK
+        # (notify::rect-anchor-dy — синхронно, до показа) и добавляем к ней свой сдвиг.
+        want, ours = {}, {}
+
+        def on_dy(sub, _pspec):
+            v = sub.get_property("rect-anchor-dy")
+            if v == ours.get(sub) or sub not in want:
+                return
+            ours[sub] = v + want[sub]
+            sub.set_property("rect-anchor-dy", ours[sub])
+
+        def place(sub, item_top):
+            sh = natural_h(sub)
+            d = max(min(0, bottom - (item_top + sh)), -item_top)
+            want[sub] = int(d)
+            tops[sub] = item_top + d
+
         def hook(mm):
+            # оценка места пункта — сумма высот пунктов выше + поле 8 px; «select» уточняет
+            y_acc, rows_seen = 8, {}
             for it in mm.get_children():
+                try:
+                    r = mm.child_get_property(it, "top-attach")
+                except TypeError:
+                    r = None
+                if r is None or r < 0:
+                    r = id(it)
+                it_h = it.get_preferred_height()[1]
+                if r in rows_seen:
+                    est_top = rows_seen[r]
+                else:
+                    est_top = rows_seen[r] = y_acc
+                    y_acc += it_h
                 sub = it.get_submenu() if hasattr(it, "get_submenu") else None
                 if sub is None:
                     continue
+                place(sub, tops.get(mm, 0) + est_top)
+                sub.connect("notify::rect-anchor-dy", on_dy)
 
                 def on_select(item, sub=sub, parent=mm):
-                    item_top = tops.get(parent, 0) + item.get_allocation().y
-                    sh = natural_h(sub)
-                    d = min(0, bottom - (item_top + sh))
-                    d = max(d, -item_top)
-                    sub.set_property("rect-anchor-dy", int(d))
-                    tops[sub] = item_top + d
+                    place(sub, tops.get(parent, 0) + item.get_allocation().y)
                 it.connect("select", on_select)
                 hook(sub)
         hook(menu)
@@ -844,6 +962,8 @@ def run(dry_run=False):
         if os.path.exists(FLAG):
             Gtk.main_quit()
             return False
+        if st["inherited"]:
+            reap_inherited(st["inherited"])
         m = _mtimes()
         if m != st["cursor"]:
             st["cursor"] = m
@@ -863,8 +983,8 @@ def run(dry_run=False):
     display = Gdk.Display.get_default()
     display.connect("monitor-added", lambda *_: GLib.timeout_add(500, rebuild))
     display.connect("monitor-removed", lambda *_: GLib.timeout_add(500, rebuild))
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda: (Gtk.main_quit(), False)[1])
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, lambda: (Gtk.main_quit(), False)[1])
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda: (Gtk.main_quit(), False)[1])
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, lambda: (Gtk.main_quit(), False)[1])
     GLib.timeout_add_seconds(POLL_S, poll)
 
     # Сменился стол — открытое меню убрать само (01.10.2026, просьба пользователя).
@@ -913,6 +1033,8 @@ def render(path):
     _fill_dirs()
     menu = build_menu(Gtk, lambda k: None, lambda a, i: None)
     subs = [c.get_submenu() for c in menu.get_children() if c.get_submenu()]
+    subs += [c.get_submenu() for m in list(subs) for c in m.get_children()
+             if hasattr(c, "get_submenu") and c.get_submenu()]          # второй уровень (пресеты)
     # Подсветка «под курсором» у одного пункта — чтобы было видно, как выглядит наведение.
     items = [c for c in menu.get_children() if isinstance(c, Gtk.MenuItem)
              and not isinstance(c, Gtk.SeparatorMenuItem)]
@@ -970,7 +1092,9 @@ def test():
         for e in entries:
             if e is None:
                 continue
-            if isinstance(e[2], list):
+            if callable(e[2]):
+                walk(e[2]())
+            elif isinstance(e[2], list):
                 walk(e[2])
             else:
                 keys.append(e[2])

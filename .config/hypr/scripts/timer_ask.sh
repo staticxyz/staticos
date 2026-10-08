@@ -11,4 +11,4 @@ choice=$(printf '%s\n' 5m 10m 15m 25m 45m 1h | rofi -dmenu -i -p "timer" \
 [ -n "$choice" ] || exit 0
 # $choice без кавычек нарочно: «tea 5m» — это два аргумента для timer
 # shellcheck disable=SC2086
-exec kitty --single-instance --instance-group jarvis --title "timer $choice" "$HOME/.local/bin/timer" $choice
+exec $HOME/.config/hypr/scripts/kitty_shared.sh --title "timer $choice" "$HOME/.local/bin/timer" $choice

@@ -258,8 +258,10 @@ def watch_notify():
                     app = line.strip()
                     # Без системного звука: снимок niri (свой звук у снимка) и сообщения
                     # Telegram (05.10.2026, просьба: «системного звука в сообщениях Telegram
-                    # быть не должно — пусть звучит сам Telegram»).
-                    if app not in (b'string "niri"', b'string "Telegram Desktop"') \
+                    # быть не должно — пусть звучит сам Telegram»). Смена трека (track_notify.py,
+                    # -a Music) — тоже молча (09.10.2026: «уведомление пусть будет, звук не хочу»).
+                    if app not in (b'string "niri"', b'string "Telegram Desktop"',
+                                   b'string "Music"') \
                             and time.monotonic() - last > 1.0:
                         last = time.monotonic()
                         ui_sound.play("notify")

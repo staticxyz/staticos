@@ -25,7 +25,8 @@ spawn-at-startup "hypridle"
 spawn-sh-at-startup "python3 ~/.config/hypr/scripts/screen_gamma.py dim off"
 spawn-at-startup "gnome-keyring-daemon" "--start" "--components=secrets,pkcs11,ssh"
 spawn-at-startup "playerctld" "daemon"
-spawn-sh-at-startup "~/.config/hypr/scripts/kbdlight_watch"
+// kbdlight_watch — внутри хозяина staticOS (07.10.2026)
+// spawn-at-startup "~/.config/hypr/scripts/kbdlight_watch"
 // История буфера без скопированного в Tor Browser (28.09.2026).
 spawn-sh-at-startup "wl-paste --type text --watch ~/.local/bin/cliphist-store"
 spawn-sh-at-startup "wl-paste --type image --watch ~/.local/bin/cliphist-store"
@@ -35,6 +36,9 @@ spawn-sh-at-startup "~/.local/bin/x11-clip-bridge"
 spawn-sh-at-startup "wl-paste --type text --watch ~/.local/bin/game-clip-push"
 // Новой игре — то, что уже лежит в буфере (скопированное до запуска CS2 не доходило).
 spawn-sh-at-startup "~/.local/bin/game-clip-push --watch-games"
+// Текст из X-программ (Steam, его оверлей в CS2) → общий буфер: xwayland-satellite его
+// туда не переносит (06.10.2026, IP сервера из браузера Steam не копировался).
+spawn-sh-at-startup "~/.local/bin/x-clip-pull"
 // Звонок терминала тише и тишина уведомлений при «Не беспокоить» (23.09.2026).
 spawn-sh-at-startup "~/.config/hypr/scripts/sound_guard.sh"
 spawn-at-startup "awww-daemon"
@@ -65,10 +69,12 @@ spawn-at-startup "busctl" "set-property" "org.freedesktop.NetworkManager" "/org/
 // Нижняя панель (30.09.2026): док, XP-панель или ничего — что выбрано в Настройках.
 spawn-sh-at-startup "python3 ~/.config/hypr/scripts/bottom_bar.py"
 // Одиночный Super — меню «Пуск» XP-панели, пока она на экране (01.10.2026).
-spawn-sh-at-startup "python3 ~/.config/hypr/scripts/super_tap.py"
+// super_tap.py — внутри хозяина staticOS (07.10.2026)
+// spawn-at-startup "python3" "~/.config/hypr/scripts/super_tap.py"
 
 // Уведомление при смене трека (30.09.2026); вкл/выкл — Настройки → Уведомления.
-spawn-sh-at-startup "python3 ~/.config/hypr/scripts/track_notify.py"
+// track_notify.py — внутри хозяина staticOS (07.10.2026)
+// spawn-at-startup "python3" "~/.config/hypr/scripts/track_notify.py"
 
 // Экранное время: счётчик фокуса по программам (30.09.2026), окно — screentime.py.
 spawn-sh-at-startup "python3 ~/.config/hypr/scripts/screentime_daemon.py"
@@ -77,7 +83,8 @@ spawn-sh-at-startup "python3 ~/.config/hypr/scripts/screentime_daemon.py"
 spawn-sh-at-startup "python3 ~/.config/hypr/scripts/hot_corners.py"
 
 // Тишина звуков уведомлений Telegram и др. в «Не беспокоить», звук окон не трогается (30.09.2026).
-spawn-sh-at-startup "python3 ~/.config/hypr/scripts/dnd_sounds.py"
+// dnd_sounds.py — внутри хозяина staticOS (07.10.2026)
+// spawn-at-startup "python3" "~/.config/hypr/scripts/dnd_sounds.py"
 
 // Меню рабочего стола по ПКМ на пустых обоях (30.09.2026); вкл/выкл — desktop_menu.py on|off.
 spawn-sh-at-startup "python3 ~/.config/hypr/scripts/desktop_menu.py"
@@ -89,11 +96,16 @@ spawn-sh-at-startup "printf '// Бинды на время записи виде
 
 // Кто греет процессор (01.10.2026): уведомление, если программа держит целое ядро
 // дольше трёх минут — после вопроса «почему кулеры резко раскручиваются».
-spawn-sh-at-startup "python3 ~/.config/hypr/scripts/cpu_hog_watch.py"
+// cpu_hog_watch — теперь внутри хозяина staticOS (staticos_host.py, 07.10.2026)
+// spawn-at-startup "python3" "~/.config/hypr/scripts/cpu_hog_watch.py"
 
 // Хранитель буфера обмена (02.10.2026): без него содержимое буфера пропадало, когда
 // закрывалась программа, которая его скопировала.
-spawn-at-startup "wl-clip-persist" "--clipboard" "regular"
+// 07.10.2026: картинки не трогает. Telegram отдаёт скопированное изображение в 38
+// форматах (avif, heic, exr, jxl…), а хранитель забирал все разом — Telegram кодировал
+// картинку 38 раз, и он сам и система подвисали. Регулярка = «тип не начинается с image/»
+// (в Rust regex нет (?!…)); если среди типов есть картинка — выделение пропускается.
+spawn-at-startup "wl-clip-persist" "--clipboard" "regular" "--all-mime-type-regex" "^([^i].*|i([^m].*)?|im([^a].*)?|ima([^g].*)?|imag([^e].*)?|image([^/].*)?)$"
 
 // «Встряхни мышь — найди курсор» (02.10.2026): кольца вокруг указателя цветом обоев.
 // Вкл/выкл — cursor_shake.py on|off (Настройки → Misc); в играх мышь не читается.
@@ -101,7 +113,8 @@ spawn-sh-at-startup "python3 ~/.config/hypr/scripts/cursor_shake.py"
 
 // Авто-«Не беспокоить» на время записи и трансляции экрана (02.10.2026);
 // вкл/выкл — auto_dnd.py on|off (Настройки → Misc). Replay записью не считается.
-spawn-sh-at-startup "python3 ~/.config/hypr/scripts/auto_dnd.py"
+// auto_dnd.py — внутри хозяина staticOS (07.10.2026)
+// spawn-at-startup "python3" "~/.config/hypr/scripts/auto_dnd.py"
 
 // Звуки интерфейса (02.10.2026): звук входа; остальные события шлют сами скрипты
 // (снимок, запись, разблокировка). Выключить всё — ui_sound.py off (Настройки → Misc).
@@ -114,7 +127,8 @@ spawn-sh-at-startup "python3 ~/.config/hypr/scripts/desktop_widgets.py"
 
 // Сторож звуков интерфейса (02.10.2026): USB, батарея, а при включённых группах — окна,
 // щелчки мыши и уведомления. Сам играет через ui_sound.py (группы — Настройки → Misc).
-spawn-sh-at-startup "python3 ~/.config/hypr/scripts/ui_sound_watch.py"
+// ui_sound_watch.py — внутри хозяина staticOS (07.10.2026)
+// spawn-at-startup "python3" "~/.config/hypr/scripts/ui_sound_watch.py"
 
 // Верхний бар «при наведении» (03.10.2026): сторож с датчиками у верхнего края. Сам
 // выходит, если режим другой (top_bar.py get: always | hover | off).
@@ -132,3 +146,12 @@ spawn-sh-at-startup "python3 ~/.config/hypr/scripts/notif_log.py"
 
 // Переключатель окон Alt+Tab (05.10.2026): резидент держит окно и список окон в памяти.
 spawn-sh-at-startup "python3 ~/.config/hypr/scripts/alt_tab.py daemon"
+
+// Свой синхронный текст песен без него (06.10.2026): запись трека → demucs → Whisper,
+// результат — в кэш lyrics_bar. Ни записи, ни обработки во время игры. Выкл: lyrics_sync.py off
+spawn-sh-at-startup "python3 ~/.config/hypr/scripts/lyrics_sync.py daemon"
+
+// Хозяин staticOS (07.10.2026): фоновые сторожа одним процессом, по потоку на сторожа —
+// экономия памяти на интерпретаторах. Список — ~/.config/hypr/state/staticos-host.json.
+// Цикл sh: упал — поднимется через 2 с. Откат — копии autostart.kdl.bak-host-<сторож>.
+spawn-sh-at-startup "sh -c 'while :; do python3 ~/.config/hypr/scripts/staticos_host.py; sleep 2; done'"

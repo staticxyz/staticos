@@ -57,6 +57,23 @@ DEFAULT = {"top-right": "notifications"}
 
 # ---------------------------------------------------------------- настройки
 
+def glib_signal_add(prio, signum, handler):
+    """Сигнал в главный цикл GLib. GLib.unix_signal_add устарел (PyGObject 3.52+) и однажды
+    исчезнет — тогда программа перестала бы запускаться (08.10.2026). Сначала замена
+    GLibUnix.signal_add, без неё — старое имя, без обоих — обычный signal.signal."""
+    from gi.repository import GLib
+    try:
+        from gi.repository import GLibUnix
+        return GLibUnix.signal_add(prio, signum, handler)
+    except (ImportError, AttributeError):
+        pass
+    try:
+        return GLib.unix_signal_add(prio, signum, handler)
+    except AttributeError:
+        import signal as _signal
+        _signal.signal(signum, lambda *_a: GLib.idle_add(lambda: handler() and False))
+
+
 def load_config():
     try:
         with open(STATE) as f:
@@ -316,9 +333,9 @@ def run(dry_run=False):
     # Монитор подключили/отключили — пересобрать (с задержкой: niri не сразу знает выход).
     display.connect("monitor-added", lambda *_: GLib.timeout_add(500, rebuild))
     display.connect("monitor-removed", lambda *_: GLib.timeout_add(500, rebuild))
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGHUP, reload)
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda: (Gtk.main_quit(), False)[1])
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, lambda: (Gtk.main_quit(), False)[1])
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGHUP, reload)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda: (Gtk.main_quit(), False)[1])
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, lambda: (Gtk.main_quit(), False)[1])
     GLib.timeout_add_seconds(POLL_S, poll)
     rebuild()
     Gtk.main()

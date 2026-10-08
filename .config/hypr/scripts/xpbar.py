@@ -56,6 +56,23 @@ PALETTE_FILE = os.path.expanduser("~/.cache/matugen/colors.json")
 
 
 
+def glib_signal_add(prio, signum, handler):
+    """Сигнал в главный цикл GLib. GLib.unix_signal_add устарел (PyGObject 3.52+) и однажды
+    исчезнет — тогда программа перестала бы запускаться (08.10.2026). Сначала замена
+    GLibUnix.signal_add, без неё — старое имя, без обоих — обычный signal.signal."""
+    from gi.repository import GLib
+    try:
+        from gi.repository import GLibUnix
+        return GLibUnix.signal_add(prio, signum, handler)
+    except (ImportError, AttributeError):
+        pass
+    try:
+        return GLib.unix_signal_add(prio, signum, handler)
+    except AttributeError:
+        import signal as _signal
+        _signal.signal(signum, lambda *_a: GLib.idle_add(lambda: handler() and False))
+
+
 def _die_with_parent():
     """preexec_fn для фоновых подписок (pactl subscribe, swaync-client -swb,
     niri event-stream): ядро убьёт их вместе с этим процессом (PR_SET_PDEATHSIG).
@@ -111,10 +128,19 @@ def _stop():
             os.kill(pid, signal.SIGTERM)
         except OSError:
             pass
-    for _ in range(20):
+    # до 3 с: панель на двух мониторах закрывается дольше секунды, и restart тогда не
+    # запускал новую — видел старую живой (06.10.2026)
+    for _ in range(60):
         if not any(os.path.exists("/proc/%d" % p) for p in pids):
             break
         time.sleep(0.05)
+    else:
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        time.sleep(0.2)
 
 
 if sys.argv[1:2] == ["status"]:
@@ -149,16 +175,20 @@ import lyrics_bar as LB  # noqa: E402
 from PIL import Image  # noqa: E402
 
 H = 32                   # высота панели, как у верхнего бара
-TASK_W = 176             # ширина кнопки окна (у XP ~160) — наибольшая
-TASK_MIN = 110           # окон много — кнопки сжимаются до этой ширины, дальше прокрутка
+TASK_W = 136             # ширина кнопки окна — наибольшая (было 176; 05.10.2026, Просьба: «чтобы больше вмещалось»)
+TASK_MIN = 90            # окон много — кнопки сжимаются до этой ширины, дальше прокрутка (было 110)
 GLUE_SHOW = 4            # «вплотную»: сколько пикселей нижней рамки окна видно над панелью (2 → 4, 04.10.2026: «рамки вообще не вижу»)
 LYR_W = 470              # место под текст песни справа — постоянное, панель не пляшет
-LYRICS_MAX = 40          # знаков строки песни в панели
+LYRICS_MAX = 40          # знаков строки песни в панели — предел; на деле fit_lyrics() по ширине
 PREVIEW = 0.4            # строка появляется раньше, чем её начнут петь, с
                          # (0.8 — «переборщил со скоростью», 01.10.2026)
 PAUSE_HIDE_S = 30        # текст песни прячется, если пауза дольше
 HIDE_MS = 600            # режим «при наведении»: курсор ушёл — через столько спрятать
 FONT = "'PxPlus HP 100LX 6x8 Jarvis', 'JetBrainsMono NF', monospace"
+# Подписи окон и трей — 12 px, как было до сведения к сетке (05.10.2026, Просьба: «раньше было
+# мельче», «эстетичность, но пиксельность»). Оригинальное имя шрифта (без «Jarvis»): правило
+# fontconfig 62-pxplus-grid-trial (12 → 16) его не трогает.
+FONT12 = "'PxPlus HP 100LX 6x8', 'PxPlus HP 100LX 6x8 Jarvis', monospace"
 NERD = "'Symbols Nerd Font', 'JetBrainsMono NF'"
 HIDDEN_APPS = ("dash-",)
 LB.MAX_LEN = LYRICS_MAX
@@ -198,7 +228,7 @@ window.xpbar-win { background: transparent; }
     border-top: 1px solid %(line1)s;
     box-shadow: inset 0 1px %(line2)s;
     min-height: 31px;
-    font-family: %(font)s; font-size: 12px; font-weight: normal;
+    font-family: %(font12)s; font-size: 12px; font-weight: normal;
     color: %(text)s;
 }
 button.start {
@@ -208,7 +238,9 @@ button.start {
     box-shadow: inset 0 1px %(st_hi)s, inset -1px -1px %(st_dark)s, 2px 0 3px alpha(black, 0.45);
     padding: 0 16px 0 6px; margin: 0 8px 0 0; min-height: 0;
     color: %(text)s; text-shadow: 1px 1px alpha(black, 0.7);
-    font-family: %(font)s; font-size: 16px; font-weight: normal;
+    /* «PxPlus Keep» (fontconfig 62-pxplus-keep.conf) — PxPlus 16 px и под пробой Cozette:
+       «пуск надо крупным вернуть, как он был» (08.10.2026) */
+    font-family: 'PxPlus Keep', %(font)s; font-size: 16px; font-weight: normal;
 }
 /* Наведение — светлее, а не «нажато»: утопленной кнопка бывает только при
    открытом меню (класс open), 01.10.2026. */
@@ -238,7 +270,7 @@ button.ws.active {
     border-color: %(f_border)s; box-shadow: inset 1px 1px 2px alpha(black, 0.6);
 }
 button.ws.empty { color: alpha(%(text)s, 0.5); }
-/* Стол в фокусе — светлая плашка акцента, даже ПУСТОЙ (05.10.2026, просьба: «перешёл на
+/* Стол в фокусе — светлая плашка акцента, даже ПУСТОЙ (05.10.2026, Просьба: «перешёл на
    пустой стол — непонятно, где фокус»). Раньше было только цветом текста, и правило
    .empty (тусклый текст) его перебивало. */
 button.ws.focused, button.ws.focused.empty {
@@ -253,7 +285,7 @@ button.task {
     box-shadow: inset 0 1px %(t_hi)s;
     padding: 0 8px; margin: 4px 2px 3px 2px; min-height: 0;
     color: %(text)s; text-shadow: none;
-    font-family: %(font)s; font-size: 12px; font-weight: normal;
+    font-family: %(font12)s; font-size: 12px; font-weight: normal;
 }
 button.task:hover { background-image: linear-gradient(to bottom, %(t_hover_top)s, %(t_hover_bot)s); }
 button.task.focused {
@@ -276,7 +308,7 @@ button.arrow:hover { color: %(primary)s; }
     box-shadow: inset 1px 0 %(tr_light)s, inset 0 1px %(tr_light)s;
     padding: 0 12px 0 10px;
 }
-.tray label { font-family: %(font)s; font-size: 12px; color: %(text)s; }
+.tray label { font-family: %(font12)s; font-size: 12px; color: %(text)s; }
 window.xptray-win { background: transparent; }
 .xptray {
     background-color: %(g_mid)s;
@@ -290,7 +322,17 @@ button.xptray-item {
 }
 button.xptray-item:hover { border-color: %(tr_light)s; background-color: alpha(%(primary)s, 0.18); }
 .tray label.glyph { font-family: %(nerd)s; font-size: 14px; }
-.tray label.clock { font-size: 16px; }
+.tray label.clock { font-size: 12px; }
+/* Раскладка — как индикатор языка в трее Windows XP (05.10.2026, Просьба: «стали больше,
+   хочу как в Windows — помельче и в своей маленькой рамке»): родной кегль шрифта 8 px
+   (чёткий), квадратик тонами «Пуска» со светлой кромкой. */
+.tray label.lang {
+    font-size: 8px; color: #ffffff; padding: 2px 3px 1px 3px; margin: 7px 0;
+    background-color: %(st_mid)s;
+    background-image: linear-gradient(to bottom, %(st_top)s, %(st_bot)s);
+    border: 1px solid %(st_hi)s; border-radius: 2px;
+    box-shadow: inset -1px -1px alpha(black, 0.35);
+}
 .tray label.off { color: %(dim)s; }
 .tray eventbox { padding: 0 2px; }
 label.lyrics { font-family: %(font)s; font-size: 16px; color: %(text)s; }
@@ -334,7 +376,9 @@ button.start.open, button.start.open:hover, button.start.open:active {
     background-color: %(sq_open)s; background-image: none;
     border-color: %(st_top)s;
     box-shadow: inset 2px 2px alpha(black, 0.35);
-    padding: 1px 8px 0 8px; color: %(sq_open_text)s;
+    /* без 1px сверху: кнопка «Квадратный» выше панели, лишний пиксель отступа
+       поднимал всю панель при открытом меню (05.10.2026) */
+    padding: 0 8px 0 8px; color: %(sq_open_text)s;
 }
 """
 
@@ -349,7 +393,7 @@ def start_button_look():
 def load_css():
     global _provider
     c = colors()
-    c.update(font=FONT, nerd=NERD)
+    c.update(font=FONT, nerd=NERD, font12=FONT12)
     css = CSS % c
     if start_button_look() == "square":
         b, p = c["base"], c["primary"]
@@ -411,6 +455,20 @@ def _ws_bottom():
 
 
 WS_BOTTOM = _ws_bottom()
+
+
+def _ws_here(connector):
+    """Столы на панели этого монитора: общий выбор «в нижней панели» — или панели по
+    мониторам, и верхний бар на этом мониторе выключен (иначе столов там не видно вовсе;
+    panels.py, 06.10.2026)."""
+    try:
+        import panels
+        d = panels.load()
+        if panels.per_monitor(d):
+            return panels.ws_for(connector, d) == "bottom"    # у монитора свой выбор
+    except Exception:
+        pass
+    return WS_BOTTOM
 
 
 def spawn(*args):
@@ -537,7 +595,7 @@ def zone_size():
         glued = False
     # «Вплотную» — нижняя рамка окон уходит ПОД панель (панель лежит слоем выше):
     # у окон толстые рамки (5 px), и рамка на кромке панели сливалась в тяжёлую
-    # линию; зазор в 1 px тоже не понравился — просьба: «попробуй убрать нижнюю
+    # линию; зазор в 1 px тоже не понравился — Просьба: «попробуй убрать нижнюю
     # рамку, если панель видна» (01.10.2026). Спрятана панель — зоны нет, окна как
     # обычно, с рамкой со всех сторон.
     # Но край окна должен читаться: из рамки над панелью видно GLUE_SHOW px
@@ -639,6 +697,178 @@ class Wordmark(Gtk.DrawingArea):
             cr.set_source_surface(surf, 0, 0)
             cr.get_source().set_filter(cairo.FILTER_NEAREST)
             cr.paint()
+        return True
+
+
+def mix_rgb(a, b, t):
+    return [x + (y - x) * t for x, y in zip(a, b)]
+
+
+class LangBadge(Gtk.DrawingArea):
+    """Индикатор раскладки как в трее Windows XP (05.10.2026): гладкий квадратик со
+    скруглёнными углами тонами «Пуска», светлая кромка, белые буквы обычным жирным
+    шрифтом (у XP — Tahoma 8 pt). Пиксельный вариант пользователь отверг: «через чур пиксельно»;
+    пиксельный шрифт системы чёткий только на 8/16 px — то мелко, то крупно."""
+    FONT = "Noto Sans Bold 10px"
+    H = 16
+    # Второй вид (06.10.2026, пользователь показал образец): тёмная плашка, пиксельная клавиатура
+    # с цветными рядами клавиш и «RU»/«EN» пиксельными буквами; цвета — палитра обоев.
+    # Выбор — state/xpbar-lang-look: xp | keyboard (Настройки → Нижняя панель).
+    LOOK_FILE = os.path.expanduser("~/.config/hypr/state/xpbar-lang-look")
+    KBD = ("FFFFFFFFFFFF", "F1111111111F", "F2222222222F", "F..333333..F", "FFFFFFFFFFFF")
+    LETTERS = {
+        "A": ("010", "101", "111", "101", "101"), "E": ("111", "100", "110", "100", "111"),
+        "K": ("101", "101", "110", "101", "101"), "N": ("101", "111", "111", "101", "101"),
+        "R": ("110", "101", "110", "101", "101"), "U": ("101", "101", "101", "101", "111"),
+        "Z": ("111", "001", "010", "100", "111"), "?": ("110", "001", "010", "000", "010"),
+    }
+
+    def __init__(self, text="EN"):
+        super().__init__()
+        self.text = text
+        self.look = self.read_look()
+        self.connect("draw", self.on_draw)
+        self.resize_for()
+        GLib.timeout_add_seconds(2, self.check_look)       # смена в Настройках — сразу
+
+    def read_look(self):
+        try:
+            return "keyboard" if open(self.LOOK_FILE).read().strip() == "keyboard" else "xp"
+        except OSError:
+            return "xp"
+
+    def check_look(self):
+        lk = self.read_look()
+        if lk != self.look:
+            self.look = lk
+            self.resize_for()
+            self.queue_draw()
+        return True
+
+    def text_size(self):
+        import gi
+        gi.require_version("PangoCairo", "1.0")
+        from gi.repository import Pango, PangoCairo
+        cr = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 4, 4))
+        lay = PangoCairo.create_layout(cr)
+        lay.set_font_description(Pango.FontDescription(self.FONT))
+        lay.set_text(self.text, -1)
+        return lay, lay.get_pixel_size()
+
+    def resize_for(self):
+        if getattr(self, "look", "xp") == "keyboard":
+            self.set_size_request(5 + len(self.KBD[0]) * 2 + 5 + len(self.text) * 6 + 6, 22)
+            return
+        _lay, (tw, _th) = self.text_size()
+        self.set_size_request(tw + 10, self.H + 4)
+
+    def set_text(self, t):
+        t = (t or "?").upper()[:3]
+        if t != self.text:
+            self.text = t
+            self.resize_for()
+            self.queue_draw()
+
+    def get_text(self):
+        return self.text
+
+    def draw_keyboard(self, cr):
+        import math
+        c = colors()
+
+        def rgb(key, d="#5f74b4"):
+            v = c.get(key, d)
+            return [int(v[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        a = self.get_allocation()
+        w, h = a.width, a.height
+        bh = 20
+        x0, y0, bw, r = 0.5, (h - bh) / 2 + 0.5, w - 1, 3
+        cr.new_sub_path()
+        cr.arc(x0 + bw - r, y0 + r, r, -math.pi / 2, 0)
+        cr.arc(x0 + bw - r, y0 + bh - 1 - r, r, 0, math.pi / 2)
+        cr.arc(x0 + r, y0 + bh - 1 - r, r, math.pi / 2, math.pi)
+        cr.arc(x0 + r, y0 + r, r, math.pi, 3 * math.pi / 2)
+        cr.close_path()
+        cr.set_source_rgb(*mix_rgb(rgb("st_dark", "#02081b"), rgb("surface", "#10131c"), 0.5))
+        cr.fill_preserve()
+        cr.set_source_rgb(*rgb("surface_high", "#272a34"))
+        cr.set_line_width(1)
+        cr.stroke()
+        k = 2
+        try:
+            vv = open(os.path.expanduser("~/.cache/matugen/vivid.txt")).read().strip()
+            vivid = [int(vv[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        except (OSError, ValueError):
+            vivid = rgb("primary", "#b4c5ff")
+        cols = {"F": mix_rgb(rgb("on_surface_variant", "#c4c6d3"), rgb("surface", "#10131c"), 0.25),
+                "1": vivid, "2": rgb("tertiary", "#d2bdf6"), "3": rgb("on_surface", "#e1e1ef")}
+        ix, iy = 5, int(y0 + (bh - len(self.KBD) * k) / 2)
+        for j, row in enumerate(self.KBD):
+            for i, ch in enumerate(row):
+                if ch in cols:
+                    cr.set_source_rgb(*cols[ch])
+                    cr.rectangle(ix + i * k, iy + j * k, k, k)
+                    cr.fill()
+        # буквы — пиксельный шрифт системы в родном кегле 8 px, без сглаживания (чётко)
+        from gi.repository import Pango, PangoCairo
+        lay = PangoCairo.create_layout(cr)
+        fo = cairo.FontOptions()
+        fo.set_antialias(cairo.ANTIALIAS_NONE)
+        PangoCairo.context_set_font_options(lay.get_context(), fo)
+        lay.set_font_description(Pango.FontDescription("PxPlus HP 100LX 6x8 8px"))
+        lay.set_text(self.text, -1)
+        tw, th = lay.get_pixel_size()
+        cr.set_source_rgb(*rgb("on_surface", "#e1e1ef"))
+        cr.move_to(ix + len(self.KBD[0]) * k + 5, int(y0 + (bh - th) / 2))
+        PangoCairo.show_layout(cr, lay)
+        return True
+
+    def on_draw(self, _w, cr):
+        if self.look == "keyboard":
+            return self.draw_keyboard(cr)
+        import gi
+        gi.require_version("PangoCairo", "1.0")
+        from gi.repository import Pango, PangoCairo
+        import math
+        c = colors()
+
+        def rgb(key, d="#5f74b4"):
+            v = c.get(key, d)
+            return [int(v[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        a = self.get_allocation()
+        w, h = a.width, a.height
+        x0, y0, bw, bh, r = 1.5, (h - self.H) / 2 + 0.5, w - 3, self.H - 1, 3
+
+        def rounded():
+            cr.new_sub_path()
+            cr.arc(x0 + bw - r, y0 + r, r, -math.pi / 2, 0)
+            cr.arc(x0 + bw - r, y0 + bh - r, r, 0, math.pi / 2)
+            cr.arc(x0 + r, y0 + bh - r, r, math.pi / 2, math.pi)
+            cr.arc(x0 + r, y0 + r, r, math.pi, 3 * math.pi / 2)
+            cr.close_path()
+        g = cairo.LinearGradient(0, y0, 0, y0 + bh)
+        g.add_color_stop_rgb(0, *rgb("st_top"))
+        g.add_color_stop_rgb(1, *rgb("st_bot"))
+        rounded()
+        cr.set_source(g)
+        cr.fill_preserve()
+        cr.set_source_rgba(*rgb("st_hi", "#9fb4f5"), 0.9)
+        cr.set_line_width(1)
+        cr.stroke()
+        lay = PangoCairo.create_layout(cr)
+        fo = cairo.FontOptions()
+        fo.set_antialias(cairo.ANTIALIAS_GRAY)
+        fo.set_hint_style(cairo.HINT_STYLE_SLIGHT)
+        PangoCairo.context_set_font_options(lay.get_context(), fo)
+        lay.set_font_description(Pango.FontDescription(self.FONT))
+        lay.set_text(self.text, -1)
+        tw, th = lay.get_pixel_size()
+        cr.set_source_rgba(0, 0, 0, 0.35)                 # лёгкая тень букв, как в XP
+        cr.move_to(round((w - tw) / 2) + 1, round((h - th) / 2) + 1)
+        PangoCairo.show_layout(cr, lay)
+        cr.set_source_rgb(1, 1, 1)
+        cr.move_to(round((w - tw) / 2), round((h - th) / 2))
+        PangoCairo.show_layout(cr, lay)
         return True
 
 
@@ -826,6 +1056,12 @@ class Lyrics(LB.App):
         # строка песни, которая давно не играет, только занимает место.
         if p.status != "Playing":
             key = p.track_key()
+            # Песню на паузе показываем, только если панель видела, как она играла:
+            # иначе каждый перезапуск панели выводил на 30 с текст давно остановленного
+            # трека (06.10.2026, Просьба: «показывать, только когда трек включён»).
+            if getattr(self, "played_key", None) != key:
+                self.emit({"text": ""})
+                return None
             if getattr(self, "pause_key", None) != key:
                 self.pause_key, self.pause_t = key, time.monotonic()
             left = PAUSE_HIDE_S - (time.monotonic() - self.pause_t)
@@ -834,6 +1070,7 @@ class Lyrics(LB.App):
                 return None
         else:
             self.pause_key, left = None, None
+            self.played_key = p.track_key()
         lines = self.want_lyrics(p)
         if not lines or not any(t for _, t in lines):
             self.emit({"text": ""})
@@ -852,11 +1089,13 @@ class Lyrics(LB.App):
             else:
                 done = LB.sung_chars(lines[i][1], elapsed, dur)
                 nw = LB.next_word_time(lines[i][1], start, elapsed, dur)
-            text = LB.render(lines[i][1], done, self.accent)
+            text = LB.render(lines[i][1], done, self.accent, getattr(lines, "approx", False))
             cands = [t for t in (nw, nxt_line, line_end) if t is not None and t > pos]
             nxt_t = min(cands) if cands else None
         self.emit({"text": text, "gap": text is None, "art": art,
-                   "tip": LB.tooltip(lines, i, p.artist, p.title),
+                   "tip": LB.tooltip(lines, i, p.artist, p.title) + (
+                       "\n<i>≈ время примерное: у трека нет текста с таймингами</i>"
+                       if getattr(lines, "approx", False) else ""),
                    "paused": p.status != "Playing"})
         if p.status != "Playing":
             return max(0.5, left + 0.1)        # проснуться, когда пауза перевалит за предел
@@ -898,7 +1137,7 @@ def short_layout(name):
 
 
 # ── плашка системного трея (значки программ) ─────────────────────────────
-# 01.10.2026, просьба: «иконку, по нажатию на которую открывается маленькая плашка с
+# 01.10.2026, Просьба: «иконку, по нажатию на которую открывается маленькая плашка с
 # треем (в стиле XP), компактно». Значки берём у того же наблюдателя, что и бар
 # (org.kde.StatusNotifierWatcher): свойства значка — org.kde.StatusNotifierItem,
 # меню — com.canonical.dbusmenu. ЛКМ — Activate, ПКМ — меню программы.
@@ -1089,6 +1328,9 @@ class TrayPlate(Gtk.Window):
         if not n:
             lab = Gtk.Label(label="пусто")
             self.box.add(lab)
+        # ряд — ровно по числу значков: FlowBox берёт ширину под max_children_per_line,
+        # и при пяти программах справа оставалось пустое шестое место (06.10.2026)
+        self.box.set_max_children_per_line(max(1, min(6, n)))
         self.box.show_all()
 
     def on_item(self, _w, e, it):
@@ -1166,10 +1408,10 @@ class Tray(Gtk.Box):
         arrow.get_style_context().add_class("glyph")
         self.arrow_box = self.clickable(arrow, self.on_plate, tip="Значки программ (трей)")
         self.add(self.arrow_box)
-        self.lay = Gtk.Label(label="EN")
+        self.lay = LangBadge("EN")
         self.add(self.clickable(self.lay, self.on_layout, tip="Раскладка"))
         vb = Gtk.Box(spacing=5)
-        # Микрофон вместо громкости (03.10.2026): значок микрофона, щелчок —
+        # Микрофон вместо громкости (03.10.2026, пользователь): значок микрофона, щелчок —
         # выключить/включить микрофон, колёсико — его чувствительность, ПКМ — микшер.
         self.vol_g = Gtk.Label(label="\U000f036c")
         self.vol_g.get_style_context().add_class("glyph")
@@ -1212,8 +1454,19 @@ class Tray(Gtk.Box):
     def on_layout(self, _e):
         action("switch-layout", "next")
 
+    def audio_view(self):
+        """Что показывает значок у этой панели (05.10.2026, пользователь): два монитора — на
+        ноутбуке микрофон, на MSI звук; один монитор — звук. СКМ меняет местами."""
+        if len(BARS) >= 2:
+            base = "mic" if self.bar.connector.startswith("eDP") else "sound"
+        else:
+            base = "sound"
+        if os.path.exists(AUDIO_SWAP):
+            base = "sound" if base == "mic" else "mic"
+        return base
+
     def on_vol(self, e):
-        view = audio_view()
+        view = self.audio_view()
         if e.button == 1:
             spawn("wpctl", "set-mute", AUDIO_DEV[view], "toggle")
         elif e.button == 2:                                  # СКМ — микрофон ↔ звук
@@ -1224,7 +1477,8 @@ class Tray(Gtk.Box):
             if view == "mic":
                 spawn("pavucontrol", "-t", "4")             # вкладка устройств ввода
             else:
-                spawn(sys.executable, os.path.join(HERE, "volume_popup.py"))
+                # попап бара — над нижней панелью, отдельной плашкой (popup_theme.FROM_XPBAR)
+                spawn("env", "JARVIS_POPUP_FROM=xpbar", sys.executable, os.path.join(HERE, "volume_popup.py"))
 
     def on_vol_scroll(self, e):
         d = e.direction
@@ -1233,10 +1487,10 @@ class Tray(Gtk.Box):
             up = dy < 0
         else:
             up = d == Gdk.ScrollDirection.UP
-        spawn("wpctl", "set-volume", "-l", "1.0", AUDIO_DEV[audio_view()], "5%+" if up else "5%-")
+        spawn("wpctl", "set-volume", "-l", "1.0", AUDIO_DEV[self.audio_view()], "5%+" if up else "5%-")
 
     def on_bell(self, e):
-        # ЛКМ — «Не беспокоить» вкл/выкл, ПКМ — центр уведомлений (04.10.2026).
+        # ЛКМ — «Не беспокоить» вкл/выкл, ПКМ — центр уведомлений (04.10.2026, пользователь).
         # swaync открывает центр на мониторе с ФОКУСОМ, а не там, где щёлкнули, —
         # поэтому сначала фокус на монитор этой панели.
         if e.button == 1:
@@ -1245,7 +1499,7 @@ class Tray(Gtk.Box):
         if e.button != 3:
             return
         # Фокус на монитор — только если он сейчас на другом: focus-monitor ставит курсор
-        # в центр монитора (05.10.2026, просьба: «курсор прыгает в центр, не трогай»).
+        # в центр монитора (05.10.2026, Просьба: «курсор прыгает в центр, не трогай»).
         try:
             cur = json.loads(subprocess.run(["niri", "msg", "-j", "focused-output"],
                                             capture_output=True, text=True, timeout=1).stdout or "{}")
@@ -1256,10 +1510,12 @@ class Tray(Gtk.Box):
             pass
         spawn("swaync-client", "-t", "-sw")
 
-    def set_volume(self, pct, muted):
+    def set_volume(self, vals):
+        view = self.audio_view()
+        pct, muted = vals.get(view, (None, False))
         if pct is None:
             return
-        if audio_view() == "mic":
+        if view == "mic":
             g = "\U000f036d" if muted else "\U000f036c"       # микрофон выключен / включён
             tip = "Микрофон: ЛКМ — выкл/вкл, колёсико — чувствительность, ПКМ — микшер, СКМ — показать звук"
         else:
@@ -1374,31 +1630,24 @@ def clock_swapped():
     return os.path.exists(CLOCK_SWAP)
 
 
-# Что показывает значок звука в трее (04.10.2026, просьба: «иконка на СКМ просто
-# переключает вид — показывать микрофон / показывать звук»). По умолчанию микрофон,
-# как было с 03.10. ЛКМ, колёсико и ПКМ действуют на то устройство, что показано.
-AUDIO_VIEW = os.path.expanduser("~/.config/hypr/state/xpbar-audio-view")
+# Значок звука в трее: что он показывает, решает каждая панель сама (Tray.audio_view):
+# два монитора — ноутбук микрофон, MSI звук; один — звук; СКМ меняет местами.
+# ЛКМ, колёсико и ПКМ действуют на то устройство, что показано.
+AUDIO_SWAP = os.path.expanduser("~/.config/hypr/state/xpbar-audio-swap")   # СКМ поменял местами
 AUDIO_DEV = {"mic": "@DEFAULT_AUDIO_SOURCE@", "sound": "@DEFAULT_AUDIO_SINK@"}
 AUDIO_REFRESH = [None]          # main() кладёт сюда apply_volume — перечитать и перерисовать
 
 
-def audio_view():
-    try:
-        v = open(AUDIO_VIEW).read().strip()
-        return v if v in AUDIO_DEV else "mic"
-    except OSError:
-        return "mic"
-
-
 def audio_flip():
-    v = "sound" if audio_view() == "mic" else "mic"
+    """СКМ по значку: поменять местами звук и микрофон на панелях (05.10.2026)."""
     try:
-        os.makedirs(os.path.dirname(AUDIO_VIEW), exist_ok=True)
-        with open(AUDIO_VIEW, "w") as f:
-            f.write(v + "\n")
+        if os.path.exists(AUDIO_SWAP):
+            os.remove(AUDIO_SWAP)
+        else:
+            os.makedirs(os.path.dirname(AUDIO_SWAP), exist_ok=True)
+            open(AUDIO_SWAP, "w").close()
     except OSError:
         pass
-    return v
 
 # ── меню «Пуск» внутри панели (01.10.2026) ────────────────────────────────
 # Отдельным процессом меню открывалось ~0,4 с (питон + GTK + постройка). Здесь
@@ -1500,6 +1749,7 @@ class XPBar(Gtk.Window):
     def __init__(self, monitor, connector, state, mode):
         super().__init__(title="XP bar")
         self.connector, self.state, self.mode = connector, state, mode
+        self.ws_here = _ws_here(connector)
         self.monitor = monitor
         self.buttons = {}
         self.order = []
@@ -1531,7 +1781,16 @@ class XPBar(Gtk.Window):
         self.rev.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP)
         self.rev.set_transition_duration(180)
         self.rev.connect("notify::child-revealed", self.on_revealed)
-        col.pack_start(self.rev, False, False, 0)
+        if mode == "hover":
+            col.pack_start(self.rev, False, False, 0)
+        else:
+            # «Всегда» / «По кнопке»: окно всегда высотой с панель, панель — у его низа.
+            # Пока она выезжает (Super+S), окно уже на экране и полной высоты: кадры
+            # анимации идут, и окну не бывает нулевой высоты (06.10.2026, Просьба: «на
+            # MSI она просто резко появляется», хотелось как при наведении).
+            col.set_size_request(-1, H)
+            self.rev.set_valign(Gtk.Align.END)
+            col.pack_start(self.rev, True, True, 0)
         if mode == "hover":
             trig = Gtk.Box()
             trig.set_size_request(-1, 2)
@@ -1618,6 +1877,10 @@ class XPBar(Gtk.Window):
         lb.pack_start(self.lyr_lbl, True, True, 0)
         self.lyr_lbl.set_xalign(0)
         self.lyr_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        # ширина — ровно LYR_W: без предела «естественная» ширина подписи = вся строка, и
+        # длинная строка песни отжимала кнопки окон слева (05.10.2026). max_width_chars(1)
+        # убирает эту просьбу о месте, текст обрезается «…» в своей рамке.
+        self.lyr_lbl.set_max_width_chars(1)
         self.lyr.set_size_request(LYR_W, -1)
         lb.set_margin_start(12)
         lb.set_margin_end(12)
@@ -1640,7 +1903,7 @@ class XPBar(Gtk.Window):
         self.lyr_box.hide()   # место под текст остаётся — окна слева не сдвигаются
         self.left.hide()
         self.right.hide()
-        if not WS_BOTTOM:
+        if not self.ws_here:
             self.ws_ev.hide()
             self.ws_grip.hide()
         if os.environ.get("XPBAR_DEBUG"):
@@ -1674,19 +1937,33 @@ class XPBar(Gtk.Window):
             self.rev.set_transition_duration(180)
             self.rev.set_reveal_child(on)
         elif on:
-            # «Всегда» / «По кнопке» — без анимации: окно целиком прячется и
-            # показывается. С анимацией Revealer у спрятанного слоя кадры не шли,
-            # переход застревал, и Super+S срабатывал один раз (01.10.2026).
-            self.rev.set_transition_duration(0)
-            self.rev.set_reveal_child(True)
-            GtkLayerShell.set_exclusive_zone(self, zone_size())
-            self.show()
-        else:
-            GtkLayerShell.set_exclusive_zone(self, 0)
+            # «Всегда» / «По кнопке»: сперва окно на экран (панель в нём ещё свёрнута),
+            # анимация — когда оно уже показано. 01.10.2026 анимация у ещё спрятанного
+            # слоя застревала (кадры не шли) — поэтому через паузу, а не сразу.
             self.rev.set_transition_duration(0)
             self.rev.set_reveal_child(False)
-            self.hide()
+            GtkLayerShell.set_exclusive_zone(self, zone_size())
+            self.show()
+
+            def slide_in():
+                if self.get_visible() and not self.rev.get_reveal_child():
+                    self.rev.set_transition_duration(180)
+                    self.rev.set_reveal_child(True)
+                return False
+            GLib.timeout_add(40, slide_in)
+        else:
+            # уезжает вниз с анимацией; окно прячет on_revealed, когда она закончится
+            GtkLayerShell.set_exclusive_zone(self, 0)
+            self.rev.set_transition_duration(180)
+            self.rev.set_reveal_child(False)
         self.play(on)
+
+    def flush(self, on):
+        """«При наведении»: пока панель показана, окно опущено на 2 px за край экрана —
+        полоска-датчик под панелью уходит за край, и между панелью и краем не видно
+        обоев (06.10.2026, Просьба: «маленький зазор, где виднеется часть обоев»)."""
+        if self.mode == "hover":
+            GtkLayerShell.set_margin(self, GtkLayerShell.Edge.BOTTOM, -2 if on else 0)
 
     def toggle(self):
         if os.environ.get("XPBAR_DEBUG"):
@@ -1730,8 +2007,14 @@ class XPBar(Gtk.Window):
         return False
 
     def on_revealed(self, *_a):
+        # выехала целиком — опустить окно на 2 px (flush); раньше это делалось в момент
+        # наведения: датчик уходил из-под курсора, панель ловила «мышь ушла» и выезжала
+        # с задержкой (06.10.2026)
+        if self.rev.get_child_revealed() and self.rev.get_reveal_child():
+            self.flush(True)
         if not self.rev.get_child_revealed() and not self.rev.get_reveal_child():
             if self.mode == "hover":
+                self.flush(False)   # датчик снова у края экрана
                 self.resize(1, 1)   # обратно в полоску 2 px — щелчки по экрану не перехватываются
             else:
                 self.hide()         # без полоски-ловушки окну нулевой высоты не место — прячем целиком
@@ -1745,13 +2028,17 @@ class XPBar(Gtk.Window):
         for w in sorted((w for w in self.state.workspaces.values() if w.get("output") == self.connector),
                         key=lambda w: w.get("idx", 0)):
             name = w.get("name") or ""
-            if w.get("active_window_id") is None and not w.get("is_active") and not name.startswith("\u2060"):
+            # стол с постоянным именем из конфига niri (дашборд, «карман») виден всегда: в
+            # режиме Widget dashboard на дашборде нет окон, и он пропадал из панели (05.10.2026)
+            fixed = bool(name) and "\u200b" not in name and "\u2060" not in name
+            if w.get("active_window_id") is None and not w.get("is_active") and \
+                    not name.startswith("\u2060") and not fixed:
                 continue
             out.append(w)
         return out
 
     def refresh_ws(self):
-        if not WS_BOTTOM:
+        if not self.ws_here:
             return
         wss = self.ws_list()
         ids = [w["id"] for w in wss]
@@ -1957,6 +2244,25 @@ class XPBar(Gtk.Window):
         return False
 
 
+def fit_lyrics():
+    """Сколько знаков строки песни помещается в её место (LYR_W минус поля, обложка и
+    промежуток) при шрифте подписи lyrics. Окно прокрутки строки (lyrics_bar.render) —
+    ровно столько: было 40 при месте на ~34, хвост окна съедало «…», и строка не
+    «ехала», а обрывалась (06.10.2026, пользователь)."""
+    try:
+        lbl = Gtk.Label()
+        lbl.get_style_context().add_class("lyrics")
+        lay = lbl.create_pango_layout("0" * 20)
+        w = lay.get_pixel_size()[0] / 20.0
+        room = LYR_W - 2 * 12 - 22 - 8 - 4         # поля lb, обложка 22, промежуток 8, запас
+        if w > 0:
+            LB.MAX_LEN = max(12, min(LYRICS_MAX, int(room // w)))
+        if os.environ.get("XPBAR_DEBUG"):
+            print("xpbar: знак %.1f px, место %d px → окно строки %d" % (w, room, LB.MAX_LEN), flush=True)
+    except Exception as e:
+        print("xpbar: ширина текста песни: %r" % e, file=sys.stderr)
+
+
 def main():
     mode = "always"
     try:
@@ -1965,6 +2271,7 @@ def main():
     except OSError:
         pass
     load_css()
+    fit_lyrics()
     display = Gdk.Display.get_default()
     outs = niri_json("outputs") or {}
     by_model = {(o.get("model") or ""): conn for conn, o in outs.items()}
@@ -1990,11 +2297,32 @@ def main():
         if pending["id"] is None:
             pending["id"] = GLib.timeout_add(60, refresh_all)
 
+    # Панели по мониторам (panels.py, 06.10.2026): у монитора свой режим — always / hover /
+    # off (на нём панели нет). Переключатель «На всех мониторах» включён — общий mode.
+    try:
+        import panels
+        pan = panels.load()
+    except Exception as e:
+        print("xpbar: panels: %r" % e, file=sys.stderr)
+        panels = pan = None
+
+    def mode_for(conn):
+        if panels is None:
+            return mode
+        try:
+            return panels.bottom_for(conn, pan) or mode
+        except Exception:
+            return mode
+
     state = NiriState(on_change)
     for i in range(display.get_n_monitors()):
         mon = display.get_monitor(i)
         conn = by_model.get(mon.get_model() or "", "") or (sorted(outs)[i] if i < len(outs) else "")
-        bars.append(XPBar(mon, conn, state, mode))
+        if os.environ.get("XPBAR_DEBUG"):
+            print("xpbar: монитор", i, mon.get_model(), "→", conn, "режим", mode_for(conn), flush=True)
+        if mode_for(conn) in ("off", "dock"):         # dock — там док (dock.py), не XP
+            continue
+        bars.append(XPBar(mon, conn, state, mode_for(conn)))
         BARS.append(bars[-1])
     update_visible_flag()
     seen = {"lyrics": None, "notif": (0, False)}     # последнее показанное — для новой панели
@@ -2018,9 +2346,9 @@ def main():
     tick_clock()
 
     # громкость — по событиям pactl
-    def read_volume():
+    def read_volume(dev):
         try:
-            out = subprocess.run(["wpctl", "get-volume", AUDIO_DEV[audio_view()]], capture_output=True,
+            out = subprocess.run(["wpctl", "get-volume", dev], capture_output=True,
                                  text=True, timeout=2).stdout
             m = re.search(r"([\d.]+)", out)
             pct = round(float(m.group(1)) * 100) if m else None
@@ -2032,9 +2360,9 @@ def main():
 
     def apply_volume():
         vpend["id"] = None
-        pct, muted = read_volume()
+        vals = {k: read_volume(dev) for k, dev in AUDIO_DEV.items()}   # обе — у панелей разный вид
         for b in bars:
-            b.tray.set_volume(pct, muted)
+            b.tray.set_volume(vals)
         return False
 
     def schedule_volume():
@@ -2127,10 +2455,10 @@ def main():
                 b.destroy()
         have = {b.connector for b in bars}
         for m, conn in pairs:
-            if conn in have:
+            if conn in have or mode_for(conn) in ("off", "dock"):
                 continue
             try:
-                b = XPBar(m, conn, state, mode)
+                b = XPBar(m, conn, state, mode_for(conn))
             except Exception as e:
                 print("xpbar: новая панель %s: %r" % (conn, e), file=sys.stderr)
                 continue
@@ -2223,7 +2551,7 @@ def main():
         out = next((w.get("output") for w in state.workspaces.values() if w.get("is_focused")), "")
         toggle_menu(out)
         return True
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR2, on_usr2)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR2, on_usr2)
 
     # SIGWINCH — открыть/закрыть плашку трея на мониторе в фокусе (для проверок без мыши).
     def on_winch():
@@ -2232,19 +2560,30 @@ def main():
             if b.connector == out:
                 b.tray.on_plate(None)
         return True
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGWINCH, on_winch)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGWINCH, on_winch)
     GLib.timeout_add(2000, prewarm_menus)
 
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1,
-                         lambda: [b.toggle() for b in bars] and True)
+    # SIGUSR1 — Super+S. Общий режим — все панели разом, как было. Панели по мониторам
+    # (panels.py) — только панель монитора в фокусе: у соседа может быть другой режим, и
+    # Super+S на MSI прятал его панель «всегда» и выдвигал «при наведении» на ноутбуке
+    # (06.10.2026).
+    def on_usr1():
+        targets = bars
+        if panels is not None and panels.per_monitor(pan):
+            out = next((w.get("output") for w in state.workspaces.values() if w.get("is_focused")), "")
+            targets = [b for b in bars if b.connector == out]
+        for b in targets:
+            b.toggle()
+        return True
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, on_usr1)
     def bye():
         try:
             os.remove(VISIBLE_FLAG)
         except OSError:
             pass
         os._exit(0)
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, bye)
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, lambda: os._exit(0) or False)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, bye)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, lambda: os._exit(0) or False)
     Gtk.main()
 
 

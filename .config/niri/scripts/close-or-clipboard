@@ -1,0 +1,16 @@
+#!/bin/sh
+# Ctrl+Q: буфер обмена на экране — спрятать его, иначе — закрыть окно (07.10.2026).
+# Видимость — по слоям niri: спрятанный «тёплый» буфер уничтожает свою поверхность
+# и в списке не значится. По одному pidfile нельзя: USR1 тёплому процессу его ПОКАЗЫВАЕТ.
+# Любой сбой (niri msg, grep, pidfile) ведёт к обычному close-window.
+PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/jarvis-clipboard.pid"
+if timeout 0.5 niri msg -j layers 2>/dev/null | grep -Eq '"namespace": *"jarvis-clipboard"'; then
+    pid=
+    { read -r pid < "$PIDFILE"; } 2>/dev/null
+    if [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ]; then
+        case "$(tr '\0' ' ' < "/proc/$pid/cmdline")" in
+            *clipboard_win*) kill -USR1 "$pid" 2>/dev/null && exit 0 ;;
+        esac
+    fi
+fi
+exec niri msg action close-window

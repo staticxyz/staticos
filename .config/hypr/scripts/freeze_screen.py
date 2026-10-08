@@ -35,6 +35,23 @@ gi.require_version("GtkLayerShell", "0.1")
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, GtkLayerShell  # noqa: E402
 
 
+def glib_signal_add(prio, signum, handler):
+    """Сигнал в главный цикл GLib. GLib.unix_signal_add устарел (PyGObject 3.52+) и однажды
+    исчезнет — тогда программа перестала бы запускаться (08.10.2026). Сначала замена
+    GLibUnix.signal_add, без неё — старое имя, без обоих — обычный signal.signal."""
+    from gi.repository import GLib
+    try:
+        from gi.repository import GLibUnix
+        return GLibUnix.signal_add(prio, signum, handler)
+    except (ImportError, AttributeError):
+        pass
+    try:
+        return GLib.unix_signal_add(prio, signum, handler)
+    except AttributeError:
+        import signal as _signal
+        _signal.signal(signum, lambda *_a: GLib.idle_add(lambda: handler() and False))
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__, file=sys.stderr)
@@ -78,8 +95,8 @@ def main():
         windows.append(win)
 
     # kill от вызывающего скрипта — обычный и единственный способ закрыться
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, Gtk.main_quit)
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, Gtk.main_quit)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, Gtk.main_quit)
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, Gtk.main_quit)
     # Страховка: если скрипт-хозяин упал и не убрал заморозку — через две минуты
     # она уходит сама, иначе экран остался бы замёрзшим.
     GLib.timeout_add_seconds(120, Gtk.main_quit)

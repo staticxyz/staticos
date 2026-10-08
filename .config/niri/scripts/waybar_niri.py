@@ -128,7 +128,7 @@ NIRI_LANGUAGE = '''"custom/language": {
         // Раскладка + Caps Lock: скрипт печатает JSON с классом "caps", когда
         // Caps включён, и CSS красит модуль акцентом (23.09.2026). Штатный
         // niri/language про Caps не знает.
-        "exec": "python3 $HOME/.config/hypr/scripts/bar_language.py",
+        "exec": "$HOME/.config/hypr/scripts/wb_share language python3 $HOME/.config/hypr/scripts/bar_language.py",
         "return-type": "json",
         "on-click": "niri msg action switch-layout next"
     }'''
@@ -224,6 +224,36 @@ def replace_block(s, key, new):
     return s[:m.start()] + new + s[block_end(s, m.end()) + 1:]
 
 
+# Cozette (08.10.2026, «сколько пустот внутри капсул»): текст 13 px вместо 16, капсулы
+# бара ужаты до 22 px (поля 5 px сверху и снизу) — кнопки столов в ту же меру: значок
+# 17 → 14 px (13/16), 14 + 4 + 4 = 22. Под PxPlus (правила 61 нет) всё как выше.
+# Подгонка выключается флагом (Настройки → Шрифты → «Подгонка размеров под Cozette»,
+# cozette_fit.py on|off) — тогда бар как до 08.10: капсулы 26 px, прежние поля.
+COZETTE_RULE = os.path.expanduser("~/.config/fontconfig/conf.d/61-cozette-trial.conf")
+FIT_FLAG = os.path.expanduser("~/.config/hypr/state/cozette-fit")
+STYLE_COZETTE = """
+/* Cozette: капсулы 26 → 22 px (поля 5 px сверху и снизу), горизонтальные поля на четверть
+   меньше — «сколько пустот внутри капсул» (waybar_niri.py, STYLE_COZETTE). Только
+   margin-top/bottom и padding-left/right — прочие поправки style.css не задеваются. */
+#custom-launcher, #custom-clock, #cpu, #memory, #temperature, #custom-mpris,
+#group-system, #custom-power, #custom-pomo, #custom-lyrics {
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
+#custom-clock { padding-left: 5px; padding-right: 7px; }
+#cpu, #memory, #temperature, #custom-mpris, #custom-lyrics { padding-left: 7px; padding-right: 7px; }
+#network, #bluetooth, #language, #custom-language, #pulseaudio, #custom-battery,
+#network.eth { padding-left: 5px; padding-right: 5px; }
+#group-system { padding-left: 3px; padding-right: 3px; }
+#custom-pomo, #custom-pomo.idle { padding-left: 5px; padding-right: 7px; }
+/* Кнопки столов в меру капсул 22 px. */
+#workspaces button label { font-size: 14px; }
+#workspaces button { min-width: 14px; padding: 4px 7px; margin: 5px 3px; }
+#workspaces button.active { padding: 4px 11px; }
+#workspaces button.empty:not(.focused) { padding: 0; margin: 0; }
+"""
+
+
 def build_style():
     try:
         base = open(STYLE_SRC, encoding="utf-8").read()
@@ -231,6 +261,8 @@ def build_style():
         base = ""
     with open(STYLE_DST, "w", encoding="utf-8") as f:
         f.write(base + "\n" + STYLE_EXTRA)
+        if os.path.exists(COZETTE_RULE) and os.path.exists(FIT_FLAG):
+            f.write(STYLE_COZETTE)
 
 
 def niri_gaps(default=16):
@@ -335,7 +367,7 @@ def ensure_icon_font():
         subprocess.run(["python3", builder], capture_output=True)
 
 
-def top_bar_mode(s):
+def top_bar_mode(s, mode=None, ws=None):
     """Режим верхнего бара и место столов (03.10.2026, hypr/scripts/top_bar.py).
 
     hover — бар стартует спрятанным и не резервирует место (ложится поверх окон, когда
@@ -348,10 +380,11 @@ def top_bar_mode(s):
             return open(state + name).read().strip() or default
         except OSError:
             return default
-    mode = read("top-bar", "always")
+    mode = mode or read("top-bar", "always")
     if mode == "hover":
         s = s.replace('"layer": "top",', '"layer": "top",\n    "exclusive": false,\n    "start_hidden": true,', 1)
-    if mode == "off" or read("ws-place", "top") == "bottom":
+    # ws — панели по мониторам: место столов именно этого монитора (panels.ws_for)
+    if mode == "off" or (ws or read("ws-place", "top")) == "bottom":
         s = re.sub(r'\n[ \t]*"niri/workspaces",[ \t]*(?=\n[ \t]*"custom/ribbon")', "", s, count=1)
     return s
 
@@ -378,11 +411,41 @@ def main():
     s = s.replace('"hyprland/workspaces"', '"niri/workspaces"')
     s = s.replace('"hyprland/language"', '"custom/language"')
     s = fix_margins(s)
-    s = top_bar_mode(s)
     head = "// СОБРАНО АВТОМАТИЧЕСКИ из config.jsonc скриптом ~/.config/niri/scripts/waybar_niri.py.\n" \
            "// Не править: при следующем входе в niri файл будет перезаписан.\n"
     with open(DST, "w", encoding="utf-8") as f:
-        f.write(head + s)
+        f.write(head + top_bar_mode(s))
+    per_output(s, head)
+
+
+def per_output(s, head):
+    """Панели по мониторам (hypr/scripts/panels.py, 06.10.2026): свой конфиг на монитор —
+    config-niri-<ВЫХОД>.jsonc с одним "output" и режимом этого монитора. Класс tb-always /
+    tb-hover (ключ "name") — чтобы плотность фона из Настроек красила каждый бар по его
+    режиму (top_bar.opacity_rule). Общий режим — старые файлы убираются."""
+    import glob
+    import sys
+    sys.path.insert(0, os.path.expanduser("~/.config/hypr/scripts"))
+    keep = set()
+    try:
+        import panels
+        d = panels.load()
+        if panels.per_monitor(d):
+            for out in panels.top_outputs(d):
+                mode = panels.top_for(out, d)
+                if mode == "off":
+                    continue
+                t = re.sub(r'"output"\s*:\s*\[[^\]]*\]', '"output": ["%s"]' % out, s, count=1)
+                t = t.replace('"layer": "top",', '"layer": "top",\n    "name": "tb-%s",' % mode, 1)
+                path = panels.bar_config(out)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(head + top_bar_mode(t, mode, ws=panels.ws_for(out, d)))
+                keep.add(path)
+    except Exception as e:
+        print("waybar_niri: панели по мониторам: %r" % e, file=sys.stderr)
+    for path in glob.glob(os.path.join(os.path.dirname(DST), "config-niri-*.jsonc")):
+        if path not in keep:
+            os.remove(path)
 
 
 if __name__ == "__main__":

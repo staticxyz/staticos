@@ -108,7 +108,7 @@ def run_bg(*args):
 
 
 LAUNCH_LOG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "start-menu.log")
-TERMINAL = ("kitty", "--single-instance", "--instance-group", "jarvis")
+TERMINAL = (os.path.expanduser("~/.config/hypr/scripts/kitty_shared.sh"),)
 
 
 def launch_log(text):
@@ -186,65 +186,8 @@ def niri_json(*args):
 
 
 # ── поиск: другая раскладка и синонимы (02.10.2026) ─────────────────────────
-# Просьба: «пусть Пуск тоже понимает синонимы и другую раскладку в поиске приложений»
-# (в Настройках это уже есть). «еудупкфь» → telegram, «лшеен» → kitty, «браузер» →
-# Zen/LibreWolf, «тг» → Telegram.
-_EN = "`qwertyuiop[]asdfghjkl;'zxcvbnm,."
-_RU = "ёйцукенгшщзхъфывапролджэячсмитьбю"
-_LAYOUT = {**dict(zip(_EN, _RU)), **dict(zip(_RU, _EN))}
-APP_SYNONYMS = [
-    {"браузер", "browser", "интернет", "web", "zen", "librewolf", "firefox", "helium", "chromium"},
-    {"терминал", "terminal", "консоль", "kitty", "foot"},
-    {"файлы", "проводник", "папки", "file manager", "files", "dolphin", "nautilus", "yazi", "thunar"},
-    {"музыка", "music", "плеер", "яндекс", "yandex", "spotify"},
-    {"телеграм", "телега", "тг", "telegram"},
-    {"заметки", "notes", "обсидиан", "obsidian"},
-    {"настройки", "settings", "параметры"},
-    {"редактор", "editor", "блокнот", "код", "code", "nvim", "vim", "micro", "mousepad"},
-    {"игры", "games", "стим", "steam"},
-    {"видео", "video", "mpv", "vlc"},
-    {"картинки", "фото", "images", "image viewer", "loupe", "gwenview"},
-    {"калькулятор", "calculator", "calc"},
-    {"диспетчер", "монитор", "процессы", "task manager", "system monitor", "btop", "htop"},
-    {"дискорд", "discord"},
-    {"почта", "mail", "thunderbird"},
-    {"офис", "документы", "office", "libreoffice"},
-    {"торрент", "torrent", "qbittorrent"},
-    {"запись", "стрим", "obs", "recorder"},
-    {"пароли", "ключи", "passwords", "seahorse", "keepass"},
-    {"часы", "будильник", "clocks", "clock"},
-    {"календарь", "calendar"},
-]
-
-
-def search_forms(query):
-    """Для каждого слова запроса: [(форма, вес)] — как набрано (0), в другой
-    раскладке (1), синонимы (2). Чем меньше вес, тем выше программа в списке."""
-    out = []
-    for w in query.split():
-        forms = {w: 0}
-        sw = "".join(_LAYOUT.get(ch, ch) for ch in w)
-        if len(w) >= 3:                      # двухбуквенная «другая раскладка» — мусор («тг» → «nu»)
-            forms.setdefault(sw, 1)
-        for f in (w, sw):
-            for group in APP_SYNONYMS:
-                # короткое слово — только целиком («тг»), длинное — и по началу («брауз»)
-                if f in group or (len(f) >= 3 and any(m.startswith(f) for m in group)):
-                    for m in group:
-                        forms.setdefault(m, 2)
-        out.append(forms)
-    return out
-
-
-def search_score(hay, forms):
-    """None — не подходит; иначе худший вес среди слов запроса."""
-    worst = 0
-    for word in forms:
-        best = min((wt for f, wt in word.items() if f in hay), default=None)
-        if best is None:
-            return None
-        worst = max(worst, best)
-    return worst
+# Словарь и функции — в app_search.py (общий с меню программ rofi, 05.10.2026).
+from app_search import APP_SYNONYMS, _LAYOUT, search_forms, search_score  # noqa: E402,F401
 
 
 # ── программы ──────────────────────────────────────────────────────────────
@@ -875,7 +818,8 @@ class StartMenu(Gtk.Window):
         f.get_style_context().add_class("foot")
         # Четыре кнопки делят ширину поровну (03.10.2026): раньше они жались вправо за
         # распоркой и сдавливали друг друга.
-        # кнопки по всей ширине с равными промежутками и полями по бокам (просьба: # «не толкай в самую правую часть, слева место есть — займи его»)
+        # кнопки по всей ширине с равными промежутками и полями по бокам (Пользователь:
+        # «не толкай в самую правую часть, слева место есть — займи его»)
         f.set_spacing(6)
         py = sys.executable
         for g, cls, name, cmd in (

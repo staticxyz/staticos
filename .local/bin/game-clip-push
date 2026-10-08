@@ -1,5 +1,5 @@
 #!/bin/bash
-# Текст из буфера обмена системы -> в буфер игр внутри gamescope.
+# Текст из буфера обмена системы -> в буфер игр внутри gamescope и X-программ (:1).
 # gamescope сам передаёт только в обратную сторону (из игры наружу).
 #
 #   game-clip-push                 текст на stdin (зовёт `wl-paste --watch game-clip-push`,
@@ -21,6 +21,18 @@ game_displays() {
   done
 }
 
+# Xwayland моста xwayland-satellite (:1 — X-программы рабочего стола: Steam и др.).
+# 06.10.2026: satellite не отбирал буфер у «Chromium clipboard» (браузер Steam) — в Steam
+# вставлялся старый IP вместо только что скопированной строки. Текст кладём и туда.
+sat_display() {
+  for pid in $(pgrep -x Xwayland); do
+    parent=$(ps -o comm= -p "$(ps -o ppid= -p "$pid" | tr -d ' ')")
+    [ "$parent" = "xwayland-satell" ] || continue
+    disp=$(ps -o args= -p "$pid" | awk '{print $2}')
+    [[ "$disp" == :* ]] && echo "$disp"
+  done
+}
+
 # Текст в буфере сейчас есть? (text/*, UTF8_STRING, STRING, TEXT — картинки не наше)
 has_text() {
   local types; types=$(wl-paste -l 2>/dev/null)
@@ -31,19 +43,37 @@ has_text() {
   grep -qE '^(text/|UTF8_STRING$|STRING$|TEXT$)' <<<"$types"
 }
 
+# Настоящий xclip, не обёртка ~/.local/bin/xclip (02.10.2026): та ЧИТАЕТ всегда из Wayland
+# и не смотрит на -display — проверка «уже в игре» всегда была «да», и текст в игру не
+# уходил (найдено 06.10.2026: IP сервера из браузера Steam не вставлялся в CS2).
+XCLIP=/usr/bin/xclip
+
 push() {   # $1 — текст, $2… — дисплеи
   local text=$1; shift
   for disp in "$@"; do
     # Уже там — не перезаписываем: иначе gamescope отдаст текст обратно и начнётся круг.
-    cur=$(timeout 1 xclip -display "$disp" -selection clipboard -o 2>/dev/null)
+    cur=$(timeout 1 "$XCLIP" -display "$disp" -selection clipboard -o 2>/dev/null)
     [ "$cur" = "$text" ] && continue
-    printf '%s' "$text" | timeout 2 xclip -display "$disp" -selection clipboard -i 2>/dev/null
+    printf '%s' "$text" | timeout 2 "$XCLIP" -display "$disp" -selection clipboard -i 2>/dev/null
   done
 }
 
 if [ "${1:-}" = "--watch-games" ]; then
   declare -A seen
+  # 05.10.2026, оптимизация: pgrep и три ps каждые 2 с стоили ~1,3 % ядра впустую.
+  # Новая игра = новый X-сокет в /tmp/.X11-unix (gamescope/wlroots его создаёт), поэтому
+  # полный поиск — когда набор сокетов сменился (и ещё 30 с после этого: Xwayland мог
+  # подняться позже сокета), пока игра идёт, и для страховки раз в 30 с.
+  last_x="" hot=0 n=0
   while sleep 2; do
+    xs=(/tmp/.X11-unix/X*)
+    n=$((n + 1))
+    if [ "${xs[*]}" != "$last_x" ]; then last_x="${xs[*]}"; hot=15; fi
+    if [ "$hot" -gt 0 ]; then
+      hot=$((hot - 1))
+    elif [ ${#seen[@]} -eq 0 ] && [ $((n % 15)) -ne 0 ]; then
+      continue
+    fi
     for disp in $(game_displays); do
       [ -n "${seen[$disp]:-}" ] && continue
       seen[$disp]=1
@@ -60,6 +90,6 @@ fi
 has_text || { cat >/dev/null; exit 0; }
 text=$(cat)
 [ -z "$text" ] && exit 0
-mapfile -t displays < <(game_displays)
+mapfile -t displays < <(game_displays; sat_display)
 [ ${#displays[@]} -gt 0 ] && push "$text" "${displays[@]}"
 exit 0

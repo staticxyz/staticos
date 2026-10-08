@@ -15,6 +15,6 @@ layout=$(niri msg --json keyboard-layouts |
     python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["names"][d["current_idx"]])')
 
 case "$layout" in
-    Russian*|Русск*) exec python3 $HOME/.config/hypr/scripts/settings_app.py ;;
+    Russian*|Русск*) exec $HOME/.config/niri/scripts/settings-open ;;
     *) exec niri msg action expel-window-from-column ;;
 esac

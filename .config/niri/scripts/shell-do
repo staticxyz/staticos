@@ -23,6 +23,12 @@ case "${1:-}" in
         if on_noctalia && noctalia msg panel-toggle launcher >/dev/null 2>&1; then
             exit 0
         fi
+        # своё меню (launcher.py: стиль системы, синонимы, раскладка, Ctrl+D/U) или прежний
+        # rofi drun — выбор в Настройках → Windows XP → «Меню программ» (05.10.2026)
+        look=$(cat "$HOME/.config/hypr/state/launcher-look" 2>/dev/null)
+        if [ "$look" != "rofi" ] && [ -f "$HOME/.config/hypr/scripts/launcher.py" ]; then
+            exec python3 "$HOME/.config/hypr/scripts/launcher.py"
+        fi
         exec rofi -show drun ;;
     lock)
         if on_noctalia && noctalia msg session lock >/dev/null 2>&1; then

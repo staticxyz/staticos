@@ -1,0 +1,15 @@
+[Unit]
+# Сторож режима фокуса (scripts/focus_mode.py, 06.10.2026). В покое только читает
+# state/focus.json и состояние pomo раз в 2 с; поток событий niri и слой «Фокус» —
+# лишь пока блокировка действует. Сменил hypr-focus-guard (Hyprland).
+Description=Режим фокуса (сторож)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/.config/hypr/scripts/focus_mode.py daemon
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

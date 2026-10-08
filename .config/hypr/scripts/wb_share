@@ -1,0 +1,20 @@
+#!/bin/sh
+# wb_share КЛЮЧ КОМАНДА… — exec модуля верхнего waybar через общий исполнитель wb_hub.py
+# (07.10.2026): команда работает одна на все мониторы, бар только читает её строки.
+D="${XDG_RUNTIME_DIR:-/tmp}/wbhub"
+mkdir -p "$D"
+KEY=$1; shift
+printf '%s\0' "$@" > "$D/$KEY.cmd.$$" && mv -f "$D/$KEY.cmd.$$" "$D/$KEY.cmd"
+F="$D/$KEY.$$.fifo"
+CAT=
+bye() { [ -n "$CAT" ] && kill "$CAT" 2>/dev/null; rm -f "$F"; exit 0; }
+trap bye INT TERM HUP
+while :; do
+    rm -f "$F"; mkfifo "$F" || exit 1
+    # хаб держит flock: если он уже есть, второй сразу выйдет
+    setsid -f python3 $HOME/.config/hypr/scripts/wb_hub.py serve >/dev/null 2>&1 </dev/null
+    cat "$F" & CAT=$!
+    wait "$CAT"         # wait прерывается сигналом — бар уходит сразу
+    CAT=
+    sleep 1             # хаб упал или перезапущен — открыть FIFO заново
+done

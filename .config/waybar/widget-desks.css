@@ -1,9 +1,3 @@
 /* Пишет desktop_widgets.py — не править: столы с виджетами видны в баре и пустыми. */
-#workspaces button#niri-workspace-⁠3.empty:not(.focused) { padding: 5px 9px; margin: 0 3px; min-width: 17px; font-size: 13px; opacity: 0.55; }
-#workspaces button#niri-workspace-⁠3.empty:not(.focused) * { font-size: 17px; }
-#workspaces button#niri-workspace-⁠⁠⁠.empty:not(.focused) { padding: 5px 9px; margin: 0 3px; min-width: 17px; font-size: 13px; opacity: 0.55; }
-#workspaces button#niri-workspace-⁠⁠⁠.empty:not(.focused) * { font-size: 17px; }
-#workspaces button#niri-workspace-.empty:not(.focused) { padding: 5px 9px; margin: 0 3px; min-width: 17px; font-size: 13px; opacity: 0.55; }
-#workspaces button#niri-workspace-.empty:not(.focused) * { font-size: 17px; }
-#workspaces button#niri-workspace-󰐷.empty:not(.focused) { padding: 5px 9px; margin: 0 3px; min-width: 17px; font-size: 13px; opacity: 0.55; }
-#workspaces button#niri-workspace-󰐷.empty:not(.focused) * { font-size: 17px; }
+#workspaces button#niri-workspace-󰜬.empty:not(.focused) { padding: 5px 9px; margin: 0 3px; min-width: 17px; font-size: 13px; opacity: 0.55; }
+#workspaces button#niri-workspace-󰜬.empty:not(.focused) * { font-size: 17px; }

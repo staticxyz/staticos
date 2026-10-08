@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# staticos-doctor — checks that staticOS has everything it needs. Changes nothing.
+#
+#   staticos-doctor        full check
+#   staticos-doctor -q     only problems
+#
+# Exit code: number of failed checks (0 = all good).
+
+QUIET=0; [ "${1:-}" = "-q" ] && QUIET=1
+GRN=$'\e[32m'; YLW=$'\e[33m'; RED=$'\e[31m'; DIM=$'\e[2m'; BOLD=$'\e[1m'; RST=$'\e[0m'
+fails=0; warns=0
+ok()   { [ "$QUIET" = 1 ] || printf '  %s✓%s %s\n' "$GRN" "$RST" "$1"; }
+warn() { warns=$((warns + 1)); printf '  %s!%s %s%s\n' "$YLW" "$RST" "$1" "${2:+  $DIM→ $2$RST}"; }
+bad()  { fails=$((fails + 1)); printf '  %s✗%s %s%s\n' "$RED" "$RST" "$1" "${2:+  $DIM→ $2$RST}"; }
+head_() { [ "$QUIET" = 1 ] || printf '\n%s%s%s\n' "$BOLD" "$1" "$RST"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+S="$HOME/.config/hypr/scripts"
+
+head_ "Programs"
+for c in niri waybar swaync kitty rofi matugen awww python3 wl-copy wl-paste cliphist \
+         playerctl wpctl pactl hypridle hyprlock jq; do
+    have "$c" && ok "$c" || bad "$c is missing" "see docs/install.md"
+done
+for c in grim slurp satty tesseract gpu-screen-recorder magick gammastep eww wlogout cava; do
+    have "$c" && ok "$c" || warn "$c is missing (optional)" "some features will not work"
+done
+
+head_ "Python"
+if have python3; then
+    out=$(python3 - <<'PY' 2>&1
+import importlib
+checks = [("gi", None), ("cairo", None), ("PIL", None), ("numpy", None)]
+for mod, _ in checks:
+    try:
+        importlib.import_module(mod); print("ok", mod)
+    except Exception as e:
+        print("bad", mod, "-", e.__class__.__name__)
+try:
+    import gi
+    gi.require_version("Gtk", "3.0"); from gi.repository import Gtk; print("ok", "GTK 3")
+except Exception:
+    print("bad", "GTK 3 for Python (python-gobject, gtk3)")
+try:
+    import gi
+    gi.require_version("GtkLayerShell", "0.1"); from gi.repository import GtkLayerShell
+    print("ok", "gtk-layer-shell")
+except Exception:
+    print("bad", "gtk-layer-shell (popups and panels need it)")
+PY
+)
+    while read -r st rest; do
+        [ "$st" = ok ] && ok "$rest" || bad "$rest" "install the matching python-* package"
+    done <<< "$out"
+fi
+
+head_ "Files"
+if [ -d "$S" ]; then
+    n=$(find "$S" -maxdepth 1 -name '*.py' | wc -l)
+    broken=$(python3 - "$S" <<'PY'
+import ast, os, sys
+d = sys.argv[1]
+for f in sorted(os.listdir(d)):
+    if f.endswith(".py"):
+        try:
+            ast.parse(open(os.path.join(d, f), encoding="utf-8").read())
+        except Exception as e:
+            print(f, "-", e.__class__.__name__)
+PY
+)
+    if [ -z "$broken" ]; then ok "$n scripts in ~/.config/hypr/scripts"
+    else while read -r l; do bad "script does not parse: $l" "reinstall: ./install.sh --no-packages"; done <<< "$broken"; fi
+else
+    bad "~/.config/hypr/scripts not found" "run ./install.sh"
+fi
+if have niri && [ -f "$HOME/.config/niri/config.kdl" ]; then
+    niri validate -c "$HOME/.config/niri/config.kdl" >/dev/null 2>&1 \
+        && ok "niri config is valid" || bad "niri config has errors" "niri validate"
+fi
+[ -s "$HOME/.cache/matugen/colors.css" ] && ok "color palette" \
+    || bad "no color palette yet" "Super+W and pick a wallpaper, or $S/theme_changer.sh IMAGE"
+if have fc-list; then
+    fc-list | grep -q "PxPlus HP 100LX" && ok "PxPlus font" || bad "PxPlus font not found" "fc-cache -f"
+    fc-list | grep -qi "JetBrainsMono Nerd" && ok "Nerd Font icons" \
+        || warn "JetBrainsMono Nerd Font not found" "bar icons may show as boxes"
+fi
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ok "~/.local/bin is in PATH" ;;
+    *) bad "~/.local/bin is not in PATH" "fish: fish_add_path ~/.local/bin" ;;
+esac
+
+head_ "Services"
+if have systemctl; then
+    for u in wake-alarm.timer night-schedule.timer gtk-guard.path jarvis-focus.service; do
+        systemctl --user is-enabled "$u" >/dev/null 2>&1 && ok "$u" \
+            || warn "$u is not enabled" "systemctl --user enable --now $u"
+    done
+fi
+
+head_ "Session"
+if [ -n "${NIRI_SOCKET:-}" ]; then
+    ok "running inside niri"
+    for p in waybar swaync; do
+        pgrep -x "$p" >/dev/null && ok "$p is running" || bad "$p is not running" "barfix"
+    done
+else
+    warn "not inside a niri session" "session checks skipped"
+fi
+
+printf '\n'
+if [ "$fails" = 0 ] && [ "$warns" = 0 ]; then printf '%sAll good.%s\n' "$GRN" "$RST"
+else printf '%s problem(s), %s warning(s).\n' "$fails" "$warns"; fi
+exit "$fails"

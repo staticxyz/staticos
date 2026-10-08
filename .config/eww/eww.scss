@@ -124,7 +124,7 @@ scale.vol-slider.muted highlight {
 // Шрифт не задан нарочно (24.09.2026): текст берёт общий шрифт из правила `*`
 // выше, а его подменяет выбор в Настройках → Шрифты. С прибитым «Hack» плашка
 // оставалась единственным местом оболочки, которое не следовало за шрифтом
-// системы (просьба: «по-моему, он не в системном шрифте»). Кегль 16 px —
+// системы (Просьба: «по-моему, он не в системном шрифте»). Кегль 16 px —
 // кратный клетке пиксельных шрифтов (6x8), на некратном они мылят.
 .appvol-name {
   color: $m-on-surface;
@@ -152,7 +152,9 @@ scale.vol-slider.muted highlight {
 // Текст шрифтом системы (Hack), значок — из Nerd Font: в Hack его нет.
 // Класс off гасит кружок, когда CapsLock выключен: состояние видно по цвету,
 // не вчитываясь в подпись.
-.layout-osd {
+// .layout-osd-pill, а не .layout-osd: eww вешает имя окна (layout-osd) классом на его верхнюю
+// коробку, и стиль пилюли ложился под пиксельную плашку — тёмное пятно (06.10.2026)
+.layout-osd-pill {
   background-color: rgba($m-surface-container, 0.96);
   border: 1px solid rgba($m-outline-variant, 0.5);
   border-radius: 21px;
@@ -192,4 +194,32 @@ scale.vol-slider.muted highlight {
   // пиксельных шрифтов клетка 8 px, на некратном они мылят.
   font-size: 16px;
   padding-top: 2px;
+}
+
+
+// Пиксельный вид подсказки раскладки (06.10.2026, по образцу пользователя): прямоугольная тёмная
+// плашка со светлой гранью сверху и слева, тёмной снизу и справа, тень; внутри одна картинка
+// «клавиатура + буквы» от layout_osd (у CapsLock — прежние значок и текст).
+.layout-osd-pixel {
+  // плашку, обводку и тень рисует сама картинка layout_osd — у коробки ничего своего
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  box-shadow: none;
+}
+.layout-osd-pixel .layout-osd-chip { border-radius: 0; }
+.layout-osd-text.pixel {
+  font-family: "PxPlus HP 100LX 6x8";
+  font-size: 16px;
+  padding-top: 0;
+}
+
+// Окна eww — без собственной тени и фона GTK (06.10.2026): у пиксельной подсказки раскладки
+// за картинкой проступала мягкая скруглённая тень окна — «артефакты вокруг кнопки».
+window {
+  background-color: transparent;
+  box-shadow: none;
+  border: none;
 }

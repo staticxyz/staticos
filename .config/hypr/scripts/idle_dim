@@ -29,6 +29,11 @@ BACKLIGHT_SAVE = os.path.expanduser("~/.cache/idle-backlight")
 # нуле пришлось бы лезть к кнопкам монитора.
 DEEP_LAPTOP = "0"
 DEEP_MSI = "1"
+# Контраст MSI при глубоком приглушении: яркость 1 % всё ещё светится, контраст 0
+# давит остаток. Запоминается ОТДЕЛЬНЫМ файлом до изменения: потеряй мы общий
+# файл, монитор остался бы с нулевым контрастом (09.10.2026).
+DEEP_MSI_CONTRAST = "0"
+CONTRAST_SAVE = os.path.expanduser("~/.cache/idle-msi-contrast")
 MSI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitor_brightness.py")
 KBD = "rgb:kbd_backlight"   # подсветка клавиатуры ноутбука (см. scripts/kbdlight)
 
@@ -61,6 +66,16 @@ def backlight_down():
     if r.returncode == 0 and r.stdout.strip().isdigit():
         saved["msi"] = r.stdout.strip()
         subprocess.run(["python3", MSI, "set", DEEP_MSI], capture_output=True)
+        c = subprocess.run(["python3", MSI, "contrast", "get"], capture_output=True, text=True)
+        if c.returncode == 0 and c.stdout.strip().isdigit():
+            saved["msi_contrast"] = c.stdout.strip()
+            try:
+                with open(CONTRAST_SAVE, "w") as f:
+                    f.write(saved["msi_contrast"])
+            except OSError:
+                pass
+            subprocess.run(["python3", MSI, "contrast", "set", DEEP_MSI_CONTRAST],
+                           capture_output=True)
     razer_down(saved)
     try:
         with open(BACKLIGHT_SAVE, "w") as f:
@@ -116,6 +131,21 @@ def backlight_up():
         with open(BACKLIGHT_SAVE) as f:
             saved = json.load(f)
     except (OSError, ValueError):
+        saved = {}
+    if not saved.get("msi_contrast"):            # общий файл потерян — берём отдельный
+        try:
+            with open(CONTRAST_SAVE) as f:
+                saved["msi_contrast"] = f.read().strip()
+        except OSError:
+            pass
+    if saved.get("msi_contrast", "").isdigit():
+        subprocess.run(["python3", MSI, "contrast", "set", saved["msi_contrast"]],
+                       capture_output=True)
+        try:
+            os.unlink(CONTRAST_SAVE)
+        except OSError:
+            pass
+    if not saved:
         return
     if saved.get("laptop"):
         subprocess.run(["brightnessctl", "-q", "set", saved["laptop"]], capture_output=True)
@@ -152,6 +182,12 @@ def main():
         return 0
     if game_running():
         print("идёт игра — приглушение пропущено")
+        return 0
+    from idle_guard import video_in_focus, hold
+    v = video_in_focus()
+    if v:                                        # видео в фокусе — экран не трогать (07.10.2026)
+        hold("dim")
+        print("смотрят видео (%s) — приглушение пропущено" % v)
         return 0
     if what == "deep":
         dim("deep")

@@ -46,6 +46,10 @@ def run(cmd, timeout=5):
         return ""
 
 
+PLAYING = False      # играет ли плеер, найденный mpris_instance()
+RUNNING = set()      # id потоков, которые звучат прямо сейчас (state running в pw-dump)
+
+
 def streams():
     """[(id, имя, pid, слова для опознания)] — всё, что сейчас выводит звук.
 
@@ -70,6 +74,8 @@ def streams():
         words = words_of(props.get("application.name"), props.get("node.name"),
                          props.get("application.process.binary"))
         res.append((obj.get("id"), name, int(pid) if pid else None, words))
+        if (obj.get("info") or {}).get("state") == "running":
+            RUNNING.add(obj.get("id"))
     return res
 
 
@@ -98,7 +104,43 @@ def window_words(win):
                 out |= words_of(f.read().strip())
         except (OSError, ValueError):
             pass
+    # Игра в gamescope (06.10.2026): окно — «gamescope», а звук идёт от игры внутри, и
+    # её звучащий поток бывает без pid (только имя «cs2») — берём имена процессов-потомков.
+    if pid and "gamescope" in out:
+        out |= descendant_words(int(pid))
     return out
+
+
+def descendant_words(root):
+    kids = {}
+    for p in os.listdir("/proc"):
+        if not p.isdigit():
+            continue
+        try:
+            with open("/proc/%s/stat" % p) as f:
+                st = f.read()
+            ppid = int(st[st.rindex(")") + 2:].split()[1])
+            kids.setdefault(ppid, []).append(int(p))
+        except (OSError, ValueError, IndexError):
+            continue
+    words, todo, seen = set(), [root], set()
+    while todo:
+        cur = todo.pop()
+        for c in kids.get(cur, ()):
+            if c in seen:
+                continue
+            seen.add(c)
+            todo.append(c)
+            try:
+                with open("/proc/%d/comm" % c) as f:
+                    name = f.read().strip()
+            except OSError:
+                continue
+            # обвязку Steam/gamescope не берём — только сама игра
+            if not any(x in name.lower() for x in ("gamescope", "reaper", "steam", "pressure", "gamemode",
+                                                   "bash", "sh", "python", "srt-", "pv-", "mangohud")):
+                words |= words_of(name)
+    return words
 
 
 def same_app(stream_words, win_words):
@@ -156,7 +198,7 @@ def pick():
     Порядок строгий: сперва окно в фокусе, и только если у него звука нет —
     играющий плеер. Окно ищется двумя способами подряд: по дереву процессов
     (pid окна, его предки и потомки — у браузера звук идёт из вкладки) и по
-    именам, потому что pid есть не у каждого потока (пользователь 24.09.2026:
+    именам, потому что pid есть не у каждого потока (Пользователь 24.09.2026:
     «должно работать для окна в фокусе, а не только для Zen»).
 
     Потоков у приложения бывает несколько — вкладки браузера, звонок и
@@ -201,6 +243,15 @@ def pick():
                 pwords |= words_of(f.read().strip())
         except OSError:
             pass
+    # Плеер на паузе, а звучит ровно одна программа — она важнее (06.10.2026,
+    # Пользователь: видео в Zen на паузе, идёт звонок Telegram, а бинд крутил Zen).
+    # Поток самого плеера на паузе не в счёт: Chromium держит его открытым ещё
+    # несколько секунд, и всё это время бинд уходил в музыку, а не в звонок.
+    if inst and not PLAYING:
+        rest = [f for f in found if not ((f[2] and f[2] in pkin) or same_app(f[3], pwords))]
+        live = running_one(rest) or running_one(found)
+        if live:
+            return live
     if player or inst:
         mine = [(sid, name) for sid, name, pid, words in found
                 if (pid and pid in pkin) or same_app(words, pwords)]
@@ -212,7 +263,23 @@ def pick():
     # (pid тут не требуем: у части потоков его вовсе не бывает).
     if len(found) == 1 and alive([found[0][0]]):
         return [found[0][0]], found[0][1], "player"
+    # Звучит прямо сейчас ровно одна программа, остальные потоки — на паузе (05.10.2026,
+    # Просьба: «идёт звонок в Telegram — раньше мог менять его громкость из любого окна»;
+    # мешали три приостановленных потока Zen). Программа — по имени потока.
+    live = running_one(found)
+    if live:
+        return live
     return [], "у этого окна звука нет, а звучит несколько программ", None
+
+
+def running_one(found):
+    """Потоки единственной программы, которая звучит прямо сейчас, или None."""
+    run_ = [(sid, name) for sid, name, _pid, _w in found if sid in RUNNING]
+    if run_ and len({name for _sid, name in run_}) == 1:
+        live = alive([sid for sid, _ in run_])
+        if live:
+            return live, run_[0][1], "player"
+    return None
 
 
 def mpris_instance():
@@ -225,9 +292,12 @@ def mpris_instance():
     rows = [line.split("\t") for line in
             run(["playerctl", "-a", "metadata", "--format", "{{playerInstance}}\t{{status}}"]).splitlines()
             if "\t" in line]
+    global PLAYING
     for inst, status in rows:
         if status == "Playing":
+            PLAYING = True
             return inst
+    PLAYING = False
     return rows[0][0] if rows else None
 
 
@@ -276,7 +346,7 @@ def osd(name, percent, muted, kind):
 
     Раньше каждое нажатие плодило свой «sleep; eww close»: на серии нажатий
     первый же таймер закрывал плашку прямо под следующим нажатием, и она
-    моргала (пользователь 24.09.2026: «нет той стабильности, как у микшера справа»).
+    моргала (Пользователь 24.09.2026: «нет той стабильности, как у микшера справа»).
     Теперь нажатие только отодвигает срок в файле, а закрывает плашку один
     процесс-сторож — второй не запустится, его не пускает блокировка файла.
 
@@ -347,7 +417,7 @@ def guard():
 # ── серия нажатий (03.10.2026) ──────────────────────────────────────────────
 # Одно нажатие стоило ~0,7 с: поиск потока (pw-dump, плеер, дерево процессов) ~0,3 с,
 # чтение громкости, четыре вызова eww. При удержании клавиши нажатия вставали в
-# очередь, и плашка отставала от пальцев (просьба: «посмотри плавность»). Теперь первое
+# очередь, и плашка отставала от пальцев (Просьба: «посмотри плавность»). Теперь первое
 # нажатие ищет поток как раньше и запоминает его на несколько секунд; следующие, пока
 # в фокусе то же окно, берут запомненное и только двигают громкость — ~0,15 с.
 PICK_CACHE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "appvol-pick.json")

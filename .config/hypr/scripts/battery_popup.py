@@ -195,7 +195,7 @@ class BatteryPopup(Gtk.Window):
         # События наведения и ухода курсора
         self.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
         self.connect("enter-notify-event", self.on_mouse_enter)
-        # Закрытие при уходе курсора временно отключено по просьбе
+        # Закрытие при уходе курсора временно отключено по просьбе пользователя
         # (11.09.2026). Вернуть — раскомментировать строку ниже.
         # self.connect("leave-notify-event", self.on_mouse_leave)
 

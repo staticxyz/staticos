@@ -25,7 +25,7 @@
         "custom/ribbon"
     ],
     // pomo — слева от капсул, а не справа в общей группе (23.09.2026, просьба
-    // пользователя): правая группа от этого на ~90 px уже, и запасу под эквалайзер
+    // Пользователя): правая группа от этого на ~90 px уже, и запасу под эквалайзер
     // хватает ближе к центру. Средняя группа прижата правым краем к правой
     // (см. .modules-right в style.css), поэтому ширина pomo (значок / значок с
     // минутами) капсулы не двигает — pomo растёт влево.
@@ -33,6 +33,7 @@
         "custom/privacy",
         "custom/rec",
         "custom/pomo",
+        "custom/gap",
         "cpu",
         "memory",
         "temperature"
@@ -47,6 +48,11 @@
     ],
 
     // Кнопка "Пуск" (Arch)
+    // Пустая распорка 60 px между pomo и датчиками (08.10.2026). Раньше это был
+    // margin-right у pomo, но в GTK поле входит в зону наведения и щелчка: капсула
+    // подсвечивалась и нажималась, когда курсор был ещё правее неё.
+    "custom/gap": { "format": " ", "tooltip": false },
+
     "custom/launcher": {
         // Значок печатает start_button.py (30.09.2026): Nerd-логотип Arch или
         // пиксельный (шрифт JarvisStart) — выбор в Настройках → Внешний вид,
@@ -57,7 +63,7 @@
         "signal": 12,
         // Запасной «|| wofi» убран: rofi при закрытии через Escape выходит с
         // кодом 1, и || запускал бы wofi следом (а wofi и не установлен).
-        "on-click": "rofi -show drun",
+        "on-click": "$HOME/.config/niri/scripts/popup-toggle $HOME/.config/niri/scripts/shell-do launcher",
         "tooltip": false
     },
 
@@ -125,7 +131,7 @@
             "class<code|vscodium>": "󰨞",
             // Neovim в kitty: свой «</>» (U+E104) — круглые штрихи, наклон вправо,
             // зазор между частями; рисуется в build_bar_icons.py по образцам
-            // пользователя (25.09.2026). Окно узнаётся по
+            // Пользователя (25.09.2026). Окно узнаётся по
             // заголовку — kitty ставит в него «nvim …»; правило с title< должно
             // стоять ВЫШЕ общего class<kitty>.
             "class<kitty> title<nvim.*>": "",
@@ -162,7 +168,13 @@
             "class<(org.ksnip.ksnip|org.kde.spectacle)>": "",
             "class<[^>]*waypaper[^>]*>.*": "",
             // Система и настройки
+            // Discipline — будильник, фокус, помидор (07.10.2026): будильник nf-md-alarm
+            "class<com.jarvis.(discipline|routine)>": "󰀠",
             "class<(qt6ct|nwg-look|systemsettings|kdesystemsettings|com.jarvis.settings)>": "",
+            // jtop — процессы по программам (kitty --class jtop): nf-md-chart_bar;
+            // App list — программы и пакеты: nf-md-apps (07.10.2026)
+            "class<jtop>": "󰄨",
+            "class<com.jarvis.applist(\\.term)?>": "󰀻",
             "class<[^>]*blueman[^>]*>.*": "",
             "class<(org.pulseaudio.pavucontrol|com.saivert.pwvucontrol)>": "",
             "class<nm-connection-editor>": "",
@@ -182,9 +194,12 @@
     // тот следует локали (en_US = с воскресенья) без способа задать Пн-старт
     // из конфига waybar.
     "custom/clock": {
-        "exec": "python3 $HOME/.config/hypr/scripts/waybar_clock.py",
+        "exec": "python3 $HOME/.config/hypr/scripts/wb_persist.py clock",
         "return-type": "json",
-        "interval": 5,
+        // Постоянный процесс вместо запуска python раз в 5 с (05.10.2026, wb_persist.py):
+        // тот же waybar_clock.poll(), тик 5 с и на смене минуты; смену стороны
+        // (СКМ) ловит inotify, сигнал 9 оставлен — он безвреден.
+        "restart-interval": 5,
         // Подсказка по наведению убрана: ту же сетку теперь показывает попап
         // по щелчку, а всплывающая копия только мешала — она выскакивала при
         // случайном проходе мышью над часами и жила по своим правилам
@@ -209,7 +224,7 @@
         "interval": 2,
         "format": "󰻠 {usage}%",
         "tooltip-format": "Загрузка CPU: {usage}%\nСредняя за 1/5/15 мин: {load}",
-        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026).
+        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026, пользователь).
         // btop — из боковой колонки панели (значок «Система»).
         "on-click": "python3 $HOME/.config/hypr/scripts/control_center.py --center",
         "on-click-right": "python3 $HOME/.config/hypr/scripts/control_center.py --center"
@@ -219,7 +234,7 @@
         "interval": 3,
         "format": "󰘚 {percentage}%",
         "tooltip-format": "ОЗУ: {used:0.1f} из {total:0.1f} GiB ({percentage}%)\nSwap: {swapUsed:0.1f} из {swapTotal:0.1f} GiB",
-        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026).
+        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026, пользователь).
         // btop — из боковой колонки панели (значок «Система»).
         "on-click": "python3 $HOME/.config/hypr/scripts/control_center.py --center",
         "on-click-right": "python3 $HOME/.config/hypr/scripts/control_center.py --center"
@@ -236,7 +251,7 @@
         "format-critical": "󰸁 {temperatureC}°",
         "format-icons": ["󰜗", "󰔏", "󰸁"],
         "tooltip-format": "Температура пакета CPU: {temperatureC}°C",
-        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026).
+        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026, пользователь).
         // btop — из боковой колонки панели (значок «Система»).
         "on-click": "python3 $HOME/.config/hypr/scripts/control_center.py --center",
         "on-click-right": "python3 $HOME/.config/hypr/scripts/control_center.py --center"
@@ -254,7 +269,7 @@
     // выводом и рабочим autosens и переводит числа в символы блоков.
     // Настройки самого эквалайзера — в ~/.config/cava/waybar.conf.
     "custom/cava": {
-        "exec": "python3 $HOME/.config/hypr/scripts/cava_bar.py",
+        "exec": "$HOME/.config/hypr/scripts/wb_share cava python3 $HOME/.config/hypr/scripts/cava_bar.py",
         "tooltip": false
     },
 
@@ -266,35 +281,37 @@
     // (background-image в style.css) — waybar показывает в модуле текст,
     // а не изображения, поэтому скрипт выдаёт лишь пробелы под неё.
     "custom/librewolf": {
-        "exec": "python3 $HOME/.config/hypr/scripts/browser_status.py librewolf LibreWolf",
+        "exec": "$HOME/.config/hypr/scripts/wb_share browser-librewolf python3 $HOME/.config/hypr/scripts/wb_persist.py browser librewolf LibreWolf",
         "return-type": "json",
-        "interval": 3,
+        "restart-interval": 5,
         "on-click": "librewolf"
     },
 
     "custom/zen": {
-        "exec": "python3 $HOME/.config/hypr/scripts/browser_status.py zen Zen",
+        "exec": "$HOME/.config/hypr/scripts/wb_share browser-zen python3 $HOME/.config/hypr/scripts/wb_persist.py browser zen Zen",
         "return-type": "json",
-        "interval": 3,
+        "restart-interval": 5,
         "on-click": "zen-browser"
     },
 
     "custom/mercury": {
-        "exec": "python3 $HOME/.config/hypr/scripts/browser_status.py mercury Mercury",
+        "exec": "$HOME/.config/hypr/scripts/wb_share browser-mercury python3 $HOME/.config/hypr/scripts/wb_persist.py browser mercury Mercury",
         "return-type": "json",
-        "interval": 3,
+        "restart-interval": 5,
         "on-click": "mercury-browser-avx2"
     },
 
     "custom/mpris": {
-        "exec": "python3 $HOME/.config/hypr/scripts/mpris_status.py",
+        "exec": "$HOME/.config/hypr/scripts/wb_share mpris python3 $HOME/.config/hypr/scripts/wb_persist.py mpris",
         "return-type": "json",
-        "interval": 2,
+        // Постоянный процесс (05.10.2026, wb_persist.py): mpris_status.main() раз в 2 с
+        // и сразу по событию playerctl -F — сигнал 5 при постоянном exec уже не нужен.
+        "restart-interval": 5,
         // Клик — пауза/воспроизведение. Раньше on-click не было вовсе:
         // висели средняя кнопка, правая и колёсико, а обычный клик молчал.
         // pkill шлёт сигнал 5, чтобы иконка сменилась сразу, а не через две
         // секунды, когда подойдёт очередной опрос по interval.
-        "on-click": "playerctl play-pause && pkill -RTMIN+5 waybar",
+        "on-click": "python3 $HOME/.config/hypr/scripts/mpris_common.py toggle && pkill -RTMIN+5 waybar",
         "signal": 5,
         "on-click-middle": "$HOME/.config/hypr/scripts/mpris_focus",
         "on-click-right": "python3 $HOME/.config/hypr/scripts/player_popup.py",
@@ -337,9 +354,12 @@
         "format-linked": "",
         "tooltip-format-ethernet": "Провод: {ipaddr}\nСкорость: {bandwidthDownBits} / {bandwidthUpBits}",
         "interval": 5,
-        // Щелчок — центр управления в духе Noctalia (30.09.2026).
-        "on-click": "python3 $HOME/.config/hypr/scripts/control_center.py",
-        // Правой — то же самое (30.09.2026). «Настройки» — из панели, ⚙.
+        // Щелчок — плашка «Сеть»: диагностика кабель → роутер → интернет → DNS,
+        // трафик, пинг, замер скорости по кнопке (05.10.2026, Просьба: «не
+        // спидтест, а диагностика сети»). Раньше здесь был центр управления —
+        // он остался на правой кнопке.
+        "on-click": "python3 $HOME/.config/hypr/scripts/lan_popup.py",
+        // Правой — центр управления в духе Noctalia (30.09.2026, пользователь). «Настройки» — из панели, ⚙.
         "on-click-right": "python3 $HOME/.config/hypr/scripts/control_center.py"
     },
 
@@ -349,27 +369,35 @@
         // воткнутом кабеле писал «LAN» — рядом с отдельным значком провода
         // получалось два одинаковых (замечено пользователем 21.09.2026).
         "interface": "wlp0s20f3",
-        // Значки (04.10.2026, просьба: «вайфай не понятно, включен или нет»): подключён —
+        // Значки (04.10.2026, Просьба: «вайфай не понятно, включен или нет»): подключён —
         // полный веер акцентом, включён без сети — пустой контур без черты, выключен —
         // перечёркнутый бледный. Раньше «нет сети» и «выключен» оба были перечёркнуты.
         "format-ethernet": "󰈀 LAN",
-        "format-wifi": "󰤨 {essid}",
-        "format-disconnected": "󰤯",
-        "format-disabled": "󰤮",
+        "format-wifi": "<span font_size='12pt'>󰤨</span> {essid}",
+        "format-disconnected": "<span font_size='12pt'>󰤯</span>",
+        "format-disabled": "<span font_size='12pt'>󰤮</span>",
         "tooltip-format": "Сеть: {essid}\nIP: {ipaddr}",
-        "on-click": "nmcli radio wifi $(nmcli radio wifi | grep -q 'enabled' && echo off || echo on)",
-        "on-click-right": "python3 $HOME/.config/hypr/scripts/wifi_popup.py"
+        // 08.10.2026 : левой — плашка анализа Wi-Fi (сигнал, канал,
+        // соседи, пинг, замер скорости; это lan_popup.py через ссылку
+        // wifi_net_popup.py, при кабеле — одна фраза), правой — список сетей,
+        // средней — вкл/выкл.
+        "on-click": "python3 $HOME/.config/hypr/scripts/wifi_net_popup.py",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/wifi_popup.py",
+        "on-click-middle": "nmcli radio wifi $(nmcli radio wifi | grep -q 'enabled' && echo off || echo on)"
     },
 
     "bluetooth": {
-        "format": "",
-        "format-off": "󰂲",
-        "format-disabled": "󰂲",
-        "format-connected": " {device_alias}",
-        "format-connected-battery": " {device_alias} {device_battery_percentage}%",
+        "format": "<span font_size='12pt'></span>",
+        "format-off": "<span font_size='12pt'>󰂲</span>",
+        "format-disabled": "<span font_size='12pt'>󰂲</span>",
+        "format-connected": "<span font_size='12pt'></span> {device_alias}",
+        "format-connected-battery": "<span font_size='12pt'></span> {device_alias} {device_battery_percentage}%",
         "tooltip-format": "{controller_alias}\t{controller_address}",
-        "on-click": "rfkill toggle bluetooth",
-        "on-click-right": "python3 $HOME/.config/hypr/scripts/bluetooth_popup.py"
+        // 08.10.2026 : правой — список устройств, средней — вкл/выкл.
+        // Левая — плашка анализа: заряд, кодек, режим (bt_stats_popup.py, 08.10.2026).
+        "on-click": "python3 $HOME/.config/hypr/scripts/bt_stats_popup.py",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/bluetooth_popup.py",
+        "on-click-middle": "rfkill toggle bluetooth"
     },
 
     "hyprland/language": {
@@ -412,9 +440,9 @@
     },
 
     "custom/battery": {
-        "exec": "python3 $HOME/.config/hypr/scripts/savage_battery.py",
+        "exec": "$HOME/.config/hypr/scripts/wb_share battery python3 $HOME/.config/hypr/scripts/wb_persist.py battery",
         "return-type": "json",
-        "interval": 2,
+        "restart-interval": 5,
         "on-click": "python3 $HOME/.config/hypr/scripts/battery_popup.py",
         "on-click-right": "python3 $HOME/.config/hypr/scripts/savage_battery.py --toggle"
     },
@@ -435,9 +463,12 @@
         "tooltip": true
     },
     "custom/pomo": {
-        "exec": "$HOME/.local/bin/pomo status json",
+        "exec": "$HOME/.config/hypr/scripts/wb_share pomo python3 $HOME/.config/hypr/scripts/wb_persist.py pomo",
         "return-type": "json",
-        "interval": 1,
+        // Постоянный процесс (05.10.2026, wb_persist.py): сам `pomo status json` каждую
+        // секунду, пока идёт отсчёт; в простое и на паузе — только когда вывод мог
+        // измениться; команды pomo ловит inotify на файл состояния.
+        "restart-interval": 5,
         "signal": 8,
         "on-click": "$HOME/.local/bin/pomo toggle",
         "on-click-right": "$HOME/.local/bin/pomo skip",
@@ -450,7 +481,7 @@
     // нажатиям клавиш, без набора — в такт музыке. Кадры — шрифт JarvisBongo
     // (build_bongo_font.py). Выключается в Настройках (bongo_cat.py off).
     "custom/bongo": {
-        "exec": "python3 $HOME/.config/hypr/scripts/bongo_cat.py",
+        "exec": "$HOME/.config/hypr/scripts/wb_share bongo python3 $HOME/.config/hypr/scripts/bongo_cat.py",
         "escape": false,
         "tooltip": false
     },
@@ -459,7 +490,7 @@
     // камера, трансляция/запись экрана — видны, только пока что-то занято.
     // Скрипт событийный (pactl subscribe, inotify, события niri) — interval не нужен.
     "custom/privacy": {
-        "exec": "$HOME/.config/hypr/scripts/privacy_status.py",
+        "exec": "$HOME/.config/hypr/scripts/wb_share privacy $HOME/.config/hypr/scripts/privacy_status.py",
         "return-type": "json",
         "restart-interval": 5,
         "tooltip": true,
@@ -468,7 +499,7 @@
 
     "custom/power": {
         "format": "",
-        // wlogout, как было (пользователь вернул, 30.09.2026). Выход, перезагрузка и
+        // wlogout, как было (Пользователь вернул, 30.09.2026). Выход, перезагрузка и
         // выключение в нём идут через power_menu.py --only: 5 с отсчёт с кольцом,
         // ещё щелчок — сразу, Esc — отмена. Значки — wlogout_icons.py.
         // 01.10.2026: какое меню — решает power_view.py (Настройки → Power):

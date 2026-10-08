@@ -5,7 +5,7 @@
     jarvis_lock.py --dry-run   кнопки питания только печатают команду (для проверок)
 
 Зачем: у hyprlock 0.9.6 наведения нет вовсе (у надписей только onclick), а
-пользователь дважды просил, чтобы кнопки питания подсвечивались под указателем
+Пользователь дважды просил, чтобы кнопки питания подсвечивались под указателем
 («Я хочу обводку»). Здесь экран рисуется своим кодом, поэтому под указателем
 у кнопки появляется обводка и подложка.
 
@@ -403,7 +403,21 @@ def rgba(hexcolor, a=1.0):
     return tuple(int(c[i:i + 2], 16) / 255 for i in (0, 2, 4)) + (a,)
 
 
+# Cozette вместо PxPlus (08.10.2026): правило 61-cozette-trial.conf режет любой запрос
+# PxPlus крупнее 35 px до 39 px — часы 128/160 px сжимались втрое. Здесь просим
+# CozetteVector напрямую, кратно 13 (чёткие размеры): 16 → 13, 32 → 26, 128 → 130, 160 → 156.
+COZETTE = os.path.exists(os.path.join(HOME, ".config/fontconfig/conf.d/61-cozette-trial.conf"))
+# Подгонка (cozette_fit.py): поля ввода в меру 13-px текста — 320×40 → 288×34
+FIT = COZETTE and os.path.exists(os.path.join(HOME, ".config/hypr/state/cozette-fit"))
+
+
+def cozette_px(px):
+    return 13 * max(1, int(px / 13 + 0.5)) if px > 16 else 13
+
+
 def layout(cr, text, family, px, bold=False):
+    if COZETTE and PIXEL in family:
+        family, px = family.replace(PIXEL, "CozetteVector"), cozette_px(px)
     lay = PangoCairo.create_layout(cr)
     fd = Pango.FontDescription.from_string(family)
     fd.set_absolute_size(px * Pango.SCALE)
@@ -723,12 +737,13 @@ class LockWindow(Gtk.Window):
 
         field_bg = rgba(pal["surface_container"], 0.70)
         # Поле пользователя
-        fx, fw, fh = cx - 160, 320, 40
+        fw, fh = (288, 34) if FIT else (320, 40)
+        fx, ix = cx - fw / 2, cx - fw / 2 + 24      # ix — центр значка в поле
         uy = cy + 100
-        rounded(cr, fx, uy - fh / 2, fw, fh, 20)
+        rounded(cr, fx, uy - fh / 2, fw, fh, fh / 2)
         cr.set_source_rgba(*field_bg)
         cr.fill()
-        self.field_icon(cr, a.icon_user, "\U000f0004", cx - 136, uy)
+        self.field_icon(cr, a.icon_user, "\U000f0004", ix, uy)
         cr.set_source_rgba(*rgba(pal["on_surface"]))
         show(cr, layout(cr, a.user, PIXEL, 16), cx, uy)
 
@@ -743,13 +758,13 @@ class LockWindow(Gtk.Window):
             ring = rgba(pal["tertiary"])
         else:
             ring = rgba(pal["primary"], 0.6)
-        rounded(cr, fx, py - fh / 2, fw, fh, 20)
+        rounded(cr, fx, py - fh / 2, fw, fh, fh / 2)
         cr.set_source_rgba(*field_bg)
         cr.fill_preserve()
         cr.set_line_width(2)
         cr.set_source_rgba(*ring)
         cr.stroke()
-        self.field_icon(cr, a.icon_pass, "\U000f033e", cx - 136, py)
+        self.field_icon(cr, a.icon_pass, "\U000f033e", ix, py)
         if a.checking:
             cr.set_source_rgba(*rgba(pal["secondary"]))
             show(cr, layout(cr, "Проверка…", PIXEL, 16), cx, py)

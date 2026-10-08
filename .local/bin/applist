@@ -1,0 +1,4 @@
+#!/bin/sh
+# App list — программы, пакеты, версии, сведения о системе; второй запуск закрывает окно.
+#   applist [apps|packages|system]
+exec python3 $HOME/.config/hypr/scripts/app_list.py "$@"

@@ -6,7 +6,7 @@ binds {
     // ~165. Минус: если убить саму копию (упала, kill), закроются все её окна.
     // Super+` (пробный шрифт) и дашборд сюда НЕ входят: общая копия
     // игнорирует шрифт из -o, а дашборд опрашивает каждую копию отдельно.
-    Ctrl+Grave  hotkey-overlay-title="Терминал" { spawn "kitty" "--single-instance" "--instance-group" "jarvis"; }
+    Ctrl+Grave  hotkey-overlay-title="Терминал" { spawn-sh "~/.config/hypr/scripts/kitty_shared.sh"; }
     // Терминал пробным шрифтом (Настройки → Шрифты → «Терминал на Super+`»).
     // Шрифт уходит в kitty аргументом, kitty.conf и открытые окна не трогаются.
     Mod+Grave   hotkey-overlay-title="Терминал пробным шрифтом" { spawn-sh "~/.config/hypr/scripts/term_font.sh"; }
@@ -14,7 +14,7 @@ binds {
     // и при запуске niri ВЛОЖЕННЫМ окном его перехватывает хозяйский Hyprland
     // (keybindings.lua:8) — нажатие до niri не доходит. Mod+Return во вложенном
     // режиме превращается в Alt+Return, а он у Hyprland свободен.
-    Mod+Return  hotkey-overlay-title="Терминал" { spawn "kitty" "--single-instance" "--instance-group" "jarvis"; }
+    Mod+Return  hotkey-overlay-title="Терминал" { spawn-sh "~/.config/hypr/scripts/kitty_shared.sh"; }
     // Запасной терминал foot — на случай, если kitty сломается (29.09.2026).
     // Konsole удалена ради места; кроме kitty терминалов не оставалось.
     Mod+Shift+Return hotkey-overlay-title="Запасной терминал (foot)" { spawn "foot"; }
@@ -22,7 +22,7 @@ binds {
     // Noctalia и своим (rofi / hyprlock) по тому, какая оболочка включена.
     // Всплывашки rofi через popup-toggle: повторное нажатие закрывает (23.09.2026).
     Mod+Space   hotkey-overlay-title="Меню программ" { spawn-sh "~/.config/niri/scripts/popup-toggle ~/.config/niri/scripts/shell-do launcher"; }
-    Ctrl+Q      repeat=false { close-window; }
+    Ctrl+Q      repeat=false { spawn-sh "~/.config/niri/scripts/close-or-clipboard"; }
 
     Mod+E { spawn "dolphin"; }
     Mod+I { spawn "helium-browser"; }
@@ -63,6 +63,10 @@ binds {
     Mod+Shift+P { spawn-sh "~/.local/bin/pomo skip"; }
     Mod+Alt+P { spawn-sh "~/.local/bin/pomo stop"; }
     Mod+T { spawn-sh "~/.config/niri/scripts/popup-toggle ~/.local/bin/pomo ask"; }
+    // Discipline на вкладке Alarm (07.10.2026; было Focus), повторное нажатие закрывает (scripts/routine_app.py, 06.10.2026); Super+Alt+T — нет, по выбору пользователя
+    Mod+Alt+F repeat=false { spawn-sh "~/.local/bin/discipline --toggle alarm"; }
+    // App list — программы, пакеты, версии, сведения о системе (scripts/app_list.py, 06.10.2026)
+    Mod+Alt+T repeat=false { spawn-sh "~/.local/bin/applist"; }
     Mod+Ctrl+P { spawn-sh "kitty --title pomo -o initial_window_width=52c -o initial_window_height=3c ~/.local/bin/pomo watch"; }
 
     // ─── Обзор: новое, в Hyprland такого не было ───
@@ -158,7 +162,7 @@ binds {
     // Пустой стол живёт, пока на нём стоишь: уйдёте, не открыв окна, — niri его
     // уберёт. Закрепляется первым же окном.
     //
-    // H/L, а не K/J, по просьбе 21.09.2026 — как в Hyprland, где столы
+    // H/L, а не K/J, по просьбе пользователя 21.09.2026 — как в Hyprland, где столы
     // шли по горизонтали. В niri лента вертикальная, поэтому H («слева») ставит
     // стол ВЫШЕ текущего, а L («справа») — НИЖЕ.
     Mod+Ctrl+H { spawn-sh "python3 ~/.config/niri/scripts/ws_insert before"; }
@@ -218,8 +222,8 @@ binds {
     Mod+F { fullscreen-window; }
     // Последний шаг SUPER+= в Hyprland — развернуть на всю рабочую область.
     Mod+Shift+F { maximize-column; }
-    // Растянуть колонку на всё свободное место, не трогая соседей.
-    Mod+Ctrl+F { expand-column-to-available-width; }
+    // Растянуть колонку на всё свободное место; повторно — исходный размер (scripts/colexpand).
+    Mod+Alt+D { spawn-sh "~/.config/niri/scripts/colexpand"; }
     // Через скрипт, а не toggle-window-floating напрямую (02.10.2026): niri, возвращая окно
     // из плавающих в ленту, сбрасывал ширину на 50 % — скрипт возвращает ту, что была.
     Mod+V { spawn-sh "~/.config/niri/scripts/floattoggle"; }
@@ -260,9 +264,10 @@ binds {
     Mod+8 { focus-workspace 8; }
     Mod+9 { focus-workspace 9; }
     // SUPER+0 — исходный размер окна (scripts/winreset, 28.09.2026). На стол 10
-    // ведут SUPER+D и SUPER+0 на цифровом блоке.
+    // ведёт SUPER+0 на цифровом блоке.
     Mod+0 { spawn-sh "~/.config/niri/scripts/winreset"; }
-    Mod+D { focus-workspace 10; }
+    // SUPER+D — стол дашборда (05.10.2026; раньше — стол 10)
+    Mod+D repeat=false { spawn-sh "~/.config/niri/scripts/dashboard focus"; }
 
     Mod+Shift+1 { move-column-to-workspace 1; }
     Mod+Shift+2 { move-column-to-workspace 2; }
@@ -360,12 +365,17 @@ binds {
     // (scripts/player_like_key, 21.09.2026).
     F10 { spawn-sh "~/.config/hypr/scripts/player_like_key"; }
 
+    // CTRL+SHIFT+] — картинка в картинке (07.10.2026). На русской раскладке браузер
+    // видит «Ъ» и сочетание не узнаёт. niri ловит бинд на любой раскладке, а wtype
+    // (пакет wtype) пересылает в окно в фокусе именно «]»
+    // своей виртуальной клавиатурой — её нажатия идут мимо биндов niri, петли нет.
+    // Перехват общий, но пересылается то же сочетание, так что другим программам
+    // (kitty: следующее окно) ничего не меняется.
+    Ctrl+Shift+BracketRight { spawn-sh "wtype -M ctrl -M shift -k bracketright -m shift -m ctrl"; }
+
     // НЕ ПЕРЕНЕСЕНО, перенести нечем:
     //   F11 — «дизлайк». Путь тот же, что у лайка, но кнопку надо добавить
     //     во все три плеера (Яндекс, YouTube Music, Zen) — пока не сделано.
-    //   CTRL+SHIFT+] — картинка в картинке на русской раскладке. Тот же
-    //     send_shortcut. В niri сочетание уйдёт в браузер как есть, то есть
-    //     на русской раскладке снова не сработает.
     //   SUPER+CTRL+↑/↓ и ALT+H/L — создать и удалить стол. В niri столы
     //     динамические: пустой всегда есть снизу, а опустевший исчезает сам.
 

@@ -14,13 +14,23 @@ touch "${XDG_RUNTIME_DIR:-/tmp}/barfix-stamp" 2>/dev/null
 for p in $(pgrep -x waybar); do
     # только панель этого сеанса — чужие не трогаем
     if grep -qz "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}" "/proc/$p/environ" 2>/dev/null; then
+        # дети waybar (exec-модули: swaync-client -swb и др.) без него остаются сиротами и
+        # копятся с каждым перезапуском — 07.10.2026 нашлось шесть; снимаем их вместе с ним
+        pkill -TERM -P "$p" 2>/dev/null
         kill "$p" 2>/dev/null
     fi
 done
 sleep 0.6
+PANELS="$HOME/.config/hypr/scripts/panels.py"
+# Панели по мониторам (panels.py, 06.10.2026): у каждого монитора свой waybar и режим.
+if [ -n "${NIRI_SOCKET:-}" ] && [ "$(python3 "$PANELS" same 2>/dev/null)" = no ]; then
+    python3 "$HOME/.config/niri/scripts/waybar_niri.py" >/dev/null 2>&1
+    n=$(python3 "$PANELS" launch-top 2>/dev/null)
+    sleep 1
+    echo "панели по мониторам: поднято баров — ${n:-0}"
 # Верхний бар выключен (top_bar.py set off, 03.10.2026) — не поднимаем: столы и всё
 # остальное в этом режиме показывает нижняя XP-панель.
-if [ "$(cat "$HOME/.config/hypr/state/top-bar" 2>/dev/null)" = off ] && [ -n "${NIRI_SOCKET:-}" ]; then
+elif [ "$(cat "$HOME/.config/hypr/state/top-bar" 2>/dev/null)" = off ] && [ -n "${NIRI_SOCKET:-}" ]; then
     echo "верхний бар выключен (top_bar.py) — не запускаю"
 else
     if [ -f "$CSS" ]; then

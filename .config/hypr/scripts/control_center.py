@@ -4,7 +4,7 @@
     control_center.py            под точкой щелчка («lan» в баре)
     control_center.py --center   по середине экрана сверху (средние пилюли бара)
 
-пользователь показал «Главную» Noctalia v5 и попросил такую же для waybar. Её саму
+Пользователь показал «Главную» Noctalia v5 и попросил такую же для waybar. Её саму
 не поднять рядом с waybar: Noctalia — целая оболочка со своим баром, и она
 переписывает чужие конфиги (см. память noctalia-shell). Поэтому своя панель на
 тех же деталях, что остальные попапы: popup_theme (палитра из обоев), пиксельный
@@ -25,7 +25,7 @@
 панель (PR_SET_PDEATHSIG — умирает и при kill панели).
 
 Значки рисуются не текстом, а по чернильной рамке глифа (Glyph): у глифов Nerd
-Font разные поля внутри клетки, и в кнопках они сидели криво (просьба: «иконки
+Font разные поля внутри клетки, и в кнопках они сидели криво (Просьба: «иконки
 некоторые плохо центрируются»).
 
 Боковые значки переключают СТРАНИЦЫ внутри панели (Gtk.Stack, как вкладки
@@ -52,6 +52,75 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import popup_theme  # noqa: E402
 
+# ── масштаб панели (05.10.2026) ──────────────────────────────────────────
+# Пользователь: панель крупновата — три размера на выбор (Настройки → Waybar →
+# «Попапы и меню» → «Масштаб центра управления»):
+#   compact — компактный, ~72 %;  medium — средний, ~85 % (умолчание);
+#   large — «как сейчас», пиксель в пиксель прежний вид (S = 1).
+# Все размеры виджетов, поля и отступы CSS — через sc(n); кегли пиксельного
+# шрифта — не умножением, а ступенями fs(): PxPlus чёткий только на целых
+# кеглях из набора 12/16/24/32 px (память pixel-font-system).
+#   control_center.py scale                       — показать режим
+#   control_center.py scale compact|medium|large  — выбрать (со следующего открытия)
+SCALE_FILE = os.path.expanduser("~/.config/hypr/state/control-center-scale")
+SCALE_MODES = {"compact": 0.72, "medium": 0.85, "large": 1.0}
+SCALE_DEFAULT = "medium"
+FONT_STEPS = {
+    "compact": {32: 24, 24: 16, 16: 12, 12: 12},
+    "medium": {32: 24, 24: 24, 16: 16, 12: 12},
+    "large": {},
+}
+
+
+def scale_mode():
+    # CC_SCALE — только для проверок вне экрана (рендер в OffscreenWindow).
+    m = os.environ.get("CC_SCALE", "")
+    if m not in SCALE_MODES:
+        try:
+            with open(SCALE_FILE) as f:
+                m = f.read().strip()
+        except OSError:
+            m = ""
+    return m if m in SCALE_MODES else SCALE_DEFAULT
+
+
+if len(sys.argv) > 1 and sys.argv[1] == "scale":
+    if len(sys.argv) > 2:
+        if sys.argv[2] not in SCALE_MODES:
+            sys.exit("режимы: " + " | ".join(SCALE_MODES))
+        os.makedirs(os.path.dirname(SCALE_FILE), exist_ok=True)
+        with open(SCALE_FILE, "w") as f:
+            f.write(sys.argv[2] + "\n")
+    print(scale_mode())
+    sys.exit(0)
+
+MODE = scale_mode()
+S = SCALE_MODES[MODE]
+
+
+def sc(n):
+    """Размер в px под масштаб: целые пиксели; ненулевое не схлопывается в 0."""
+    if S == 1 or not n:
+        return n
+    v = int(abs(n) * S + 0.5) or 1
+    return v if n > 0 else -v
+
+
+def fs(px):
+    """Кегль пиксельного шрифта под масштаб — ступенью из 12/16/24/32."""
+    return FONT_STEPS[MODE].get(px, px)
+
+
+def scale_css(text):
+    """Числа в px из CSS — под масштаб: font-size ступенями, остальное sc()."""
+    import re
+
+    def one(m):
+        n = int(m.group(2))
+        return m.group(1) + "%dpx" % fs(n) if m.group(1) else "%dpx" % sc(n)
+    return re.sub(r"(font-size:\s*)?(?<![\w.-])(-?\d+)px", one, text)
+
+
 # Второй щелчок по «lan» закрывает панель.
 popup_theme.single_instance(__file__)
 
@@ -72,11 +141,11 @@ AVATAR = os.path.expanduser("~/.cache/avatar.png")
 WAYPAPER = os.path.expanduser("~/.config/waypaper/config.ini")
 CAVA_CONF = os.path.expanduser("~/.config/cava/control-center.conf")
 
-HERO_W, HERO_H = 480, 176      # карточка пользователя
-COVER = 104                    # обложка в карточке плеера
-AVATAR_SIZE = 92
-RADIUS = 14
-VIS_W = 150                    # ширина колонки визуализатора
+HERO_W, HERO_H = sc(480), sc(176)  # карточка пользователя
+COVER = sc(104)                # обложка в карточке плеера
+AVATAR_SIZE = sc(92)
+RADIUS = sc(14)
+VIS_W = sc(150)                # ширина колонки визуализатора
 VIS_BARS = 24                  # полос на половину (всего строк — вдвое больше)
 ICON_FONT = "JetBrainsMono NF"
 
@@ -226,7 +295,7 @@ def bt_toggle(on):
 
 def caffeine_get():
     """(вкл, "taurine" | None). Кофеин = Savage Mode; «Таурин» — вдобавок экран
-    не гаснет и не запирается (screen_awake). 01.10.2026, просьба: ЛКМ — просто
+    не гаснет и не запирается (screen_awake). 01.10.2026, пользователь: ЛКМ — просто
     Savage, ПКМ — Savage и «не выключать экран», надпись «Кофеин + Таурин»."""
     sys.path.insert(0, HERE)
     import savage_battery
@@ -313,8 +382,8 @@ class Glyph(Gtk.DrawingArea):
 
     def __init__(self, char, px=18, box=None):
         super().__init__()
-        self.char, self.px = char, px
-        side = box or px + 6
+        self.char, self.px = char, sc(px)
+        side = sc(box or px + 6)
         self.set_size_request(side, side)
         self.set_halign(Gtk.Align.CENTER)
         self.set_valign(Gtk.Align.CENTER)
@@ -366,13 +435,21 @@ class Tile(Gtk.Button):
         self.connect("button-press-event", self.on_press)
         self.on = False
         self.get_style_context().add_class("tile")
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=sc(6))
         box.set_valign(Gtk.Align.CENTER)
         self.ic = Glyph(icon_off, 20, 26)
         self.lb = Gtk.Label(label=label)
         self.lb.get_style_context().add_class("tile-label")
         self.lb.set_ellipsize(3)
         self.lb.set_max_width_chars(11)
+        if S < 1:
+            # Меньший масштаб: плитка уже, а подпись — тот же 12 px (мельче
+            # PxPlus не читается). Вместо «Ночной св…» — перенос по словам в
+            # две строки; самое длинное слово («Bluetooth») задаёт ширину плитки.
+            self.lb.set_ellipsize(0)
+            self.lb.set_line_wrap(True)
+            self.lb.set_line_wrap_mode(Pango.WrapMode.WORD)
+            self.lb.set_justify(Gtk.Justification.CENTER)
         box.pack_start(self.ic, False, False, 0)
         box.pack_start(self.lb, False, False, 0)
         self.add(box)
@@ -401,11 +478,11 @@ class Tile(Gtk.Button):
             # влезает даже слитно
             self.lb.set_text("Кофеин\n+ Таурин" if taurine else self.label0)
             self.lb.set_justify(Gtk.Justification.CENTER)
-            self.lb.set_ellipsize(0 if taurine else 3)
+            self.lb.set_ellipsize(0 if taurine or S < 1 else 3)
             # значок кофе остаётся и у «Кофеин + Таурин» (просьба 01.10.2026);
             # чтобы две строки и значок влезли в плитку — промежуток меньше
             self.ic.set_visible(True)
-            self.ic.get_parent().set_spacing(2 if taurine else 6)
+            self.ic.get_parent().set_spacing(sc(2) if taurine else sc(6))
         if self.kind == "power" and extra in PROFILE_NAME:
             name, ic = PROFILE_NAME[extra]
             self.lb.set_text(name)
@@ -467,7 +544,7 @@ class Visualizer(Gtk.DrawingArea):
         self.vals = [0.0] * VIS_BARS
         self.proc = None
         self.fresh = False
-        self.set_size_request(VIS_W - 20, -1)
+        self.set_size_request(VIS_W - sc(20), -1)
         self.connect("draw", self.on_draw)
         self.start()
         GLib.timeout_add(33, self.frame)
@@ -540,7 +617,7 @@ class Visualizer(Gtk.DrawingArea):
 
 
 # ══ Страницы ═════════════════════════════════════════════════════════════
-# 30.09.2026, просьба: боковые кнопки должны открывать СВОИ страницы внутри
+# 30.09.2026, пользователь: боковые кнопки должны открывать СВОИ страницы внутри
 # панели, как вкладки Noctalia, а не закрывать её и звать отдельный попап.
 # Каждая страница строится при первом открытии (запуск панели не дорожает) и
 # опрашивает своё состояние в потоке, только пока она на экране. Страницы с
@@ -558,11 +635,17 @@ def lbl(text="", cls=None, xalign=0.0, chars=None):
 
 
 def vbox(spacing=8):
-    return Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=spacing)
+    return Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=sc(spacing))
 
 
 def hbox(spacing=8):
-    return Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=spacing)
+    return Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=sc(spacing))
+
+
+def tight(box):
+    """Карточка с полями поуже (.pcard.tight) — для плотных страниц."""
+    box.get_style_context().add_class("tight")
+    return box
 
 
 def card(spacing=8, vertical=True):
@@ -602,7 +685,7 @@ def draw_text(cr, text, px, x, y, color, center=True):
     иначе PxPlus мылится (память pixel-font-system)."""
     layout = PangoCairo.create_layout(cr)
     fd = Pango.FontDescription.from_string(PIX_FONT)
-    fd.set_absolute_size(px * Pango.SCALE)
+    fd.set_absolute_size(fs(px) * Pango.SCALE)
     layout.set_font_description(fd)
     layout.set_text(text, -1)
     _ink, log = layout.get_pixel_extents()
@@ -636,7 +719,7 @@ class Pill(Gtk.EventBox):
         super().__init__()
         self.pal, self.cb, self.on = pal, on_toggle, False
         self.area = Gtk.DrawingArea()
-        self.area.set_size_request(self.W, self.H)
+        self.area.set_size_request(sc(self.W), sc(self.H))
         self.area.connect("draw", self.draw)
         self.add(self.area)
         self.set_valign(Gtk.Align.CENTER)
@@ -668,7 +751,7 @@ class Pill(Gtk.EventBox):
             cr.set_source_rgba(*rgba(self.pal["primary"], 0.40))
             cr.set_line_width(1)
             cr.stroke()
-        r = h / 2 - 4
+        r = h / 2 - sc(4)
         cx = w - h / 2 if self.on else h / 2
         cr.arc(cx, h / 2, r, 0, 6.2832)
         cr.set_source_rgba(*rgba(self.pal["on_primary" if self.on else "on_surface_variant"],
@@ -682,9 +765,9 @@ class Ring(Gtk.DrawingArea):
 
     def __init__(self, pal, size=72, line=6, px=16):
         super().__init__()
-        self.pal, self.line, self.px = pal, line, px
+        self.pal, self.line, self.px = pal, sc(line), px
         self.frac, self.text, self.warn = 0.0, "…", False
-        self.set_size_request(size, size)
+        self.set_size_request(sc(size), sc(size))
         self.set_halign(Gtk.Align.CENTER)
         self.connect("draw", self.draw)
 
@@ -716,7 +799,7 @@ class Bar(Gtk.DrawingArea):
     def __init__(self, pal, height=6):
         super().__init__()
         self.pal, self.frac = pal, 0.0
-        self.set_size_request(-1, height)
+        self.set_size_request(-1, sc(height))
         self.set_valign(Gtk.Align.CENTER)
         self.set_hexpand(True)
         self.connect("draw", self.draw)
@@ -746,7 +829,7 @@ class Slider(Gtk.Box):
 
     def __init__(self, icon, icon_off, on_value, on_mute=None, lo=0, hi=100, step=1,
                  delay=60, tip=None):
-        super().__init__(spacing=8)
+        super().__init__(spacing=sc(8))
         self.icon, self.icon_off = icon, icon_off
         self.on_value, self.on_mute = on_value, on_mute
         self.delay, self.muted, self.touched, self.timer = delay, False, 0.0, None
@@ -760,7 +843,7 @@ class Slider(Gtk.Box):
             self.glyph = Glyph(icon, 16, 22)
             self.glyph.get_style_context().add_class("gl-dim")
             box = Gtk.Box()
-            box.set_size_request(30, 30)
+            box.set_size_request(sc(30), sc(30))
             box.pack_start(self.glyph, True, False, 0)
             self.pack_start(box, False, False, 0)
         self.scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, lo, hi, step)
@@ -906,7 +989,7 @@ class SoundPage(Page):
                           tip="Выключить / включить микрофон")
         for w in (self.out_cap, self.out, self.mic_cap, self.mic):
             c.pack_start(w, False, False, 0)
-        self.mic_cap.set_margin_top(6)
+        self.mic_cap.set_margin_top(sc(6))
         box.pack_start(c, False, False, 0)
 
         c = card(4)
@@ -1081,8 +1164,8 @@ class SoundPage(Page):
                 if img is not None:
                     break
         if img is not None:
-            img.set_pixel_size(22)
-            img.set_size_request(30, 30)
+            img.set_pixel_size(sc(22))
+            img.set_size_request(sc(30), sc(30))
             return img
         g = Glyph(I["app"], 18, 30)
         g.get_style_context().add_class("gl-dim")
@@ -1190,7 +1273,7 @@ class SystemPage(Page):
         box = vbox(10)
 
         c = card(6)
-        rings = Gtk.Box(spacing=6, homogeneous=True)
+        rings = Gtk.Box(spacing=sc(6), homogeneous=True)
         self.gauges = {}
         disks = [("/", "Диск /")]
         try:
@@ -1215,7 +1298,7 @@ class SystemPage(Page):
 
         c = card(6)
         c.pack_start(lbl("Больше всего памяти", "cap"), False, False, 0)
-        grid = Gtk.Grid(column_spacing=10, row_spacing=6)
+        grid = Gtk.Grid(column_spacing=sc(10), row_spacing=sc(6))
         self.top = []
         for i in range(5):
             n, b, v = lbl("", "name", chars=12), Bar(self.pal), lbl("", "val", 1.0)
@@ -1229,7 +1312,7 @@ class SystemPage(Page):
         box.pack_start(c, False, False, 0)
 
         c = card(10, vertical=False)
-        info = Gtk.Grid(column_spacing=12, row_spacing=4)
+        info = Gtk.Grid(column_spacing=sc(12), row_spacing=sc(4))
         self.lbl_uptime = lbl(fmt_uptime(), "cap-hi")
         rows = (("Ядро", lbl(os.uname().release, "cap-hi", chars=20)),
                 ("niri", lbl(self.cc.niri_ver.replace("niri ", ""), "cap-hi", chars=20)),
@@ -1494,10 +1577,10 @@ class WifiPage(Page):
         r["rev"] = Gtk.Revealer()
         r["rev"].set_transition_duration(150)
         r["detail"] = hbox(8)
-        r["detail"].set_margin_start(8)
-        r["detail"].set_margin_end(8)
-        r["detail"].set_margin_top(4)
-        r["detail"].set_margin_bottom(6)
+        r["detail"].set_margin_start(sc(8))
+        r["detail"].set_margin_end(sc(8))
+        r["detail"].set_margin_top(sc(4))
+        r["detail"].set_margin_bottom(sc(6))
         r["rev"].add(r["detail"])
         self.list.pack_start(b, False, False, 0)
         self.list.pack_start(r["rev"], False, False, 0)
@@ -1846,14 +1929,16 @@ class PowerPage(Page):
     interval = 3000
 
     def build(self):
-        box = vbox(10)
+        # Плотнее остальных страниц (08.10, «чуть компактнее»): промежутки 6,
+        # карточки .tight, кольцо 60 — иначе с третьим ползунком не влезало.
+        box = vbox(6)
         self.bl_lock = threading.Lock()
         self.mon_proc = None
         self.mon_pending = None
         self.mon_timer = None
 
-        c = card(14, vertical=False)
-        self.ring = Ring(self.pal, 64, 6, 16)
+        c = tight(card(12, vertical=False))
+        self.ring = Ring(self.pal, 60, 5, 16)
         c.pack_start(self.ring, False, False, 0)
         col = vbox(4)
         col.set_valign(Gtk.Align.CENTER)
@@ -1864,8 +1949,8 @@ class PowerPage(Page):
         c.pack_start(col, True, True, 0)
         box.pack_start(c, False, False, 0)
 
-        c = card(8)
-        segs = Gtk.Box(spacing=8, homogeneous=True)
+        c = tight(card(8))
+        segs = Gtk.Box(spacing=sc(8), homogeneous=True)
         self.segs = {}
         for p in PROFILES:
             name, ic = PROFILE_NAME[p]
@@ -1883,7 +1968,7 @@ class PowerPage(Page):
         c.pack_start(segs, False, False, 0)
         box.pack_start(c, False, False, 0)
 
-        c = card(4)
+        c = tight(card(4))
         self.bright = Slider(I["bright"], I["bright"], self.set_bright, lo=5, hi=100, step=5,
                              delay=80)
         self.bright.set_tooltip_text("Яркость экрана ноутбука")
@@ -1893,14 +1978,23 @@ class PowerPage(Page):
         self.mon_rev = Gtk.Revealer()
         self.mon = Slider(I["monitor"], I["monitor"], self.set_mon, lo=0, hi=100, step=5, delay=200)
         self.mon.set_tooltip_text("Яркость монитора MSI (DDC)")
-        self.mon.set_margin_top(4)
+        self.mon.set_margin_top(sc(4))
         self.mon_rev.add(self.mon)
         c.pack_start(self.mon_rev, False, False, 0)
+        # Теплота ночного света — третьей строкой, только пока он включён
+        # (08.10, просьба пользователя). Тот же night_mode.py on N, что у ПКМ плитки.
+        self.warm_rev = Gtk.Revealer()
+        self.warm = Slider(I["night"], I["night"], self.set_warmth, lo=0, hi=100, step=5,
+                           delay=200)
+        self.warm.set_tooltip_text("Теплота ночного света")
+        self.warm.set_margin_top(sc(4))
+        self.warm_rev.add(self.warm)
+        c.pack_start(self.warm_rev, False, False, 0)
         box.pack_start(c, False, False, 0)
 
-        c = card(10)
+        c = tight(card(4))
         row, self.night = switch_row(self.pal, I["night"], "Ночной свет", self.set_night,
-                                     "вручную — до ближайшей границы 22:00 / 5:00")
+                                     "вручную — до 22:00 / 5:00")
         c.pack_start(row, False, False, 0)
         row, self.savage = switch_row(self.pal, I["perf"], "Savage Mode", self.set_savage,
                                       "без сна, машина всегда бодрая")
@@ -1966,7 +2060,8 @@ class PowerPage(Page):
         import screen_awake
         return {"bat": savage_battery.battery(), "profile": power_get()[1],
                 "awake": savage_battery.is_savage_active() and screen_awake.get(),
-                "night": night_mode.read_state()[0], "savage": savage_battery.is_savage_active(),
+                "night": night_mode.read_state()[0], "warmth": night_mode.read_state()[2],
+                "savage": savage_battery.is_savage_active(),
                 "bright": backlight()}
 
     def refresh(self):
@@ -2001,6 +2096,9 @@ class PowerPage(Page):
         for p, btn in self.segs.items():
             set_cls(btn, "on", p == st["profile"])
         self.night.set_on(st["night"])
+        self.warm_rev.set_reveal_child(st["night"])
+        if st.get("warmth") is not None:
+            self.warm.set_state(st["warmth"])
         self.savage.set_on(st["savage"])
         self.awake.set_on(st["awake"])
         if st["bright"] is not None:
@@ -2012,7 +2110,11 @@ class PowerPage(Page):
             set_cls(btn, "on", q == p)
         self.later(lambda: run("powerprofilesctl", "set", p), lambda _r: self.refresh())
 
+    def set_warmth(self, v):
+        run(*script("night_mode.py", "on", str(v)), timeout=6)
+
     def set_night(self, on):
+        self.warm_rev.set_reveal_child(on)
         self.later(lambda: run(*script("night_mode.py", "on" if on else "off"), timeout=6),
                    lambda _r: self.refresh())
 
@@ -2078,7 +2180,7 @@ class CalendarPage(Page):
         c.pack_start(head, False, False, 0)
 
         self.grid = Gtk.Grid(column_homogeneous=True, row_homogeneous=True,
-                             row_spacing=2, column_spacing=2)
+                             row_spacing=sc(2), column_spacing=sc(2))
         c.pack_start(self.grid, False, False, 0)
         box.pack_start(c, False, False, 0)
 
@@ -2203,7 +2305,7 @@ class NotifyPage(Page):
         box.pack_start(c, False, False, 0)
 
         c = card(8)
-        btns = Gtk.Box(spacing=8, homogeneous=True)
+        btns = Gtk.Box(spacing=sc(8), homogeneous=True)
         btns.pack_start(text_button("Открыть центр", "act go", self.open_center,
                                     "Центр уведомлений swaync"), True, True, 0)
         self.clear_btn = text_button("Очистить историю", "act danger", self.clear_all,
@@ -2223,7 +2325,7 @@ class NotifyPage(Page):
         self.sw = Gtk.ScrolledWindow()
         self.sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.sw.set_vexpand(True)
-        self.sw.set_min_content_height(60)
+        self.sw.set_min_content_height(sc(60))
         self.list = vbox(0)
         self.sw.add(self.list)
         c.pack_start(self.sw, True, True, 0)
@@ -2243,7 +2345,7 @@ class NotifyPage(Page):
         clear(self.list)
         if not items:
             w = lbl("Пока пусто — журнал пишется с запуска сторожа", "dim")
-            w.set_margin_top(6)
+            w.set_margin_top(sc(6))
             self.list.pack_start(w, False, False, 0)
         for e in items:
             row = vbox(1)
@@ -2330,7 +2432,7 @@ class HoursChart(Gtk.DrawingArea):
     def __init__(self, pal):
         super().__init__()
         self.pal, self.hours = pal, {}
-        self.set_size_request(-1, 64)
+        self.set_size_request(-1, sc(64))
         self.connect("draw", self.draw)
 
     def set(self, hours):
@@ -2339,7 +2441,7 @@ class HoursChart(Gtk.DrawingArea):
 
     def draw(self, widget, cr):
         w, h = widget.get_allocated_width(), widget.get_allocated_height()
-        chart_h = h - 16
+        chart_h = h - sc(16)
         pitch = w / 24
         bw = max(2, int(pitch * 0.62))
         now = time.localtime().tm_hour
@@ -2354,7 +2456,7 @@ class HoursChart(Gtk.DrawingArea):
             cr.set_source_rgba(*rgba(self.pal[role], a))
             cr.fill()
         for i in (0, 6, 12, 18):
-            draw_text(cr, str(i), 12, i * pitch + pitch / 2, h - 6,
+            draw_text(cr, str(i), 12, i * pitch + pitch / 2, h - sc(6),
                       rgba(self.pal["on_surface_variant"], 0.8))
         return True
 
@@ -2382,7 +2484,7 @@ class ScreenTimePage(Page):
 
         c = card(6)
         c.pack_start(lbl("Программы", "cap"), False, False, 0)
-        grid = Gtk.Grid(column_spacing=10, row_spacing=6)
+        grid = Gtk.Grid(column_spacing=sc(10), row_spacing=sc(6))
         self.rows = []
         for i in range(6):
             n, b, v = lbl("", "name", chars=12), Bar(self.pal), lbl("", "val", 1.0)
@@ -2454,7 +2556,7 @@ class ControlCenter(Gtk.Window):
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.EXCLUSIVE)
 
         self.pal = pal = popup_theme.palette()
-        css = popup_theme.css("""
+        css = popup_theme.css(scale_css("""
         .popup-box {
             /* Пиксельный шрифт — только кратно 8 px: так он чёткий (память pixel-font-system).
                Рамка — общая для всех попапов (popup_theme.BASE_CSS: 3 px акцента и тёмный
@@ -2509,10 +2611,19 @@ class ControlCenter(Gtk.Window):
 
         /* ── страницы ── */
         .pcard { padding: 10px 12px; }
+        .pcard.tight { padding: 6px 12px; }
         scrolledwindow, viewport { background: transparent; border: none; box-shadow: none; }
-        scrollbar { background: transparent; border: none; }
-        scrollbar slider { min-width: 4px; min-height: 24px; border-radius: 4px;
-                           background-color: alpha(%(primary)s, 0.45); border: none; }
+        /* 08.10.2026, Просьба: «прокрутчик намного тоньше». Тема GTK под мышью раздувала
+           полосу до ~10 px — ширина зажата во всех состояниях (наведение, перетаскивание). */
+        scrollbar, scrollbar.hovering, scrollbar.dragging, scrollbar trough {
+            background: transparent; border: none; box-shadow: none;
+            padding: 0; margin: 0; min-width: 0; }
+        scrollbar slider, scrollbar.hovering slider, scrollbar.dragging slider,
+        scrollbar.overlay-indicator:not(.dragging):not(.hovering) slider {
+            min-width: 2px; min-height: 24px; margin: 0 1px; border-radius: 1px;
+            background-color: alpha(%(primary)s, 0.45); border: none; }
+        scrollbar.hovering slider, scrollbar.dragging slider {
+            background-color: alpha(%(primary)s, 0.75); }
         label.cap { font-size: 12px; color: %(on_surface_variant)s; }
         label.cap-hi { font-size: 12px; color: %(on_surface)s; }
         label.napp { font-size: 12px; color: %(primary)s; }
@@ -2582,7 +2693,7 @@ class ControlCenter(Gtk.Window):
         scale trough { background-image: none; border: none; background-color: alpha(%(on_surface)s, 0.14); }
         scale highlight { background-image: none; border: none; background-color: %(primary)s; }
         scale:disabled highlight { background-color: alpha(%(primary)s, 0.4); }
-        """, card_bg=popup_theme.rgba(pal["surface_container"], "0.80"),
+        """), card_bg=popup_theme.rgba(pal["surface_container"], "0.80"),
             line=popup_theme.rgba(pal["primary"], "0.40"),
             frame=popup_theme.rgba(pal["primary"], "0.85"),
             accent="primary", knob="tertiary",
@@ -2617,7 +2728,7 @@ class ControlCenter(Gtk.Window):
         stop.connect("button-press-event", lambda w, e: True)
         self.align.add(stop)
 
-        root = Gtk.Box(spacing=12)
+        root = Gtk.Box(spacing=sc(12))
         root.get_style_context().add_class("popup-box")
         stop.add(root)
         root.pack_start(self.build_side(), False, False, 0)
@@ -2631,7 +2742,7 @@ class ControlCenter(Gtk.Window):
     def build_side(self):
         # Кнопки переключают страницы в самой панели (PAGES); только ⚙ внизу
         # по-прежнему закрывает панель и открывает «Настройки».
-        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=sc(6))
         side.get_style_context().add_class("side")
         self.nav = {}
         for key in ("home", "sound", "system", "wifi", "bt", "battery", "calendar",
@@ -2676,13 +2787,13 @@ class ControlCenter(Gtk.Window):
 
     # ── основная часть ────────────────────────────────────────────────────
     def build_main(self):
-        main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=sc(10))
 
-        head = Gtk.Box(spacing=8)
+        head = Gtk.Box(spacing=sc(8))
         page = Gtk.Label(label="Главная", xalign=0)
         page.get_style_context().add_class("page")
         self.page_lbl = page
-        head.pack_start(page, True, True, 4)
+        head.pack_start(page, True, True, sc(4))
         for icon, tip, cmd, extra in (
                 ("gear", "Настройки", script("settings_app.py"), ""),
                 # какое меню питания — решает power_view.py (Настройки → Power)
@@ -2693,10 +2804,10 @@ class ControlCenter(Gtk.Window):
             head.pack_start(b, False, False, 0)
         main.pack_start(head, False, False, 0)
 
-        home = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        home = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=sc(10))
         home.pack_start(self.build_hero(), False, False, 0)
-        low = Gtk.Box(spacing=10)
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        low = Gtk.Box(spacing=sc(10))
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=sc(10))
         left.pack_start(self.build_media(), True, True, 0)
         left.pack_start(self.build_clock(), False, False, 0)
         low.pack_start(left, True, True, 0)
@@ -2720,10 +2831,10 @@ class ControlCenter(Gtk.Window):
         box.get_style_context().add_class("card")
         box.set_size_request(VIS_W, -1)
         self.vis = Visualizer(self.pal)
-        self.vis.set_margin_top(10)
-        self.vis.set_margin_bottom(10)
-        self.vis.set_margin_start(10)
-        self.vis.set_margin_end(10)
+        self.vis.set_margin_top(sc(10))
+        self.vis.set_margin_bottom(sc(10))
+        self.vis.set_margin_start(sc(10))
+        self.vis.set_margin_end(sc(10))
         box.pack_start(self.vis, True, True, 0)
         return box
 
@@ -2738,25 +2849,31 @@ class ControlCenter(Gtk.Window):
 
         ov = Gtk.Overlay()
         ov.add(area)
-        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=sc(6))
         text.set_valign(Gtk.Align.CENTER)
         text.set_halign(Gtk.Align.START)
-        text.set_margin_start(26 + AVATAR_SIZE + 24)
+        text.set_margin_start(sc(26) + AVATAR_SIZE + sc(24))
         user = os.environ.get("USER") or "user"
         try:
             with open("/etc/hostname") as f:
                 host = f.read().strip()
         except OSError:
             host = "localhost"
-        lu = Gtk.Label(label=user, xalign=0)
+        # Отображаемое имя — своё (05.10.2026, Просьба: «сюда — staticxyzz»), строка
+        # user@host ниже остаётся системной. Файл state/display-name.
+        try:
+            shown = open(os.path.expanduser("~/.config/hypr/state/display-name")).read().strip() or user
+        except OSError:
+            shown = user
+        lu = Gtk.Label(label=shown, xalign=0)
         lu.get_style_context().add_class("user")
-        lu.set_margin_bottom(4)
+        lu.set_margin_bottom(sc(4))
         self.lbl_up = Gtk.Label(label="Работает: " + fmt_uptime(), xalign=0)
         ver = run("niri", "--version").split(" (")[0] or "niri"
         self.niri_ver = ver
         text.pack_start(lu, False, False, 0)
         # Экранное время за сегодня; щелчок по карточке открывает подробности
-        # (просьба: «положи экранное время куда-нибудь в этой плашке», 30.09.2026).
+        # (Просьба: «положи экранное время куда-нибудь в этой плашке», 30.09.2026).
         self.lbl_st = Gtk.Label(label="\U000f0128  Экранное время: …", xalign=0)
         for w in (Gtk.Label(label="%s@%s" % (user, host), xalign=0), self.lbl_up,
                   Gtk.Label(label="Arch Linux · " + ver, xalign=0), self.lbl_st):
@@ -2831,7 +2948,7 @@ class ControlCenter(Gtk.Window):
         # Цвет вуали — поверхность палитры обоев, а не зашитый тёмно-синий.
         g = cairo.LinearGradient(0, 0, w, 0)
         sr, sg, sb, _ = rgba(self.pal["surface"])
-        # 01.10.2026: плотнее под текстом (просьба: «текст на фоне не читаемый») —
+        # 01.10.2026: плотнее под текстом (Просьба: «текст на фоне не читаемый») —
         # текст занимает почти всю ширину, прежняя вуаль к его середине была ~30 %.
         g.add_color_stop_rgba(0.0, sr, sg, sb, 0.86)
         g.add_color_stop_rgba(0.62, sr, sg, sb, 0.74)
@@ -2841,7 +2958,7 @@ class ControlCenter(Gtk.Window):
         cr.paint()
         # Аватар — круг с кольцом акцента.
         a = AVATAR_SIZE
-        x, y = 26, (h - a) / 2
+        x, y = sc(26), (h - a) / 2
         cr.save()
         cr.arc(x + a / 2, y + a / 2, a / 2, 0, 6.2832)
         cr.clip()
@@ -2854,9 +2971,9 @@ class ControlCenter(Gtk.Window):
             cr.set_source_rgba(*rgba(self.pal["surface_high"]))
             cr.paint()
         cr.restore()
-        cr.arc(x + a / 2, y + a / 2, a / 2 + 1.5, 0, 6.2832)
+        cr.arc(x + a / 2, y + a / 2, a / 2 + 1.5 * S, 0, 6.2832)
         cr.set_source_rgba(*rgba(self.pal["primary"]))
-        cr.set_line_width(2.5)
+        cr.set_line_width(2.5 * S)
         cr.stroke()
         return True
 
@@ -2872,17 +2989,17 @@ class ControlCenter(Gtk.Window):
         btn.connect("button-press-event", self.on_media_press)
         box = Gtk.Box()
         box.get_style_context().add_class("card")
-        inner = Gtk.Box(spacing=14)
-        inner.set_margin_top(12)
-        inner.set_margin_bottom(10)
-        inner.set_margin_start(12)
-        inner.set_margin_end(14)
+        inner = Gtk.Box(spacing=sc(14))
+        inner.set_margin_top(sc(12))
+        inner.set_margin_bottom(sc(10))
+        inner.set_margin_start(sc(12))
+        inner.set_margin_end(sc(14))
         self.cover = Gtk.DrawingArea()
         self.cover.set_size_request(COVER, COVER)
         self.cover.set_valign(Gtk.Align.CENTER)
         self.cover.connect("draw", self.draw_cover)
         inner.pack_start(self.cover, False, False, 0)
-        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=sc(6))
         col.set_valign(Gtk.Align.CENTER)
         self.m_title = Gtk.Label(xalign=0)
         self.m_artist = Gtk.Label(xalign=0)
@@ -2897,10 +3014,10 @@ class ControlCenter(Gtk.Window):
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         outer.pack_start(inner, True, True, 0)
         self.progress = Gtk.DrawingArea()
-        self.progress.set_size_request(-1, 6)
-        self.progress.set_margin_start(14)
-        self.progress.set_margin_end(14)
-        self.progress.set_margin_bottom(12)
+        self.progress.set_size_request(-1, sc(6))
+        self.progress.set_margin_start(sc(14))
+        self.progress.set_margin_end(sc(14))
+        self.progress.set_margin_bottom(sc(12))
         self.progress.connect("draw", self.draw_progress)
         self.prog = (0.0, 0.0, False)          # позиция, длина, играет ли
         self.prog_at = time.time()
@@ -2984,7 +3101,7 @@ class ControlCenter(Gtk.Window):
 
     def draw_cover(self, widget, cr):
         w, h = widget.get_allocated_width(), widget.get_allocated_height()
-        rounded(cr, 0, 0, w, h, 10)
+        rounded(cr, 0, 0, w, h, sc(10))
         if self.cover_pix is not None:
             cr.save()
             cr.clip()
@@ -2997,7 +3114,7 @@ class ControlCenter(Gtk.Window):
             cr.fill()
             layout = PangoCairo.create_layout(cr)
             fd = Pango.FontDescription.from_string(ICON_FONT)
-            fd.set_absolute_size(34 * Pango.SCALE)
+            fd.set_absolute_size(sc(34) * Pango.SCALE)
             layout.set_font_description(fd)
             layout.set_text(I["music"], -1)
             ink, _ = layout.get_pixel_extents()
@@ -3043,14 +3160,14 @@ class ControlCenter(Gtk.Window):
     def build_clock(self):
         box = Gtk.Box()
         box.get_style_context().add_class("card")
-        inner = Gtk.Box(spacing=18)
-        inner.set_margin_top(14)
-        inner.set_margin_bottom(14)
-        inner.set_margin_start(18)
-        inner.set_margin_end(18)
+        inner = Gtk.Box(spacing=sc(18))
+        inner.set_margin_top(sc(14))
+        inner.set_margin_bottom(sc(14))
+        inner.set_margin_start(sc(18))
+        inner.set_margin_end(sc(18))
         self.lbl_clock = Gtk.Label()
         self.lbl_clock.get_style_context().add_class("clock")
-        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=sc(4))
         col.set_valign(Gtk.Align.CENTER)
         self.lbl_day = Gtk.Label(xalign=0)
         self.lbl_day.get_style_context().add_class("date")
@@ -3083,23 +3200,25 @@ class ControlCenter(Gtk.Window):
         cur = st[2] if len(st) > 2 and st[2] is not None else 65
         pop = Gtk.Popover.new(tile)
         pop.set_position(Gtk.PositionType.TOP)
-        box = Gtk.Box(spacing=10)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-        box.set_margin_top(10)
-        box.set_margin_bottom(10)
+        box = Gtk.Box(spacing=sc(10))
+        box.set_margin_start(sc(12))
+        box.set_margin_end(sc(12))
+        box.set_margin_top(sc(10))
+        box.set_margin_bottom(sc(10))
         ic = Gtk.Label(label=I["night"])
-        sc = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
-        sc.get_style_context().add_class("warmth")
-        sc.set_draw_value(False)
-        sc.set_value(int(cur or 65))
+        # не «sc»: так зовётся функция масштаба, локальное имя её перекрывало
+        # (UnboundLocalError на sc(12) — ПКМ молча не открывал ползунок, 08.10)
+        scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
+        scale.get_style_context().add_class("warmth")
+        scale.set_draw_value(False)
+        scale.set_value(int(cur or 65))
         val = Gtk.Label(label="%d%%" % int(cur or 65))
         val.get_style_context().add_class("warmth-val")
         pend = {"id": None}
 
         def apply():
             pend["id"] = None
-            v = int(sc.get_value())
+            v = int(scale.get_value())
 
             def work():
                 run(*script("night_mode.py", "on", str(v)), timeout=6)
@@ -3108,20 +3227,20 @@ class ControlCenter(Gtk.Window):
             return False
 
         def changed(_s):
-            val.set_text("%d%%" % int(sc.get_value()))
+            val.set_text("%d%%" % int(scale.get_value()))
             if pend["id"]:
                 GLib.source_remove(pend["id"])
             pend["id"] = GLib.timeout_add(200, apply)
-        sc.connect("value-changed", changed)
+        scale.connect("value-changed", changed)
         box.pack_start(ic, False, False, 0)
-        box.pack_start(sc, True, True, 0)
+        box.pack_start(scale, True, True, 0)
         box.pack_start(val, False, False, 0)
         pop.add(box)
         box.show_all()
         pop.popup()
 
     def build_tiles(self):
-        grid = Gtk.Grid(row_spacing=10, column_spacing=10)
+        grid = Gtk.Grid(row_spacing=sc(10), column_spacing=sc(10))
         grid.set_row_homogeneous(True)
         grid.set_column_homogeneous(True)
         self.tiles = [

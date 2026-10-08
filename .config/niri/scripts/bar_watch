@@ -32,6 +32,7 @@ niri рвёт соединение с клиентом, который не ус
 оставила бы на MSI старые.
 """
 import json
+import re
 import os
 import subprocess
 import sys
@@ -108,8 +109,15 @@ def waybar_connected():
         if local_addr == sock:
             peers.add(peer_inode)                    # клиенты niri, по номеру
         if '"waybar"' in line:
-            owners[local_inode] = True              # сокеты, которыми владеет waybar
-    return any(inode in owners for inode in peers)
+            m = re.search(r'"waybar",pid=(\d+)', line)
+            owners[local_inode] = m.group(1) if m else ""   # сокеты waybar → его pid
+    connected = {owners[i] for i in peers if i in owners}
+    # Панели по мониторам (06.10.2026): баров этого сеанса может быть несколько — связь
+    # с niri нужна каждому. Один бар — как раньше: есть связь хоть у одного.
+    mine = session_waybar_pids()
+    if len(mine) > 1:
+        return all(p in connected for p in mine)
+    return bool(connected)
 
 
 def bar_uses_niri():
@@ -117,7 +125,7 @@ def bar_uses_niri():
 
     Столы в нижней панели (top_bar.py ws bottom) убирают из бара niri/workspaces — и
     соединения с niri у waybar может не быть вовсе. Проверка «нет соединения» тогда
-    поднимала бар каждые 20 с (04.10.2026, 01:02–01:08 — 17 перезапусков подряд; просьба: «waybar сам по себе несколько раз перезапускается, особенно когда выбираю Список
+    поднимала бар каждые 20 с (04.10.2026, 01:02–01:08 — 17 перезапусков подряд; Просьба: «waybar сам по себе несколько раз перезапускается, особенно когда выбираю Список
     столов в нижней панели»)."""
     import re
     try:
@@ -159,19 +167,25 @@ def own_shell():
         return True
 
 
-def session_waybar():
-    """Жив ли waybar ЭТОГО сеанса: бар соседнего сеанса не в счёт."""
+def session_waybar_pids():
+    """PID баров ЭТОГО сеанса: бар соседнего сеанса не в счёт."""
     me = "WAYLAND_DISPLAY=%s" % os.environ.get("WAYLAND_DISPLAY", "")
     pids = subprocess.run(["pgrep", "-x", "waybar"], capture_output=True,
                           text=True).stdout.split()
+    out = []
     for pid in pids:
         try:
             with open("/proc/%s/environ" % pid, "rb") as f:
                 if me.encode() in f.read().split(b"\0"):
-                    return True
+                    out.append(pid)
         except OSError:
             pass
-    return False
+    return out
+
+
+def session_waybar():
+    """Жив ли waybar ЭТОГО сеанса."""
+    return bool(session_waybar_pids())
 
 
 def sync_wallpaper(added):
@@ -194,15 +208,38 @@ def sync_wallpaper(added):
         log("обои на %s: %s" % (", ".join(sorted(added)), wb.apply()))
 
 
+PANELS = os.path.expanduser("~/.config/hypr/scripts/panels.py")
+
+
+PANELS_STATE = os.path.expanduser("~/.config/hypr/state/panels.json")
+
+
+def panels_split(outputs):
+    """Действует ли раздельный режим панелей (panels.py.per_monitor): галочка «На всех
+    мониторах» снята И подключено два монитора и больше. Считается на месте — без
+    запуска процессов, раз в 3 с. None — мониторы не узнали."""
+    if outputs is None:
+        return None
+    try:
+        with open(PANELS_STATE) as f:
+            stored = not json.load(f).get("same", True)
+    except (OSError, ValueError, AttributeError):
+        stored = False
+    return stored and len(outputs) >= 2
+
+
 def watch_outputs():
     seen = enabled_outputs()
     bar_was = session_waybar()
+    split_was = panels_split(seen)
     while True:
         time.sleep(OUTPUTS_EVERY)
         now = enabled_outputs()
         if now is None or seen is None or now == seen:
             seen = now if now is not None else seen
             bar_was = session_waybar()
+            # галочку могли переключить в Настройках — те сами всё применили
+            split_was = panels_split(seen) if seen is not None else split_was
             continue
         log("мониторы: %s → %s" % (", ".join(sorted(seen)), ", ".join(sorted(now))))
         added = now - seen
@@ -223,6 +260,22 @@ def watch_outputs():
                 log("фон обзора: %s" % (r.stdout.strip() or r.stderr.strip()))
             except (OSError, subprocess.SubprocessError) as e:
                 log("фон обзора не обновил: %s" % e)
+        # Панели по мониторам (06.10.2026): MSI отключили — раздельный режим гаснет, панели
+        # по общим настройкам; подключили — раздельный возвращается. Перестраиваем всё
+        # (верхние бары, сторожей наведения, нижнюю панель) одной командой.
+        split_now = panels_split(now)
+        if own_shell() and split_now is not None and split_was is not None and split_now != split_was:
+            log("панели: %s → %s" % ("раздельно" if split_was else "общие",
+                                       "раздельно" if split_now else "общие"))
+            try:
+                subprocess.run(["python3", PANELS, "apply"], capture_output=True, timeout=90)
+            except (OSError, subprocess.SubprocessError) as e:
+                log("панели не перестроены: %s" % e)
+            split_was = split_now
+            bar_was = session_waybar()
+            continue
+        if split_now is not None:
+            split_was = split_now
         if bar_was and not session_waybar():
             restart("бар упал при смене мониторов")   # barfix пересоздаст и окна eww
         else:

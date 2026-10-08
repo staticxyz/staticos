@@ -3,7 +3,7 @@
 
     screentime_daemon.py        запустить (второй экземпляр молча выходит)
 
-пользователь захотел «Экранное время» как в Noctalia. Сама Noctalia считает его
+Пользователь захотел «Экранное время» как в Noctalia. Сама Noctalia считает его
 внутри своей оболочки, а у нас оболочка — waybar, поэтому счётчик свой и
 отдельный: живёт весь сеанс, окно показывает screentime.py.
 
@@ -14,7 +14,7 @@
 ГГГГ-ММ-ДД.json, вид {"apps": {app_id: сек}, "hours": {"13": {app_id: сек}},
 "details": {app_id: {что: сек}}}.
 
-Подробности (30.09.2026, просьба: «kitty 1 ч 10 мин — а что именно в kitty?
+Подробности (30.09.2026, Просьба: «kitty 1 ч 10 мин — а что именно в kitty?
 Статистика должна быть точнее»): у терминалов — какая программа была на
 экране (по заголовку окна: nvim, tmatrix, оболочка…), у браузеров —
 сайт (по заголовку вкладки). Разбор заголовка — detail_of(). Не больше
@@ -232,7 +232,7 @@ def screen_locked():
             with open("/proc/%s/comm" % p, "rb") as f:
                 comm = f.read().strip().decode(errors="replace")
             if comm not in LOCKERS:
-                if not comm.startswith("python"):
+                if not comm.startswith(("python", "jv:")):     # jv: — имя скриптов staticOS (usercustomize, 06.10.2026)
                     continue
                 with open("/proc/%s/cmdline" % p, "rb") as f:
                     argv = f.read().split(b"\0")
