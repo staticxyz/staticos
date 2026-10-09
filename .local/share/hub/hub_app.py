@@ -218,6 +218,7 @@ class View:
         self.msg, self.msg_until = "", 0
         self.quiz = []
         self.revealed = False
+        self.confirm_delete = None
         self.conn = H.connect()
 
     def reload_style(self):
@@ -254,6 +255,7 @@ class View:
         pos = sr.index(cur) if cur in sr else 0
         pos = max(0, min(len(sr) - 1, pos + step))
         self.sel[self.tab] = sr[pos]
+        self.confirm_delete = None
 
     def current(self, rows):
         i = self.sel[self.tab]
@@ -352,8 +354,11 @@ class View:
     def draw_list(self, p, x0, x1, y0, y1):
         c = self.c
         rows = self.rows()
+        editing = self.mode == "text"
+        if editing and self.text_target >= len(rows):
+            rows = rows + [("new", None)]
         visible = max(1, (y1 - y0) // ROW_H)
-        sel = self.sel[self.tab]
+        sel = self.text_target if editing else self.sel[self.tab]
         off = self.scroll[self.tab]
         if sel < off:
             off = sel
@@ -371,10 +376,16 @@ class View:
                 p.text(x0, y + 3, d, c["dim"])
                 y += ROW_H
                 continue
-            is_sel = i == sel
-            self.row_bg(p, x0, x1, y, is_sel, ("row", i))
+            is_sel = i == self.sel[self.tab]
+            is_edit = editing and self.text_target == i
+            self.row_bg(p, x0, x1, y, is_sel or is_edit, ("row", i))
             ty = y + (ROW_H - 16) / 2 + 1
-            if kind == "item":
+            if kind == "new":
+                prompt = {"items": "новая: ", "words": "слово = перевод: "}.get(self.tab, "")
+                w = p.text(x0 + 10, ty, prompt + self.buf, c["acc_l"])
+                if int(time.monotonic() * 2) % 2 == 0:
+                    p.rect(x0 + 10 + w, y + 4, 6, ROW_H - 8, c["acc_l"])
+            elif kind == "item":
                 over = bool(d["due"]) and d["due"] < H.now()
                 col = c["err"] if over else (c["acc_l"] if is_sel else c["text"])
                 text = H.fmt_item(d)
@@ -382,7 +393,7 @@ class View:
                     main, due = text.split(" · ", 1)
                 else:
                     main, due = text, ""
-                if is_sel and self.mode == "text" and self.text_target == i:
+                if is_edit:
                     w = p.text(x0 + 10, ty, self.buf, c["acc_l"])
                     if int(time.monotonic() * 2) % 2 == 0:
                         p.rect(x0 + 10 + w, y + 4, 6, ROW_H - 8, c["acc_l"])
@@ -393,7 +404,7 @@ class View:
             else:
                 text = "%s — %s" % (d["term"], d["translation"])
                 col = c["acc_l"] if is_sel else c["text"]
-                if is_sel and self.mode == "text" and self.text_target == i:
+                if is_edit:
                     w = p.text(x0 + 10, ty, self.buf, c["acc_l"])
                     if int(time.monotonic() * 2) % 2 == 0:
                         p.rect(x0 + 10 + w, y + 4, 6, ROW_H - 8, c["acc_l"])
@@ -438,30 +449,40 @@ class View:
         c = self.c
         p.rect(x0, y - 8, x1 - x0, 1, c["line_soft"])
         if self.mode == "text":
-            prompt = {"items": "новая: ", "words": "слово = перевод: "}.get(self.tab, "")
-            w = p.text(x0, y, prompt + self.buf, c["text"])
-            if int(time.monotonic() * 2) % 2 == 0:
-                p.rect(x0 + w, y + 1, 6, 14, c["acc_l"])
+            badge = "INSERT"
+            bw = p.text_w(badge) + 10
+            p.rect(x0, y - 1, bw, 16, c["field_l"])
+            p.text(x0 + 5, y, badge, c["acc_l"])
+            self.buttons(p, x0, x1, y - 2, [("отмена", ("btn", "canceltext")),
+                                             ("сохранить", ("btn", "savetext"))])
             return
         if self.mode == "quiz":
-            by = y - 2
-            self.buttons(p, x0, x1, by, [("назад", ("btn", "back")),
-                                         ("не знал", ("btn", "no")),
-                                         ("знал", ("btn", "yes")),
-                                         ("показать", ("btn", "reveal"))])
-            p.text(x0, y, "Space показать · y знал · n не знал · Esc назад", c["faint"])
+            self.buttons(p, x0, x1, y - 2, [("назад", ("btn", "back")),
+                                             ("не знал", ("btn", "no")),
+                                             ("знал", ("btn", "yes")),
+                                             ("показать", ("btn", "reveal"))])
             return
-        badge = "INSERT" if self.mode == "text" else "NORMAL"
+        badge = "NORMAL"
         bw = p.text_w(badge) + 10
         p.rect(x0, y - 1, bw, 16, c["field_l"])
         p.text(x0 + 5, y, badge, c["acc_l"])
+        rows = self.rows()
+        kind, d = self.current(rows)
+        confirming = bool(self.confirm_delete and kind in ("item", "word") and d
+                           and self.confirm_delete[0] == (kind, d["id"])
+                           and time.monotonic() < self.confirm_delete[1])
         if self.tab == "items":
-            btns = [("+ запись", ("btn", "new")), ("готово", ("btn", "done")),
-                    ("+1ч", ("btn", "snooze1")), ("завтра", ("btn", "snoozetomorrow")),
-                    ("удалить", ("btn", "delete"))]
+            btns = [("+ запись", ("btn", "new"))]
+            if kind == "item":
+                btns += [("готово", ("btn", "done")), ("+1ч", ("btn", "snooze1")),
+                         ("завтра", ("btn", "snoozetomorrow")),
+                         ("точно?" if confirming else "удалить", ("btn", "delete"))]
         else:
-            btns = [("+ слово", ("btn", "new")), ("повторить", ("btn", "quiz")),
-                    ("удалить", ("btn", "delete"))]
+            btns = [("+ слово", ("btn", "new"))]
+            if rows:
+                btns.append(("повторить", ("btn", "quiz")))
+            if kind == "word":
+                btns.append(("точно?" if confirming else "удалить", ("btn", "delete")))
         left_limit = self.buttons(p, x0, x1, y - 2, btns)
         if self.msg and time.monotonic() < self.msg_until:
             p.text(x0 + bw + 10, y, self.msg, c["text"], maxw=max(0, left_limit - x0 - bw - 20))
@@ -623,6 +644,12 @@ class HubWindow(Gtk.ApplicationWindow):
     # ── кнопки подвала — те же действия, что и клавиши в key_normal/key_quiz ──
     def do_button(self, action):
         v = self.view
+        if v.mode == "text":
+            if action == "savetext":
+                self.submit_text()
+            elif action == "canceltext":
+                v.mode, v.buf, v.text_target = "normal", "", -1
+            return
         if v.mode == "quiz":
             if action == "reveal":
                 v.revealed = True
@@ -669,10 +696,20 @@ class HubWindow(Gtk.ApplicationWindow):
         v = self.view
         rows = v.rows()
         kind, d = v.current(rows)
-        if kind == "item":
-            H.drop(v.conn, d["id"], "pc")
-        elif kind == "word":
-            H.del_word(v.conn, d["id"])
+        if kind not in ("item", "word"):
+            return
+        key = (kind, d["id"])
+        now = time.monotonic()
+        if v.confirm_delete and v.confirm_delete[0] == key and now < v.confirm_delete[1]:
+            if kind == "item":
+                H.drop(v.conn, d["id"], "pc")
+            else:
+                H.del_word(v.conn, d["id"])
+            v.confirm_delete = None
+            v.flash("удалено")
+        else:
+            v.confirm_delete = (key, now + 3)
+            v.flash("ещё раз — удалить")
 
     def resize_to_min(self):
         self.set_size_request(W, self.view.height_min())
