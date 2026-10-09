@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Hub — словарь
+Name=Словарь
 GenericName=Словарь с повторением
 Comment=Свои слова и переводы, повторение по Лейтнеру
 Exec=hub-open dict
-Icon=accessories-dictionary
+Icon=jarvis-hub-dict
 Terminal=false
 Categories=Utility;Education;
 StartupWMClass=hub-app
-Keywords=hub;Hub;ХАБ;хаб;словарь;Словарь;dictionary;Dictionary;слово;Слово;слова;Слова;word;Word;перевод;Перевод;translation;Translation;
+Keywords=hub;Hub;ргд;Ргд;ХАБ;хаб;словарь;Словарь;ckjdfhm;dictionary;Dictionary;слово;Слово;слова;Слова;word;Word;перевод;Перевод;translation;Translation;

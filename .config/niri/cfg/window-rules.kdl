@@ -229,6 +229,14 @@ window-rule {
     focus-ring { off; }
 }
 
+// «Hub» — напоминания и словарь (hub_app.py, 09.10.2026). Плавает, как Discipline.
+window-rule {
+    match app-id="com.jarvis.hub"
+    open-floating true
+    border { off; }
+    focus-ring { off; }
+}
+
 // «App list» — программы, версии, сведения о системе (scripts/app_list.py, 06.10.2026).
 // Размер — W, H в app_list.py; рамку рисует само окно.
 window-rule {

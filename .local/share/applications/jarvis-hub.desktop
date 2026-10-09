@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Hub — напоминания
+Name=Напоминания
 GenericName=Напоминания и задачи
 Comment=Списки, напоминания, таймеры — без ИИ, своя база
 Exec=hub-open
-Icon=alarm-timer
+Icon=jarvis-hub-reminders
 Terminal=false
 Categories=Utility;Office;
 StartupWMClass=hub-app
-Keywords=hub;Hub;ХАБ;хаб;напоминание;Напоминание;напоминания;Напоминания;reminder;Reminder;список;Список;задача;Задача;задачи;Задачи;task;Task;таймер;Таймер;timer;Timer;
+Keywords=hub;Hub;ргд;Ргд;ХАБ;хаб;напоминание;Напоминание;напоминания;Напоминания;yfgjvbyfybt;yfgjvbyfybz;reminder;Reminder;список;Список;задача;Задача;задачи;Задачи;task;Task;таймер;Таймер;timer;Timer;
