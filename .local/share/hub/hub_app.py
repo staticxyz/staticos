@@ -5,15 +5,18 @@ Discipline тянет будильник и фокус, hub ничего это�
 
     hub_app.py            напоминания            hub_app.py dict   словарь (с выделенным текстом)
 
-j/k — вниз/вверх · Tab, Shift+H/L — вкладка · i/a — новая запись (ввод обычным текстом,
-Enter — сохранить, Esc — отмена) · d/x — сделано · s — +1 час · Shift+S — на завтра 09:00 ·
-Shift+D — удалить · z — повторение слов (Space — показать, y — знал, n — не знал) ·
-r — обновить · q, Esc — закрыть. Второй запуск поднимает уже открытое окно (GApplication).
+j/k — вниз/вверх · Tab, Shift+H/L — вкладка · i/a, Ctrl+E — новая запись (ввод обычным
+текстом; Enter, jj, Ctrl+E — сохранить, Esc — отмена, Ctrl+S — тоже сохранить) ·
+x — сделано · s — +1 час · Shift+S — на завтра 09:00 · dd — удалить (второе «d» подряд —
+само подтверждение) · u — отменить последнее действие · Ctrl+R — повторить отменённое ·
+z — повторение слов (Space — показать, y — знал, n — не знал) · q, Esc — закрыть.
+Второй запуск поднимает уже открытое окно (GApplication).
 
-Мышь: кнопки внизу под рукой (+ запись, готово, +1ч, завтра, удалить, повторить) —
-то же самое, что клавиши выше, просто кликом. Перетаскивание — за пустое место окна
-(не за строку и не за кнопку), изменение размера — за край/правый нижний уголок, как
-у Discipline.
+Мышь: кнопки-блоки в ряд над строкой статуса (+ запись, готово, +1ч, завтра, удалить,
+повторить) — то же самое, что клавиши выше, просто кликом; «удалить» мышью требует
+повторного клика («точно?»), так как у мыши нет естественного аналога «dd». Перетаскивание
+— за пустое место окна (не за строку и не за кнопку), изменение размера — за край/правый
+нижний уголок, как у Discipline.
 
     hub_app.py --shot F [tab=items|words sel=N mode=normal|text style=…]   PNG без окна
 """
@@ -219,6 +222,7 @@ class View:
         self.quiz = []
         self.revealed = False
         self.confirm_delete = None
+        self.last_j = 0
         self.conn = H.connect()
 
     def reload_style(self):
@@ -266,25 +270,34 @@ class View:
         return 6 if self.c["frame"] == "skeet" else 1
 
     def height_min(self):
-        return self.frame_f() + 2 + 10 + 18 + 14 + ROW_H * 3 + 40 + self.frame_f()
+        return self.frame_f() + 2 + 10 + 18 + 14 + ROW_H * 3 + 10 + 24 + 14 + 18 + 8 + self.frame_f()
+
+    def layout_y(self, h):
+        f = self.frame_f()
+        y = f + 2 + 10
+        L = {"header": y}
+        y += 18 + 14
+        L["body_top"] = y
+        L["footer"] = h - f - 16
+        L["buttons"] = L["footer"] - 14 - 24
+        L["body_bottom"] = L["buttons"] - 10
+        return L
 
     def draw(self, cr, w, h):
         self.hits = []
         p = Painter(cr)
-        c = self.c
         f = self.frame_f()
         self.draw_frame(p, w, h)
         self.draw_grip(p, w, h, f)
         x0, x1 = PAD + f, w - PAD - f
-        y = f + 2 + 10
-        self.draw_header(p, x0, x1, y)
-        y += 18 + 14
-        body_bottom = h - f - 34
+        L = self.layout_y(h)
+        self.draw_header(p, x0, x1, L["header"])
         if self.mode == "quiz":
-            self.draw_quiz(p, x0, x1, y, body_bottom)
+            self.draw_quiz(p, x0, x1, L["body_top"], L["body_bottom"])
         else:
-            self.draw_list(p, x0, x1, y, body_bottom)
-        self.draw_footer(p, x0, x1, h - f - 16)
+            self.draw_list(p, x0, x1, L["body_top"], L["body_bottom"])
+        self.draw_buttons_row(p, x0, x1, L["buttons"])
+        self.draw_footer(p, x0, x1, L["footer"])
 
     def draw_frame(self, p, w, h):
         c, cr = self.c, p.cr
@@ -393,24 +406,37 @@ class View:
                     main, due = text.split(" · ", 1)
                 else:
                     main, due = text, ""
+                self.icon_box(p, x0 + 1, y + (ROW_H - 9) / 2, 9, c["err"] if over else c["dim"], filled=False)
                 if is_edit:
-                    w = p.text(x0 + 10, ty, self.buf, c["acc_l"])
+                    w = p.text(x0 + 14, ty, self.buf, c["acc_l"])
                     if int(time.monotonic() * 2) % 2 == 0:
-                        p.rect(x0 + 10 + w, y + 4, 6, ROW_H - 8, c["acc_l"])
+                        p.rect(x0 + 14 + w, y + 4, 6, ROW_H - 8, c["acc_l"])
                 else:
-                    p.text(x0 + 10, ty, main, col, maxw=(x1 - x0) * 0.6)
+                    p.text(x0 + 14, ty, main, col, maxw=(x1 - x0) * 0.6 - 4)
                     if due:
                         p.text(x1 - 6, ty, due, c["faint"] if not over else c["err"], align="r")
             else:
                 text = "%s — %s" % (d["term"], d["translation"])
                 col = c["acc_l"] if is_sel else c["text"]
+                self.icon_dot(p, x0 + 5, y + ROW_H / 2, c["acc_l"] if is_sel else c["faint"])
                 if is_edit:
-                    w = p.text(x0 + 10, ty, self.buf, c["acc_l"])
+                    w = p.text(x0 + 14, ty, self.buf, c["acc_l"])
                     if int(time.monotonic() * 2) % 2 == 0:
-                        p.rect(x0 + 10 + w, y + 4, 6, ROW_H - 8, c["acc_l"])
+                        p.rect(x0 + 14 + w, y + 4, 6, ROW_H - 8, c["acc_l"])
                 else:
-                    p.text(x0 + 10, ty, text, col, maxw=x1 - x0 - 20)
+                    p.text(x0 + 14, ty, text, col, maxw=x1 - x0 - 24)
             y += ROW_H
+
+    def icon_box(self, p, x, y, s, col, filled):
+        if filled:
+            p.rect(x, y, s, s, col)
+        else:
+            p.box(x, y, s, s, col)
+
+    def icon_dot(self, p, x, y, col):
+        p.rgb(col)
+        p.cr.arc(x, y, 2.5, 0, 2 * math.pi)
+        p.cr.fill()
 
     def draw_quiz(self, p, x0, x1, y0, y1):
         c = self.c
@@ -424,68 +450,92 @@ class View:
             p.text((x0 + x1) / 2, cy + 10, w["translation"], c["text"], align="c")
         p.text((x0 + x1) / 2, y1 - 6, "осталось %d" % len(self.quiz), c["faint"], align="c")
 
-    def chip(self, p, x, y, label, key, h=19):
-        """Кликабельная кнопка-«фишка» в подвале — то же действие, что и клавиша."""
+    def button(self, p, x, y, w, label, key, accent=False):
+        """Полноразмерная кнопка — как в Discipline (button())."""
         c = self.c
-        w = p.text_w(label) + 14
         hov = self.hover == key
-        p.box(x, y, w, h, c["acc"] if hov else c["line"])
-        if hov:
-            p.rect(x + 1, y + 1, w - 2, h - 2, c["field_l"])
-        p.text(x + 7, y + (h - 16) // 2 + 1, label, c["acc_l"] if hov else c["text"])
-        self.hits.append(((x, y, w, h), key))
-        return w
+        if c["frame"] == "skeet":
+            p.rect(x, y, w, 24, c["line3"])
+            p.rect(x + 1, y + 1, w - 2, 22, c["line"])
+            g = cairo.LinearGradient(0, y + 2, 0, y + 22)
+            top = c["field_l"] if not hov else mix(c["field_l"], c["text"], 0.06)
+            g.add_color_stop_rgb(0, *top)
+            g.add_color_stop_rgb(1, *c["field"])
+            p.cr.set_source(g)
+            p.cr.rectangle(x + 2, y + 2, w - 4, 20)
+            p.cr.fill()
+        else:
+            p.round(x + 0.5, y + 0.5, w - 1, 23, 6)
+            p.rgb(c["sel"] if hov else c["field"])
+            p.cr.fill_preserve()
+            p.rgb(c["line"])
+            p.cr.set_line_width(1)
+            p.cr.stroke()
+        col = c["acc_l"] if (accent or hov) else c["text"]
+        p.text(x + w / 2, y + 5, label, col, align="c")
+        self.hits.append(((x, y, w, 24), key))
 
     def buttons(self, p, x0, x1, y, items):
-        """items: [(подпись, ключ)], справа налево, с отступом."""
-        bx = x1
-        for lab, key in reversed(items):
-            bw = p.text_w(lab) + 14
-            bx -= bw + 6
-            self.chip(p, bx, y, lab, key)
-        return bx
+        """items: [(подпись, ключ[, accent])] — поровну по ширине, в ряд, как в Discipline."""
+        n = len(items)
+        if not n:
+            return
+        gap = 8
+        w = (x1 - x0 - gap * (n - 1)) / n
+        for i, it in enumerate(items):
+            lab, key = it[0], it[1]
+            accent = it[2] if len(it) > 2 else False
+            self.button(p, round(x0 + i * (w + gap)), y, round(w), lab, key, accent)
 
-    def draw_footer(self, p, x0, x1, y):
-        c = self.c
-        p.rect(x0, y - 8, x1 - x0, 1, c["line_soft"])
+    def draw_buttons_row(self, p, x0, x1, y):
         if self.mode == "text":
-            badge = "INSERT"
-            bw = p.text_w(badge) + 10
-            p.rect(x0, y - 1, bw, 16, c["field_l"])
-            p.text(x0 + 5, y, badge, c["acc_l"])
-            self.buttons(p, x0, x1, y - 2, [("отмена", ("btn", "canceltext")),
-                                             ("сохранить", ("btn", "savetext"))])
+            self.buttons(p, x0, x1, y, [("отмена", ("btn", "canceltext")),
+                                         ("сохранить", ("btn", "savetext"), True)])
             return
         if self.mode == "quiz":
-            self.buttons(p, x0, x1, y - 2, [("назад", ("btn", "back")),
-                                             ("не знал", ("btn", "no")),
-                                             ("знал", ("btn", "yes")),
-                                             ("показать", ("btn", "reveal"))])
+            self.buttons(p, x0, x1, y, [("назад", ("btn", "back")),
+                                         ("не знал", ("btn", "no")),
+                                         ("знал", ("btn", "yes")),
+                                         ("показать", ("btn", "reveal"), True)])
             return
-        badge = "NORMAL"
-        bw = p.text_w(badge) + 10
-        p.rect(x0, y - 1, bw, 16, c["field_l"])
-        p.text(x0 + 5, y, badge, c["acc_l"])
         rows = self.rows()
         kind, d = self.current(rows)
         confirming = bool(self.confirm_delete and kind in ("item", "word") and d
                            and self.confirm_delete[0] == (kind, d["id"])
                            and time.monotonic() < self.confirm_delete[1])
         if self.tab == "items":
-            btns = [("+ запись", ("btn", "new"))]
+            btns = [("+ запись", ("btn", "new"), True)]
             if kind == "item":
                 btns += [("готово", ("btn", "done")), ("+1ч", ("btn", "snooze1")),
                          ("завтра", ("btn", "snoozetomorrow")),
                          ("точно?" if confirming else "удалить", ("btn", "delete"))]
         else:
-            btns = [("+ слово", ("btn", "new"))]
+            btns = [("+ слово", ("btn", "new"), True)]
             if rows:
                 btns.append(("повторить", ("btn", "quiz")))
             if kind == "word":
                 btns.append(("точно?" if confirming else "удалить", ("btn", "delete")))
-        left_limit = self.buttons(p, x0, x1, y - 2, btns)
+        self.buttons(p, x0, x1, y, btns)
+
+    HINTS = {
+        "text": "Enter / jj / ^E — сохранить · Esc — отмена",
+        "quiz": "Space — показать · y знал · n не знал · Esc назад",
+    }
+
+    def draw_footer(self, p, x0, x1, y):
+        c = self.c
+        p.rect(x0, y - 8, x1 - x0, 1, c["line_soft"])
+        badge = {"text": "INSERT", "quiz": "QUIZ"}.get(self.mode, "NORMAL")
+        bw = p.text_w(badge) + 10
+        p.rect(x0, y - 1, bw, 16, c["field_l"])
+        p.text(x0 + 5, y, badge, c["acc_l"])
         if self.msg and time.monotonic() < self.msg_until:
-            p.text(x0 + bw + 10, y, self.msg, c["text"], maxw=max(0, left_limit - x0 - bw - 20))
+            p.text(x0 + bw + 10, y, self.msg, c["text"], maxw=x1 - x0 - bw - 10)
+        else:
+            hint = self.HINTS.get(self.mode) or (
+                "i/a новая · dd удалить · u/^R отмена" if self.tab == "items"
+                else "i/a новое · z повторить · dd удалить · u/^R отмена")
+            p.text(x0 + bw + 10, y, hint, c["faint"], maxw=x1 - x0 - bw - 10)
 
 
 # ── окно ──────────────────────────────────────────────────────────────────────
@@ -514,6 +564,10 @@ class HubWindow(Gtk.ApplicationWindow):
         vis = self.get_screen().get_rgba_visual()
         if vis:
             self.set_visual(vis)
+        self.undo_stack = []
+        self.redo_stack = []
+        self.pending = ""
+        self.pending_t = 0
         self.area = Gtk.DrawingArea()
         self.area.connect("draw", self.on_draw)
         self.area.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.POINTER_MOTION_MASK
@@ -632,10 +686,12 @@ class HubWindow(Gtk.ApplicationWindow):
             self.close()
         elif isinstance(key, tuple) and key[0] == "tab":
             v.tab, v.mode = key[1], "normal"
+            v.confirm_delete = None
             self.set_title(self.tab_title())
             self.resize_to_min()
         elif isinstance(key, tuple) and key[0] == "row":
             v.sel[v.tab] = key[1]
+            v.confirm_delete = None
         elif isinstance(key, tuple) and key[0] == "btn":
             self.do_button(key[1])
         self.redraw()
@@ -665,18 +721,110 @@ class HubWindow(Gtk.ApplicationWindow):
             self.start_quiz()
         elif action == "delete":
             self.action_delete()
-        elif v.tab == "items":
-            rows = v.rows()
-            kind, d = v.current(rows)
-            if kind != "item":
-                return
-            if action == "done":
-                H.done(v.conn, d["id"], "pc")
-            elif action == "snooze1":
-                H.snooze(v.conn, d["id"], 3600, source="pc")
-            elif action == "snoozetomorrow":
-                import hubtg
-                H.snooze(v.conn, d["id"], until=hubtg.tomorrow_9(), source="pc")
+        elif action == "done":
+            self.act_done()
+        elif action == "snooze1":
+            self.act_snooze(secs=3600, label="+1ч")
+        elif action == "snoozetomorrow":
+            self.act_snooze_tomorrow()
+
+    # ── отмена/повтор — стек (метка, вперёд, назад), как у Discipline, но
+    # для отдельных SQL-операций hublib, а не одного JSON-снимка ──
+    def run_action(self, label, forward, backward):
+        forward()
+        self.undo_stack.append((label, forward, backward))
+        del self.undo_stack[:-50]
+        self.redo_stack.clear()
+
+    def do_undo(self):
+        v = self.view
+        if not self.undo_stack:
+            v.flash("нечего отменять")
+            return
+        label, forward, backward = self.undo_stack.pop()
+        backward()
+        self.redo_stack.append((label, forward, backward))
+        v.flash("отменено: " + label)
+
+    def do_redo(self):
+        v = self.view
+        if not self.redo_stack:
+            v.flash("нечего повторять")
+            return
+        label, forward, backward = self.redo_stack.pop()
+        forward()
+        self.undo_stack.append((label, forward, backward))
+        v.flash("повтор: " + label)
+
+    def act_done(self):
+        v = self.view
+        kind, d = v.current(v.rows())
+        if kind != "item":
+            return
+        iid, prev_due = d["id"], d["due"]
+        had_repeat = bool(d["repeat"]) and bool(prev_due)
+
+        def fwd():
+            H.done(v.conn, iid, "pc")
+
+        def bwd():
+            if had_repeat:
+                H.edit(v.conn, iid, due=prev_due)
+            else:
+                H.reopen(v.conn, iid, "pc")
+        self.run_action("готово", fwd, bwd)
+
+    def act_snooze(self, secs=None, until=None, label="+1ч"):
+        v = self.view
+        kind, d = v.current(v.rows())
+        if kind != "item":
+            return
+        iid, prev_due = d["id"], d["due"]
+
+        def fwd():
+            H.snooze(v.conn, iid, secs, until, source="pc")
+
+        def bwd():
+            H.edit(v.conn, iid, due=prev_due)
+        self.run_action(label, fwd, bwd)
+
+    def act_snooze_tomorrow(self):
+        import hubtg
+        self.act_snooze(until=hubtg.tomorrow_9(), label="завтра")
+
+    def act_delete_core(self, kind, d):
+        v = self.view
+        if kind == "item":
+            iid = d["id"]
+
+            def fwd():
+                H.drop(v.conn, iid, "pc")
+
+            def bwd():
+                H.reopen(v.conn, iid, "pc")
+        else:
+            wid = d["id"]
+            term, translation = d["term"], d["translation"]
+            try:
+                context, src, dst = d["context"], d["src"], d["dst"]
+            except (KeyError, IndexError):
+                context, src, dst = "", "en", "ru"
+
+            def fwd():
+                H.del_word(v.conn, wid)
+
+            def bwd():
+                H.add_word(v.conn, term, translation, context, src, dst)
+        self.run_action("удаление", fwd, bwd)
+        v.confirm_delete = None
+        v.flash("удалено")
+
+    def act_delete_keyboard(self):
+        v = self.view
+        kind, d = v.current(v.rows())
+        if kind not in ("item", "word"):
+            return
+        self.act_delete_core(kind, d)
 
     def start_new(self):
         v = self.view
@@ -693,20 +841,15 @@ class HubWindow(Gtk.ApplicationWindow):
         v.mode = "quiz"
 
     def action_delete(self):
+        """Клик по кнопке «удалить» — второй клик подряд подтверждает."""
         v = self.view
-        rows = v.rows()
-        kind, d = v.current(rows)
+        kind, d = v.current(v.rows())
         if kind not in ("item", "word"):
             return
         key = (kind, d["id"])
         now = time.monotonic()
         if v.confirm_delete and v.confirm_delete[0] == key and now < v.confirm_delete[1]:
-            if kind == "item":
-                H.drop(v.conn, d["id"], "pc")
-            else:
-                H.del_word(v.conn, d["id"])
-            v.confirm_delete = None
-            v.flash("удалено")
+            self.act_delete_core(kind, d)
         else:
             v.confirm_delete = (key, now + 3)
             v.flash("ещё раз — удалить")
@@ -721,15 +864,25 @@ class HubWindow(Gtk.ApplicationWindow):
     def on_key(self, _w, ev):
         v = self.view
         kc = ev.hardware_keycode
+        ctrl = bool(ev.state & Gdk.ModifierType.CONTROL_MASK)
         shift = bool(ev.state & Gdk.ModifierType.SHIFT_MASK)
         ch = KEYS.get(kc, "")
         name = Gdk.keyval_name(ev.keyval) or ""
+        # ^E — смена режима записи/чтения: из normal входит в ввод, из text — сохраняет.
+        if ctrl and ch == "e" and v.mode != "quiz":
+            self.submit_text() if v.mode == "text" else self.start_new()
+            self.redraw()
+            return True
+        if ctrl and ch == "s" and v.mode == "text":
+            self.submit_text()
+            self.redraw()
+            return True
         if v.mode == "text":
             self.key_text(ch, name, ev)
         elif v.mode == "quiz":
             self.key_quiz(ch, name)
         else:
-            self.key_normal(ch, name, shift)
+            self.key_normal(ch, ctrl, name, shift)
         self.redraw()
         return True
 
@@ -741,6 +894,16 @@ class HubWindow(Gtk.ApplicationWindow):
             self.submit_text()
         elif name == "BackSpace":
             v.buf = v.buf[:-1]
+        elif ch == "j":
+            now = time.monotonic()
+            if now - self.pending_t < 0.4 and v.buf.endswith("j"):
+                v.buf = v.buf[:-1]
+                self.submit_text()
+                return
+            u = Gdk.keyval_to_unicode(ev.keyval)
+            if u and len(v.buf) < 200 and chr(u).isprintable():
+                v.buf += chr(u)
+            self.pending_t = now
         else:
             u = Gdk.keyval_to_unicode(ev.keyval)
             if u and len(v.buf) < 200 and chr(u).isprintable():
@@ -754,12 +917,27 @@ class HubWindow(Gtk.ApplicationWindow):
             return
         try:
             if v.tab == "items":
-                H.add_smart(v.conn, text, "pc")
+                box = {}
+
+                def fwd(text=text, box=box):
+                    box["id"], _due = H.add_smart(v.conn, text, "pc")
+
+                def bwd(box=box):
+                    H.drop(v.conn, box["id"], "pc")
+                self.run_action("новая запись", fwd, bwd)
             else:
                 for sep in ("=", " — ", " - "):
                     if sep in text:
                         t, tr = [x.strip() for x in text.split(sep, 1)]
-                        H.add_word(v.conn, t, tr)
+                        box = {}
+
+                        def fwd(t=t, tr=tr, box=box):
+                            box["id"], box["new"] = H.add_word(v.conn, t, tr)
+
+                        def bwd(box=box):
+                            if box.get("new"):
+                                H.del_word(v.conn, box["id"])
+                        self.run_action("новое слово", fwd, bwd)
                         break
                 else:
                     v.flash("формат: слово = перевод")
@@ -775,13 +953,20 @@ class HubWindow(Gtk.ApplicationWindow):
         elif ch in ("y", "n") and v.quiz and v.revealed:
             self.do_button("yes" if ch == "y" else "no")
 
-    def key_normal(self, ch, name, shift):
+    def key_normal(self, ch, ctrl, name, shift):
         v = self.view
+        now = time.monotonic()
+        pend = self.pending if now - self.pending_t < 1.0 else ""
+        self.pending = ""
+        if ctrl and ch == "r":
+            self.do_redo()
+            return
         if name in ("q", "Escape") or ch == "q":
             self.close()
             return
         if name == "Tab" or (shift and ch in ("h", "l")):
             v.tab = "words" if v.tab == "items" else "items"
+            v.confirm_delete = None
             self.set_title(self.tab_title())
             self.resize_to_min()
             return
@@ -791,7 +976,8 @@ class HubWindow(Gtk.ApplicationWindow):
         if ch == "k":
             v.move(-1)
             return
-        if ch == "r":
+        if ch == "u":
+            self.do_undo()
             return
         if ch in ("i", "a"):
             self.start_new()
@@ -802,16 +988,22 @@ class HubWindow(Gtk.ApplicationWindow):
         rows = v.rows()
         kind, d = v.current(rows)
         if kind == "item":
-            if ch in ("d", "x") and not shift:
-                self.do_button("done")
+            if ch == "x":
+                self.act_done()
             elif ch == "s" and not shift:
-                self.do_button("snooze1")
+                self.act_snooze(secs=3600, label="+1ч")
             elif ch == "s" and shift:
-                self.do_button("snoozetomorrow")
-            elif ch == "d" and shift:
-                self.action_delete()
-        elif kind == "word" and ch == "d" and shift:
-            self.action_delete()
+                self.act_snooze_tomorrow()
+            elif ch == "d":
+                if pend == "d":
+                    self.act_delete_keyboard()
+                else:
+                    self.pending, self.pending_t = "d", now
+        elif kind == "word" and ch == "d":
+            if pend == "d":
+                self.act_delete_keyboard()
+            else:
+                self.pending, self.pending_t = "d", now
 
 
 class App(Gtk.Application):
