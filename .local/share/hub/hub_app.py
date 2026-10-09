@@ -257,6 +257,7 @@ class View:
         self.draft_words = []
         self.draft_seq = -1
         self.text_new = False
+        self.editing_id = None          # id записи, которую редактируем (e)
         self.conn = H.connect()
 
     def reload_style(self):
@@ -418,6 +419,8 @@ class View:
 
     def edit_display(self):
         """Что показывать на месте редактируемой строки — с учётом двух полей у items."""
+        if self.editing_id is not None:
+            return self.buf
         if self.tab == "items":
             if self.text_stage == "when":
                 return self.buf2 + " · когда: " + self.buf
@@ -615,8 +618,9 @@ class View:
 
     def draw_buttons_row(self, p, x0, x1, y):
         if self.mode == "text":
+            save_label = "сохранить" if self.editing_id is not None else "добавить"
             self.buttons(p, x0, x1, y, [("отмена", ("btn", "canceltext")),
-                                         ("добавить", ("btn", "savetext"), True)])
+                                         (save_label, ("btn", "savetext"), True)])
             return
         if self.mode == "quiz":
             self.buttons(p, x0, x1, y, [("назад", ("btn", "back")),
@@ -671,8 +675,8 @@ class View:
                    % self.n_drafts(), c["acc_l"], maxw=x1 - x0 - bw - 10)
         else:
             hint = self.HINTS.get(self.mode) or (
-                "i новая · x готово · s +1ч · dd удалить · u отмена" if self.tab == "items"
-                else "i/a новое · z повторить · dd удалить · u/^R отмена")
+                "i новая · e ред. · x готово · d удалить · y/p копия/вставка" if self.tab == "items"
+                else "i/a новое · e ред. · z повторить · d удалить · y/p")
             p.text(x0 + bw + 10, y, hint, c["faint"], maxw=x1 - x0 - bw - 10)
 
 
@@ -706,6 +710,7 @@ class HubWindow(Gtk.ApplicationWindow):
         self.redo_stack = []
         self.pending = ""
         self.pending_t = 0
+        self.pending_jj = False
         self.area = Gtk.DrawingArea()
         self.area.connect("draw", self.on_draw)
         self.area.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.POINTER_MOTION_MASK
@@ -854,9 +859,12 @@ class HubWindow(Gtk.ApplicationWindow):
         v = self.view
         if v.mode == "text":
             if action == "savetext":
-                self.submit_text()
+                if v.editing_id is not None:
+                    self.finish_edit()
+                else:
+                    self.submit_text()
             elif action == "canceltext":
-                v.mode, v.buf, v.text_target, v.text_new = "normal", "", -1, False
+                v.mode, v.buf, v.text_target, v.text_new, v.editing_id = "normal", "", -1, False, None
             return
         if v.mode == "quiz":
             if action == "reveal":
@@ -990,10 +998,7 @@ class HubWindow(Gtk.ApplicationWindow):
         v.flash("удалено")
 
     def act_delete_keyboard(self):
-        """«dd» — то же подтверждение, что у кнопки: первый «dd» помечает, второй «dd»
-        подряд (в те же 3с) удаляет. Бекзат, 09.10.2026: «подтверждение работает не
-        везде, по биндам удаляет сразу» — раньше второй «d» внутри набора «dd» сам
-        считался подтверждением, этого мало."""
+        """d — подтверждение: первый d помечает, второй d подряд (3 с) удаляет."""
         v = self.view
         kind, d = v.current(v.rows())
         if kind not in ("item", "word"):
@@ -1004,12 +1009,93 @@ class HubWindow(Gtk.ApplicationWindow):
             self.act_delete_core(kind, d)
         else:
             v.confirm_delete = (key, now + 3)
-            v.flash("ещё раз dd — удалить")
+            v.flash("ещё раз d — удалить")
 
     def start_new(self):
         """Ввод новой — всегда последней строкой под списком, остальные видны."""
         v = self.view
         v.mode, v.buf, v.buf2, v.text_stage = "text", "", "", "title"
+        v.text_new = True
+        v.text_target = v.new_pos(v.rows())
+
+    def start_edit(self):
+        """e — редактировать текст текущей записи."""
+        v = self.view
+        kind, d = v.current(v.rows())
+        if kind == "item" and not fld(d, "_draft") and d["status"] != "done":
+            v.mode, v.buf, v.text_stage = "text", d["text"], "title"
+            v.editing_id = d["id"]
+            v.text_target = v.sel[v.tab]
+            v.text_new = False
+        elif kind == "word" and not fld(d, "_draft"):
+            v.mode, v.buf = "text", "%s = %s" % (d["term"], d["translation"])
+            v.editing_id = d["id"]
+            v.text_target = v.sel[v.tab]
+            v.text_new = False
+        else:
+            v.flash("нечего редактировать")
+
+    def finish_edit(self):
+        """Завершить редактирование (Enter/jj) — сохранить изменения сразу."""
+        v = self.view
+        text = v.buf.strip()
+        iid = v.editing_id
+        v.mode, v.buf, v.text_target, v.text_new, v.editing_id = "normal", "", -1, False, None
+        if not text or iid is None:
+            return
+        kind, d = v.current(v.rows())
+        if v.tab == "items":
+            old = d["text"] if d else ""
+            def fwd():
+                H.edit(v.conn, iid, text=text, source="pc")
+            def bwd():
+                H.edit(v.conn, iid, text=old, source="pc")
+            self.run_action("редактирование", fwd, bwd)
+        else:
+            for sep in ("=", " — ", " - "):
+                if sep in text:
+                    t, tr = [x.strip() for x in text.split(sep, 1)]
+                    break
+            else:
+                v.flash("формат: слово = перевод")
+                return
+            old_t, old_tr = d.get("term", ""), d.get("translation", "")
+            def fwd():
+                H.add_word(v.conn, t, tr)
+            def bwd():
+                H.add_word(v.conn, old_t, old_tr)
+            self.run_action("редактирование", fwd, bwd)
+
+    def copy_current(self):
+        """y — скопировать текст записи в буфер обмена."""
+        v = self.view
+        kind, d = v.current(v.rows())
+        if kind == "item":
+            text = d["text"]
+        elif kind == "word":
+            text = "%s = %s" % (d["term"], d["translation"])
+        else:
+            return
+        try:
+            import subprocess
+            subprocess.Popen(["wl-copy", text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            v.flash("скопировано")
+        except OSError:
+            v.flash("wl-copy не найден")
+
+    def paste_new(self):
+        """p — вставить текст из буфера обмена как новую запись."""
+        v = self.view
+        try:
+            import subprocess
+            text = subprocess.run(["wl-paste", "-n"], capture_output=True, text=True, timeout=2).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            v.flash("wl-paste не найден")
+            return
+        if not text:
+            v.flash("буфер пуст")
+            return
+        v.mode, v.buf, v.buf2, v.text_stage = "text", text, "", "title"
         v.text_new = True
         v.text_target = v.new_pos(v.rows())
 
@@ -1070,22 +1156,32 @@ class HubWindow(Gtk.ApplicationWindow):
     def key_text(self, ch, name, ev):
         v = self.view
         if name == "Escape":
-            v.mode, v.buf, v.text_target, v.text_new = "normal", "", -1, False
+            if v.editing_id is not None:
+                v.editing_id = None
+            v.mode, v.buf, v.text_target, v.text_new, v.editing_id = "normal", "", -1, False, None
         elif name in ("Return", "KP_Enter"):
-            self.submit_text()
+            if v.editing_id is not None:
+                self.finish_edit()
+            else:
+                self.submit_text()
         elif name == "BackSpace":
             v.buf = v.buf[:-1]
         elif ch == "j":
             now = time.monotonic()
-            if now - self.pending_t < 0.4 and v.buf.endswith("j"):
+            if now - self.pending_t < 0.4 and self.pending_jj:
                 v.buf = v.buf[:-1]
-                self.submit_text()
+                if v.editing_id is not None:
+                    self.finish_edit()
+                else:
+                    self.submit_text()
                 return
             u = Gdk.keyval_to_unicode(ev.keyval)
             if u and len(v.buf) < 200 and chr(u).isprintable():
                 v.buf += chr(u)
             self.pending_t = now
+            self.pending_jj = True
         else:
+            self.pending_jj = False
             u = Gdk.keyval_to_unicode(ev.keyval)
             if u and len(v.buf) < 200 and chr(u).isprintable():
                 v.buf += chr(u)
@@ -1095,7 +1191,7 @@ class HubWindow(Gtk.ApplicationWindow):
         ^S или «сохранить» (Бекзат, 09.10.2026: «ничего не должно сохраняться само»)."""
         v = self.view
         text = v.buf.strip()
-        v.mode, v.buf, v.text_target, v.text_new = "normal", "", -1, False
+        v.mode, v.buf, v.text_target, v.text_new, v.editing_id = "normal", "", -1, False, None
         if not text:
             return
         if v.tab == "items":
@@ -1200,11 +1296,23 @@ class HubWindow(Gtk.ApplicationWindow):
         if ch in ("i", "a"):
             self.start_new()
             return
+        if ch == "e":
+            self.start_edit()
+            return
+        if ch == "y":
+            self.copy_current()
+            return
+        if ch == "p":
+            self.paste_new()
+            return
         if ch == "z" and v.tab == "words":
             self.start_quiz()
             return
         rows = v.rows()
         kind, d = v.current(rows)
+        if ch == "d" and kind in ("item", "word"):
+            self.act_delete_keyboard()
+            return
         if kind == "item":
             if ch == "x":
                 self.act_done()
@@ -1212,16 +1320,6 @@ class HubWindow(Gtk.ApplicationWindow):
                 self.act_snooze(secs=3600, label="+1ч")
             elif ch == "s" and shift:
                 self.act_snooze_tomorrow()
-            elif ch == "d":
-                if pend == "d":
-                    self.act_delete_keyboard()
-                else:
-                    self.pending, self.pending_t = "d", now
-        elif kind == "word" and ch == "d":
-            if pend == "d":
-                self.act_delete_keyboard()
-            else:
-                self.pending, self.pending_t = "d", now
 
 
 class App(Gtk.Application):
