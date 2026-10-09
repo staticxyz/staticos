@@ -397,6 +397,8 @@ binds {
     // Alt+F4 — меню «Питание» (power_menu.py); окна не закрывает — так решил Бекзат.
     Alt+F4 hotkey-overlay-title="Меню питания" { spawn "/home/static/.config/niri/scripts/alt-f4"; }
     Mod+Shift+Backslash { power-off-monitors; }
+    Mod+Z hotkey-overlay-title="Шпаргалка клавиш" { spawn "python3" "/home/static/.config/hypr/scripts/keybinds_sheet.py"; }
+    Mod+X hotkey-overlay-title="Лаунчер приложений" { spawn "python3" "/home/static/.config/hypr/scripts/app_launcher.py"; }
 }
 
 

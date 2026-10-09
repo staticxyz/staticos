@@ -296,6 +296,9 @@ def command(c, cmd, arg, bot=None, chat=None):
         iid = parse_id(a[0]) if a else None
         if iid is None or len(a) < 2:
             return "Пример: /edit 12 новый текст", None
+        cur = H.get_item(c, iid)
+        if cur is None or cur["status"] == "dropped":
+            return "Не нашёл пункт.", None
         clean, due, _ = H.parse_when(a[1])
         ok = H.edit(c, iid, clean or a[1], due if due else "keep", source="tg")
         return ("Исправил." if ok else "Не нашёл пункт."), None
