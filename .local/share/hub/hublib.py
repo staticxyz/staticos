@@ -533,6 +533,10 @@ def find_word(c, term):
     return c.execute("SELECT * FROM words WHERE term=? COLLATE NOCASE", (term.strip(),)).fetchone()
 
 
+def find_word_by_id(c, wid):
+    return c.execute("SELECT * FROM words WHERE id=?", (wid,)).fetchone()
+
+
 def words(c, q=None, limit=1000):
     if q:
         like = "%" + q.lower() + "%"
