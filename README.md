@@ -56,8 +56,6 @@ Every color comes from your wallpaper.
 |:-:|:-:|
 | ![Discipline: alarm](assets/alarm.png) | ![Discipline: focus](assets/focus.png) |
 | Alarm plan for the week | Focus session |
-| ![Wake-up check](assets/wake-check.png) | ![Alarm ringing](assets/wake-ring.png) |
-| Morning check | The ring stops when you type the phrase |
 | ![App list: packages](assets/app-list-packages.png) | ![App list: cleanup](assets/app-list-cleanup.png) |
 | Packages with roll back | Cleanup |
 

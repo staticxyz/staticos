@@ -56,8 +56,6 @@
 |:-:|:-:|
 | ![Discipline: будильник](assets/alarm.png) | ![Discipline: фокус](assets/focus.png) |
 | План подъёмов на неделю | Сессия фокуса |
-| ![Утренняя проверка](assets/wake-check.png) | ![Звонок](assets/wake-ring.png) |
-| Утренняя проверка | Звонок молчит, только когда набрана фраза |
 | ![App list: пакеты](assets/app-list-packages.png) | ![App list: чистка](assets/app-list-cleanup.png) |
 | Пакеты с откатом версии | Чистка |
 
