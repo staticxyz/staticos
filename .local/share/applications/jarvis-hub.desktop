@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Напоминания
+Name=Reminders
 GenericName=Напоминания и задачи
 Comment=Списки, напоминания, таймеры — без ИИ, своя база
 Exec=hub-open

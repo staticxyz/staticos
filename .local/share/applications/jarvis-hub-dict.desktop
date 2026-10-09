@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Словарь
+Name=Dictionary
 GenericName=Словарь с повторением
 Comment=Свои слова и переводы, повторение по Лейтнеру
 Exec=hub-open dict
