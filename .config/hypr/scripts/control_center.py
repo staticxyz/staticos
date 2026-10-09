@@ -4,7 +4,7 @@
     control_center.py            под точкой щелчка («lan» в баре)
     control_center.py --center   по середине экрана сверху (средние пилюли бара)
 
-Пользователь показал «Главную» Noctalia v5 и попросил такую же для waybar. Её саму
+Бекзат показал «Главную» Noctalia v5 и попросил такую же для waybar. Её саму
 не поднять рядом с waybar: Noctalia — целая оболочка со своим баром, и она
 переписывает чужие конфиги (см. память noctalia-shell). Поэтому своя панель на
 тех же деталях, что остальные попапы: popup_theme (палитра из обоев), пиксельный
@@ -25,7 +25,7 @@
 панель (PR_SET_PDEATHSIG — умирает и при kill панели).
 
 Значки рисуются не текстом, а по чернильной рамке глифа (Glyph): у глифов Nerd
-Font разные поля внутри клетки, и в кнопках они сидели криво (Просьба: «иконки
+Font разные поля внутри клетки, и в кнопках они сидели криво (Бекзат: «иконки
 некоторые плохо центрируются»).
 
 Боковые значки переключают СТРАНИЦЫ внутри панели (Gtk.Stack, как вкладки
@@ -53,7 +53,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import popup_theme  # noqa: E402
 
 # ── масштаб панели (05.10.2026) ──────────────────────────────────────────
-# Пользователь: панель крупновата — три размера на выбор (Настройки → Waybar →
+# Бекзат: панель крупновата — три размера на выбор (Настройки → Waybar →
 # «Попапы и меню» → «Масштаб центра управления»):
 #   compact — компактный, ~72 %;  medium — средний, ~85 % (умолчание);
 #   large — «как сейчас», пиксель в пиксель прежний вид (S = 1).
@@ -295,7 +295,7 @@ def bt_toggle(on):
 
 def caffeine_get():
     """(вкл, "taurine" | None). Кофеин = Savage Mode; «Таурин» — вдобавок экран
-    не гаснет и не запирается (screen_awake). 01.10.2026, пользователь: ЛКМ — просто
+    не гаснет и не запирается (screen_awake). 01.10.2026, Бекзат: ЛКМ — просто
     Savage, ПКМ — Savage и «не выключать экран», надпись «Кофеин + Таурин»."""
     sys.path.insert(0, HERE)
     import savage_battery
@@ -617,7 +617,7 @@ class Visualizer(Gtk.DrawingArea):
 
 
 # ══ Страницы ═════════════════════════════════════════════════════════════
-# 30.09.2026, пользователь: боковые кнопки должны открывать СВОИ страницы внутри
+# 30.09.2026, Бекзат: боковые кнопки должны открывать СВОИ страницы внутри
 # панели, как вкладки Noctalia, а не закрывать её и звать отдельный попап.
 # Каждая страница строится при первом открытии (запуск панели не дорожает) и
 # опрашивает своё состояние в потоке, только пока она на экране. Страницы с
@@ -1982,7 +1982,7 @@ class PowerPage(Page):
         self.mon_rev.add(self.mon)
         c.pack_start(self.mon_rev, False, False, 0)
         # Теплота ночного света — третьей строкой, только пока он включён
-        # (08.10, просьба пользователя). Тот же night_mode.py on N, что у ПКМ плитки.
+        # (08.10, просьба Бекзата). Тот же night_mode.py on N, что у ПКМ плитки.
         self.warm_rev = Gtk.Revealer()
         self.warm = Slider(I["night"], I["night"], self.set_warmth, lo=0, hi=100, step=5,
                            delay=200)
@@ -1999,7 +1999,7 @@ class PowerPage(Page):
         row, self.savage = switch_row(self.pal, I["perf"], "Savage Mode", self.set_savage,
                                       "без сна, машина всегда бодрая")
         c.pack_start(row, False, False, 0)
-        # Спутник Savage (30.09.2026, просьба пользователя): экран не гаснет и не
+        # Спутник Savage (30.09.2026, просьба Бекзата): экран не гаснет и не
         # запирается. Без Savage не работает (screen_awake.py) — поэтому
         # включение здесь включает и Savage, а горит строка, только когда оба.
         row, self.awake = switch_row(self.pal, "\U000f0208", "Не отключать экран", self.set_awake,
@@ -2317,7 +2317,7 @@ class NotifyPage(Page):
         c.pack_start(self.hint, False, False, 0)
         box.pack_start(c, False, False, 0)
 
-        # Последние уведомления (04.10.2026, просьба пользователя): их пишет notif_log.py,
+        # Последние уведомления (04.10.2026, просьба Бекзата): их пишет notif_log.py,
         # потому что swaync текст по D-Bus не отдаёт. Остаток высоты — под список.
         c = card(6)
         c.set_vexpand(True)
@@ -2352,6 +2352,12 @@ class NotifyPage(Page):
             row.get_style_context().add_class("nrow")
             top = hbox(6)
             top.pack_start(lbl(e.get("app") or "—", "napp", chars=22), False, False, 0)
+            urg = e.get("urgency")
+            urg = urg[0] if isinstance(urg, list) and urg else urg
+            if urg in (2, "2"):
+                top.pack_start(lbl("срочно", "nstat nstat-crit"), False, False, 0)
+            elif urg in (0, "0"):
+                top.pack_start(lbl("фоновое", "nstat nstat-low"), False, False, 0)
             top.pack_end(lbl(when_str(e.get("t", 0)), "dim", 1.0), False, False, 0)
             row.pack_start(top, False, False, 0)
             if e.get("summary"):
@@ -2560,7 +2566,7 @@ class ControlCenter(Gtk.Window):
         .popup-box {
             /* Пиксельный шрифт — только кратно 8 px: так он чёткий (память pixel-font-system).
                Рамка — общая для всех попапов (popup_theme.BASE_CSS: 3 px акцента и тёмный
-               контур); здесь её не переопределяем: пользователь попросил «как в остальных
+               контур); здесь её не переопределяем: Бекзат попросил «как в остальных
                плашках», 30.09.2026. Скругление — как у плеера. */
             font-family: 'PxPlus HP 100LX 6x8 Jarvis', 'JetBrainsMono NF', sans-serif;
             font-size: 16px; font-weight: normal;
@@ -2613,7 +2619,7 @@ class ControlCenter(Gtk.Window):
         .pcard { padding: 10px 12px; }
         .pcard.tight { padding: 6px 12px; }
         scrolledwindow, viewport { background: transparent; border: none; box-shadow: none; }
-        /* 08.10.2026, Просьба: «прокрутчик намного тоньше». Тема GTK под мышью раздувала
+        /* 08.10.2026, Бекзат: «прокрутчик намного тоньше». Тема GTK под мышью раздувала
            полосу до ~10 px — ширина зажата во всех состояниях (наведение, перетаскивание). */
         scrollbar, scrollbar.hovering, scrollbar.dragging, scrollbar trough {
             background: transparent; border: none; box-shadow: none;
@@ -2628,6 +2634,9 @@ class ControlCenter(Gtk.Window):
         label.cap-hi { font-size: 12px; color: %(on_surface)s; }
         label.napp { font-size: 12px; color: %(primary)s; }
         .nrow { padding: 5px 2px 6px 2px; border-bottom: 1px solid alpha(%(line)s, 0.6); }
+        label.nstat { font-size: 10px; padding: 1px 5px; border-radius: 4px; }
+        label.nstat-crit { color: %(error)s; background: alpha(%(error)s, 0.14); }
+        label.nstat-low { color: %(on_surface_variant)s; background: alpha(%(on_surface_variant)s, 0.12); }
         label.dim { font-size: 12px; color: alpha(%(on_surface_variant)s, 0.8); }
         label.name { font-size: 16px; color: %(on_surface)s; }
         label.val { font-size: 16px; color: %(primary)s; }
@@ -2709,7 +2718,7 @@ class ControlCenter(Gtk.Window):
         self.align = Gtk.Box()
         self.bg.add(self.align)
         if "--center" in sys.argv:
-            # Средние пилюли бара: всегда по середине экрана сверху (30.09.2026).
+            # Средние пилюли бара: всегда по середине экрана сверху (Бекзат, 30.09.2026).
             mon = popup_theme.pointer_monitor()
             if mon is not None:
                 GtkLayerShell.set_monitor(self, mon)
@@ -2859,7 +2868,7 @@ class ControlCenter(Gtk.Window):
                 host = f.read().strip()
         except OSError:
             host = "localhost"
-        # Отображаемое имя — своё (05.10.2026, Просьба: «сюда — staticxyzz»), строка
+        # Отображаемое имя — своё (05.10.2026, Бекзат: «сюда — staticxyzz»), строка
         # user@host ниже остаётся системной. Файл state/display-name.
         try:
             shown = open(os.path.expanduser("~/.config/hypr/state/display-name")).read().strip() or user
@@ -2873,7 +2882,7 @@ class ControlCenter(Gtk.Window):
         self.niri_ver = ver
         text.pack_start(lu, False, False, 0)
         # Экранное время за сегодня; щелчок по карточке открывает подробности
-        # (Просьба: «положи экранное время куда-нибудь в этой плашке», 30.09.2026).
+        # (Бекзат: «положи экранное время куда-нибудь в этой плашке», 30.09.2026).
         self.lbl_st = Gtk.Label(label="\U000f0128  Экранное время: …", xalign=0)
         for w in (Gtk.Label(label="%s@%s" % (user, host), xalign=0), self.lbl_up,
                   Gtk.Label(label="Arch Linux · " + ver, xalign=0), self.lbl_st):
@@ -2948,7 +2957,7 @@ class ControlCenter(Gtk.Window):
         # Цвет вуали — поверхность палитры обоев, а не зашитый тёмно-синий.
         g = cairo.LinearGradient(0, 0, w, 0)
         sr, sg, sb, _ = rgba(self.pal["surface"])
-        # 01.10.2026: плотнее под текстом (Просьба: «текст на фоне не читаемый») —
+        # 01.10.2026: плотнее под текстом (Бекзат: «текст на фоне не читаемый») —
         # текст занимает почти всю ширину, прежняя вуаль к его середине была ~30 %.
         g.add_color_stop_rgba(0.0, sr, sg, sb, 0.86)
         g.add_color_stop_rgba(0.62, sr, sg, sb, 0.74)
@@ -3010,7 +3019,7 @@ class ControlCenter(Gtk.Window):
             w.set_max_width_chars(12)
             col.pack_start(w, False, False, 0)
         inner.pack_start(col, True, True, 0)
-        # Полоска «сколько прошло / осталось» под обложкой и названием (30.09.2026).
+        # Полоска «сколько прошло / осталось» под обложкой и названием (Бекзат, 30.09.2026).
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         outer.pack_start(inner, True, True, 0)
         self.progress = Gtk.DrawingArea()
@@ -3301,7 +3310,7 @@ if __name__ == "__main__":
     # SIGTERM (второй щелчок по пилюле, single_instance): погасить cava и выйти
     # СРАЗУ, через os._exit. Раньше здесь был Gtk.main_quit — и цикл GTK иногда
     # не завершался: панель висела, перехватывала щелчки, и закрывалась только
-    # третьим щелчком, когда второй SIGTERM добивал процесс (30.09.2026;
+    # третьим щелчком, когда второй SIGTERM добивал процесс (Бекзат, 30.09.2026;
     # воспроизведено: «QUIT called», а Gtk.main не вернулся).
     def on_term(*_a):
         try:
