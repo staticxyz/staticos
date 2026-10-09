@@ -476,6 +476,9 @@ class HubWindow(Gtk.ApplicationWindow):
         self.view.text_target = -1
         self.view.tab = tab if tab in TABS else "items"
         self.set_title(self.tab_title())
+
+    def tab_title(self):
+        return "Reminders" if self.view.tab == "items" else "Dictionary"
         self.set_decorated(False)
         self.set_resizable(True)
         self.set_size_request(W, self.view.height_min())
@@ -505,9 +508,6 @@ class HubWindow(Gtk.ApplicationWindow):
         self.connect("key-press-event", self.on_key)
         self.connect("notify::is-active", self.on_active)
         GLib.timeout_add(500, self.tick)
-
-    def tab_title(self):
-        return "Reminders" if self.view.tab == "items" else "Dictionary"
 
     def on_configure(self, _w, ev):
         size = (ev.width, ev.height)
@@ -784,7 +784,14 @@ class App(Gtk.Application):
 
     def do_command_line(self, cl):
         args = cl.get_arguments()[1:]
+        toggle = "--toggle" in args
+        args = [a for a in args if a != "--toggle"]
         tab = "words" if "dict" in args else "items"
+        # --toggle (как в Discipline): окно открыто и в фокусе — закрыть;
+        # открыто, но под другими окнами — поднять; закрыто — открыть.
+        if toggle and self.win is not None and self.win.is_active():
+            self.win.close()
+            return 0
         if self.win is None:
             self.win = HubWindow(self, tab)
             self.win.connect("destroy", lambda *_: setattr(self, "win", None))

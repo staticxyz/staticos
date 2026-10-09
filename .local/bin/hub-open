@@ -1,4 +1,5 @@
 #!/bin/sh
-# открыть окно hub (одно): hub-open | hub-open dict
+# открыть окно hub (одно): hub-open | hub-open dict [--toggle]
 # GApplication сам даёт единственность: второй запуск будит то же окно (present()).
+# --toggle: повторное нажатие бинда закрывает окно, если оно в фокусе (как Discipline).
 exec python3 ~/.local/share/hub/hub_app.py "$@"
