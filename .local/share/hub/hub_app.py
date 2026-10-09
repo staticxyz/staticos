@@ -47,6 +47,7 @@ BIG = 28
 W = 460
 PAD = 14
 ROW_H = 22
+DRAFT = "черновик"
 SIZE_FILE = os.path.expanduser("~/.config/hub/app-size")
 TABS = ("items", "words")
 TAB_NAMES = {"items": "Напоминания", "words": "Словарь"}
@@ -223,6 +224,14 @@ class Painter:
         return lay.get_pixel_size()[1]
 
 
+def fld(d, k, default=None):
+    """Поле и у sqlite3.Row, и у черновика-словаря (у Row нет .get)."""
+    try:
+        return d[k]
+    except (KeyError, IndexError):
+        return default
+
+
 class View:
     """Данные и раскладка — без GTK, чтобы --shot рисовал без окна."""
 
@@ -244,6 +253,10 @@ class View:
         self.revealed = False
         self.confirm_delete = None
         self.last_j = 0
+        self.draft_items = []           # черновики — набраны, но не сохранены (Бекзат, 09.10.2026)
+        self.draft_words = []
+        self.draft_seq = -1
+        self.text_new = False
         self.conn = H.connect()
 
     def reload_style(self):
@@ -257,16 +270,34 @@ class View:
     def rows(self):
         out = []
         if self.tab == "items":
-            last = None
+            last = H.DEFAULT_LIST           # «Входящие» без заголовка — убрано по просьбе
             for it in H.items(self.conn, None, "open"):
                 if it["list"] != last:
                     out.append(("head", it["list"]))
                     last = it["list"]
                 out.append(("item", it))
+            if self.draft_items:
+                out.append(("head", "Не сохранено"))
+                out += [("item", d) for d in self.draft_items]
+            done = H.items(self.conn, None, "done", "task", 50)
+            if done:
+                out.append(("head", "Выполненные"))
+                out += [("item", it) for it in sorted(done, key=lambda r: -(r["done_at"] or 0))]
         else:
             for w in H.words(self.conn, None, 500):
                 out.append(("word", w))
+            if self.draft_words:
+                out.append(("head", "Не сохранено"))
+                out += [("word", d) for d in self.draft_words]
         return out
+
+    @staticmethod
+    def new_pos(rows):
+        """Строка ввода — под последней открытой записью, над «Выполненными»."""
+        return next((i for i, r in enumerate(rows) if r == ("head", "Выполненные")), len(rows))
+
+    def n_drafts(self):
+        return len(self.draft_items) + len(self.draft_words)
 
     def sel_rows(self, rows):
         return [i for i, r in enumerate(rows) if r[0] != "head"]
@@ -397,22 +428,50 @@ class View:
         c = self.c
         rows = self.rows()
         editing = self.mode == "text"
-        if editing and self.text_target >= len(rows):
-            rows = rows + [("new", None)]
-        visible = max(1, (y1 - y0) // ROW_H)
-        sel = self.text_target if editing else self.sel[self.tab]
-        off = self.scroll[self.tab]
-        if sel < off:
-            off = sel
-        elif sel >= off + visible:
-            off = sel - visible + 1
-        off = max(0, min(off, max(0, len(rows) - visible)))
-        self.scroll[self.tab] = off
+        if editing and self.text_new:
+            k = self.new_pos(rows)
+            rows = rows[:k] + [("new", None)] + rows[k:]
+            self.text_target = k
         if not rows:
-            p.text(x0, y0, "Пусто. Нажмите i и впишите первое.", c["faint"])
+            p.text(x0, y0, "Пусто. Нажмите i или «+ запись» и впишите первое.", c["faint"])
             return
-        y = y0
-        for i in range(off, min(len(rows), off + visible)):
+        # высоты строк разные (длинный текст переносится) — прокрутка по настоящим высотам
+        hs = [self.row_h(p, i, rows, x0, x1, editing) for i in range(len(rows))]
+        avail = y1 - y0
+        sel = self.text_target if editing else self.sel[self.tab]
+        sel = max(0, min(sel, len(rows) - 1))
+        off = min(self.scroll[self.tab], sel)
+        while off < sel and sum(hs[off:sel + 1]) > avail:
+            off += 1
+        while off > 0 and sum(hs[off - 1:]) <= avail:
+            off -= 1
+        self.scroll[self.tab] = off
+        p.cr.save()
+        p.cr.rectangle(x0 - 2, y0, x1 - x0 + 4, y1 - y0)
+        p.cr.clip()
+        try:
+            self.draw_rows(p, c, rows, off, x0, x1, y0, y1, editing)
+        finally:
+            p.cr.restore()
+
+    def row_h(self, p, i, rows, x0, x1, editing):
+        kind, d = rows[i]
+        if kind == "head":
+            return ROW_H
+        if kind == "new" or (editing and self.text_target == i):
+            disp = (self.buf if kind == "word" else self.edit_display()) + "▏"
+            return max(ROW_H, p.measure_wrap(disp, maxw=x1 - x0 - 24) + 6)
+        if kind == "item":
+            main, due = self.item_parts(d)
+            dw = p.text_w(due) + 12 if due else 0
+            return max(ROW_H, p.measure_wrap(main, maxw=x1 - x0 - 20 - dw) + 6)
+        text = ("✎ " if fld(d, "_draft") else "") + "%s — %s" % (d["term"], d["translation"])
+        return max(ROW_H, p.measure_wrap(text, maxw=x1 - x0 - 20) + 6)
+
+    def draw_rows(self, p, c, rows, off, x0, x1, y, y1, editing):
+        for i in range(off, len(rows)):
+            if y >= y1:
+                break
             kind, d = rows[i]
             if kind == "head":
                 p.text(x0, y + 3, d, c["dim"])
@@ -420,24 +479,27 @@ class View:
                 continue
             is_sel = i == self.sel[self.tab]
             is_edit = editing and self.text_target == i
-            blink = int(time.monotonic() * 2) % 2 == 0
-            cursor = "▏" if blink else ""
+            cursor = "▏"
             if kind == "new":
                 disp = self.edit_display() + cursor
-                tw = x1 - x0 - 20
+                tw = x1 - x0 - 24
                 bh = max(ROW_H, p.measure_wrap(disp, maxw=tw) + 6)
                 self.row_bg(p, x0, x1, y, True, ("row", i), h=bh)
-                p.text_wrap(x0 + 10, y + 3, disp, c["acc_l"], maxw=tw)
+                self.icon_box(p, x0 + 1, y + (ROW_H - 9) / 2, 9, c["acc_l"], filled=False)
+                p.text_wrap(x0 + 14, y + 3, disp, c["acc_l"], maxw=tw)
                 y += bh
                 continue
             elif kind == "item":
-                over = bool(d["due"]) and d["due"] < H.now()
-                col = c["err"] if over else (c["acc_l"] if is_sel else c["text"])
-                text = H.fmt_item(d)
-                if " · " in text:
-                    main, due = text.split(" · ", 1)
+                draft = bool(fld(d, "_draft"))
+                done = fld(d, "status") == "done"
+                over = not done and bool(d["due"]) and d["due"] < H.now()
+                if draft:
+                    col = c["acc_l"]
+                elif done:
+                    col = c["faint"]
                 else:
-                    main, due = text, ""
+                    col = c["err"] if over else (c["acc_l"] if is_sel else c["text"])
+                main, due = self.item_parts(d)
                 if is_edit:
                     disp = self.edit_display() + cursor
                     tw = x1 - x0 - 24
@@ -447,15 +509,22 @@ class View:
                     p.text_wrap(x0 + 14, y + 3, disp, c["acc_l"], maxw=tw)
                     y += bh
                     continue
-                self.row_bg(p, x0, x1, y, is_sel, ("row", i))
+                dw = p.text_w(due) + 12 if due else 0
+                tw = x1 - x0 - 20 - dw
+                bh = max(ROW_H, p.measure_wrap(main, maxw=tw) + 6)
+                self.row_bg(p, x0, x1, y, is_sel, ("row", i), h=bh)
                 ty = y + (ROW_H - 16) / 2 + 1
-                self.icon_box(p, x0 + 1, y + (ROW_H - 9) / 2, 9, c["err"] if over else c["dim"], filled=False)
-                p.text(x0 + 14, ty, main, col, maxw=(x1 - x0) * 0.6 - 4)
+                self.icon_box(p, x0 + 1, y + (ROW_H - 9) / 2, 9,
+                              c["acc_l"] if draft else (c["err"] if over else c["dim"]), filled=done)
+                p.text_wrap(x0 + 14, y + 3, main, col, maxw=tw)
                 if due:
-                    p.text(x1 - 6, ty, due, c["faint"] if not over else c["err"], align="r")
+                    p.text(x1 - 6, ty, due, c["err"] if over else c["faint"], align="r")
+                y += bh
+                continue
             else:
-                text = "%s — %s" % (d["term"], d["translation"])
-                col = c["acc_l"] if is_sel else c["text"]
+                draft = bool(fld(d, "_draft"))
+                text = ("✎ " if draft else "") + "%s — %s" % (d["term"], d["translation"])
+                col = c["acc_l"] if (is_sel or draft) else c["text"]
                 if is_edit:
                     disp = self.buf + cursor
                     tw = x1 - x0 - 24
@@ -465,11 +534,20 @@ class View:
                     p.text_wrap(x0 + 14, y + 3, disp, c["acc_l"], maxw=tw)
                     y += bh
                     continue
-                self.row_bg(p, x0, x1, y, is_sel, ("row", i))
-                ty = y + (ROW_H - 16) / 2 + 1
-                self.icon_dot(p, x0 + 5, y + ROW_H / 2, c["acc_l"] if is_sel else c["faint"])
-                p.text(x0 + 14, ty, text, col, maxw=x1 - x0 - 24)
+                tw = x1 - x0 - 20
+                bh = max(ROW_H, p.measure_wrap(text, maxw=tw) + 6)
+                self.row_bg(p, x0, x1, y, is_sel, ("row", i), h=bh)
+                self.icon_dot(p, x0 + 5, y + ROW_H / 2, c["acc_l"] if (is_sel or draft) else c["faint"])
+                p.text_wrap(x0 + 14, y + 3, text, col, maxw=tw)
+                y += bh
+                continue
             y += ROW_H
+
+    def item_parts(self, d):
+        """(текст, срок) для строки списка — без «· #29», как в обычных списках задач."""
+        main = ("✎ " if fld(d, "_draft") else "") + d["text"] + (" ↻" if d["repeat"] else "")
+        due = H.fmt_when(d["due"]) if d["due"] and fld(d, "status") != "done" else ""
+        return main, due
 
     def icon_box(self, p, x, y, s, col, filled):
         if filled:
@@ -520,21 +598,25 @@ class View:
         self.hits.append(((x, y, w, 24), key))
 
     def buttons(self, p, x0, x1, y, items):
-        """items: [(подпись, ключ[, accent])] — поровну по ширине, в ряд, как в Discipline."""
+        """items: [(подпись, ключ[, accent])] — в ряд; ширина по подписи, остаток поровну."""
         n = len(items)
         if not n:
             return
-        gap = 8
-        w = (x1 - x0 - gap * (n - 1)) / n
-        for i, it in enumerate(items):
-            lab, key = it[0], it[1]
+        gap = 6 if n > 4 else 8
+        need = [p.text_w(it[0]) + 16 for it in items]
+        free = x1 - x0 - gap * (n - 1) - sum(need)
+        ws = [w + free / n for w in need] if free >= 0 else \
+             [w * (x1 - x0 - gap * (n - 1)) / sum(need) for w in need]
+        x = x0
+        for it, w in zip(items, ws):
             accent = it[2] if len(it) > 2 else False
-            self.button(p, round(x0 + i * (w + gap)), y, round(w), lab, key, accent)
+            self.button(p, round(x), y, round(w), it[0], it[1], accent)
+            x += w + gap
 
     def draw_buttons_row(self, p, x0, x1, y):
         if self.mode == "text":
             self.buttons(p, x0, x1, y, [("отмена", ("btn", "canceltext")),
-                                         ("сохранить", ("btn", "savetext"), True)])
+                                         ("добавить", ("btn", "savetext"), True)])
             return
         if self.mode == "quiz":
             self.buttons(p, x0, x1, y, [("назад", ("btn", "back")),
@@ -547,22 +629,31 @@ class View:
         confirming = bool(self.confirm_delete and kind in ("item", "word") and d
                            and self.confirm_delete[0] == (kind, d["id"])
                            and time.monotonic() < self.confirm_delete[1])
+        n = self.n_drafts()
+        save = [("сохранить (%d)" % n, ("btn", "savedraft"), True)] if n else []
+        draft = bool(d is not None and fld(d, "_draft"))
+        delete = ("точно?" if confirming else "удалить", ("btn", "delete"))
         if self.tab == "items":
-            btns = [("+ запись", ("btn", "new"), True)]
-            if kind == "item":
+            btns = [("+ запись", ("btn", "new"), not n)] + save
+            if kind == "item" and draft:
+                btns.append(delete)
+            elif kind == "item" and fld(d, "status") == "done":
+                btns += [("вернуть", ("btn", "done")), delete]
+            elif kind == "item" and n:
+                btns += [("готово", ("btn", "done")), delete]
+            elif kind == "item":
                 btns += [("готово", ("btn", "done")), ("+1ч", ("btn", "snooze1")),
-                         ("завтра", ("btn", "snoozetomorrow")),
-                         ("точно?" if confirming else "удалить", ("btn", "delete"))]
+                         ("завтра", ("btn", "snoozetomorrow")), delete]
         else:
-            btns = [("+ слово", ("btn", "new"), True)]
-            if rows:
+            btns = [("+ слово", ("btn", "new"), not n)] + save
+            if rows and not n:
                 btns.append(("повторить", ("btn", "quiz")))
             if kind == "word":
-                btns.append(("точно?" if confirming else "удалить", ("btn", "delete")))
+                btns.append(delete)
         self.buttons(p, x0, x1, y, btns)
 
     HINTS = {
-        "text": "Enter / jj / ^E — сохранить · Esc — отмена",
+        "text": "Enter / jj — добавить в список · Esc — отмена",
         "quiz": "Space — показать · y знал · n не знал · Esc назад",
     }
 
@@ -575,9 +666,12 @@ class View:
         p.text(x0 + 5, y, badge, c["acc_l"])
         if self.msg and time.monotonic() < self.msg_until:
             p.text(x0 + bw + 10, y, self.msg, c["text"], maxw=x1 - x0 - bw - 10)
+        elif self.mode == "normal" and self.n_drafts():
+            p.text(x0 + bw + 10, y, "не сохранено: %d · Ctrl+S — сохранить"
+                   % self.n_drafts(), c["acc_l"], maxw=x1 - x0 - bw - 10)
         else:
             hint = self.HINTS.get(self.mode) or (
-                "i/a новая · dd удалить · u/^R отмена" if self.tab == "items"
+                "i новая · x готово · s +1ч · dd удалить · u отмена" if self.tab == "items"
                 else "i/a новое · z повторить · dd удалить · u/^R отмена")
             p.text(x0 + bw + 10, y, hint, c["faint"], maxw=x1 - x0 - bw - 10)
 
@@ -588,7 +682,7 @@ class HubWindow(Gtk.ApplicationWindow):
     def __init__(self, app, tab="items"):
         super().__init__(application=app, title="Hub")
         self.view = View()
-        self.view.text_target = -1
+        self.view.text_target, self.view.text_new = -1, False
         self.view.tab = tab if tab in TABS else "items"
         self.set_title(self.tab_title())
         self.set_decorated(False)
@@ -622,8 +716,22 @@ class HubWindow(Gtk.ApplicationWindow):
         self.area.connect("scroll-event", self.on_scroll)
         self.add(self.area)
         self.connect("key-press-event", self.on_key)
+        self.connect("delete-event", self.on_delete)
+        self.close_armed = 0
         self.connect("notify::is-active", self.on_active)
         GLib.timeout_add(500, self.tick)
+
+    def on_delete(self, *_a):
+        """Закрытие с несохранённым: первый раз — предупредить, второй (в 3 с) — выйти."""
+        v = self.view
+        if v.n_drafts() and time.monotonic() > self.close_armed:
+            self.close_armed = time.monotonic() + 3
+            v.flash("не сохранено: %d — ^S сохранить, ещё раз — закрыть без сохранения"
+                    % v.n_drafts())
+            self.present()
+            self.redraw()
+            return True
+        return False
 
     def tab_title(self):
         return "Reminders" if self.view.tab == "items" else "Dictionary"
@@ -748,7 +856,7 @@ class HubWindow(Gtk.ApplicationWindow):
             if action == "savetext":
                 self.submit_text()
             elif action == "canceltext":
-                v.mode, v.buf, v.text_target = "normal", "", -1
+                v.mode, v.buf, v.text_target, v.text_new = "normal", "", -1, False
             return
         if v.mode == "quiz":
             if action == "reveal":
@@ -759,7 +867,9 @@ class HubWindow(Gtk.ApplicationWindow):
             elif action == "back":
                 v.mode = "normal"
             return
-        if action == "new":
+        if action == "savedraft":
+            self.save_drafts()
+        elif action == "new":
             self.start_new()
         elif action == "quiz":
             self.start_quiz()
@@ -801,11 +911,17 @@ class HubWindow(Gtk.ApplicationWindow):
         v.flash("повтор: " + label)
 
     def act_done(self):
+        """x / «готово»: открытая → выполненные; выполненная → обратно («вернуть»)."""
         v = self.view
         kind, d = v.current(v.rows())
-        if kind != "item":
+        if kind != "item" or fld(d, "_draft"):
             return
         iid, prev_due = d["id"], d["due"]
+        if d["status"] == "done":
+            self.run_action("вернуть", lambda: H.reopen(v.conn, iid, "pc"),
+                            lambda: H.done(v.conn, iid, "pc"))
+            v.flash("вернул в список")
+            return
         had_repeat = bool(d["repeat"]) and bool(prev_due)
 
         def fwd():
@@ -821,7 +937,7 @@ class HubWindow(Gtk.ApplicationWindow):
     def act_snooze(self, secs=None, until=None, label="+1ч"):
         v = self.view
         kind, d = v.current(v.rows())
-        if kind != "item":
+        if kind != "item" or fld(d, "_draft") or d["status"] != "open":
             return
         iid, prev_due = d["id"], d["due"]
 
@@ -838,14 +954,24 @@ class HubWindow(Gtk.ApplicationWindow):
 
     def act_delete_core(self, kind, d):
         v = self.view
+        if fld(d, "_draft"):
+            lst = v.draft_items if kind == "item" else v.draft_words
+            if d in lst:
+                lst.remove(d)
+            v.confirm_delete = None
+            v.flash("черновик убран")
+            v.move(0)
+            return
         if kind == "item":
-            iid = d["id"]
+            iid, was_done = d["id"], d["status"] == "done"
 
             def fwd():
                 H.drop(v.conn, iid, "pc")
 
             def bwd():
                 H.reopen(v.conn, iid, "pc")
+                if was_done:
+                    H.done(v.conn, iid, "pc")
         else:
             wid = d["id"]
             term, translation = d["term"], d["translation"]
@@ -881,12 +1007,11 @@ class HubWindow(Gtk.ApplicationWindow):
             v.flash("ещё раз dd — удалить")
 
     def start_new(self):
+        """Ввод новой — всегда последней строкой под списком, остальные видны."""
         v = self.view
-        rows = v.rows()
-        if v.sel[v.tab] >= len(rows) or (rows and rows[v.sel[v.tab]][0] == "head"):
-            v.move(0)
         v.mode, v.buf, v.buf2, v.text_stage = "text", "", "", "title"
-        v.text_target = v.sel[v.tab]
+        v.text_new = True
+        v.text_target = v.new_pos(v.rows())
 
     def start_quiz(self):
         v = self.view
@@ -927,8 +1052,10 @@ class HubWindow(Gtk.ApplicationWindow):
             self.submit_text() if v.mode == "text" else self.start_new()
             self.redraw()
             return True
-        if ctrl and ch == "s" and v.mode == "text":
-            self.submit_text()
+        if ctrl and ch == "s":
+            if v.mode == "text":
+                self.submit_text()
+            self.save_drafts()
             self.redraw()
             return True
         if v.mode == "text":
@@ -943,7 +1070,7 @@ class HubWindow(Gtk.ApplicationWindow):
     def key_text(self, ch, name, ev):
         v = self.view
         if name == "Escape":
-            v.mode, v.buf, v.text_target = "normal", "", -1
+            v.mode, v.buf, v.text_target, v.text_new = "normal", "", -1, False
         elif name in ("Return", "KP_Enter"):
             self.submit_text()
         elif name == "BackSpace":
@@ -964,39 +1091,76 @@ class HubWindow(Gtk.ApplicationWindow):
                 v.buf += chr(u)
 
     def submit_text(self):
+        """Enter/jj/«добавить»: строка уходит в список черновиком. В базу — только по
+        ^S или «сохранить» (Бекзат, 09.10.2026: «ничего не должно сохраняться само»)."""
         v = self.view
         text = v.buf.strip()
-        v.mode, v.buf, v.text_target = "normal", "", -1
+        v.mode, v.buf, v.text_target, v.text_new = "normal", "", -1, False
         if not text:
             return
-        try:
-            if v.tab == "items":
-                box = {}
-
-                def fwd(text=text, box=box):
-                    box["id"], _due = H.add_smart(v.conn, text, "pc")
-
-                def bwd(box=box):
-                    H.drop(v.conn, box["id"], "pc")
-                self.run_action("новая запись", fwd, bwd)
+        if v.tab == "items":
+            lname, body = H.split_list(text)
+            clean, due, repeat = H.parse_when(body)
+            d = {"id": v.draft_seq, "text": clean or body.strip(), "due": due, "repeat": repeat,
+                 "status": "open", "kind": "task", "list": lname, "_draft": True, "_raw": text}
+            lst = v.draft_items
+        else:
+            for sep in ("=", " — ", " - "):
+                if sep in text:
+                    t, tr = [x.strip() for x in text.split(sep, 1)]
+                    break
             else:
-                for sep in ("=", " — ", " - "):
-                    if sep in text:
-                        t, tr = [x.strip() for x in text.split(sep, 1)]
-                        box = {}
+                v.flash("формат: слово = перевод")
+                return
+            if not t or not tr:
+                v.flash("нужны слово и перевод")
+                return
+            d = {"id": v.draft_seq, "term": t, "translation": tr, "_draft": True}
+            lst = v.draft_words
+        v.draft_seq -= 1
 
-                        def fwd(t=t, tr=tr, box=box):
-                            box["id"], box["new"] = H.add_word(v.conn, t, tr)
+        def fwd(d=d, lst=lst):
+            if d not in lst:
+                lst.append(d)
 
-                        def bwd(box=box):
-                            if box.get("new"):
-                                H.del_word(v.conn, box["id"])
-                        self.run_action("новое слово", fwd, bwd)
-                        break
-                else:
-                    v.flash("формат: слово = перевод")
-        except ValueError as e:
-            v.flash(str(e))
+        def bwd(d=d, lst=lst):
+            if d in lst:
+                lst.remove(d)
+        self.run_action(DRAFT, fwd, bwd)
+        rows = v.rows()
+        v.sel[v.tab] = next((i for i, r in enumerate(rows) if r[1] is d), v.sel[v.tab])
+
+    def save_drafts(self):
+        v = self.view
+        n = v.n_drafts()
+        if not n:
+            return
+        # черновые шаги отмены заменяются настоящими (каждая запись — отдельный шаг)
+        self.undo_stack[:] = [a for a in self.undo_stack if a[0] != DRAFT]
+        self.redo_stack[:] = [a for a in self.redo_stack if a[0] != DRAFT]
+        for d in list(v.draft_items):
+            box = {}
+
+            def fwd(raw=d["_raw"], box=box):
+                box["id"], _due = H.add_smart(v.conn, raw, "pc")
+
+            def bwd(box=box):
+                H.drop(v.conn, box["id"], "pc")
+            self.run_action("новая запись", fwd, bwd)
+        for d in list(v.draft_words):
+            box = {}
+
+            def fwd(t=d["term"], tr=d["translation"], box=box):
+                box["id"], box["new"] = H.add_word(v.conn, t, tr)
+
+            def bwd(box=box):
+                if box.get("new"):
+                    H.del_word(v.conn, box["id"])
+            self.run_action("новое слово", fwd, bwd)
+        v.draft_items.clear()
+        v.draft_words.clear()
+        v.move(0)
+        v.flash("сохранено: %d" % n)
 
     def key_quiz(self, ch, name):
         v = self.view
@@ -1082,7 +1246,7 @@ class App(Gtk.Application):
                 sel = selection()
                 if sel and len(sel) < 200:
                     self.win.view.mode, self.win.view.buf = "text", sel.replace("\n", " ") + " = "
-                    self.win.view.text_target = self.win.view.sel["words"]
+                    self.win.view.text_new = True
             self.win.show_all()
         else:
             self.win.view.reload_style()
