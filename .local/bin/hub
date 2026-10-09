@@ -1,0 +1,30 @@
+#!/bin/sh
+# hub — управление демоном напоминаний: status | on | off | restart | log | timer N [имя]
+U=hub.service
+case "$1" in
+  on) systemctl --user enable --now $U ;;
+  off) systemctl --user disable --now $U ;;
+  restart) systemctl --user restart $U ;;
+  log) journalctl --user -u $U -n ${2:-40} --no-pager ;;
+  away) python3 -c "
+import sys,os; sys.path.insert(0,os.path.expanduser('~/.local/share/hub'))
+import hublib as H; c=H.connect(); a=(sys.argv[1] if len(sys.argv)>1 else '')
+if a in ('on','off'): H.meta_set(c,'away',1 if a=='on' else 0)
+print('охрана:', 'включена' if H.meta_get(c,'away','0')=='1' else 'выключена')" "$2" ;;
+  timer|t) shift; python3 -c "
+import sys,os; sys.path.insert(0,os.path.expanduser('~/.local/share/hub'))
+import hublib as H; c=H.connect(); d=H.parse_duration(sys.argv[1]) if len(sys.argv)>1 else None
+sys.exit('hub timer 25 [имя]') if not d else print('таймер', H.fmt_secs(d), '#%d'%H.start_timer(c,d,' '.join(sys.argv[2:]))[0])" "$@" ;;
+  help|-h|--help)
+    echo "hub            — статус (служба + пульс)"
+    echo "hub on         — включить и в автозапуск"
+    echo "hub off        — выключить и снять с автозапуска"
+    echo "hub restart    — перезапустить"
+    echo "hub log [N]    — последние N строк журнала (по умолчанию 40)"
+    echo "hub away [on|off] — охрана: показать/переключить"
+    echo "hub timer N [имя] (или hub t) — запустить таймер на N минут" ;;
+  *) systemctl --user status $U --no-pager | head -8; python3 -c "
+import sys,os,time; sys.path.insert(0,os.path.expanduser('~/.local/share/hub'))
+import hublib as H; c=H.connect(); h=H.meta_get(c,'heartbeat')
+print('пульс:', (str(int(time.time())-int(h))+' с назад') if h else 'нет')" ;;
+esac
