@@ -203,6 +203,25 @@ class Painter:
         PangoCairo.show_layout(self.cr, lay)
         return w
 
+    def measure_wrap(self, s, px=PX, maxw=None):
+        lay = self.layout(s, px)
+        if maxw:
+            lay.set_width(int(maxw * Pango.SCALE))
+            lay.set_wrap(Pango.WrapMode.WORD_CHAR)
+        return lay.get_pixel_size()[1]
+
+    def text_wrap(self, x, y, s, c, px=PX, maxw=None):
+        """Многострочный текст с переносом по словам (строка редактирования) —
+        возвращает высоту занятого блока в пикселях."""
+        lay = self.layout(s, px)
+        if maxw:
+            lay.set_width(int(maxw * Pango.SCALE))
+            lay.set_wrap(Pango.WrapMode.WORD_CHAR)
+        self.rgb(c)
+        self.cr.move_to(round(x), round(y))
+        PangoCairo.show_layout(self.cr, lay)
+        return lay.get_pixel_size()[1]
+
 
 class View:
     """Данные и раскладка — без GTK, чтобы --shot рисовал без окна."""
@@ -216,6 +235,8 @@ class View:
         self.scroll = {"items": 0, "words": 0}
         self.mode = "normal"            # normal | text | quiz
         self.buf = ""
+        self.buf2 = ""                  # для items: название уже набрано, buf — поле «когда»
+        self.text_stage = "title"       # title | when (только для items)
         self.hover = None
         self.hits = []
         self.msg, self.msg_until = "", 0
@@ -364,6 +385,14 @@ class View:
             p.rect(x0 + 1, y, x1 - x0 - 2, h, c["sel"], 0.5)
         self.hits.append(((x0, y, x1 - x0, h), key))
 
+    def edit_display(self):
+        """Что показывать на месте редактируемой строки — с учётом двух полей у items."""
+        if self.tab == "items":
+            if self.text_stage == "when":
+                return self.buf2 + " · когда: " + self.buf
+            return "новая: " + self.buf
+        return "слово = перевод: " + self.buf
+
     def draw_list(self, p, x0, x1, y0, y1):
         c = self.c
         rows = self.rows()
@@ -391,13 +420,16 @@ class View:
                 continue
             is_sel = i == self.sel[self.tab]
             is_edit = editing and self.text_target == i
-            self.row_bg(p, x0, x1, y, is_sel or is_edit, ("row", i))
-            ty = y + (ROW_H - 16) / 2 + 1
+            blink = int(time.monotonic() * 2) % 2 == 0
+            cursor = "▏" if blink else ""
             if kind == "new":
-                prompt = {"items": "новая: ", "words": "слово = перевод: "}.get(self.tab, "")
-                w = p.text(x0 + 10, ty, prompt + self.buf, c["acc_l"])
-                if int(time.monotonic() * 2) % 2 == 0:
-                    p.rect(x0 + 10 + w, y + 4, 6, ROW_H - 8, c["acc_l"])
+                disp = self.edit_display() + cursor
+                tw = x1 - x0 - 20
+                bh = max(ROW_H, p.measure_wrap(disp, maxw=tw) + 6)
+                self.row_bg(p, x0, x1, y, True, ("row", i), h=bh)
+                p.text_wrap(x0 + 10, y + 3, disp, c["acc_l"], maxw=tw)
+                y += bh
+                continue
             elif kind == "item":
                 over = bool(d["due"]) and d["due"] < H.now()
                 col = c["err"] if over else (c["acc_l"] if is_sel else c["text"])
@@ -406,25 +438,37 @@ class View:
                     main, due = text.split(" · ", 1)
                 else:
                     main, due = text, ""
-                self.icon_box(p, x0 + 1, y + (ROW_H - 9) / 2, 9, c["err"] if over else c["dim"], filled=False)
                 if is_edit:
-                    w = p.text(x0 + 14, ty, self.buf, c["acc_l"])
-                    if int(time.monotonic() * 2) % 2 == 0:
-                        p.rect(x0 + 14 + w, y + 4, 6, ROW_H - 8, c["acc_l"])
-                else:
-                    p.text(x0 + 14, ty, main, col, maxw=(x1 - x0) * 0.6 - 4)
-                    if due:
-                        p.text(x1 - 6, ty, due, c["faint"] if not over else c["err"], align="r")
+                    disp = self.edit_display() + cursor
+                    tw = x1 - x0 - 24
+                    bh = max(ROW_H, p.measure_wrap(disp, maxw=tw) + 6)
+                    self.row_bg(p, x0, x1, y, True, ("row", i), h=bh)
+                    self.icon_box(p, x0 + 1, y + (ROW_H - 9) / 2, 9, c["err"] if over else c["dim"], filled=False)
+                    p.text_wrap(x0 + 14, y + 3, disp, c["acc_l"], maxw=tw)
+                    y += bh
+                    continue
+                self.row_bg(p, x0, x1, y, is_sel, ("row", i))
+                ty = y + (ROW_H - 16) / 2 + 1
+                self.icon_box(p, x0 + 1, y + (ROW_H - 9) / 2, 9, c["err"] if over else c["dim"], filled=False)
+                p.text(x0 + 14, ty, main, col, maxw=(x1 - x0) * 0.6 - 4)
+                if due:
+                    p.text(x1 - 6, ty, due, c["faint"] if not over else c["err"], align="r")
             else:
                 text = "%s — %s" % (d["term"], d["translation"])
                 col = c["acc_l"] if is_sel else c["text"]
-                self.icon_dot(p, x0 + 5, y + ROW_H / 2, c["acc_l"] if is_sel else c["faint"])
                 if is_edit:
-                    w = p.text(x0 + 14, ty, self.buf, c["acc_l"])
-                    if int(time.monotonic() * 2) % 2 == 0:
-                        p.rect(x0 + 14 + w, y + 4, 6, ROW_H - 8, c["acc_l"])
-                else:
-                    p.text(x0 + 14, ty, text, col, maxw=x1 - x0 - 24)
+                    disp = self.buf + cursor
+                    tw = x1 - x0 - 24
+                    bh = max(ROW_H, p.measure_wrap(disp, maxw=tw) + 6)
+                    self.row_bg(p, x0, x1, y, True, ("row", i), h=bh)
+                    self.icon_dot(p, x0 + 5, y + ROW_H / 2, c["acc_l"])
+                    p.text_wrap(x0 + 14, y + 3, disp, c["acc_l"], maxw=tw)
+                    y += bh
+                    continue
+                self.row_bg(p, x0, x1, y, is_sel, ("row", i))
+                ty = y + (ROW_H - 16) / 2 + 1
+                self.icon_dot(p, x0 + 5, y + ROW_H / 2, c["acc_l"] if is_sel else c["faint"])
+                p.text(x0 + 14, ty, text, col, maxw=x1 - x0 - 24)
             y += ROW_H
 
     def icon_box(self, p, x, y, s, col, filled):
@@ -820,18 +864,28 @@ class HubWindow(Gtk.ApplicationWindow):
         v.flash("удалено")
 
     def act_delete_keyboard(self):
+        """«dd» — то же подтверждение, что у кнопки: первый «dd» помечает, второй «dd»
+        подряд (в те же 3с) удаляет. Бекзат, 09.10.2026: «подтверждение работает не
+        везде, по биндам удаляет сразу» — раньше второй «d» внутри набора «dd» сам
+        считался подтверждением, этого мало."""
         v = self.view
         kind, d = v.current(v.rows())
         if kind not in ("item", "word"):
             return
-        self.act_delete_core(kind, d)
+        key = (kind, d["id"])
+        now = time.monotonic()
+        if v.confirm_delete and v.confirm_delete[0] == key and now < v.confirm_delete[1]:
+            self.act_delete_core(kind, d)
+        else:
+            v.confirm_delete = (key, now + 3)
+            v.flash("ещё раз dd — удалить")
 
     def start_new(self):
         v = self.view
         rows = v.rows()
         if v.sel[v.tab] >= len(rows) or (rows and rows[v.sel[v.tab]][0] == "head"):
             v.move(0)
-        v.mode, v.buf = "text", ""
+        v.mode, v.buf, v.buf2, v.text_stage = "text", "", "", "title"
         v.text_target = v.sel[v.tab]
 
     def start_quiz(self):
