@@ -476,9 +476,6 @@ class HubWindow(Gtk.ApplicationWindow):
         self.view.text_target = -1
         self.view.tab = tab if tab in TABS else "items"
         self.set_title(self.tab_title())
-
-    def tab_title(self):
-        return "Reminders" if self.view.tab == "items" else "Dictionary"
         self.set_decorated(False)
         self.set_resizable(True)
         self.set_size_request(W, self.view.height_min())
@@ -508,6 +505,9 @@ class HubWindow(Gtk.ApplicationWindow):
         self.connect("key-press-event", self.on_key)
         self.connect("notify::is-active", self.on_active)
         GLib.timeout_add(500, self.tick)
+
+    def tab_title(self):
+        return "Reminders" if self.view.tab == "items" else "Dictionary"
 
     def on_configure(self, _w, ev):
         size = (ev.width, ev.height)
