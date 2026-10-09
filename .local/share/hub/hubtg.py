@@ -268,7 +268,8 @@ def command(c, cmd, arg, bot=None, chat=None):
     if cmd == "today":
         return cmd_today(c), None
     if cmd == "lists":
-        return "\n".join("%s — %d" % (l["name"], l["open"]) for l in H.lists(c)) or "Списков нет.", None
+        ls = [l for l in H.lists(c) if l["open"] > 0]
+        return "\n".join("%s — %d" % (l["name"], l["open"]) for l in ls) or "Открытых пунктов нигде нет.", None
     if cmd in ("add", "a"):
         if not arg:
             return "Что записать? /add текст", None
