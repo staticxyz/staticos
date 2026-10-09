@@ -39,6 +39,9 @@ binds {
     // принести черновик на текущий стол — SUPER+SHIFT+N (21.09.2026: раньше
     // было наоборот, и пустую приходилось вызывать двумя нажатиями).
     Mod+N { spawn-sh "~/.config/hypr/scripts/notepad.sh new"; }
+    // Hub — напоминания и словарь без ИИ, своя база (09.10.2026).
+    Mod+M       repeat=false hotkey-overlay-title="Hub: напоминания" { spawn-sh "~/.local/bin/hub-open"; }
+    Mod+Shift+M repeat=false hotkey-overlay-title="Hub: словарь" { spawn-sh "~/.local/bin/hub-open dict"; }
     Mod+Shift+N { spawn-sh "~/.config/hypr/scripts/notepad.sh"; }
     Mod+F6 { spawn "bemoji" "-t"; }
     // Буфер обмена — своё окно с вкладками и избранным (03.10.2026). Прежнее меню на rofi

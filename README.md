@@ -12,7 +12,7 @@ Every color comes from your wallpaper.
 ![palette](https://img.shields.io/badge/palette-from%20wallpaper-8fa0ff?style=flat-square&labelColor=15161e)
 ![license](https://img.shields.io/badge/license-MIT-8fa0ff?style=flat-square&labelColor=15161e)
 
-[Install](docs/install.md) · [User guide](docs/guide.md) · [Alarm](docs/alarm.md)
+[Install](docs/install.md) · [User guide](docs/guide.md) · [Alarm](docs/alarm.md) · [Hub](docs/hub.md) · [Keybindings](docs/keybindings.md)
 
 **English** · [Русский](README.ru.md)
 
@@ -38,6 +38,9 @@ Every color comes from your wallpaper.
 - **Screenshots, OCR and recording.** Annotate, pin a screenshot on top, copy text off the screen,
   record GIFs, videos and Telegram stickers.
 - **Own clipboard, Alt+Tab, lock screen and screensaver**, all keyboard-driven with vim keys.
+- **Hub** — reminders, lists, timers and a spaced-repetition dictionary with no AI involved,
+  its own SQLite database, a Discipline-styled window (`Super+M`) and an optional Telegram bot
+  that reaches you when you're away from the computer. [How it works →](docs/hub.md)
 
 ## Screenshots
 

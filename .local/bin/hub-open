@@ -1,0 +1,4 @@
+#!/bin/sh
+# открыть окно hub (одно): hub-open | hub-open dict
+# GApplication сам даёт единственность: второй запуск будит то же окно (present()).
+exec python3 ~/.local/share/hub/hub_app.py "$@"

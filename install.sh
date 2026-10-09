@@ -204,7 +204,7 @@ enable_services() {
     step "User services"
     run systemctl --user daemon-reload
     local u
-    for u in night-schedule.timer gtk-guard.path wake-alarm.timer jarvis-focus.service; do
+    for u in night-schedule.timer gtk-guard.path wake-alarm.timer jarvis-focus.service hub.service; do
         run systemctl --user enable "$u" >/dev/null 2>&1 && info "enabled $u" || warn "could not enable $u"
     done
     info "${DIM}the alarm and the Watchman stay off until you turn them on (docs/alarm.md)${RST}"

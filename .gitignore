@@ -30,3 +30,6 @@ __pycache__/
 # Secrets, if you ever add any
 .env
 *.token
+*.db
+*.db-shm
+*.db-wal

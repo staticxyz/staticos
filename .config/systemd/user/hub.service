@@ -1,0 +1,8 @@
+[Unit]
+Description=hub — напоминания и словарь (без ИИ)
+[Service]
+ExecStart=/usr/bin/python3 %h/.local/share/hub/hubd.py
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=default.target

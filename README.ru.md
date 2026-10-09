@@ -12,7 +12,7 @@
 ![palette](https://img.shields.io/badge/palette-from%20wallpaper-8fa0ff?style=flat-square&labelColor=15161e)
 ![license](https://img.shields.io/badge/license-MIT-8fa0ff?style=flat-square&labelColor=15161e)
 
-[Установка](docs/install.md) · [Руководство](docs/guide.md) · [Будильник](docs/ru/alarm.md)
+[Установка](docs/install.md) · [Руководство](docs/guide.md) · [Будильник](docs/ru/alarm.md) · [Hub](docs/ru/hub.md) · [Все клавиши](docs/ru/keybindings.md)
 
 [English](README.md) · **Русский**
 
@@ -38,6 +38,9 @@
 - **Снимки, текст с экрана и запись.** Пометки на снимке, снимок поверх окон, распознавание
   текста, запись GIF, видео и стикеров Telegram.
 - **Свои буфер обмена, Alt+Tab, экран блокировки и заставка** — всё с клавиатуры, клавиши vim.
+- **Hub** — напоминания, списки, таймеры и словарь с повторением без единого ИИ, своя база
+  SQLite, окно в стиле Discipline (`Super+M`) и бот в Telegram на случай, если вас нет за
+  компьютером. [Как это работает →](docs/ru/hub.md)
 
 ## Снимки
 
