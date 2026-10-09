@@ -7,5 +7,5 @@ Exec=hub-open
 Icon=jarvis-hub-reminders
 Terminal=false
 Categories=Utility;Office;
-StartupWMClass=hub-app
+StartupWMClass=com.jarvis.hub
 Keywords=hub;Hub;ргд;Ргд;ХАБ;хаб;напоминание;Напоминание;напоминания;Напоминания;yfgjvbyfybt;yfgjvbyfybz;reminder;Reminder;список;Список;задача;Задача;задачи;Задачи;task;Task;таймер;Таймер;timer;Timer;

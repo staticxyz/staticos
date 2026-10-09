@@ -475,6 +475,7 @@ class HubWindow(Gtk.ApplicationWindow):
         self.view = View()
         self.view.text_target = -1
         self.view.tab = tab if tab in TABS else "items"
+        self.set_title(self.tab_title())
         self.set_decorated(False)
         self.set_resizable(True)
         self.set_size_request(W, self.view.height_min())
@@ -504,6 +505,9 @@ class HubWindow(Gtk.ApplicationWindow):
         self.connect("key-press-event", self.on_key)
         self.connect("notify::is-active", self.on_active)
         GLib.timeout_add(500, self.tick)
+
+    def tab_title(self):
+        return "Reminders" if self.view.tab == "items" else "Dictionary"
 
     def on_configure(self, _w, ev):
         size = (ev.width, ev.height)
@@ -597,12 +601,17 @@ class HubWindow(Gtk.ApplicationWindow):
             self.begin_resize_drag(self.EDGES[edge], ev.button, int(ev.x_root), int(ev.y_root), ev.time)
             return True
         key = self.hit(ev.x, ev.y)
-        if ev.button != 1 or key is None:
+        if key is None:
+            if ev.button == 1:
+                self.begin_move_drag(ev.button, int(ev.x_root), int(ev.y_root), ev.time)
+            return True
+        if ev.button != 1:
             return True
         if key == "close":
             self.close()
         elif isinstance(key, tuple) and key[0] == "tab":
             v.tab, v.mode = key[1], "normal"
+            self.set_title(self.tab_title())
             self.resize_to_min()
         elif isinstance(key, tuple) and key[0] == "row":
             v.sel[v.tab] = key[1]
@@ -736,6 +745,7 @@ class HubWindow(Gtk.ApplicationWindow):
             return
         if name == "Tab" or (shift and ch in ("h", "l")):
             v.tab = "words" if v.tab == "items" else "items"
+            self.set_title(self.tab_title())
             self.resize_to_min()
             return
         if ch == "j":

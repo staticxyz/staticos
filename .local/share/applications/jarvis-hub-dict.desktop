@@ -7,5 +7,5 @@ Exec=hub-open dict
 Icon=jarvis-hub-dict
 Terminal=false
 Categories=Utility;Education;
-StartupWMClass=hub-app
+StartupWMClass=com.jarvis.hub
 Keywords=hub;Hub;ргд;Ргд;ХАБ;хаб;словарь;Словарь;ckjdfhm;dictionary;Dictionary;слово;Слово;слова;Слова;word;Word;перевод;Перевод;translation;Translation;
