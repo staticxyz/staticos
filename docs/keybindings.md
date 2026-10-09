@@ -264,7 +264,8 @@ Super + wheel scrolls through the strip's windows.
 
 | Keys | Action |
 |---|---|
-| `Mod + Shift + /` | show all shortcuts |
+| `Mod + Shift + /` | show all shortcuts (doesn't work on a Russian layout — that physical key sends `.` there, use the duplicate below) |
+| `Mod + Shift + Period` | show all shortcuts (duplicate for the Russian layout) |
 | `Mod + Escape` | give all keys to the focused window on/off |
 | `Mod + Shift + E` | quit niri |
 | `Ctrl + Alt + Delete` | quit niri |
