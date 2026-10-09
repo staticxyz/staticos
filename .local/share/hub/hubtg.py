@@ -185,7 +185,7 @@ HELP_TEXT = (
     "\n"
     "Команды:\n"
     "/help — этот список\n"
-    "/ls [список] — открытые пункты, всё или один список. Пример: /ls Покупки\n"
+    "/ls [список] (то же: /reminders) — открытые пункты, всё или один список. Пример: /ls Покупки\n"
     "/today — что по сроку сегодня\n"
     "/lists — списки и сколько в каждом открыто\n"
     "/add текст — новая запись, то же что просто текстом. Пример: /add купить хлеб\n"
@@ -197,7 +197,8 @@ HELP_TEXT = (
     "/timers — какие таймеры сейчас идут\n"
     "/stop — остановить разом все таймеры\n"
     "/w слово = перевод — добавить слово в словарь. Пример: /w cat = кот\n"
-    "/words [запрос] — список слов (с номерами) и статистика по словарю. Пример: /words\n"
+    "/words [запрос] (то же: /dictionary) — список слов (с номерами) и статистика по словарю. "
+    "Пример: /words\n"
     "/delword N (то же: /wdel) — удалить слово из словаря. Пример: /delword 7\n"
     "/quiz [N] (то же: /повторить, /словарь) — прогнать словарь по Лейтнеру: слово → "
     "«Показать перевод» → «Знал»/«Не знал». Пример: /quiz 10\n"
@@ -264,7 +265,7 @@ def start_timer_reply(c, secs, name=""):
 def command(c, cmd, arg, bot=None, chat=None):
     if cmd in ("start", "help", "h"):
         return HELP_TEXT, None
-    if cmd in ("ls", "l"):
+    if cmd in ("ls", "l", "reminders"):
         return cmd_ls(c, arg), None
     if cmd == "today":
         return cmd_today(c), None
@@ -322,7 +323,7 @@ def command(c, cmd, arg, bot=None, chat=None):
             return "Формат: /w слово = перевод", None
         wid, new = H.add_word(c, term, tr)
         return ("Добавил: %s — %s" if new else "Обновил: %s — %s") % (term, tr), None
-    if cmd == "words":
+    if cmd in ("words", "dictionary"):
         ws = H.words(c, arg or None, 30)
         st = H.word_stats(c)
         head = "Слов: %d, к повторению: %d, выучено: %d\n" % (st["total"], st["due"], st["known"])
