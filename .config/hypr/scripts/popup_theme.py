@@ -1261,12 +1261,30 @@ def place_set(name, value, extra=()):
     return value
 
 
+def top_bar_mode_here():
+    """Режим верхнего бара (always|hover|off) на мониторе с фокусом — туда встаёт слой
+    плашки, открытой с клавиши. 14.10.2026: на втором мониторе бар «при наведении», а режим
+    брался общий (state/top-bar = always) — плашка клеилась «к воздуху». Теперь
+    по мониторам (panels.top_for); без niri — общий режим, как раньше."""
+    try:
+        import panels
+        import subprocess
+        out = None
+        if on_niri():
+            r = subprocess.run(["niri", "msg", "-j", "focused-output"], capture_output=True,
+                               text=True, timeout=1)
+            out = (json.loads(r.stdout) or {}).get("name") if r.returncode == 0 else None
+        return panels.top_for(out) if out else panels.global_top()
+    except Exception:
+        try:
+            return open(os.path.expanduser("~/.config/hypr/state/top-bar")).read().strip()
+        except OSError:
+            return "always"
+
+
 def top_bar_hover():
     """Верхний бар в режиме «при наведении» (top_bar.py): спрятан, пока мышь не у верхнего края."""
-    try:
-        return open(os.path.expanduser("~/.config/hypr/state/top-bar")).read().strip() == "hover"
-    except OSError:
-        return False
+    return top_bar_mode_here() == "hover"
 
 
 def place_side(align, spot=PLACE_DEFAULT, gap=6, edge=20, detach_in_hover=False):
@@ -1285,7 +1303,9 @@ def place_side(align, spot=PLACE_DEFAULT, gap=6, edge=20, detach_in_hover=False)
     ни к чему — тогда она открывается отдельно: с зазором и со своей рамкой.
     """
     from gi.repository import Gtk
-    glue = not (detach_in_hover and top_bar_hover())
+    mode = top_bar_mode_here() if detach_in_hover else "always"
+    # бара нет на экране (hover — спрятан, off — выключен) — клеиться не к чему
+    glue = mode not in ("hover", "off")
     vert, _, horiz = spot.partition("-")
     if vert == "bottom":
         align.set_valign(Gtk.Align.END)
@@ -1297,7 +1317,7 @@ def place_side(align, spot=PLACE_DEFAULT, gap=6, edge=20, detach_in_hover=False)
             # отдельная плашка при баре «при наведении»: бар выезжает поверх окон и не
             # резервирует место — ставим плашку НИЖЕ его места, чтобы не закрывала бар,
             # который можно вызвать, пока она открыта (04.10.2026)
-            align.set_margin_top(gap + (bar_edge() + bar_height() if not glue else 0))
+            align.set_margin_top(gap + (bar_edge() + bar_height() if mode == "hover" else 0))
     if horiz == "left":
         align.set_halign(Gtk.Align.START)
         align.set_margin_start(edge)
