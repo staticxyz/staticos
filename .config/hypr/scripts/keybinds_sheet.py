@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Шпаргалка клавиш — стиль системы, vim-навигация, поиск.
 
-Super+Z: j/k прокрутка, / поиск, q/Esc закрыть, g/G в начало/конец.
+Super+Z: j/k прокрутка, Ctrl+D/U полстраницы, / поиск, q/Esc/Ctrl+Q закрыть, g/G в начало/конец.
 Тема и цвета — из обоев (palette + settings-skin).
 """
 import os
@@ -253,6 +253,7 @@ class View:
         self.buf = ""
         self.sel = 0
         self.scroll = 0
+        self.max_vis = 10
         self.pending_jj = False
         self.pending_t = 0
 
@@ -277,18 +278,25 @@ class View:
         cr.set_operator(cairo.OPERATOR_OVER)
         BG_ALPHA = 0.88
         if c["frame"] == "skeet":
-            cr.set_source_rgba(*c.get("line3", c["bg"]), BG_ALPHA)
-            cr.rectangle(0, 0, w, h); cr.fill()
-            cr.set_source_rgba(*c["line"], BG_ALPHA)
-            cr.rectangle(2, 2, w - 4, h - 4); cr.fill()
+            # Рамка — как у буфера обмена и Super+C (13.10.2026): слои снаружи внутрь
+            # 1 светлая с акцентом, 3 средняя, 1 светлая с акцентом, 1 почти чёрная.
+            acc = c["acc"]
+            line1_on = mix(mix((0x3c / 255,) * 3, acc, 0.08), acc, 0.45)
+            line2 = mix((0x28 / 255,) * 3, acc, 0.06)
             cr.set_source_rgba(*c["bg"], BG_ALPHA)
-            cr.rectangle(4, 4, w - 8, h - 8); cr.fill()
+            cr.rectangle(6, 6, w - 12, h - 12); cr.fill()
+            for i, bw, col in ((0, 1, line1_on), (1, 3, line2), (4, 1, line1_on), (5, 1, c["line3"])):
+                cr.set_source_rgb(*col)
+                cr.rectangle(i, i, w - 2 * i, h - 2 * i)
+                cr.rectangle(i + bw, i + bw, w - 2 * (i + bw), h - 2 * (i + bw))
+                cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD); cr.fill()
+                cr.set_fill_rule(cairo.FILL_RULE_WINDING)
         else:
-            p.round(0.5, 0.5, w - 1, h - 1, 10)
+            p.round(1, 1, w - 2, h - 2, 10)
             cr.set_source_rgba(*c["bg"], BG_ALPHA)
             cr.fill_preserve()
-            p.rgb(c["line"])
-            cr.set_line_width(1)
+            p.rgb(c["acc"])
+            cr.set_line_width(2)
             cr.stroke()
 
         x0, x1 = PAD, w - PAD
@@ -309,11 +317,12 @@ class View:
         rows = self.rows()
         if not rows:
             p.text(x0, y, "Ничего не найдено.", c["faint"], size=FONT_SZ)
-            self.draw_footer(p, x0, x1, h - 24, w)
+            self.draw_footer(p, x0, x1, h - 30, w)
             return
 
-        avail = h - y - 32
+        avail = h - y - 38
         max_vis = avail // ROW_H
+        self.max_vis = max_vis
         sel = max(0, min(self.sel, len(rows) - 1))
         self.sel = sel
 
@@ -356,7 +365,7 @@ class View:
             bar_y = y + (avail - bar_h) * off / max(1, len(rows) - max_vis)
             p.rect(x1 - 2, bar_y, 2, bar_h, c["faint"])
 
-        self.draw_footer(p, x0, x1, h - 24, w)
+        self.draw_footer(p, x0, x1, h - 30, w)
 
     def draw_footer(self, p, x0, x1, y, w):
         c = self.c
@@ -365,7 +374,7 @@ class View:
         bw = p.text_w(badge, FONT_SZ) + 12
         p.rect(x0, y, bw, 20, c["field_l"])
         p.text(x0 + 6, y + 2, badge, c["acc_l"], size=FONT_SZ)
-        hint = "j/k ↕ · g/G начало/конец · / поиск · q закрыть" if self.mode == "normal" \
+        hint = "j/k ↕ · ^D/^U ½ · g/G · / поиск · q выход" if self.mode == "normal" \
             else "Enter открыть · jj навигация · Esc"
         p.text(x0 + bw + 8, y + 2, hint, c["faint"], size=FONT_SZ, maxw=x1 - x0 - bw - 10)
 
@@ -422,6 +431,18 @@ class SheetWindow(Gtk.ApplicationWindow):
             return True
         if ctrl and ch == "q":
             self.close()
+            return True
+
+        if ctrl and ch in ("d", "u"):     # как в nvim: полстраницы вниз/вверх
+            rows = v.rows()
+            if rows:
+                step = max(1, v.max_vis // 2) * (1 if ch == "d" else -1)
+                v.sel = max(0, min(len(rows) - 1, v.sel + step))
+                v.scroll = max(0, v.scroll + step)
+                d = 1 if step > 0 else -1
+                while 0 < v.sel < len(rows) - 1 and rows[v.sel][0] == "head":
+                    v.sel += d
+            self.redraw()
             return True
 
         if ctrl and ch == "e":
@@ -490,6 +511,10 @@ class SheetWindow(Gtk.ApplicationWindow):
             v.mode = "search"
 
 
+def pidfile():
+    return os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-keybinds.pid")
+
+
 class App(Gtk.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
@@ -536,4 +561,11 @@ if __name__ == "__main__":
         shot(p, style=style)
         print("saved", p)
     else:
+        # pid — для close-or-clipboard: Ctrl+Q забирает niri, и без этого он закрывал
+        # окно ПОД шпаргалкой (13.10.2026). Скрипт шлёт сюда SIGTERM.
+        try:
+            with open(pidfile(), "w") as f:
+                f.write(str(os.getpid()))
+        except OSError:
+            pass
         App().run([])
