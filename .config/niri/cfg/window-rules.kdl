@@ -157,6 +157,24 @@ window-rule {
     default-window-height { fixed 560; }
 }
 
+// Steam: «Друзья и чат» — плавающим узким окном справа под баром, как в Windows
+// (13.10.2026). Заголовок из steamui/localization/friendsui_*-json.js (WindowTitle_FriendsList).
+window-rule {
+    match app-id=r#"^steam$"# title=r#"^(Список друзей|Friends List)$"#
+    open-floating true
+    default-column-width { fixed 340; }
+    default-window-height { fixed 720; }
+    default-floating-position x=12 y=8 relative-to="top-right"
+}
+
+// Steam: окна чатов с несколькими вкладками («… и другие чаты» / «… + N Chats»).
+window-rule {
+    match app-id=r#"^steam$"# title=r#"( и другие чаты| \+ [0-9]+ Chats?)$"#
+    open-floating true
+    default-column-width { fixed 760; }
+    default-window-height { fixed 560; }
+}
+
 // Часы
 window-rule {
     match app-id=r#"^org\.gnome\.clocks$"#

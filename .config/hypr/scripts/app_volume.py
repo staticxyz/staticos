@@ -143,6 +143,11 @@ def descendant_words(root):
     return words
 
 
+def is_cs2(win, wwords):
+    """Окно — Counter-Strike 2: своё окно cs2 / steam_app_730 или gamescope с cs2 внутри."""
+    return str(win.get("app") or "").lower() in ("cs2", "steam_app_730") or "cs2" in wwords
+
+
 def same_app(stream_words, win_words):
     """Похожи ли имена: «chromium» и «chrome-music» — да, «zen» и «kitty» — нет."""
     for a in stream_words:
@@ -219,7 +224,15 @@ def pick():
         wwords = window_words(win)
         mine = [(sid, name) for sid, name, pid, words in found
                 if (pid and pid in kin) or same_app(words, wwords)]
-        if mine:
+        if is_cs2(win, wwords):
+            # CS2 в фокусе (13.10.2026, просьба: «игра и так на 100, менять не буду»):
+            # её звук не трогаем вовсе — бинд крутит играющий плеер. Потоки игры убираем
+            # из списка, чтобы и запасные пути ниже («звучит одна программа») её не взяли.
+            game = {sid for sid, _ in mine}
+            found = [f for f in found if f[0] not in game]
+            if not found:
+                return [], "в CS2 звук игры не трогаю, а плеер молчит", None
+        elif mine:
             # Окно в фокусе побеждает всегда, даже если сейчас молчит: Telegram в
             # фокусе — значит громкость Telegram (28.09.2026, пользователь; проверка
             # «звучит ли окно на самом деле» отдавала бинд играющему Spotify).
