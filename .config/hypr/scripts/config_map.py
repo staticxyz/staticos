@@ -94,7 +94,7 @@ AREAS = [
         jarvis_lock.py lock_battery.sh lock_layout.sh lock_net.sh lock_power.py
         lock_power_label.sh lock_style.py lockscreen avatar_picker.py login_theme.py
         login_theme/ idle_dim idle_guard.py idle_lock idle_suspend screen_awake.py
-        screensaver.py power_menu.py wake_alarm.py wake_overlay.py screen_gamma.py
+        screensaver.py power_menu.py wake_alarm.py jarvis-rtc-wake.sh wake_overlay.py screen_gamma.py
         night_mode.py alt-f4 vt_guard dpms screenon wake-alarm"""),
     ("Настройки и справка", "⚙", """
         settings_app.py niri_state.py niri_compositor.py keybinds_sheet.py smart_search.py exe_frame.py close_cap.py app_list.py

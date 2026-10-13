@@ -30,6 +30,8 @@ T−5 проверка (окно с фразой на всех монитора�
     wake_alarm.py watch log [N]     — журнал выключений Сторожа (кто, когда, почему)
     wake_alarm.py emergency off --reason ТЕКСТ | emergency on — аварийно (бот): будильник + Сторож на день
     wake_alarm.py check             — зовёт таймер wake-alarm.timer раз в минуту
+    wake_alarm.py rtc [check]       — пробуждение по часам: к чему и когда разбудит сон
+    wake_alarm.py rtc-test [СЕК]    — проверка: усыпить и проснуться по часам через СЕК (60)
 """
 import contextlib
 import datetime as dt
@@ -107,6 +109,10 @@ def save(s):
     with open(tmp, "w") as f:
         json.dump(s, f, ensure_ascii=False, indent=2)
     os.replace(tmp, STATE)
+    try:
+        rtc_plan_write()                  # расписание поменялось — сразу и время пробуждения
+    except Exception:
+        pass
 
 
 def alarm_on(s, day):
@@ -152,6 +158,182 @@ def due_within(hours):
             return True
     t = next_alarm(s)
     return t is not None and t - now < dt.timedelta(hours=hours)
+
+
+# Пробуждение по часам (14.10.2026). Сон больше не запрещён на 14 ч вперёд: перед КАЖДЫМ
+# сном хук root'а /usr/lib/systemd/system-sleep/jarvis-rtc-wake (исходник jarvis-rtc-wake.sh)
+# заводит часы RTC на время из RTC_PLAN, а план раз в минуту пишет `check` (и save, и idle_suspend).
+RTC_PLAN = os.path.join(HOME, ".local/state/jarvis-wake/rtc-wake")
+RTC_HOLD = RTC_PLAN + ".hold"          # rtc-test: план не перезаписывать до этого времени
+RTC_HOOK = "/usr/lib/systemd/system-sleep/jarvis-rtc-wake"
+RTC_LEAD = 30        # минут: проснуться за полчаса до первой проверки (просьба 14.10)
+SLEEP_MARGIN = 40 / 60   # часов: ближе к проверке idle_suspend не усыпляет (больше RTC_LEAD,
+                         # иначе после пробуждения уснул бы снова)
+RTC_SYS = "/sys/class/rtc/rtc0"
+
+
+def wake_event(now=None):
+    """Ближайший момент, когда ноутбук должен не спать: первая проверка утренней серии
+    (T−PRE), начало Сторожа или его следующая проверка. datetime или None."""
+    now = now or dt.datetime.now()
+    if series_active():
+        return now
+    s = load()
+    ev = []
+    t = next_alarm(s, now)
+    if t is not None:
+        ev.append(t - dt.timedelta(minutes=PRE))
+    for i in (0, 1, 2):
+        day = now.date() + dt.timedelta(days=i)
+        w = watch_for(s, day)
+        if not w:
+            continue
+        try:
+            a = dt.datetime.fromisoformat(day.isoformat() + "T" + w["from"])
+            b = dt.datetime.fromisoformat(day.isoformat() + "T" + w["to"])
+        except (ValueError, KeyError):
+            continue
+        if now < a:
+            al = alarm_on(s, day)          # ежедневный ждёт утренней серии — будит она
+            if not (w["daily"] and al is not None and last_rung() != day.isoformat()):
+                ev.append(a)
+        elif now <= b:                       # Сторож идёт — следующая проверка по сетке
+            step = dt.timedelta(minutes=int(w.get("every", WATCH_EVERY)))
+            ev.append(a + -(-(now - a) // step) * step)
+    return min(ev) if ev else None
+
+
+def rtc_wake_at(now=None):
+    """Когда разбудить (epoch) или 0 — будить не к чему."""
+    e = wake_event(now)
+    if e is None:
+        return 0
+    return int(max(e.timestamp() - RTC_LEAD * 60, time.time() + 60))
+
+
+def rtc_plan_write():
+    try:
+        if float(open(RTC_HOLD).read()) > time.time():
+            return
+    except (OSError, ValueError):
+        pass
+    t = rtc_wake_at()
+    os.makedirs(os.path.dirname(RTC_PLAN), exist_ok=True)
+    tmp = RTC_PLAN + ".tmp"
+    with open(tmp, "w") as f:
+        f.write("%d\n" % t)
+    os.replace(tmp, RTC_PLAN)
+    return t
+
+
+def rtc_ready():
+    """Хук стоит и часы доступны — можно спать, будильник разбудит."""
+    return os.access(RTC_HOOK, os.X_OK) and os.path.exists(RTC_SYS + "/wakealarm")
+
+
+def rtc_wakeups():
+    try:
+        return int(open(RTC_SYS + "/device/power/wakeup_count").read())
+    except (OSError, ValueError):
+        return -1
+
+
+def cmd_rtc(check=False):
+    t = rtc_plan_write()
+    if t is None:
+        t = int(open(RTC_PLAN).read() or 0)
+    probs = []
+    if not os.access(RTC_HOOK, os.X_OK):
+        probs.append("хук не установлен: " + RTC_HOOK)
+    if not os.path.exists(RTC_SYS + "/wakealarm"):
+        probs.append("нет %s/wakealarm" % RTC_SYS)
+    try:
+        if open(RTC_SYS + "/device/power/wakeup").read().strip() != "enabled":
+            probs.append("пробуждение от RTC запрещено (power/wakeup)")
+    except OSError:
+        pass
+    e = wake_event()
+    if not check:
+        print("событие: %s" % (e.strftime("%d.%m %H:%M") if e else "нет (будильник и Сторож выключены)"))
+        print("разбудить: %s" % (time.strftime("%d.%m %H:%M", time.localtime(t)) if t else "не нужно"))
+        print("хук: %s" % ("стоит" if os.access(RTC_HOOK, os.X_OK) else "НЕ СТОИТ"))
+        print("пробуждений от часов за загрузку: %d" % rtc_wakeups())
+    for p in probs:
+        print(p)
+    return 1 if probs else 0
+
+
+def cmd_rtc_test(sec):
+    """Усыпить ноутбук и проснуться по часам через sec секунд. Итог — в rtc-test.log рядом с планом."""
+    log = os.path.join(os.path.dirname(RTC_PLAN), "rtc-test.log")
+    if not rtc_ready():
+        print("хук не установлен — сначала sudo install (см. rtc)")
+        return 1
+    while 3 <= time.localtime().tm_sec <= 9:   # не попасть на минутный check таймера
+        time.sleep(1)
+    src0 = wake_sources()
+    t0, slept0 = time.time(), slept_total()
+    with open(RTC_HOLD, "w") as f:
+        f.write(str(t0 + sec + 120))
+    target = int(t0 + sec)
+    with open(RTC_PLAN, "w") as f:
+        f.write("%d\n" % target)
+    print("сплю, проснусь по часам через %d с — ничего не трогайте" % sec, flush=True)
+    subprocess.run(["systemctl", "suspend"])
+    while slept_total() - slept0 < 1 and time.time() - t0 < 60:
+        time.sleep(0.5)                       # процесс замёрзнет на время сна и оттает после
+    woke = time.time()                        # оттаял — с точностью до полсекунды + выход из сна
+    time.sleep(2)
+    slept = slept_total() - slept0
+    src1 = wake_sources()
+    with contextlib.suppress(OSError):
+        os.unlink(RTC_HOLD)
+    rtc_plan_write()
+    # Счётчик rtc0 wakeup_count на этом ноутбуке не растёт (RTC будит через ACPI), а AC и
+    # кнопка питания PNP0C0C отмечаются при КАЖДОМ выходе из сна. Доказательство — время:
+    # проснулся в назначенную секунду (+ выход из сна ~3 с), а не раньше.
+    late = woke - target
+    ok = slept >= 10 and -2 <= late <= 15
+    noise = ("AC", "PNP0C0C:00")
+    who = [n for n, c in src1.items() if c != src0.get(n) and n not in noise]
+    if slept < 1:
+        msg = "сна не было (за 60 с ноутбук не уснул)"
+    elif ok:
+        msg = "ПРОСНУЛСЯ ПО ЧАСАМ: спал %.0f с, назначено %s, проснулся %s" % (
+            slept, time.strftime("%H:%M:%S", time.localtime(target)),
+            time.strftime("%H:%M:%S", time.localtime(woke)))
+    else:
+        msg = "часы НЕ разбудили: спал %.0f с, проснулся на %+.0f с от назначенного" % (slept, late)
+        if who:
+            msg += "; события: " + ", ".join(who)
+    print(msg)
+    with open(log, "a") as f:
+        f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n")
+    subprocess.run(["notify-send", "-a", "Будильник", "Пробуждение по часам", msg],
+                   stderr=subprocess.DEVNULL)
+    return 0 if ok else 1
+
+
+def slept_total():
+    """Сколько секунд машина проспала с загрузки: BOOTTIME идёт во сне, MONOTONIC — нет."""
+    return time.clock_gettime(time.CLOCK_BOOTTIME) - time.clock_gettime(time.CLOCK_MONOTONIC)
+
+
+def wake_sources():
+    """{имя: счётчик событий} всех источников пробуждения — чтобы назвать, кто разбудил."""
+    out = {}
+    base = "/sys/class/wakeup"
+    for w in os.listdir(base) if os.path.isdir(base) else ():
+        try:
+            name = open(os.path.join(base, w, "name")).read().strip()
+            dev = os.path.realpath(os.path.join(base, w, "device"))
+            prod = os.path.join(dev, "product")
+            if os.path.exists(prod):
+                name += " (%s)" % open(prod).read().strip()
+            out[name] = int(open(os.path.join(base, w, "event_count")).read())
+        except (OSError, ValueError):
+            pass
+    return out
 
 
 def watch_for(s, day):
@@ -1360,7 +1542,15 @@ def main(argv):
     s = load()
     if cmd == "check":
         recover_speaker()
+        try:
+            rtc_plan_write()
+        except Exception as e:
+            print("план пробуждения не записан: %s" % e, file=sys.stderr)
         cmd_check()
+    elif cmd == "rtc":
+        return cmd_rtc(check=len(argv) > 2 and argv[2] == "check")
+    elif cmd == "rtc-test":
+        return cmd_rtc_test(int(argv[2]) if len(argv) > 2 else 60)
     elif cmd == "status":
         cmd_status()
     elif cmd == "set":

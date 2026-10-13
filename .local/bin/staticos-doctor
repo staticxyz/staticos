@@ -96,6 +96,10 @@ if have systemctl; then
     done
 fi
 
+[ -x /usr/lib/systemd/system-sleep/jarvis-rtc-wake ] && ok "alarm wake-up hook" \
+    || warn "alarm wake-up hook is not installed (the laptop will not sleep before an alarm)" \
+            "sed \"s|@HOME@|\$HOME|\" ~/.config/hypr/scripts/jarvis-rtc-wake.sh | sudo install -m 755 /dev/stdin /usr/lib/systemd/system-sleep/jarvis-rtc-wake"
+
 head_ "Session"
 if [ -n "${NIRI_SOCKET:-}" ]; then
     ok "running inside niri"

@@ -16,6 +16,7 @@ import importlib.util
 import os
 import subprocess
 import sys
+import time
 
 SAVAGE = os.path.expanduser("~/.config/hypr/scripts/savage_battery.py")
 
@@ -47,14 +48,21 @@ def main():
         hold("suspend")
         print("смотрят видео — сон пропущен")
         return 0
-    # Утренний будильник (wake_alarm.py) из сна разбудить не может — RTC без root.
+    # Будильник и Сторож. С 14.10.2026 сон будит RTC: хук jarvis-rtc-wake заводит часы на
+    # время из плана wake_alarm — спать можно до получаса перед проверкой. Хука нет —
+    # по-старому: ближе 14 ч к звонку не спать (из сна будильник не разбудит).
     try:
-        from wake_alarm import due_within
-        if due_within(14):
-            print("скоро будильник — сон пропущен")
+        import wake_alarm
+        ready = wake_alarm.rtc_ready()
+        if wake_alarm.due_within(wake_alarm.SLEEP_MARGIN if ready else 14):
+            print("скоро будильник или идёт Сторож — сон пропущен")
             return 0
-    except Exception as e:
-        print("будильник не проверен: %s" % e, file=sys.stderr)
+        if ready:
+            t = wake_alarm.rtc_plan_write()
+            print("разбудят часы: %s" % (time.strftime("%d.%m %H:%M", time.localtime(t)) if t else "не нужно"))
+    except Exception as e:                      # не знаем, разбудят ли — лучше не спать
+        print("будильник не проверен: %s — сон пропущен" % e, file=sys.stderr)
+        return 0
     if dry:
         print("сон бы состоялся (Savage Mode выключен)")
         return 0

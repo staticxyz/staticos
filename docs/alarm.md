@@ -55,6 +55,7 @@ Answer within 5 minutes or it rings again (for up to 30 minutes). It catches the
 went back to bed" case.
 
 If the computer was asleep at alarm time and wakes up within 30 minutes, it still rings.
+With the wake-up hook installed it does not have to: see [Sleep and waking up](#sleep-and-waking-up).
 
 While a morning series is running, today's alarm cannot be changed or turned off — not in
 Discipline, not from the terminal. Plan the evening before.
@@ -137,6 +138,38 @@ wake-alarm watch                              # list
 
 ---
 
+## Sleep and waking up
+
+A sleeping laptop cannot ring. So the laptop **wakes itself up**: before every sleep — idle,
+power menu, closed lid — a small root hook sets the hardware clock (RTC) to wake the machine
+**30 minutes before** the first check of the morning or the start of the Watchman.
+
+| When | Idle sleep |
+|---|---|
+| a check or a ring is less than 40 minutes away | no |
+| the Watchman is on duty (06:00–21:00) | no — it has to be awake for the checks |
+| the Watchman is off for today | yes, any time of day |
+| night | yes |
+
+Example: the alarm is at 07:00, so the first check is at 06:55. The laptop goes to sleep in
+the evening, wakes itself at 06:25 and is ready when the check comes.
+
+The installer offers the hook (one `sudo`). By hand:
+
+```sh
+sed "s|@HOME@|$HOME|" ~/.config/hypr/scripts/jarvis-rtc-wake.sh \
+    | sudo install -m 755 /dev/stdin /usr/lib/systemd/system-sleep/jarvis-rtc-wake
+wake-alarm rtc-test 60     # sleeps and must wake by itself in a minute — hands off
+wake-alarm rtc             # what the next wake-up is for and when
+journalctl -t jarvis-rtc-wake
+```
+
+Without the hook nothing breaks: the laptop simply does not go to sleep in the 14 hours
+before an alarm. Keep the lid open at night — with a closed lid the system will likely go
+back to sleep right after waking.
+
+---
+
 ## Telegram (optional)
 
 The alarm can also message you in Telegram: each check sends a small math question
@@ -196,6 +229,8 @@ wake-alarm watch off [DATE]
 wake-alarm watch daily [on | off --reason TEXT]
 wake-alarm watch skip [DATE] --reason TEXT | watch skip off [DATE]
 wake-alarm watch log [N]
+wake-alarm rtc [check]                   next wake-up from sleep
+wake-alarm rtc-test [SECONDS]            sleep and wake by the clock (60)
 ```
 
 `discipline`, `routine` and `alarm` all open the Discipline window.
@@ -208,6 +243,7 @@ wake-alarm watch log [N]
 | `~/.config/wake-alarm/env` | Telegram (optional) |
 | `~/.local/state/jarvis-wake/` | series state, logs, Watchman log |
 | `~/.config/systemd/user/wake-alarm.timer` | runs `wake-alarm check` every minute |
+| `/usr/lib/systemd/system-sleep/jarvis-rtc-wake` | wakes the laptop from sleep (root hook) |
 
 If nothing happens at all, check the timer:
 

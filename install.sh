@@ -210,6 +210,18 @@ enable_services() {
     info "${DIM}the alarm and the Watchman stay off until you turn them on (docs/alarm.md)${RST}"
 }
 
+rtc_wake_hook() {
+    step "Waking up for the alarm"
+    local hook=/usr/lib/systemd/system-sleep/jarvis-rtc-wake
+    info "the laptop may sleep when idle and wakes itself 30 min before the alarm or the Watchman"
+    info "${DIM}needs one root file: $hook (reads only a number from your ~/.local/state)${RST}"
+    ask "Install the wake-up hook?" || { info "skipped — without it the laptop stays awake before an alarm"; return; }
+    if [ "$DRY" = 1 ]; then run sudo install -m 755 "$S/jarvis-rtc-wake.sh" "$hook"; return; fi
+    sed "s|@HOME@|$HOME|" "$S/jarvis-rtc-wake.sh" | sudo install -m 755 -o root -g root /dev/stdin "$hook" \
+        && info "installed $hook — test it: wake-alarm rtc-test 60 (hands off for a minute)" \
+        || warn "could not install the hook"
+}
+
 check_path() {
     case ":$PATH:" in
         *":$HOME/.local/bin:"*) ;;
@@ -226,6 +238,7 @@ install_files
 build_helpers
 [ "$THEME" = 1 ] && first_palette
 enable_services
+rtc_wake_hook
 check_path
 
 step "Done"
