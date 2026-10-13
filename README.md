@@ -22,31 +22,15 @@ Every color comes from your wallpaper.
 > Screenshots show demo data: a made-up alarm plan and no chats or notifications of anyone's.
 > The windows are drawn by the same scripts that run on the desktop.
 
-## Highlights
+## Screenshots
 
-- **One palette everywhere.** Change the wallpaper and the bar, terminal, notifications,
-  GTK/Qt apps, cursor, icons and even the keyboard backlight follow it.
-- **Settings in one window** — `Super+/`. Bars, panels, fonts, lock screen, shaders, widgets,
-  sounds: no config files to edit. Three looks: Default, Skeet, Beta.
-- **An alarm you cannot sleep through.** It stops only when you type a phrase, checks on you
-  again later, and a daytime Watchman keeps you from dozing off. [How it works →](docs/alarm.md)
-- **Focus and pomodoro.** Block distracting sites and apps for a session, with a pomodoro on top.
-- **App list** — `Super+Alt+T`. Programs and packages with versions, one-key rollback to an
-  older version, hold, cleanup of package caches and logs, and a full system summary.
-- **Desktop widgets and an XP-style taskbar.** Clocks, player, weather, system monitor and more
-  as little `.exe` windows; an optional bottom panel with a Start button.
-- **Screenshots, OCR and recording.** Annotate, pin a screenshot on top, copy text off the screen,
-  record GIFs, videos and Telegram stickers.
-- **Own clipboard, Alt+Tab, lock screen and screensaver**, all keyboard-driven with vim keys.
-- **Pixel or regular look** in one switch: fonts, bar, notifications, menus, mixers and even
-  Discord follow it. **Super+Z** shows every shortcut, grouped and searchable.
-- **Config map** — `Super+Shift+Z`. Which file does what and what starts it, with a search
-  that understands synonyms, typos and the wrong keyboard layout. [See below ↓](#config-map--supershiftz)
-- **`Super+X` menu** in the spirit of Omarchy: apps by category, screenshots and toggles,
-  install / remove / update packages through fzf, system and power.
-- **Hub** — reminders, lists, timers and a spaced-repetition dictionary with no AI involved,
-  its own SQLite database, a Discipline-styled window (`Super+M`) and an optional Telegram bot
-  that reaches you when you're away from the computer. [How it works →](docs/hub.md)
+![Focus](assets/desktop-focus.png)
+
+<p align="center"><i>With the top bar and Focus: block distracting sites and apps for a session.</i></p>
+
+![Settings](assets/desktop-settings.png)
+
+<p align="center"><i>Settings: one window for bars, fonts, widgets, lock screen and more.</i></p>
 
 ## Config map — `Super+Shift+Z`
 
@@ -73,15 +57,33 @@ tells you what each file does and what starts it, without opening anything.
 | ![Config map: an area](assets/config-map-area.png) | ![Config map: search](assets/config-map-search.png) |
 | Inside an area: every file with what it does | Search by name, description or synonym |
 
-## Screenshots
+## Highlights
 
-![Focus](assets/desktop-focus.png)
+- **One palette everywhere.** Change the wallpaper and the bar, terminal, notifications,
+  GTK/Qt apps, cursor, icons and even the keyboard backlight follow it.
+- **Settings in one window** — `Super+/`. Bars, panels, fonts, lock screen, shaders, widgets,
+  sounds: no config files to edit. Three looks: Default, Skeet, Beta.
+- **An alarm you cannot sleep through.** It stops only when you type a phrase, checks on you
+  again later, and a daytime Watchman keeps you from dozing off. [How it works →](docs/alarm.md)
+- **Focus and pomodoro.** Block distracting sites and apps for a session, with a pomodoro on top.
+- **App list** — `Super+Alt+T`. Programs and packages with versions, one-key rollback to an
+  older version, hold, cleanup of package caches and logs, and a full system summary.
+- **Desktop widgets and an XP-style taskbar.** Clocks, player, weather, system monitor and more
+  as little `.exe` windows; an optional bottom panel with a Start button.
+- **Screenshots, OCR and recording.** Annotate, pin a screenshot on top, copy text off the screen,
+  record GIFs, videos and Telegram stickers.
+- **Own clipboard, Alt+Tab, lock screen and screensaver**, all keyboard-driven with vim keys.
+- **Pixel or regular look** in one switch: fonts, bar, notifications, menus, mixers and even
+  Discord follow it. **Super+Z** shows every shortcut, grouped and searchable.
+- **Config map** — `Super+Shift+Z`. Which file does what and what starts it, with a search
+  that understands synonyms, typos and the wrong keyboard layout. [See above ↑](#config-map--supershiftz)
+- **`Super+X` menu** in the spirit of Omarchy: apps by category, screenshots and toggles,
+  install / remove / update packages through fzf, system and power.
+- **Hub** — reminders, lists, timers and a spaced-repetition dictionary with no AI involved,
+  its own SQLite database, a Discipline-styled window (`Super+M`) and an optional Telegram bot
+  that reaches you when you're away from the computer. [How it works →](docs/hub.md)
 
-<p align="center"><i>With the top bar and Focus: block distracting sites and apps for a session.</i></p>
-
-![Settings](assets/desktop-settings.png)
-
-<p align="center"><i>Settings: one window for bars, fonts, widgets, lock screen and more.</i></p>
+## More screenshots
 
 | | |
 |:-:|:-:|
