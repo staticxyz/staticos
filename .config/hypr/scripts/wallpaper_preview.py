@@ -34,44 +34,13 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import GdkPixbuf, GLib  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCALE = 0.6                   # снимок монитора: 1920×1080 → 1152×648
+sys.path.insert(0, HERE)
+from wp_grab import SCALE, grim_cmd, niri_env, outputs  # noqa: E402,F401  (снимки — wp_grab.py)
 CACHE = os.path.expanduser("~/.cache/wallpaper-thumbs")
 CURRENT = os.path.expanduser("~/.cache/matugen/wallpaper")
 SIGMA = 12.0                  # «близко к цвету палитры», в единицах 0–255
 FAR = 30.0                    # дальше этого — пиксель не трогаем
 WALL_NEAR, WALL_FAR = 8.0, 26.0   # разница со старыми обоями: обои ↔ уже не обои
-
-
-def niri_env():
-    env = dict(os.environ)
-    if not env.get("NIRI_SOCKET"):
-        rd = "/run/user/%d" % os.getuid()
-        try:
-            socks = sorted(n for n in os.listdir(rd) if n.startswith("niri.") and n.endswith(".sock"))
-            if socks:
-                env["NIRI_SOCKET"] = os.path.join(rd, socks[0])
-        except OSError:
-            pass
-    return env
-
-
-def outputs():
-    """[(имя, x, y, ширина, высота)] слева направо и признак фокуса."""
-    env = niri_env()
-    try:
-        raw = json.loads(subprocess.run(["niri", "msg", "-j", "outputs"], env=env,
-                                        capture_output=True, timeout=3).stdout)
-        foc = json.loads(subprocess.run(["niri", "msg", "-j", "focused-output"], env=env,
-                                        capture_output=True, timeout=3).stdout or "null")
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return [], None
-    mons = []
-    for name, o in raw.items():
-        lg = o.get("logical") or {}
-        if lg:
-            mons.append((name, lg["x"], lg["y"], lg["width"], lg["height"]))
-    mons.sort(key=lambda m: (m[1], m[2]))
-    return mons, (foc or {}).get("name")
 
 
 # ── картинки ↔ numpy ────────────────────────────────────────────────────
@@ -91,11 +60,13 @@ def np_to_pix(arr):
         GdkPixbuf.Colorspace.RGB, False, 8, w, h, w * 3)
 
 
-def grab(mon, w, h):
-    """Снимок монитора в размере w×h (до того, как лента его закроет)."""
+def grab(mon, w, h, raw=None):
+    """Снимок монитора в размере w×h (до того, как лента его закроет). raw — готовые
+    байты ppm от wp_grab (снят заранее, параллельно загрузке GTK)."""
     try:
-        raw = subprocess.run(["grim", "-t", "ppm", "-s", "%.3f" % SCALE, "-o", mon, "-"],
-                             capture_output=True, timeout=5, env=niri_env()).stdout
+        if raw is None:
+            raw = subprocess.run(grim_cmd(mon), capture_output=True, timeout=5,
+                                 env=niri_env()).stdout
         loader = GdkPixbuf.PixbufLoader()
         loader.write(raw)
         loader.close()
@@ -107,14 +78,48 @@ def grab(mon, w, h):
     return pix_to_np(pix)
 
 
-def cover(path, w, h):
-    """Картинка «fill», как её кладёт awww: заполнить и обрезать по центру."""
+def cover_file(path, w, h):
+    """Где лежит готовая копия cover(path, w, h) (13.10.2026, ускорение листания)."""
+    st = os.stat(path)
+    key = hashlib.sha1(("%s|%d|%dx%d" % (path, st.st_mtime, w, h)).encode()).hexdigest()[:16]
+    return os.path.join(CACHE, "cov-%s.jpg" % key)
+
+
+def _cover_pix(path, w, h):
+    _fmt, iw, ih = GdkPixbuf.Pixbuf.get_file_info(path)
+    s = max(w / iw, h / ih)
+    sw, sh = max(w, round(iw * s)), max(h, round(ih * s))
+    pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, sw, sh, False)
+    return pix.new_subpixbuf((sw - w) // 2, (sh - h) // 2, w, h).copy()
+
+
+def warm_cover(path, w, h):
+    """Положить в кэш копию обоев в размере снимка — фоном, пока лента открыта.
+    Полноразмерная картинка декодируется 0,1–0,3 с, копия 1152×648 — сотые доли."""
     try:
-        _fmt, iw, ih = GdkPixbuf.Pixbuf.get_file_info(path)
-        s = max(w / iw, h / ih)
-        sw, sh = max(w, round(iw * s)), max(h, round(ih * s))
-        pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, sw, sh, False)
-        pix = pix.new_subpixbuf((sw - w) // 2, (sh - h) // 2, w, h).copy()
+        out = cover_file(path, w, h)
+        if os.path.isfile(out):
+            return out
+        os.makedirs(CACHE, exist_ok=True)
+        tmp = "%s.%x.tmp" % (out, id(object()))   # лента и превью могут писать разом
+        _cover_pix(path, w, h).savev(tmp, "jpeg", ["quality"], ["94"])
+        os.replace(tmp, out)
+        return out
+    except Exception:
+        return None
+
+
+def cover(path, w, h, cached=False):
+    """Картинка «fill», как её кладёт awww: заполнить и обрезать по центру.
+    cached — взять копию из кэша (warm_cover); для маски «где обои» — точная, без него."""
+    try:
+        if cached:
+            f = warm_cover(path, w, h)
+            if f:
+                pix = GdkPixbuf.Pixbuf.new_from_file(f)
+                if pix.get_width() == w and pix.get_height() == h:
+                    return pix_to_np(pix)
+        pix = _cover_pix(path, w, h)
     except Exception:
         return None
     return pix_to_np(pix)
@@ -335,11 +340,11 @@ def widget_rects(mon):
 class Desk:
     """Снимок одного монитора и всё, что нужно, чтобы перекрасить его под другие обои."""
 
-    def __init__(self, name, w, h):
+    def __init__(self, name, w, h, raw=None):
         self.name = name
         self.W, self.H = w, h
         self.w, self.h = int(w * SCALE), int(h * SCALE)
-        self.shot = grab(name, self.w, self.h)
+        self.shot = grab(name, self.w, self.h, raw)
         self.mask = None          # 1 — тут видны обои
         self.see = None           # доля обоев, просвечивающих сквозь окно (kitty)
         self.old_wall = None
@@ -393,7 +398,7 @@ class Desk:
             return None
         img = remap(self.shot, old_pal, new_pal) if old_pal and new_pal else self.shot
         if self.mask is not None and wall:
-            nw = cover(wall, self.w, self.h)
+            nw = cover(wall, self.w, self.h, cached=True)
             if nw is not None:
                 if self.sigma:
                     nw = box_blur(nw, self.sigma)
@@ -403,10 +408,15 @@ class Desk:
         return img
 
 
-def grab_all():
-    """Снять все мониторы. Вернуть ({имя: Desk}, порядок слева направо, имя в фокусе)."""
-    mons, focused = outputs()
-    desks = {m[0]: Desk(m[0], m[3], m[4]) for m in mons}
+def grab_all(early=None):
+    """Снять все мониторы. Вернуть ({имя: Desk}, порядок слева направо, имя в фокусе).
+    early — wp_grab.Grabs, запущенный заранее: тогда grim уже отработал."""
+    if early is not None:
+        mons, focused = early.mons, early.focused
+        desks = {m[0]: Desk(m[0], m[3], m[4], early.raw(m[0])) for m in mons}
+    else:
+        mons, focused = outputs()
+        desks = {m[0]: Desk(m[0], m[3], m[4]) for m in mons}
     return desks, [m[0] for m in mons], focused
 
 

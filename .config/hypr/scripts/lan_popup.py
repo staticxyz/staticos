@@ -86,6 +86,11 @@ EXTRA_CSS = """
 /* Пиксельный шрифт кеглем 16 — кратно его сетке 8 px, иначе мылится (12 тоже мылится, замер 05.10.2026). */
 .popup-box { font-family: 'PxPlus HP 100LX 6x8 Jarvis', 'JetBrainsMono NF', sans-serif;
              font-size: 12px; padding: 10px 12px 10px 12px; }
+/* Вид Omarchy (13.10.2026): значок и имя сети крупно, подписи мелкие и тусклые,
+   значения — обычным цветом под ними, кнопки большие (.bak-omarchy-look). */
+label.hicon { font-size: 26px; color: %(primary)s; }
+label.cap { color: %(on_surface_variant)s; letter-spacing: 1px; }
+label.key { color: %(on_surface_variant)s; }
 label { font-weight: normal; font-size: 12px; }
 label.title { font-size: 16px; }
 label.big { font-size: 16px; }
@@ -98,12 +103,13 @@ label.down { color: %(primary)s; }
 label.up { color: %(tertiary)s; }
 label.oth { color: %(secondary)s; }
 separator { margin: 2px 0; }
-button.go { font-size: 12px; font-weight: normal; padding: 3px 12px; min-height: 0; }
-label.verdict { font-size: 16px; }
-button.more { font-size: 12px; font-weight: normal; padding: 0 8px; min-height: 0;
-              background: none; border: none; box-shadow: none;
-              color: %(on_surface_variant)s; }
-button.more:hover { color: %(primary)s; }
+button.go, button.more { font-size: 12px; font-weight: normal; padding: 8px 6px;
+                         min-height: 18px; border-radius: 6px; }
+label.verdict { font-size: 12px; }
+button.more { background-image: none; box-shadow: none;
+              background-color: %(surface_container)s; color: %(on_surface)s;
+              border: 1px solid %(outline_variant)s; }
+button.more:hover { border-color: %(primary)s; color: %(primary)s; }
 button.go:disabled { background-color: %(surface_high)s; color: %(on_surface_variant)s; }
 progressbar trough { min-height: 6px; border: none; border-radius: 3px;
                      background-color: %(surface_container)s; }
@@ -685,21 +691,33 @@ class LanPopup(Gtk.Window):
         self.popup_event.add(vbox)
 
         # ── шапка ──
-        head = Gtk.Box(spacing=8)
-        head.pack_start(self.label("󰤨  Wi-Fi" if WIFI else "󰈀  Сеть", "title"),
-                        False, False, 0)
-        self.iface_lbl = self.label("", "dim", xalign=1)
-        head.pack_end(self.iface_lbl, False, False, 0)
+        # Как у Omarchy (13.10.2026): значок, имя сети крупно, под ним мелко —
+        # интерфейс и скорость линка (или диапазон Wi-Fi).
+        head = Gtk.Box(spacing=12)
+        self.hicon = self.label("󰤨" if WIFI else "󰈀", "hicon")
+        head.pack_start(self.hicon, False, False, 0)
+        hb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        hb.set_valign(Gtk.Align.CENTER)
+        self.hname = self.label("Wi-Fi" if WIFI else "Ethernet", "title")
+        self.hsub = self.label("", "cap")
+        for lb in (self.hname, self.hsub):
+            lb.set_ellipsize(Pango.EllipsizeMode.END)
+            hb.pack_start(lb, False, False, 0)
+        head.pack_start(hb, True, True, 0)
+        self.iface_lbl = self.label("")      # не на экране: интерфейс — в hsub
         vbox.pack_start(head, False, False, 0)
 
         # Плашка Wi-Fi, когда интернет идёт не через неё: одна понятная
         # фраза вместо всей статистики (08.10.2026).
-        self.note = self.label("", xalign=0.5)
-        self.note.set_line_wrap(True)
-        self.note.set_max_width_chars(34)
-        self.note.set_justify(Gtk.Justification.CENTER)
+        self.note = self.label("", "title", xalign=0.5)
         self.note.set_no_show_all(True)
-        vbox.pack_start(self.note, False, False, 6)
+        vbox.pack_start(self.note, False, False, 10)
+        self.note_sub = self.label("", "dim", xalign=0.5)
+        self.note_sub.set_line_wrap(True)
+        self.note_sub.set_max_width_chars(34)
+        self.note_sub.set_justify(Gtk.Justification.CENTER)
+        self.note_sub.set_no_show_all(True)
+        vbox.pack_start(self.note_sub, False, False, 0)
         self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         self.body.set_no_show_all(WIFI)   # покажем, когда узнаем, куда идёт сеть
         vbox.pack_start(self.body, False, False, 0)
@@ -802,7 +820,7 @@ class LanPopup(Gtk.Window):
         # ── пинг ──
         vbox.pack_start(Gtk.Separator(), False, False, 0)
         pg = Gtk.Grid(column_spacing=10, row_spacing=1)
-        pg.attach(self.label("Пинг", "sec"), 0, 0, 1, 1)
+        pg.attach(self.label(""), 0, 0, 1, 1)
         for c, t in enumerate(("среднее", "разброс", "потери"), 1):
             lb = self.label(t, "dim", xalign=1)
             lb.set_hexpand(True)
@@ -820,7 +838,7 @@ class LanPopup(Gtk.Window):
 
         # ── замер скорости ──
         vbox.pack_start(Gtk.Separator(), False, False, 0)
-        self.speed_btn = Gtk.Button(label="Проверить скорость")
+        self.speed_btn = Gtk.Button(label="Скорость")
         self.speed_btn.get_style_context().add_class("go")
         self.speed_btn.connect("clicked", self.start_speedtest)
         vbox.pack_start(self.speed_btn, False, False, 0)
@@ -836,30 +854,64 @@ class LanPopup(Gtk.Window):
         vbox.pack_start(self.hist_grid, False, False, 2)
         self.fill_history()
 
-        # ── простой вид: перекладываем блоки, подробности — в раскрывашку ──
+        # ── простой вид (13.10.2026, по образцу Omarchy, Просьба: «всю плашку
+        # заполняет текст»): строка состояния, сетка «подпись над значением» в две
+        # колонки, две крупные кнопки. Цепочка, график, пинг, все сведения и
+        # замеры — под «Подробнее», каждый блок со своей мелкой надписью.
         for w in vbox.get_children():
             vbox.remove(w)
+        self.verdict.set_xalign(0)
+        self.verdict.set_justify(Gtk.Justification.LEFT)
+        self.verdict.set_max_width_chars(34)
+        vbox.pack_start(self.verdict, False, False, 8)
+        cg = Gtk.Grid(column_spacing=16, row_spacing=10, column_homogeneous=True)
+        self.cells = {}
 
-        def sep(box):
-            box.pack_start(Gtk.Separator(), False, False, 0)
-        for w, pad in ((self.chain_da, 2), (names, 0), (vals, 0), (self.verdict, 3)):
-            vbox.pack_start(w, False, False, pad)
-        sep(vbox)
-        vbox.pack_start(th, False, False, 0)
-        vbox.pack_start(self.oth_row, False, False, 0)
-        sep(vbox)
-        for w, pad in ((self.speed_btn, 0), (self.progress, 2), (self.speed_msg, 0)):
-            vbox.pack_start(w, False, False, pad)
+        def cell(key, title, col, row, cls=None, tip=None):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+            k, v = self.label(title, "key"), self.label("…", cls)
+            for lb in (k, v):
+                lb.set_ellipsize(Pango.EllipsizeMode.END)
+                box.pack_start(lb, False, False, 0)
+            box.set_tooltip_text(tip)
+            cg.attach(box, col, row, 1, 1)
+            self.cells[key] = (box, k, v)
+        r = 0
+        if WIFI:
+            cell("signal", "Сигнал", 0, 0, tip=tips["signal"])
+            cell("rate", "Связь", 1, 0, tip=tips["rate"])
+            r = 1
+        cell("ping", "Пинг", 0, r, tip="До интернета, среднее за последние замеры")
+        cell("loss", "Потери", 1, r, tip="Сколько пингов до интернета потерялось")
+        cell("down", "Приём", 0, r + 1, "down")
+        cell("up", "Отдача", 1, r + 1, "up")
+        cell("odown", "Другие · приём", 0, r + 2, "oth")
+        cell("oup", "Другие · отдача", 1, r + 2, "up")
+        cell("addr", "Адрес", 0, r + 3)
+        cell("gw", "Шлюз", 1, r + 3)
+        for key in ("odown", "oup"):       # пока роутер не отдал счётчики — скрыты
+            box = self.cells[key][0]
+            box.show_all()
+            box.set_no_show_all(True)
+            box.hide()
+        vbox.pack_start(cg, False, False, 2)
+        btns = Gtk.Box(spacing=8, homogeneous=True)
         self.more_btn = Gtk.Button()
         self.more_btn.get_style_context().add_class("more")
         self.more_btn.connect("clicked", lambda *_a: self.set_details(not self.details_on))
-        vbox.pack_start(self.more_btn, False, False, 0)
+        btns.pack_start(self.speed_btn, True, True, 0)
+        btns.pack_start(self.more_btn, True, True, 0)
+        vbox.pack_start(btns, False, False, 10)
+        vbox.pack_start(self.progress, False, False, 0)
+        vbox.pack_start(self.speed_msg, False, False, 2)
         self.details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        for w, pad in ((self.graph, 2), (None, 0), (pg, 0), (None, 0), (grid, 0),
-                       (None, 0), (self.hist_grid, 2)):
-            if w is None:
-                sep(self.details)
-            else:
+        for title, ws in (("Цепочка", ((self.chain_da, 0), (names, 0), (vals, 0))),
+                          ("Трафик за %d с" % GRAPH_SEC, ((self.graph, 0),)),
+                          ("Пинг", ((pg, 0),)),
+                          ("Подключение", ((grid, 0),)),
+                          ("Замеры, Мбит/с", ((self.hist_grid, 0),))):
+            self.details.pack_start(self.label(title.upper(), "cap"), False, False, 6)
+            for w, pad in ws:
                 self.details.pack_start(w, False, False, pad)
         vbox.pack_start(self.details, False, False, 0)
         try:
@@ -890,7 +942,7 @@ class LanPopup(Gtk.Window):
 
     def set_details(self, on, save=True):
         self.details_on = on
-        self.more_btn.set_label("Скрыть подробности ▴" if on else "Подробнее ▾")
+        self.more_btn.set_label("Свернуть" if on else "Подробнее")
         # no_show_all: show_all() у тела (плашка Wi-Fi) не раскроет свёрнутое.
         self.details.set_no_show_all(not on)
         if on:
@@ -973,6 +1025,7 @@ class LanPopup(Gtk.Window):
         self.info["dns"].set_text(", ".join(d.get("dns") or []) or "—")
         self.update_link()
         self.judge()
+        self.sync_grid()
         return False
 
     def apply_ext(self, e):
@@ -1027,6 +1080,56 @@ class LanPopup(Gtk.Window):
                 parts.append(duplex)
             self.info["link"].set_text(" · ".join(parts) or "есть")
 
+    def sync_grid(self):
+        """Шапка и сетка простого вида — из подписей подробностей (раз в секунду
+        и после каждого обновления)."""
+        def put(lb, text, like=None):
+            if lb.get_text() != text:
+                lb.set_text(text)
+            if like is not None:
+                ctx = like.get_style_context()
+                self.set_cls(lb, next((c for c in ("bad", "warn") if ctx.has_class(c)), None))
+        c = self.cells
+        avg, _jit, loss = self.ping_cells["net"]
+        put(c["ping"][2], avg.get_text())
+        put(c["loss"][2], loss.get_text(), loss)
+        put(c["down"][2], fmt_rate(self.rx[-1]) if self.prev else "…")
+        put(c["up"][2], fmt_rate(self.tx[-1]) if self.prev else "…")
+        on = bool(self.others_ok)
+        for key, lb, word in (("odown", self.oth_down, "приём"), ("oup", self.oth_up, "отдача")):
+            box, k, v = c[key]
+            box.set_visible(on)
+            put(k, "%s · %s" % (self.oth_name.get_text(), word))
+            put(v, lb.get_text()[2:])
+            box.set_tooltip_text(self.oth_row.get_tooltip_text())
+        put(c["addr"][2], self.info["addr"].get_text())
+        put(c["gw"][2], self.info["gw"].get_text())
+        iface = (self.iface or "нет интерфейса").upper()
+        if WIFI:
+            # В полколонки входит ~17 знаков: «−48 дБм · отличный» не влезает —
+            # единицы в подпись: «Сигнал, дБм» / «−48 отличный».
+            sig = self.info["signal"].get_text()
+            put(c["signal"][2], sig.replace(" дБм ·", ""), self.info["signal"])
+            put(c["signal"][1], "Сигнал, дБм" if "дБм" in sig else "Сигнал")
+            val, _s, gen = self.info["rate"].get_text().partition(" · ")
+            put(c["rate"][2], val)
+            put(c["rate"][1], "Связь" + (" · " + gen if gen else ""))
+            if self.view == "wifi" and self.wifi:
+                name = self.wifi.get("ssid") or "Wi-Fi"
+                sub = "%s · %s" % (self.info["band"].get_text().upper(), iface)
+            else:
+                name, sub = "Wi-Fi", iface
+            icon = "󰤨"
+        else:
+            name = "Wi-Fi" if self.wireless else "Ethernet"
+            icon = "󰤨" if self.wireless else "󰈀"
+            link = self.info["link"].get_text()
+            link = link.replace(" · дуплекс", "")       # полудуплекс — оставить, это повод
+            sub = iface + (" · " + link.upper() if link not in ("", "—", "…") else "")
+        put(self.hname, name)
+        put(self.hsub, sub)
+        put(self.hicon, icon)
+
     # ── трафик ────────────────────────────────────────────────────────────
     def tick(self):
         if self.iface:
@@ -1044,6 +1147,7 @@ class LanPopup(Gtk.Window):
             self.update_link()
             self.judge()
         self.graph.queue_draw()
+        self.sync_grid()
         return True
 
     def wifi_round(self):
@@ -1061,26 +1165,20 @@ class LanPopup(Gtk.Window):
     def apply_wifi(self, d):
         """Что показать: статистику или одну фразу."""
         link, route = d.get("link"), d.get("route")
+        # 13.10.2026, просьба: вместо абзаца про кабель — просто «Ethernet».
         if not d["iface"]:
-            view, note = "none", "На этом ноутбуке не найден Wi-Fi адаптер"
+            view, note = "none", ("Нет Wi-Fi адаптера", "")
         elif not d.get("radio"):
-            view, note = "off", "Wi-Fi выключен.\n\nВключить — левой кнопкой по значку Wi-Fi."
+            view, note = "off", ("Wi-Fi выключен", "включить — щелчок по значку Wi-Fi")
         elif route and route != d["iface"]:
-            view = "cable"
-            note = ("Весь интернет идёт через кабель.\n\n" +
-                    ("Wi-Fi «%s» подключён про запас: выдернете кабель — "
-                     "сеть сама перейдёт на него." % link.get("ssid", "?") if link else
-                     "Wi-Fi ни к чему не подключён.") +
-                    "\n\nПодробности — щелчок по «lan».")
+            view, note = "cable", ("󰈀  Ethernet", "")
         elif not link:
-            view, note = "none", ("Wi-Fi включён, но ни к одной сети не подключён.\n\n"
-                                  "Список сетей — левой кнопкой по значку Wi-Fi.")
+            view, note = "none", ("Не подключён", "список сетей — щелчок по значку Wi-Fi")
         else:
-            view, note = "wifi", ""
+            view, note = "wifi", ("", "")
         if view != self.view:
             self.view = view
-            self.note.set_text(note)
-            self.note.set_visible(view != "wifi")
+            self.set_note(*note)
             self.body.set_no_show_all(False)
             if view == "wifi":
                 self.body.show_all()
@@ -1090,9 +1188,15 @@ class LanPopup(Gtk.Window):
             else:
                 self.body.hide()
         elif view != "wifi":
-            self.note.set_text(note)
+            self.set_note(*note)
         self.air = d.get("air")
         self.apply_link(link)
+
+    def set_note(self, text, sub):
+        self.note.set_text(text)
+        self.note.set_visible(bool(text))
+        self.note_sub.set_text(sub)
+        self.note_sub.set_visible(bool(sub))
 
     def crowded(self):
         air = getattr(self, "air", None) or []
@@ -1412,6 +1516,7 @@ class LanPopup(Gtk.Window):
             l.set_text("%.0f%%" % loss)
             self.set_cls(l, "bad" if loss >= 20 else "warn" if loss > 0 else None)
         self.judge()
+        self.sync_grid()
         return False
 
     def dns_round(self):
@@ -1506,52 +1611,64 @@ class LanPopup(Gtk.Window):
 
         def busy(share):
             return bool(load) and (load[0] >= share * cap[0] or load[1] >= share * cap[1])
+        # Коротко, в одну строку; почему и что делать — в подсказке (13.10.2026).
+        tip = None
         if ch[0] == "bad":
-            text, cls = ("Кабель не подключён или нет линка" if wired
-                         else "Wi-Fi не подключён"), "bad"
+            text, cls = ("Кабель не подключён" if wired else "Wi-Fi не подключён"), "bad"
+            tip = "Нет линка: кабель не вставлен, повреждён или порт выключен." if wired else None
         elif not self.gw:
-            text, cls = "Линк есть, а адреса и шлюза нет — DHCP не ответил", "bad"
+            text, cls = "Нет адреса", "bad"
+            tip = "Линк есть, а адреса и шлюза нет — DHCP роутера не ответил."
         elif gw_s == "bad":
-            text, cls = "Роутер не отвечает — проверьте роутер и кабель до него", "bad"
+            text, cls, tip = "Роутер не отвечает", "bad", "Проверьте роутер и кабель до него."
         elif net_s == "bad":
-            text, cls = "До роутера связь есть, дальше нет — роутер или провайдер", "bad"
+            text, cls = "Нет интернета", "bad"
+            tip = "До роутера связь есть, дальше нет — роутер или провайдер."
         elif dns_s == "bad":
-            text, cls = "Интернет есть, но имена не разрешаются — DNS", "bad"
+            text, cls = "Не работает DNS", "bad"
+            tip = "Интернет есть, но имена сайтов не разрешаются."
         elif self.speed_busy:
-            text, cls = "Идёт замер скорости — он сам занимает весь канал", "dim"
+            text, cls = "Идёт замер скорости", "dim"
+            tip = "Замер сам занимает весь канал — пинг сейчас выше обычного."
         elif "wait" in ch:
             text, cls = "Проверяю…", "dim"
         elif ch[0] == "warn" and WIFI:
-            text, cls = "Слабый сигнал Wi-Fi — подойдите ближе к роутеру", "warn"
+            text, cls, tip = "Слабый сигнал", "warn", "Подойдите ближе к роутеру."
         elif ch[0] == "warn":
-            text, cls = "Линк поднялся не на полной скорости — кабель или порт", "warn"
+            text, cls = "Кабель не на полной скорости", "warn"
+            tip = "Линк поднялся не на гигабите (или в полудуплексе) — кабель или порт."
         elif gw_s == "warn" and not gw_mute and WIFI:
-            text, cls = ("Wi-Fi до роутера теряет пакеты — %s" % (
+            text, cls = "Потери до роутера", "warn"
+            tip = "Wi-Fi до роутера теряет пакеты — %s." % (
                 "канал забит соседними сетями" if self.crowded()
-                else "стены, расстояние или помехи")), "warn"
+                else "стены, расстояние или помехи")
         elif gw_s == "warn" and not gw_mute:
-            text, cls = "Связь есть, но до роутера потери или задержки", "warn"
+            text, cls = "Потери до роутера", "warn"
+            tip = "Связь есть, но до роутера потери или задержки."
         elif net_s == "warn":
             # До роутера чисто, дальше хуже: канал забили другие — или это
             # роутер/провайдер. Счётчики роутера отличают одно от другого.
-            text, cls = "Связь есть, но до интернета потери или задержки", "warn"
-            if load:
-                if busy(OTHERS_BLAME):
-                    text = ("Задержки из-за «%s»:\nкачает %s" % (name, who) if name else
-                            "Задержки из-за других устройств: они грузят канал %s" % who)
-                elif mine_busy:
-                    text = "Задержки, потому что этот ноутбук сам грузит канал %s" % mine
-                else:
-                    text = "Задержки до интернета, а канал свободен — роутер или провайдер"
+            text, cls = "Задержки до интернета", "warn"
+            tip = "Связь есть, но до интернета потери или задержки."
+            if load and busy(OTHERS_BLAME):
+                text = "Канал грузит «%s»" % name if name else "Канал грузят другие"
+                tip = "Задержки из-за них: качают %s." % who
             elif mine_busy:
-                text = "Задержки, потому что этот ноутбук сам грузит канал %s" % mine
+                text = "Канал грузит этот ноутбук"
+                tip = "Задержки из-за своего трафика: %s." % mine
+            elif load:
+                tip = "Канал свободен — значит, роутер или провайдер."
         elif busy(OTHERS_BUSY):
-            text, cls = ("Канал занял «%s»:\nкачает %s" % (name, who) if name else
-                         "Работает, но канал заняли другие устройства: %s" % who), "warn"
+            text, cls = ("Канал занял «%s»" % name if name else "Канал заняли другие"), "warn"
+            tip = "Работает, но качают %s." % who
         elif dns_s == "warn":
-            text, cls = "Всё работает, но DNS отвечает медленно", "warn"
+            text, cls = "DNS отвечает медленно", "warn"
+            tip = "Всё работает, но сайты открываются с задержкой."
         else:
             text, cls = "Всё в порядке", "ok"
+        text = "● " + text
+        if self.verdict.get_tooltip_text() != tip:
+            self.verdict.set_tooltip_text(tip)
         if self.verdict.get_text() != text:
             self.verdict.set_text(text)
         self.set_cls(self.verdict, cls)
@@ -1607,9 +1724,6 @@ class LanPopup(Gtk.Window):
                                         % h["others"])
                 lb.set_hexpand(c > 0)
                 self.hist_grid.attach(lb, c, r, 1, 1)
-        if hist:
-            note = self.label("Мбит/с, последние замеры", "dim", xalign=1)
-            self.hist_grid.attach(note, 0, len(hist), 4, 1)
         self.hist_grid.show_all()
 
     def start_speedtest(self, *_a):
@@ -1617,7 +1731,7 @@ class LanPopup(Gtk.Window):
             return
         self.speed_busy = True
         self.speed_btn.set_sensitive(False)
-        self.speed_btn.set_label("Идёт замер…")
+        self.speed_btn.set_label("Замер…")
         self.progress.set_fraction(0)
         self.progress.show()
         self.say("Пинг до сервера…")
@@ -1667,7 +1781,7 @@ class LanPopup(Gtk.Window):
         self.cap = self.capacity()
         self.progress.hide()
         self.speed_btn.set_sensitive(True)
-        self.speed_btn.set_label("Проверить ещё раз")
+        self.speed_btn.set_label("Ещё раз")
         if err:
             self.say("Замер не удался: %s" % err, "bad")
         else:

@@ -156,9 +156,14 @@ class Popup(Gtk.Window):
                 bar.set_size_request(-1, 1)
                 bar.get_style_context().add_class(cls)
                 self.panel.pack_start(bar, False, False, 0)
+        # Заголовок: имя окна + крестик как у Recorder (13.10.2026, Просьба: «В Super+C тоже»).
+        tbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        tbar.get_style_context().add_class("title")
         title = Gtk.Label(label=TITLE, xalign=0.0)
-        title.get_style_context().add_class("title")
-        self.panel.pack_start(title, False, False, 0)
+        title.set_hexpand(True)
+        tbar.pack_start(title, True, True, 0)
+        tbar.pack_end(self.close_button(), False, False, 0)
+        self.panel.pack_start(tbar, False, False, 0)
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         body.get_style_context().add_class("body")
         self.panel.pack_start(body, False, False, 0)
@@ -196,6 +201,26 @@ class Popup(Gtk.Window):
         body.pack_start(res, False, False, 0)
         res.set_no_show_all(True)              # пока нечего показывать
         self.add(self.panel)
+
+    def close_button(self, size=22):
+        import exe_frame
+        box = Gtk.EventBox()
+        box.set_valign(Gtk.Align.CENTER)
+        area = Gtk.DrawingArea()
+        area.set_size_request(size, size)
+        box.add(area)
+        box.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK
+                       | Gdk.EventMask.BUTTON_RELEASE_MASK)
+        hover = [False]
+
+        def set_hover(on):
+            hover[0] = on
+            area.queue_draw()
+        area.connect("draw", lambda _a, cr: exe_frame.recorder_close(cr, self.style, size, hover[0]))
+        box.connect("enter-notify-event", lambda *_: set_hover(True))
+        box.connect("leave-notify-event", lambda *_: set_hover(False))
+        box.connect("button-release-event", lambda _b, ev: ev.button == 1 and self.close())
+        return box
 
     def apply_css(self):
         css = style_css(self.style)

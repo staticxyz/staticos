@@ -38,6 +38,7 @@ include "cfg/animations.kdl"
 include "cfg/window-fx.kdl"   // эффект открытия/закрытия окон, пишет window_fx.py
 include "cfg/binds.kdl"
 include "cfg/rec-binds.kdl"   // временные бинды записи экрана (M — микрофон), см. rec_area.sh
+include "cfg/ws-layout.kdl"    // раскладка стола tiling: center-focused-column never, пишет ws_layout.py
 
 // ─── Остаётся В ГЛАВНОМ файле, а не в cfg/ ───
 // Подключённые файлы niri СЛИВАЕТ со своими умолчаниями, а главный — заменяет

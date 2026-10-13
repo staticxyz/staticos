@@ -105,6 +105,12 @@ def build(color):
                 made += 1
         if made:
             dirs.append(size + "/places")
+    # kitty в цвет акцента (kitty_icon.py, 13.10.2026): его каталоги — в общий список.
+    try:
+        import kitty_icon
+        dirs += [d for d in kitty_icon.paint_papirus(tmp) if d not in dirs]
+    except Exception as e:
+        print("kitty_icon: %s" % e)
     # Описания каталогов — из index.theme самого Papirus.
     idx = open(os.path.join(SRC, "index.theme"), encoding="utf-8").read()
     sections = []

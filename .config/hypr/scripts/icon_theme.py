@@ -1361,6 +1361,11 @@ def _build(force, apps, log):
                 f.write("Type=Fixed\n")
     with open(os.path.join(tmp, ".signature"), "w") as f:
         f.write(sig + "\n")
+    try:    # kitty в цвет акцента (kitty_icon.py, 13.10.2026)
+        import kitty_icon
+        kitty_icon.paint_pixel(tmp)
+    except Exception as e:
+        log("kitty_icon: %s" % e)
 
     old = DST + ".old"
     shutil.rmtree(old, ignore_errors=True)

@@ -43,12 +43,12 @@ TRACKED=(
     # Редактор снимков SHIFT+Print (глобальные клавиши в нём выключены — иначе падает).
     ".config/ksnip/ksnip.conf"
     # Команда лаунчера (menu) для WIN+SPACE — теперь обёртка rofi_launcher.py.
-    ".config/hypr/programs.lua"
+    ".config/hyprland-off/programs.lua"
     # Правила окон (в том числе плавающий waypaper).
-    ".config/hypr/workspace.lua"
+    ".config/hyprland-off/workspace.lua"
     # Игровые правила и VRR (15.09.2026).
-    ".config/hypr/gaming.lua"
-    ".config/hypr/hyprland.lua"
+    ".config/hyprland-off/gaming.lua"
+    ".config/hyprland-off/hyprland.lua"
     # Оболочка: свои функции fish (chat, и что появится дальше) — 23.09.2026.
     ".config/fish/functions"
     # Сеанс Niri: настройки и его скрипты (21.09.2026).
@@ -70,15 +70,15 @@ TRACKED=(
     # выбор затемнения и его сила
     ".config/hypr/state"
     # скругление, затемнение, анимации
-    ".config/hypr/visuals.lua"
+    ".config/hyprland-off/visuals.lua"
     # автозапуск (hyprsunset и прочее)
-    ".config/hypr/autostart.lua"
+    ".config/hyprland-off/autostart.lua"
     # бинды
     # Раскладка клавиатуры, чувствительность мыши и режим фокуса при наведении.
-    ".config/hypr/input.lua"
-    ".config/hypr/keybindings.lua"
+    ".config/hyprland-off/input.lua"
+    ".config/hyprland-off/keybindings.lua"
     # Клавиши ленты (scrolling), подключаются из keybindings.lua.
-    ".config/hypr/ribbon_binds.lua"
+    ".config/hyprland-off/ribbon_binds.lua"
     # Выбор раскладки (лента/классика), его читает visuals.lua.
     ".config/hypr/state/layout-mode"
     # Карта ленты в баре: включена или нет (ribbon_map.py on|off).
@@ -86,7 +86,7 @@ TRACKED=(
     # простой: приглушение, блокировка, сон
     ".config/hypr/hypridle.conf"
     # ночной режим по расписанию
-    ".config/hypr/hyprsunset.conf"
+    ".config/hyprland-off/hyprsunset.conf"
     # экран блокировки
     ".config/hypr/hyprlock.conf"
     # Стиль экрана блокировки «Астронавт» (выбор в Настройках, 14.09.2026).

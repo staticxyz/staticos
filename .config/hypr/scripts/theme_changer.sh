@@ -229,6 +229,8 @@ fi
 ( python3 "$HOME/.config/hypr/scripts/mixer_style.py" sync >/dev/null 2>&1 ) &
 ( python3 "$HOME/.config/hypr/scripts/rofi_style.py" sync >/dev/null 2>&1 ) &
 ( python3 "$HOME/.config/hypr/scripts/notif_style.py" sync >/dev/null 2>&1 ) &   # П9: пиксельные уведомления
+( python3 "$HOME/.config/hypr/scripts/zen_style.py" sync >/dev/null 2>&1 ) &     # Zen в стиле системы (13.10)
+( python3 "$HOME/.config/hypr/scripts/keepassxc_style.py" sync >/dev/null 2>&1 ) &     # KeePassXC в стиле системы (13.10)
 
 # Приглашение fish (Tide): сегмент пути красится акцентом обоев напрямую.
 # Через ANSI-слот «blue» он уезжал в розовое: генератор палитры поворачивает
@@ -270,7 +272,9 @@ fi
 # доли секунды (обе ветки проверены отдельно).
 ( python3 "$HOME/.config/hypr/scripts/gtk_live_colors.py" ) &
 # Папки в значках Papirus — в цвет обоев (пользовательская тема Papirus-Wall).
-( python3 "$HOME/.config/hypr/scripts/folder_colors.py" ) &
+# Следом — kitty в цвет акцента в обеих темах (kitty_icon.py, 13.10.2026).
+( python3 "$HOME/.config/hypr/scripts/folder_colors.py"
+  python3 "$HOME/.config/hypr/scripts/kitty_icon.py" apply >/dev/null 2>&1 ) &
 # Пиксельные значки папок и файлов (тема Jarvis-Pixel) — под новую палитру,
 # только если они выбраны (Настройки → Значки; состояние state/icon-theme).
 # build заодно возвращает тему в kdeglobals: шаблон matugen выше каждый раз

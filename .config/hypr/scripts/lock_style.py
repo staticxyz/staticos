@@ -301,6 +301,86 @@ label {
     return "\n".join(blocks)
 
 
+# Кнопки питания (13.10.2026): в пиксельном виде — значки Jarvis-Pixel 32 px, как в
+# jarvis_lock.py, картинками; щелчок ловит прозрачная надпись поверх (у image в hyprlock
+# 0.9.6 щелчка нет). Взведённая кнопка краснеет: картинку выбирает lock_power_label.sh img.
+PIXEL_ICONS = os.path.expanduser("~/.local/share/icons/Jarvis-Pixel/32x32/actions")
+POWER = (("logout", -120, "system-log-out"), ("suspend", -40, "moon"),
+         ("reboot", 40, "system-reboot"), ("shutdown", 120, "system-shutdown"))
+# «Сон» в Jarvis-Pixel — кружок с минусом; месяц тот же, что MOON в jarvis_lock.py (14x14, x2)
+MOON = ("....####......", "..####........", ".####.........", ".###..........",
+        "###...........", "###...........", "###...........", "###...........",
+        "###..........#", "####........##", ".####......###", ".############.",
+        "..##########..", "....######....")
+LABEL_SH = os.path.join(HERE, "lock_power_label.sh")
+POWER_PY = os.path.join(HERE, "lock_power.py")
+
+
+def pixel_look():
+    try:
+        with open(os.path.expanduser("~/.config/hypr/state/pixel-look.json"), encoding="utf-8") as f:
+            return json.load(f).get("mode") == "pixel"
+    except (OSError, ValueError):
+        return False
+
+
+def power_icon(src, color, out):
+    """Маска значка 32x32 -> PNG одного цвета, 1:1 (без масштаба, без мыла)."""
+    from PIL import Image
+    if src == "moon":
+        alpha = Image.new("L", (32, 32), 0)
+        for y, row in enumerate(MOON):
+            for x, ch in enumerate(row):
+                if ch == "#":
+                    alpha.paste(255, (2 + x * 2, 2 + y * 2, 4 + x * 2, 4 + y * 2))
+    else:
+        alpha = Image.open(os.path.join(PIXEL_ICONS, src + ".png")).convert("RGBA").split()[3]
+    rgb = tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+    im = Image.new("RGBA", alpha.size, rgb + (0,))
+    im.putalpha(alpha)
+    im.save(out)
+
+
+def power_block(sec, err):
+    parts = []
+    pixel = pixel_look()
+    if pixel:
+        os.makedirs(ICONS, exist_ok=True)
+        try:
+            for key, _x, src in POWER:
+                power_icon(src, sec, os.path.join(ICONS, "power-%s.png" % key))
+                power_icon(src, err, os.path.join(ICONS, "power-%s-armed.png" % key))
+        except (OSError, ValueError):
+            pixel = False   # нет темы Jarvis-Pixel — прежние значки шрифтом
+    for key, x, _src in POWER:
+        parts.append("shape {\n    monitor = @@MON_FORM@@\n    size = 60, 60\n"
+                     "    rounding = %d\n    color = rgba(00000033)\n    border_size = 2\n"
+                     "    border_color = rgba(%s88)\n    position = %d, -440\n"
+                     "    halign = center\n    valign = center\n}"
+                     % (0 if pixel else -1, sec, x))
+        click = "    onclick = python3 %s click %s\n" % (POWER_PY, key)
+        if pixel:
+            parts.append("image {\n    monitor = @@MON_FORM@@\n    path = %s\n"
+                         "    reload_time = 1\n    reload_cmd = %s img %s\n    size = 32\n"
+                         "    rounding = 0\n    border_size = 0\n    position = %d, -440\n"
+                         "    halign = center\n    valign = center\n}"
+                         % (os.path.join(ICONS, "power-%s.png" % key), LABEL_SH, key, x))
+            # невидимая надпись во всю кнопку — только для щелчка
+            parts.append("label {\n    monitor = @@MON_FORM@@\n    text = \u2588\n%s"
+                         "    color = rgba(00000000)\n    font_size = 34\n"
+                         "    font_family = JetBrainsMono Nerd Font Propo\n"
+                         "    position = %d, -440\n    halign = center\n    valign = center\n}"
+                         % (click, x))
+        else:
+            parts.append("label {\n    monitor = @@MON_FORM@@\n"
+                         "    text = cmd[update:250] %s label %s\n%s"
+                         "    color = rgb(%s)\n    font_size = 22\n"
+                         "    font_family = JetBrainsMono Nerd Font Propo\n"
+                         "    position = %d, -440\n    halign = center\n    valign = center\n}"
+                         % (LABEL_SH, key, click, sec, x))
+    return "\n".join(parts)
+
+
 def prepare(key):
     if key not in dict(styles()):
         raise ValueError(key)
@@ -367,6 +447,7 @@ def prepare(key):
         "ERROR": hex6(pal["error"]), "ON_SURFACE": hex6(pal["on_surface"]),
         "ON_SURFACE_VARIANT": hex6(pal["on_surface_variant"]),
         "FIELD": hex6(pal["surface_container"]) + "b3",
+        "POWER": power_block(hex6(pal["secondary"]), hex6(pal["error"])),
         "ICON_USER": icon("User", primary), "ICON_PASSWORD": icon("Password2", primary),
     })
     values.update({k: str(v) for k, v in x.items()})

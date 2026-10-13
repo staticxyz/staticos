@@ -44,7 +44,9 @@ CREATE TABLE IF NOT EXISTS items(
   fired_tg INTEGER,                         -- когда ушло в Telegram
   seen INTEGER NOT NULL DEFAULT 0,          -- 1 = отреагировал: эскалации в Telegram не будет
   nag INTEGER NOT NULL DEFAULT 0,           -- сколько ступеней «запылился» уже напомнено
-  source TEXT NOT NULL DEFAULT 'cli');
+  source TEXT NOT NULL DEFAULT 'cli',
+  prio INTEGER NOT NULL DEFAULT 0,          -- важность: 0 Default, 1 Mid, 2 High
+  pos REAL);                                -- ручной порядок в окне (Alt+j/k)
 CREATE INDEX IF NOT EXISTS items_due ON items(status, due);
 CREATE TABLE IF NOT EXISTS words(
   id INTEGER PRIMARY KEY,
@@ -84,7 +86,28 @@ def connect(path=None):
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=10000")
     c.executescript(SCHEMA)
+    _migrate(c)
     return c
+
+
+PRIO_NAMES = {2: "High", 1: "Mid", 0: "Default"}
+
+
+def _migrate(c):
+    """13.10.2026: важность (prio) и ручной порядок (pos) — в старую базу. Порядок
+    заполняется тем, что был (срок, потом номер), чтобы список не перемешался."""
+    cols = {r[1] for r in c.execute("PRAGMA table_info(items)")}
+    for col, decl in (("prio", "INTEGER NOT NULL DEFAULT 0"), ("pos", "REAL")):
+        if col not in cols:
+            try:
+                c.execute("ALTER TABLE items ADD COLUMN %s %s" % (col, decl))
+            except sqlite3.OperationalError:
+                pass                         # другой процесс успел первым
+            if col == "pos":
+                ids = [r[0] for r in c.execute("SELECT id FROM items WHERE pos IS NULL "
+                                               "ORDER BY (due IS NULL), due, id")]
+                c.executemany("UPDATE items SET pos=? WHERE id=?",
+                              [(i + 1, iid) for i, iid in enumerate(ids)])
 
 
 def config():
@@ -315,15 +338,16 @@ def lists(c):
         "FROM lists l ORDER BY l.name='" + DEFAULT_LIST + "' DESC, l.name").fetchall()
 
 
-def add_item(c, text, list_name=None, due=None, repeat="", source="cli", kind="task"):
+def add_item(c, text, list_name=None, due=None, repeat="", source="cli", kind="task", prio=0):
     text = text.strip()
     if not text:
         raise ValueError("пустой текст")
     lid = ensure_list(c, list_name)
     t = now()
     cur = c.execute(
-        "INSERT INTO items(list_id,text,kind,due,repeat,created,updated_at,source) VALUES(?,?,?,?,?,?,?,?)",
-        (lid, text, kind, due, repeat, t, t, source))
+        "INSERT INTO items(list_id,text,kind,due,repeat,created,updated_at,source,prio,pos) "
+        "VALUES(?,?,?,?,?,?,?,?,?,(SELECT COALESCE(MAX(pos),0)+1 FROM items))",
+        (lid, text, kind, due, repeat, t, t, source, int(prio)))
     log(c, "add", cur.lastrowid, source)
     return cur.lastrowid
 
@@ -443,6 +467,18 @@ def edit(c, iid, text=None, due="keep", list_name=None, source="cli", ts=None):
     if ok:
         log(c, "edit", iid, source)
     return ok
+
+
+def set_prio(c, iid, prio, source="cli"):
+    ok = _apply(c, iid, None, prio=int(prio))
+    if ok:
+        log(c, "prio", iid, "%s %s" % (source, prio))
+    return ok
+
+
+def set_pos(c, mapping):
+    """{id: pos} — ручной порядок; срок и «последний пишет» не трогает."""
+    c.executemany("UPDATE items SET pos=? WHERE id=?", [(p, i) for i, p in mapping.items()])
 
 
 def mark_seen(c, iid):

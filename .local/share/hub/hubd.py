@@ -57,8 +57,22 @@ def pc_present():
         return True
 
 
+def chime():
+    """Один звонок тем же звуком и громкостью, что у таймера. 13.10.2026: напоминания
+    приходили молча — общий звук уведомлений (ui_sound_watch) стоит на 30 из 100, а
+    громкость там в кубе: ~3 %, не слышно. Теперь hub звенит сам, а сторож hub пропускает."""
+    try:
+        subprocess.Popen(["timeout", "8", "pw-play", "--volume", "0.3", SOUND],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+
+
 def notify(title, body, iid, critical=False, timer=False):
     """Уведомление на ПК. notify-send -A ждёт реакции в потоке: кнопка или закрытие = «увидел»."""
+    if not timer:
+        chime()                                    # у таймера свой звонок — ring()
     def work():
         cmd = ["notify-send", "-a", "hub", "-u", "critical" if critical else "normal",
                "-A", "done=✓ Сделано", "-A", "later=+1 час", "-A", "stop=■ Стоп", "-w", title, body]

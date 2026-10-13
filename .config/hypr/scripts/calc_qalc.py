@@ -83,7 +83,8 @@ NUM = r"-?\d[\d ]*(?:[.,]\d+)?"
 
 
 def translate(expr):
-    # «5k», «5к», «1.5k» — тысячи, «2кк»/«2kk» — миллионы (30.09.2026, просьба: # «5k rub» считалось как «кило» и уходило в доллары мимо перевода в тенге).
+    # «5k», «5к», «1.5k» — тысячи, «2кк»/«2kk» — миллионы (30.09.2026, просьба:
+    # «5k rub» считалось как «кило» и уходило в доллары мимо перевода в тенге).
     # Только сразу после числа и перед не-буквой: «5 km», «5kg» не задеваются.
     def _thousands(m):
         n = float(m.group(1).replace(",", "."))
@@ -190,6 +191,23 @@ def split_target(raw):
     return s, None, False
 
 
+def too_short(s, tgt):
+    """Обрывок, ради которого не стоит будить переводчик (13.10.2026).
+
+    Пользователь: переводчик (≈1 ГБ памяти) запускался, когда он считал валюту — rofi
+    зовёт калькулятор на каждую букву, и «ы» (s в русской раскладке), «sf», «us»
+    по дороге к «usd» уходили в перевод. Текстом считаем от 4 букв или от двух
+    слов; явная цель («кот > en») — всегда перевод.
+    """
+    if tgt:
+        return False
+    words = re.findall(r"[^\W\d_]+", s)
+    n = sum(map(len, words))
+    if JPN.search(s) or KOR.search(s):          # иероглиф — уже слово
+        n *= 2
+    return n < 4 and len(words) < 2
+
+
 def looks_like_text(body, expr, tgt=None):
     """Перевод или калькулятор → (src, tgt) либо None.
 
@@ -201,7 +219,7 @@ def looks_like_text(body, expr, tgt=None):
     Иначе — текст; язык источника по письменности, немецкий — по GERMAN.
     """
     s = body.strip()
-    if not s:
+    if not s or too_short(s, tgt):
         return None
     if JPN.search(s):
         src, left = "jpn_Jpan", JPN.search(expr)

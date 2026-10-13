@@ -25,9 +25,11 @@ busctl introspect), и Telegram считает, что DND выключен.
 сообщение — голосовое на ~2 с притихнет. Самое начало сигнала (десятки мс)
 может проскочить: уведомление и звук Telegram шлёт одновременно.
 """
+import ctypes
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -56,6 +58,16 @@ state = {"dnd": False, "ducked": {}, "notified": {}}
 WINDOW_S = 1.5           # поток, открытый в течение стольких секунд после уведомления, — его звук
 lock = threading.Lock()
 
+
+
+_libc = ctypes.CDLL(None)
+
+
+def _pdeathsig():
+    """Слушатели умирают вместе с хозяином staticOS. Без этого после каждого его
+    перезапуска оставались сиротами (13.10.2026 сняты 7: pactl subscribe,
+    swaync-client -swb, niri event-stream, dbus-monitor) — см. kill-background-watchers."""
+    _libc.prctl(1, signal.SIGTERM, 0, 0, 0)      # PR_SET_PDEATHSIG
 
 def log(msg):
     with open(LOG, "a") as f:
@@ -225,7 +237,7 @@ def follow_focus():
     while True:
         try:
             p = subprocess.Popen(["niri", "msg", "-j", "event-stream"], stdout=subprocess.PIPE,
-                                 stderr=subprocess.DEVNULL, text=True)
+                                 stderr=subprocess.DEVNULL, text=True, preexec_fn=_pdeathsig)
             for line in p.stdout:
                 if "WindowFocusChanged" not in line and "WindowsChanged" not in line:
                     continue
@@ -248,7 +260,7 @@ def follow_streams():
     while True:
         try:
             p = subprocess.Popen(["pactl", "subscribe"], stdout=subprocess.PIPE,
-                                 stderr=subprocess.DEVNULL, text=True)
+                                 stderr=subprocess.DEVNULL, text=True, preexec_fn=_pdeathsig)
             for line in p.stdout:
                 if "'new' on sink-input" not in line:
                     continue
@@ -281,7 +293,7 @@ def follow_dnd():
     while True:
         try:
             p = subprocess.Popen(["swaync-client", "-swb"], stdout=subprocess.PIPE,
-                                 stderr=subprocess.DEVNULL, text=True)
+                                 stderr=subprocess.DEVNULL, text=True, preexec_fn=_pdeathsig)
             for line in p.stdout:
                 state["dnd"] = bool(re.search(r'"alt":\s*"dnd', line))
                 evaluate()
@@ -297,7 +309,7 @@ def follow_notify():
         try:
             p = subprocess.Popen(["dbus-monitor", "--session",
                                   "type='method_call',interface='org.freedesktop.Notifications',member='Notify'"],
-                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, preexec_fn=_pdeathsig)
             want = False
             for line in p.stdout:
                 if "member=Notify" in line:

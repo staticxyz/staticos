@@ -19,7 +19,7 @@ built from `binds.kdl` (niri's own overlay is still on **Super+Shift+/**).
 | `Mod + Return` | Terminal |
 | `Mod + Shift + Return` | Fallback terminal (foot) |
 | `Mod + Space` | App launcher |
-| `Mod + X` | App launcher, Omarchy-style list |
+| `Mod + X` | Menu in the spirit of Omarchy: apps by category, actions, packages, system |
 | `Ctrl + Q` | close window (or clear the buffer, if it's a terminal) |
 | `Mod + E` | Dolphin (files) |
 | `Mod + I` | Helium (browser) |
@@ -271,6 +271,7 @@ Super + wheel scrolls through the strip's windows.
 | Keys | Action |
 |---|---|
 | `Mod + Z` | cheat sheet: every bind by category, with search |
+| `Mod + Shift + Z` | config map: which file does what and what starts it |
 | `Mod + Shift + /` | show all shortcuts (doesn't work on a Russian layout — that physical key sends `.` there, use the duplicate below) |
 | `Mod + Shift + Period` | show all shortcuts (duplicate for the Russian layout) |
 | `Mod + Escape` | give all keys to the focused window on/off |

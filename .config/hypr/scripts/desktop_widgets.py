@@ -1249,27 +1249,47 @@ def draw_bitmap(cr, bmp, x, y, pw, ph):
 
 def bar_ws_sizes():
     """Размеры кнопки стола в баре: база из waybar_niri.py (STYLE_EXTRA), поверх —
-    правила window#waybar #workspaces button… из текущего вида looks/current.css."""
+    правила window#waybar #workspaces button… из текущего вида looks/current.css.
+    Учитываются и отдельные стороны (padding-top, margin-bottom…) и селекторы через
+    запятую: компактный вид ужимает кнопки именно ими, и без них стол с виджетами вне
+    фокуса был на 4 px выше остальных — бар раздувался (13.10.2026)."""
     import re
-    z = {"padding": "5px 9px", "margin": "0 3px", "min-width": "17px", "active": "5px 13px",
-         "font-size": "17px"}
+
+    def box(v):
+        p = v.split()
+        p = {1: p * 4, 2: p * 2, 3: p + p[1:2]}.get(len(p), p[:4])
+        return dict(zip(("top", "right", "bottom", "left"), p))
+
+    z = {"padding": box("5px 9px"), "margin": box("0 3px"), "min-width": "17px",
+         "active": box("5px 13px"), "font-size": "17px"}
     try:
         txt = open(os.path.expanduser("~/.config/waybar/looks/current.css"), encoding="utf-8").read()
     except OSError:
-        return z
+        txt = ""
     txt = re.sub(r"/\*.*?\*/", "", txt, flags=re.S)
-    for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", txt):
-        sel = " ".join(sel.split())
-        props = dict((k.strip(), v.strip()) for k, v in
-                     (d.split(":", 1) for d in body.split(";") if ":" in d))
-        if sel == "window#waybar #workspaces button":
-            for k in ("padding", "margin", "min-width"):
-                if k in props:
-                    z[k] = props[k]
-        elif sel == "window#waybar #workspaces button.active" and "padding" in props:
-            z["active"] = props["padding"]
-        elif sel == "window#waybar #workspaces button label" and "font-size" in props:
-            z["font-size"] = props["font-size"]
+    for sels, body in re.findall(r"([^{}]+)\{([^{}]*)\}", txt):
+        props = [(k.strip(), v.strip()) for k, v in
+                 (d.split(":", 1) for d in body.split(";") if ":" in d)]
+        for sel in (" ".join(x.split()) for x in sels.split(",")):
+            targets = {"window#waybar #workspaces button": ("padding", "margin"),
+                       "window#waybar #workspaces button.active": ("active", None)}.get(sel)
+            if targets:
+                for k, v in props:
+                    for prop, key in (("padding", targets[0]), ("margin", targets[1])):
+                        if not key:
+                            continue
+                        if k == prop:
+                            z[key] = box(v)
+                        elif k.startswith(prop + "-") and k[len(prop) + 1:] in z[key]:
+                            z[key][k[len(prop) + 1:]] = v
+                    if k == "min-width" and targets[0] == "padding":
+                        z["min-width"] = v
+            elif sel == "window#waybar #workspaces button label":
+                for k, v in props:
+                    if k == "font-size":
+                        z["font-size"] = v
+    for k in ("padding", "margin", "active"):
+        z[k] = " ".join(z[k][s] for s in ("top", "right", "bottom", "left"))
     return z
 
 class Backdrop:
@@ -4000,10 +4020,14 @@ class Manager:
                 xp_shown = set(open(XP_SHOWN).read().split()) if bottom_bar.get() == "xp" else set()
             except OSError:
                 xp_shown = set()
+            # Панель «Всегда» тоже прячется по Super+S — тогда верим xpbar (SHOWN_FILE), а не
+            # режиму, иначе виджеты оставались поднятыми над спрятанной панелью (13.10.2026).
+            xp_live = bottom_bar.get() == "xp" and os.path.exists(XP_SHOWN)
             for out in self.outs:
                 t = bar if panels.top_for(out, d) == "always" else 0
-                b = XP_BAR_H if (((panels.bottom_for(out, d) == "always") if per else xp_all)
-                                 or out in xp_shown) else 0
+                want = (panels.bottom_for(out, d) == "always") if per else xp_all
+                b_on = (out in xp_shown) if (want and xp_live) else (want or out in xp_shown)
+                b = XP_BAR_H if b_on else 0
                 if wb_bottom:                     # вид бара «Снизу»: waybar тоже у нижнего края
                     t, b = 0, b + t
                 zones[out] = (t, b)
@@ -4450,7 +4474,13 @@ class Manager:
         # :not(#…) сделал бы правило невыполнимым: стол дашборда — 󰜬).
         keep = ("\U000f072c", "\U000f0437")
         for n in sorted(names):
-            tail = "" if n in keep else "".join(":not(#niri-workspace-%s)" % k for k in keep)
+            if n in keep:
+                # Схлопывание их не трогает — размеры те же, что у всех кнопок вида; свои
+                # размеры тут только мешали: дашборд вне фокуса раздувал бар (13.10.2026).
+                css.append("window#waybar #workspaces button#niri-workspace-%s.empty:not(.focused)"
+                           " { opacity: 0.55; }" % n)
+                continue
+            tail = "".join(":not(#niri-workspace-%s)" % k for k in keep)
             sel = "window#waybar #workspaces button#niri-workspace-%s.empty:not(.focused)%s" % (n, tail)
             css.append("%s { padding: %s; margin: %s; min-width: %s; opacity: 0.55; }"
                        % (sel, z["padding"], z["margin"], z["min-width"]))

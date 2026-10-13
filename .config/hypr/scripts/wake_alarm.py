@@ -899,14 +899,24 @@ def tg_call(method, **params):
         return None
     params.setdefault("chat_id", e["OWNER"])
     data = urllib.parse.urlencode(params).encode()
-    try:
-        with urllib.request.urlopen("https://api.telegram.org/bot%s/%s" % (e["TOKEN"], method),
-                                    data=data, timeout=15) as r:
-            res = json.load(r)
-        return res.get("result") if res.get("ok") else None
-    except Exception as ex:
-        slog("telegram %s: %r" % (method, ex))
-        return None
+    url = "https://api.telegram.org/bot%s/%s" % (e["TOKEN"], method)
+    # 13.10.2026: провайдер пускает к api.telegram.org через раз — не вышло напрямую,
+    # пробуем через Tor (9050 — служба hub-tor, 9150 — Tor Browser), как бот hub и мост.
+    for port in (None, 9050, 9150):
+        try:
+            if port is None:
+                opener = urllib.request.build_opener()
+            else:
+                import socks
+                import sockshandler
+                opener = urllib.request.build_opener(
+                    sockshandler.SocksiPyHandler(socks.SOCKS5, "127.0.0.1", port, rdns=True))
+            with opener.open(url, data=data, timeout=15 if port is None else 40) as r:
+                res = json.load(r)
+            return res.get("result") if res.get("ok") else None
+        except Exception as ex:
+            slog("telegram %s%s: %r" % (method, "" if port is None else " (Tor :%d)" % port, ex))
+    return None
 
 
 def hmf(d, ts):

@@ -40,9 +40,38 @@ Every color comes from your wallpaper.
 - **Own clipboard, Alt+Tab, lock screen and screensaver**, all keyboard-driven with vim keys.
 - **Pixel or regular look** in one switch: fonts, bar, notifications, menus, mixers and even
   Discord follow it. **Super+Z** shows every shortcut, grouped and searchable.
+- **Config map** — `Super+Shift+Z`. Which file does what and what starts it, with a search
+  that understands synonyms, typos and the wrong keyboard layout. [See below ↓](#config-map--supershiftz)
+- **`Super+X` menu** in the spirit of Omarchy: apps by category, screenshots and toggles,
+  install / remove / update packages through fzf, system and power.
 - **Hub** — reminders, lists, timers and a spaced-repetition dictionary with no AI involved,
   its own SQLite database, a Discipline-styled window (`Super+M`) and an optional Telegram bot
   that reaches you when you're away from the computer. [How it works →](docs/hub.md)
+
+## Config map — `Super+Shift+Z`
+
+![Config map](assets/config-map.png)
+
+350+ scripts and configs, named over months, are hard to find your way around. The config map
+tells you what each file does and what starts it, without opening anything.
+
+- **Areas instead of folders.** Every script and config sits in one of about twenty areas:
+  top bar, wallpaper and colors, lock screen, sound, niri windows and so on. `Enter` opens an area,
+  `Enter` again opens the file.
+- **For each file:** what it does (from the file's own header), how it starts (key binding,
+  niri autostart, bar module, systemd service, the staticOS host) and which scripts mention it.
+- **Forgiving search.** Synonyms in both languages, typos and the wrong keyboard layout:
+  `screenshot`, `скриншот` and `cybvjr` (typed on the English layout) all find «снимок»;
+  `громкочть` still finds «громкость».
+- **Vim keys:** `j/k`, `g/G`, `Ctrl+D/U`, `l`/`h`, `/` search, `o` folder, `y` copy path, `q` close.
+- **Does not go stale.** `config_map.py check` lists files without an area and entries whose file
+  is gone; `config_map.py md` writes the same map to `~/.config/0-КАРТА.md`.
+  The scan is cached until a file changes, so the window opens in about a quarter of a second.
+
+| | |
+|:-:|:-:|
+| ![Config map: an area](assets/config-map-area.png) | ![Config map: search](assets/config-map-search.png) |
+| Inside an area: every file with what it does | Search by name, description or synonym |
 
 ## Screenshots
 
@@ -87,6 +116,8 @@ Other distributions, options and removal: [docs/install.md](docs/install.md).
 |---|---|
 | `Super+/` | Settings |
 | `Super+Z` | All shortcuts — cheat sheet with search |
+| `Super+Shift+Z` | Config map: which file does what |
+| `Super+X` | Menu: apps, actions, packages, system |
 | `Super+Space` | Launch an app |
 | `Super+Return` | Terminal |
 | `Super+W` | Wallpaper (recolors everything) |

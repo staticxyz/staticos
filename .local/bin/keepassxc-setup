@@ -1,0 +1,16 @@
+#!/bin/sh
+# Доводка KeePassXC после установки пакета (13.10.2026): пункт меню через обёртку
+# ~/.local/bin/keepassxc (цвета обоев, пиксельный шрифт) и пиксельный значок.
+# Без sudo; повторный запуск безопасен.
+[ -x /usr/bin/keepassxc ] || { echo "KeePassXC не установлен: sudo pacman -S --needed keepassxc qt5ct"; exit 1; }
+src=/usr/share/applications/org.keepassxc.KeePassXC.desktop
+dst="$HOME/.local/share/applications/org.keepassxc.KeePassXC.desktop"
+mkdir -p "${dst%/*}"
+sed "s|^Exec=keepassxc|Exec=$HOME/.local/bin/keepassxc|; s|^Exec=/usr/bin/keepassxc|Exec=$HOME/.local/bin/keepassxc|" "$src" > "$dst"
+update-desktop-database -q "${dst%/*}" 2>/dev/null
+pacman -Q qt5ct >/dev/null 2>&1 || echo "нет qt5ct — окно будет серым: sudo pacman -S --needed qt5ct"
+case "$(python3 "$HOME/.config/hypr/scripts/icon_theme.py" get 2>/dev/null)" in
+    pixel*) setsid -f python3 "$HOME/.config/hypr/scripts/icon_theme.py" build >/dev/null 2>&1 ;;
+esac
+grep -c '^Exec=' "$dst" | xargs echo "пункт меню готов, строк Exec:"
+notify-send -a KeePassXC "KeePassXC готов" "Super+Ctrl+Shift+P или «Пуск» → KeePassXC" 2>/dev/null

@@ -259,6 +259,15 @@ window-rule {
     default-window-height { fixed 440; }
 }
 
+// Терминал меню Super+X (launcher_term.sh): установка/удаление/обновление через fzf,
+// «О системе». Плавающий, как у Omarchy. 13.10.2026.
+window-rule {
+    match app-id=r#"^com\.jarvis\.menu\.term$"#
+    open-floating true
+    default-column-width { fixed 1000; }
+    default-window-height { fixed 620; }
+}
+
 // «Настройки» (scripts/settings_app.py)
 window-rule {
     match app-id=r#"^com\.jarvis\.settings$"#
@@ -396,4 +405,13 @@ window-rule {
     open-maximized false
     default-column-width { proportion 0.7; }
     default-window-height { proportion 0.75; }
+}
+
+// KeePassXC (13.10.2026) — плавающим окном по центру: открыл, взял пароль, спрятал.
+// Окно разблокировки и главное — одно окно, правило на оба.
+window-rule {
+    match app-id=r#"^org\.keepassxc\.KeePassXC$"#
+    open-floating true
+    default-column-width { fixed 980; }
+    default-window-height { fixed 640; }
 }

@@ -89,6 +89,8 @@ windows or desktop widgets in Settings → **Applications** → **Дашборд
 | Key | What it does |
 |---|---|
 | Super+Space | program launcher |
+| Super+X | menu: apps by category, screenshots, toggles, install / remove / update packages, power |
+| Super+Shift+Z | config map: which file does what and what starts it |
 | Super+Return or Ctrl+` | terminal (kitty) |
 | Super+Shift+Return | spare terminal (foot), if kitty is broken |
 | Super+E | file manager |

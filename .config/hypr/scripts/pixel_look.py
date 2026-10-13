@@ -144,8 +144,10 @@ PARTS = [
     # в обычном виде снимается целиком (discord_pixel.py off). Шрифт Discord видит после перезапуска.
     ("Discord", discord_get, lambda v: py("discord_pixel.py", v), "on", "off"),
     ("Шрифт mpv", mpv_get, mpv_set, PX, NORMAL_FONT),
+    # С 13.10.2026 (позже) в пиксельном виде — «Стрелка» (tri_cursor.py): пользователь выбрал её
+    # и попросил «сделай более пиксельным, чтобы заметно было».
     ("Курсор", lambda: py("cursor_theme.py"), lambda v: py("cursor_theme.py", "set", v, timeout=180),
-     "jarvis", "pebble-wall"),
+     "tri-wall", "pebble-wall"),
 ]
 
 

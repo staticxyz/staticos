@@ -163,13 +163,40 @@ def bar_uses_niri():
     return any('"niri/' in l for l in lists)
 
 
+def bar_expected():
+    """Должен ли сейчас работать waybar: оболочка своя (не Noctalia) и верхний бар не
+    выключен в Настройках (top_bar.py: off — waybar не запускается вовсе)."""
+    try:
+        if open(os.path.expanduser("~/.config/niri/state/shell")).read().strip() == "noctalia":
+            return False
+    except OSError:
+        pass
+    code = ("import sys; sys.path.insert(0, %r); import top_bar; "
+            "print(int(set(top_bar.modes_in_use().values()) != {'off'}))"
+            % os.path.expanduser("~/.config/hypr/scripts"))      # режимы по мониторам
+    r = subprocess.run(["python3", "-c", code], capture_output=True, text=True, timeout=5)
+    return r.stdout.strip() != "0"
+
+
 def probe():
+    """13.10.2026: waybar упал внутри GTK (SIGSEGV в libgdk, не наш код) и пропал совсем,
+    а проверка соединения отвечает «панели нет — не наше дело». Теперь, если бара нет
+    две проверки подряд (40 с — перезапуски через barfix и panels.py столько не длятся)
+    и он должен быть, — поднимаем."""
     time.sleep(PROBE_EVERY)                          # дать панели подняться после входа
+    missing = 0
     while True:
         try:
-            if not waybar_connected():
-                restart("нет соединения с niri")
-        except OSError:
+            if not session_waybar_pids():
+                missing += 1
+                if missing >= 2 and bar_expected():
+                    restart("waybar не запущен — упал")
+                    missing = 0
+            else:
+                missing = 0
+                if not waybar_connected():
+                    restart("нет соединения с niri")
+        except (OSError, subprocess.SubprocessError):
             pass
         time.sleep(PROBE_EVERY)
 

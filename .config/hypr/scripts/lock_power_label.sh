@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Надписи кнопок питания экрана блокировки (hyprlock: cmd[update:250]). 30.09.2026.
-#   lock_power_label.sh label <действие> | hint
+#   lock_power_label.sh label <действие> | img <действие> | hint
 # Оболочкой, а не питоном: пять надписей обновляются 4 раза в секунду, и запуск
 # питона на каждую — ~20 процессов в секунду, пока экран заблокирован. Состояние
 # «взведено» пишет lock_power.py (click) в $XDG_RUNTIME_DIR/jarvis-lock-power.json.
@@ -21,6 +21,9 @@ case "$1" in
     label)
         if [ "$key" = "$2" ]; then printf '<span foreground="%s">%s</span>' "$err" "${icon[$2]}"
         else printf '%s' "${icon[$2]}"; fi ;;
+    img)    # пиксельный вид: путь картинки (lock_style.py power_block), взведённая — красная
+        d="$HOME/.cache/lock-style/icons/power-$2"
+        if [ "$key" = "$2" ]; then printf '%s-armed.png' "$d"; else printf '%s.png' "$d"; fi ;;
     hint)
         [ -n "$key" ] && printf '<span foreground="%s">Ещё раз — %s (%d с)</span>' "$err" "${name[$key]}" "$left" ;;
 esac

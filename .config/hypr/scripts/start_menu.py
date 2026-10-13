@@ -87,7 +87,8 @@ DEFAULT_PINS = ["zen.desktop", "zen-browser.desktop", "librewolf.desktop", "kitt
 # Что это за программа — вторая строка у закреплённых, как «Internet / Internet Explorer».
 ROLES = {"zen": "Интернет", "librewolf": "Интернет", "helium": "Интернет", "firefox": "Интернет",
          "kitty": "Терминал", "telegram": "Сообщения", "dolphin": "Файлы", "obsidian": "Заметки",
-         "yandex": "Музыка", "music": "Музыка", "steam": "Игры", "mousepad": "Блокнот"}
+         "yandex": "Музыка", "music": "Музыка", "steam": "Игры", "mousepad": "Блокнот",
+         "keepassxc": "Пароли"}
 
 
 

@@ -34,18 +34,24 @@ import subprocess
 import sys
 import threading
 
-import gi
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import popup_theme  # noqa: E402
+
+popup_theme.single_instance(__file__)
+# Снимки мониторов — первым делом: grim работает, пока грузятся GTK и numpy (13.10.2026,
+# «Super+W открывается медленно»: так до окна ~0,15 с вместо ~0,45).
+import wp_grab  # noqa: E402
+
+EARLY = wp_grab.start()
+
+import gi  # noqa: E402
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, GtkLayerShell  # noqa: E402
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-import popup_theme  # noqa: E402
-
-popup_theme.single_instance(__file__)
 import cairo  # noqa: E402
 import numpy as np  # noqa: E402
 import wallpaper_preview as wpv  # noqa: E402
@@ -208,7 +214,7 @@ class Picker(Gtk.Window):
 
         # Снимки мониторов — ДО того, как лента закроет экран.
         try:
-            self.desks, self.mons, focused = wpv.grab_all()
+            self.desks, self.mons, focused = wpv.grab_all(EARLY)
         except Exception:
             self.desks, self.mons, focused = {}, [], None
         self.mons = [m for m in self.mons if self.desks[m].shot is not None]
@@ -220,6 +226,7 @@ class Picker(Gtk.Window):
         self.pv_lock = threading.Lock()
         self.pv_event = threading.Event()
         self.old_pal = None
+        self.seed_current()
         threading.Thread(target=self.preview_worker, daemon=True).start()
 
         GtkLayerShell.init_for_window(self)
@@ -380,27 +387,57 @@ class Picker(Gtk.Window):
             self.pv_event.clear()
             with self.pv_lock:
                 want = self.pv_want
+            if want == "warm":
+                # Открытие: нынешние обои уже на экране (снимок как есть), а тут заранее
+                # палитра нынешних обоев и где на снимке обои — первое листание не ждёт.
+                try:
+                    if self.old_pal is None:
+                        self.old_pal = wpv.palette_of(current()) if current() else {}
+                    desk = self.desks.get(self.mon)
+                    if desk is not None and desk.mask is None:
+                        shown = wpv.shown_now()
+                        desk.prepare(shown.get(self.mon))
+                except Exception as e:
+                    print("wallpaper preview:", e, file=sys.stderr)
+                continue
             if not want or want in self.pv_cache:
                 continue
             path, mon = want
             desk = self.desks.get(mon)
             try:
-                if shown is None:
-                    shown = wpv.shown_now()
-                if desk.mask is None:
-                    desk.prepare(shown.get(mon))
                 if self.old_pal is None:
                     self.old_pal = wpv.palette_of(current()) if current() else {}
-                new_pal = wpv.palette_of(path)
                 if path == current():
-                    img = desk.shot                          # нынешние обои — стол как есть
+                    # нынешние обои — стол как есть: без маски и перекраски, сразу
+                    new_pal, img = self.old_pal, desk.shot
                 else:
+                    if shown is None:
+                        shown = wpv.shown_now()
+                    if desk.mask is None:
+                        desk.prepare(shown.get(mon))
+                    new_pal = wpv.palette_of(path)
                     img = desk.render(path, self.old_pal, new_pal)
                 surf = to_surface(img)          # (поверхность, буфер) — живут вместе
             except Exception as e:  # превью не должно ронять ленту
                 print("wallpaper preview:", e, file=sys.stderr)
                 continue
             GLib.idle_add(self.preview_ready, want, surf, new_pal)
+
+    def seed_current(self):
+        """Превью нынешних обоев — сам снимок, сразу, без matugen: палитра у них и так
+        текущая (popup_theme). Полная палитра для перекраски считается в фоне ("warm")."""
+        key = self.pv_key()
+        desk = self.desks.get(self.mon)
+        if key and desk is not None and key[0] == current():
+            pal = {k: tuple(int(v[i:i + 2], 16) for i in (1, 3, 5))
+                   for k, v in self.pal.items()
+                   if isinstance(v, str) and len(v) == 7 and v.startswith("#")}
+            surf = to_surface(desk.shot)
+            self.pv_cache[key] = (surf[0], pal, surf[1])
+            self.pv_shown = key
+        with self.pv_lock:
+            self.pv_want = "warm"
+        self.pv_event.set()
 
     def preview_ready(self, key, surf, pal):
         self.pv_cache[key] = (surf[0], pal, surf[1])
@@ -512,6 +549,18 @@ class Picker(Gtk.Window):
                 pass
             if out:
                 GLib.idle_add(self.set_thumb, i, out)
+        # Уменьшенные копии для палитры превью (magick, до 0,5 с на большую картинку) —
+        # заранее, тем же порядком от выбранной: при листании остаётся только matugen.
+        # И копии обоев в размере снимка (wpv.warm_cover) — без них каждое перелистывание
+        # декодировало полноразмерную картинку, 0,1–0,3 с.
+        sizes = sorted({(d.w, d.h) for d in self.desks.values() if d.shot is not None})
+        for i in sorted(range(len(self.tiles)), key=lambda k: abs(k - self.index)):
+            try:
+                wpv.small_copy(self.tiles[i]["path"])
+            except (OSError, subprocess.SubprocessError):
+                pass
+            for w, h in sizes:
+                wpv.warm_cover(self.tiles[i]["path"], w, h)
 
     def set_thumb(self, i, file):
         try:
@@ -686,7 +735,7 @@ class Picker(Gtk.Window):
 def main():
     p = Picker()
     p.show_all()
-    p.request_preview()
+    p._fire_preview()          # нынешние обои — без паузы PREVIEW_DELAY, она для листания
     Gtk.main()
     return 0
 

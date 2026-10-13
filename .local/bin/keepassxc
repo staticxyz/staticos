@@ -1,0 +1,18 @@
+#!/bin/sh
+# KeePassXC в стиле системы (13.10.2026). Пакет на Qt5, а QT_QPA_PLATFORMTHEME=qt6ct
+# понимают только программы Qt6 — без обёртки окно было бы серым Fusion. qt5ct читает
+# те же цвета обоев (qt6ct/colors/matugen.conf пишет matugen) и пиксельный шрифт;
+# новые цвета — со следующего запуска. Второй запуск поднимает уже открытое окно.
+export QT_QPA_PLATFORMTHEME=qt5ct
+unset QT_STYLE_OVERRIDE
+# Курсор (13.10.2026): Qt5 здесь идёт через XWayland, а X11-программа берёт курсор один раз
+# при запуске — из XCURSOR_*, иначе тема из ~/.icons/default и размер «на глаз». Берём ту же
+# тему и размер, что у niri (их пишет cursor_colors.py); после смены курсора — перезапуск.
+CUR=$HOME/.cache/matugen/niri-cursor.kdl
+if [ -r "$CUR" ]; then
+    t=$(sed -n 's/.*xcursor-theme "\(.*\)".*/\1/p' "$CUR")
+    s=$(sed -n 's/.*xcursor-size \([0-9]*\).*/\1/p' "$CUR")
+    [ -n "$t" ] && export XCURSOR_THEME="$t"
+    [ -n "$s" ] && export XCURSOR_SIZE="$s"
+fi
+exec /usr/bin/keepassxc "$@"

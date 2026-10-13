@@ -956,7 +956,6 @@ DEFAULTS = {
         "Размытие под баром": True,                  # top_bar.py: нет флага bar-blur-off
         "Окна у панели": "on",                       # bottom_bar.py get_gap()
         "Тексты песен": True,                        # lyrics_bar.py: нет флага lyrics-off
-        "Подсказка раскладки": "normal",             # state/layout-osd-look: нет файла — normal
         "Окна в доке": "all",                        # dock.py get_mode()
     },
     "fonts": {
@@ -995,6 +994,7 @@ DEFAULTS = {
         "Редактор": "ksnip",                         # shot_get()
         "Уведомление при смене трека": True,         # track_notify.py: нет флага -off
         "Вид как в Noctalia": False,                 # notif-look: без вставки в style.css — off
+        "Подсказка раскладки": "normal",             # state/layout-osd-look: нет файла — normal
         "Громкость уведомлений": 100,                # ui_sound.py get_notify_volume()
         "Звуки включены": True,                   # ui_sound.py: нет флага ui-sound-off
         "Набор звуков": "xp",                        # ui_sound.py get_pack()
@@ -4645,6 +4645,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.shots_cards(v)
         self.notify_cards(v)
         self.power_cards(v)
+        self.layout_cards(v)
         self.mouse_cards(v)
         return scroll
 
@@ -5053,11 +5054,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
             run_serial(["python3", BOTTOM_BAR, "show", k])
             gap_rev.set_reveal_child(k != "hover")
         show_row = self.row(xcard, "Появление",
-                 self.segments([("always", "Всегда"), ("hover", "При наведении"),
-                                ("button", "По Super+S")], show, pick_show),
+                 self.segments([("always", "Всегда"), ("hover", "При наведении")],
+                               "hover" if show == "hover" else "always", pick_show),
                  "Всегда — панель стоит внизу постоянно. При наведении — прячется и выезжает, "
-                 "когда курсор доходит до нижнего края. По Super+S — появляется и прячется "
-                 "только по сочетанию клавиш. Super+S работает в любом режиме. Если в «Показе "
+                 "когда курсор доходит до нижнего края. Super+S прячет и показывает её в любом "
+                 "режиме (отдельный «По Super+S» убран 13.10 — он отличался только тем, что "
+                 "панель стартовала скрытой). Если в «Показе "
                  "панелей» снято «На всех мониторах» — режим у каждого монитора свой, там.")
         # Кнопка «Пуск» XP-панели (04.10.2026, как у angelOS; start_menu.py button
         # default|square). До 13.10.2026 жила на странице Config — перенесена к самой панели.
@@ -5117,27 +5119,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "ничего не записывается и не считается.")
         # «Индикатор языка» (xp / клавиатура, state/xpbar-lang-look) убран из Настроек по
         # просьбе пользователя 06.10.2026 — в трее остаётся вид XP; xpbar.py вариант понимает.
-        # Подсказка при переключении раскладки (06.10.2026): normal — пилюля, pixel — тёмная
-        # плашка с пиксельной клавиатурой в цветах обоев (state/layout-osd-look; layout_osd
-        # читает файл при каждом показе — меняется сразу).
-        osd_f = os.path.expanduser("~/.config/hypr/state/layout-osd-look")
-
-        def osd_set(k):
-            try:
-                with open(osd_f, "w") as f:
-                    f.write(k)
-            except OSError:
-                pass
-        try:
-            osd_now = open(osd_f).read().strip()
-        except OSError:
-            osd_now = "normal"
-        self.row(xcard, "Подсказка раскладки",
-                 self.segments([("normal", "Обычная"), ("pixel", "Пиксельная")],
-                               osd_now if osd_now in ("normal", "pixel") else "normal", osd_set),
-                 "Всплывающая плашка снизу при смене языка: пилюля со значком или тёмная "
-                 "плашка с пиксельной клавиатурой в цветах обоев.",
-                 icon="\U000f030c")
         # Док: все окна или только окна текущего стола (dock.py mode).
         dcard = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.row(dcard, "Окна в доке",
@@ -5683,16 +5664,24 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def draw_cursor_look(self, cr, w, h, key, pal):
         """Плитка темы курсора: стрелка, рука, текст и ожидание из самих файлов темы."""
+        # Ключ кэша — с каталогом темы и временем её файлов (13.10.2026): раньше картинки
+        # брались один раз на жизнь резидента, и после пересборки «Стрелки» плитка
+        # показывала старые формы.
         cache = self.__dict__.setdefault("_cursor_pix", {})
-        if key not in cache:
-            base = self._cursor_theme.theme_dir(key)
-            cache[key] = [cursor_pixbuf(base / "cursors" / n) if base else None
-                          for n in ("left_ptr", "hand2", "xterm", "watch")]
+        base = self._cursor_theme.theme_dir(key)
+        try:
+            stamp = (base / "cursors" / "default").stat().st_mtime if base else 0
+        except OSError:
+            stamp = 0
+        ck = (key, str(base), stamp)
+        if ck not in cache:
+            cache[ck] = [cursor_pixbuf(base / "cursors" / n) if base else None
+                         for n in ("left_ptr", "hand2", "xterm", "watch")]
+        pixs = [p for p in cache[ck] if p is not None]
         c = pal.get("surface_container", "#1e1f29").lstrip("#")
         cr.set_source_rgb(*(int(c[i:i + 2], 16) / 255 for i in (0, 2, 4)))
         cr.rectangle(0, 0, w, h)
         cr.fill()
-        pixs = [p for p in cache[key] if p is not None]
         step = w / (len(pixs) + 1) if pixs else w
         for i, pix in enumerate(pixs):
             x = step * (i + 1) - pix.get_width() / 2
@@ -5760,6 +5749,33 @@ class SettingsWindow(Gtk.ApplicationWindow):
         if not on:
             self.awake_pill.set_active(False)
         self.awake_rev.set_reveal_child(on)
+
+    def layout_cards(self, v):
+        """Раскладка клавиатуры (13.10.2026: «Подсказка раскладки» переехала сюда из карточки
+        XP-панели — плашка показывается при любой форме панели, а пряталась вместе с XP)."""
+        self.section(v, "Раскладка", "\U000f030c")
+        c = self.card(v)
+        # Подсказка при переключении раскладки (06.10.2026): normal — пилюля, pixel — тёмная
+        # плашка с пиксельной клавиатурой в цветах обоев (state/layout-osd-look; layout_osd
+        # читает файл при каждом показе — меняется сразу).
+        osd_f = os.path.expanduser("~/.config/hypr/state/layout-osd-look")
+
+        def osd_set(k):
+            try:
+                with open(osd_f, "w") as f:
+                    f.write(k)
+            except OSError:
+                pass
+        try:
+            osd_now = open(osd_f).read().strip()
+        except OSError:
+            osd_now = "normal"
+        self.row(c, "Подсказка раскладки",
+                 self.segments([("normal", "Обычная"), ("pixel", "Пиксельная")],
+                               osd_now if osd_now in ("normal", "pixel") else "normal", osd_set),
+                 "Всплывающая плашка снизу при смене языка: пилюля со значком или тёмная "
+                 "плашка с пиксельной клавиатурой в цветах обоев.",
+                 icon="\U000f030c")
 
     def notify_cards(self, v):
         """Уведомления (была страница Notifications; с 02.10.2026 — в Misc)."""

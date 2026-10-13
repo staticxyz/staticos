@@ -115,9 +115,11 @@ layer-rule {
 // плашкой виджет рисует сам (сила настраивается, и niri не тратит кадр на восемь
 // размытий). Правило с blur true стояло здесь 02.10.2026 несколько часов.
 
-// Лаунчер приложений (Super+X) и шпаргалка клавиш (Super+Z) — слои с размытием.
+// Лаунчер приложений (Super+X) — без размытия (13.10.2026: «не видно ничего за этим
+// меню»): слой во весь экран, лаунчер сам рисует лёгкое затемнение и карточку по центру.
+// Шпаргалка клавиш (Super+Z) — слой с размытием.
 layer-rule {
-    match namespace=r#"^jarvis-launcher$"#
+    match namespace=r#"^jarvis-keybinds$"#
     background-effect {
         blur true
         xray false
@@ -125,7 +127,7 @@ layer-rule {
 }
 
 layer-rule {
-    match namespace=r#"^jarvis-keybinds$"#
+    match namespace=r#"^jarvis-config-map$"#
     background-effect {
         blur true
         xray false

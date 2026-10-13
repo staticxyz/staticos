@@ -73,19 +73,26 @@ element {{ padding: {epad}; spacing: 10px; border-radius: 0; }}
 inputbar {{ children: [ "prompt", "entry" ]; spacing: 8px; border-radius: 0; }}
 prompt {{ str: ""; }}
 entry {{ placeholder: "поиск…"; }}
-textbox-ltitle {{ expand: false; content: "{title}"; }}
+textbox-ltitle {{ expand: true; content: "{title}"; vertical-align: 0.5; background-color: transparent; }}
+/* Крестик в заголовке, как у Recorder (13.10.2026, Просьба: «В Super+space меню rofi тоже,
+   кнопку закрыть»). Значок — PNG того же крестика (exe_frame.recorder_close), щелчок = Esc. */
+ltitlebar {{ orientation: horizontal; expand: false; spacing: 8px;
+            children: [ "textbox-ltitle", "icon-lclose" ]; }}
+icon-lclose {{ expand: false; filename: "{close}"; size: 22px; vertical-align: 0.5;
+              action: "kb-cancel"; cursor: pointer; background-color: transparent; }}
 textbox-lhint {{ expand: false; content: "{hint}"; horizontal-align: 1; }}
 """
 
 DEFAULT = """
 panel {{
     width: 560px; padding: 0; spacing: 0; border: 3px solid; border-color: {st_mid};
-    border-radius: 0; background-color: {bg}; children: [ "textbox-ltitle", "lbody" ];
+    border-radius: 0; background-color: {bg}; children: [ "ltitlebar", "lbody" ];
 }}
-textbox-ltitle {{
-    padding: 4px 10px; text-color: #ffffff; border: 0 0 1px 0; border-color: {st_dark};
+ltitlebar {{
+    padding: 3px 4px 3px 10px; border: 0 0 1px 0; border-color: {st_dark};
     background-image: linear-gradient(to bottom, {st_top}, {st_mid}, {st_bot});
 }}
+textbox-ltitle {{ text-color: #ffffff; }}
 lbody {{ orientation: vertical; padding: 8px; spacing: 8px;
         children: [ "inputbar", "listview", "textbox-lhint" ]; }}
 inputbar {{ padding: 5px 8px; border: 1px solid; border-color: {st_mid};
@@ -106,8 +113,9 @@ panel {{
 lstrip   {{ expand: false; padding: 1px 0 0 0; background-image: linear-gradient(to right, {s0}, {s1}, {s2}); }}
 lstrip-d {{ expand: false; padding: 1px 0 0 0; background-image: linear-gradient(to right, {s0d}, {s1d}, {s2d}); }}
 lbody {{ orientation: vertical; padding: 8px 10px 10px 10px; spacing: 6px;
-        children: [ "textbox-ltitle", "inputbar", "listview", "textbox-lhint" ]; }}
-textbox-ltitle {{ padding: 0 2px; text-color: {text}; }}
+        children: [ "ltitlebar", "inputbar", "listview", "textbox-lhint" ]; }}
+ltitlebar {{ padding: 0 0 0 2px; }}
+textbox-ltitle {{ text-color: {text}; }}
 inputbar {{ padding: 4px 6px; border: 1px solid; border-color: {line1}; background-color: {field}; }}
 prompt {{ text-color: {acc}; }}
 entry {{ text-color: {text}; placeholder-color: {dim}; }}
@@ -121,10 +129,10 @@ textbox-lhint {{ padding: 0 2px; text-color: {dim}; }}
 BETA = """
 panel {{
     width: 560px; padding: 0; spacing: 0; border: 1px solid; border-color: {frame};
-    border-radius: 0; background-color: {bg}; children: [ "textbox-ltitle", "lbody" ];
+    border-radius: 0; background-color: {bg}; children: [ "ltitlebar", "lbody" ];
 }}
-textbox-ltitle {{ padding: 6px 12px; text-color: {text}; background-color: {bar};
-                 border: 0 0 1px 0; border-color: {line}; }}
+ltitlebar {{ padding: 4px 6px 4px 12px; background-color: {bar}; border: 0 0 1px 0; border-color: {line}; }}
+textbox-ltitle {{ text-color: {text}; }}
 lbody {{ orientation: vertical; padding: 10px; spacing: 8px;
         children: [ "inputbar", "listview", "textbox-lhint" ]; }}
 inputbar {{ padding: 5px 8px; border: 1px solid; border-color: {line_strong}; background-color: {field}; }}
@@ -136,6 +144,18 @@ element normal.normal, element alternate.normal {{ background-color: transparent
 element selected.normal {{ background-color: {sel}; border-color: {frame}; text-color: {sel_text}; }}
 textbox-lhint {{ text-color: {dim}; }}
 """
+
+
+def close_png(style, size=22):
+    """PNG крестика Recorder для заголовка; рисуется заново при каждой сборке темы."""
+    import cairo
+    import exe_frame
+    path = os.path.join(CACHE, "launcher-close-%s.png" % style)
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
+    exe_frame.recorder_close(cairo.Context(surf), style, size)
+    surf.write_to_png(path + ".tmp")
+    os.replace(path + ".tmp", path)
+    return path
 
 
 def build(style):
@@ -152,9 +172,10 @@ def build(style):
     else:
         c = xp_colors()
         body, lsp, epad = DEFAULT, 3, "3px 10px"
-    text = COMMON.format(title=TITLE, style=style, base=BASE, font=FONT, hint=HINT,
-                         lsp=lsp, epad=epad) + body.format(**c)
     os.makedirs(CACHE, exist_ok=True)
+    close = close_png(style)
+    text = COMMON.format(title=TITLE, style=style, base=BASE, font=FONT, hint=HINT,
+                         lsp=lsp, epad=epad, close=close) + body.format(**c)
     path = os.path.join(CACHE, "launcher-%s.rasi" % style)
     with open(path + ".tmp", "w") as f:
         f.write(text)

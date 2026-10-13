@@ -249,25 +249,36 @@ class View:
         self.style = style_name()
         self.c = colors(self.style)
         self.all_rows = load_binds()
-        self.mode = "normal"
+        self.mode = "search"          # открылось — сразу печатать (13.10.2026); Esc/jj — навигация
         self.buf = ""
         self.sel = 0
         self.scroll = 0
         self.max_vis = 10
         self.pending_jj = False
         self.pending_t = 0
+        self.hover_close = False
+        self.close_rect = (0, 0, 0, 0)
 
     def rows(self):
         if not self.buf:
             return self.all_rows
-        q = self.buf.lower()
-        out = []
+        if getattr(self, "_rows_key", None) == self.buf:     # кадр зовёт rows() не раз
+            return self._rows
+        self._rows_key, self._rows = self.buf, self._rows_calc()
+        return self._rows
+
+    def _rows_calc(self):
+        # Умный поиск (13.10.2026): синонимы, другая раскладка, опечатки, окончания —
+        # «скриншот» находит «Снимок окна». Категория строки тоже участвует.
+        from smart_search import search
+        cat, items = "", []
         for r in self.all_rows:
             if r[0] == "head":
-                continue
-            if q in r[1].lower() or q in r[2].lower():
-                out.append(r)
-        return out
+                cat = r[1]
+            else:
+                items.append((r, cat))
+        return [r for r, _c in search(self.buf, items, lambda it: (it[0][1], it[0][2]),
+                                         weak=lambda it: (it[1],))]
 
     def draw(self, cr, w, h):
         c = self.c
@@ -302,11 +313,23 @@ class View:
         x0, x1 = PAD, w - PAD
         y = 14
         p.text(x0, y, "Клавиши", c["acc_l"], size=FONT_SZ, bold=True)
+        # Крестик в углу (13.10.2026, Просьба: «в меню Super+Z тоже добавь кнопку закрыть»)
+        import exe_frame
+        s = 24
+        self.close_rect = (x1 - s, y - 4, s, s)
+        hov = self.hover_close
+        exe_frame.close_box(cr, x1 - s, y - 4, s, c["err"] if hov else c["field"],
+                            c["err"] if hov else c["line"], c["bg"] if hov else c["dim"],
+                            round_=c["frame"] != "skeet")
         y += 28
 
         # поиск
         p.rect(x0, y, x1 - x0, 26, c["field"])
-        if self.mode == "search":
+        if self.mode == "search" and not self.buf:
+            p.text(x0 + 6, y + 4, "▏", c["text"], size=FONT_SZ)
+            p.text(x0 + 16, y + 4, "Поиск: снимок, громкость, браузер…", c["faint"], size=FONT_SZ,
+                   maxw=x1 - x0 - 22)
+        elif self.mode == "search":
             p.text(x0 + 6, y + 4, self.buf + "▏", c["text"], size=FONT_SZ, maxw=x1 - x0 - 12)
         elif self.buf:
             p.text(x0 + 6, y + 4, self.buf, c["text"], size=FONT_SZ, maxw=x1 - x0 - 12)
@@ -375,7 +398,7 @@ class View:
         p.rect(x0, y, bw, 20, c["field_l"])
         p.text(x0 + 6, y + 2, badge, c["acc_l"], size=FONT_SZ)
         hint = "j/k ↕ · ^D/^U ½ · g/G · / поиск · q выход" if self.mode == "normal" \
-            else "Enter открыть · jj навигация · Esc"
+            else "↑↓ выбор · Enter/jj — к списку · Esc"
         p.text(x0 + bw + 8, y + 2, hint, c["faint"], size=FONT_SZ, maxw=x1 - x0 - bw - 10)
 
 
@@ -395,8 +418,11 @@ class SheetWindow(Gtk.ApplicationWindow):
         self.area = Gtk.DrawingArea()
         self.area.set_size_request(W, H_MIN)
         self.area.connect("draw", self.on_draw)
-        self.area.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.SCROLL_MASK)
+        self.area.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.SCROLL_MASK
+                             | Gdk.EventMask.POINTER_MOTION_MASK)
         self.area.connect("scroll-event", self.on_scroll)
+        self.area.connect("button-press-event", self.on_press)
+        self.area.connect("motion-notify-event", self.on_motion)
         self.add(self.area)
         self.connect("key-press-event", self.on_key)
         self.connect("focus-out-event", lambda *_: self.close())
@@ -407,6 +433,22 @@ class SheetWindow(Gtk.ApplicationWindow):
     def on_draw(self, _w, cr):
         w, h = self.get_allocated_width(), self.get_allocated_height()
         self.view.draw(cr, w, h)
+
+    def in_close(self, x, y):
+        cx, cy, cw, ch = self.view.close_rect
+        return cx <= x < cx + cw and cy <= y < cy + ch
+
+    def on_motion(self, _w, ev):
+        hov = self.in_close(ev.x, ev.y)
+        if hov != self.view.hover_close:
+            self.view.hover_close = hov
+            self.redraw()
+        return True
+
+    def on_press(self, _w, ev):
+        if ev.button == 1 and self.in_close(ev.x, ev.y):
+            self.close()
+        return True
 
     def on_scroll(self, _w, ev):
         v = self.view
@@ -461,11 +503,21 @@ class SheetWindow(Gtk.ApplicationWindow):
         v = self.view
         import time
         now = time.monotonic()
+        rows = v.rows()
+        ctrl = bool(ev.state & Gdk.ModifierType.CONTROL_MASK)
+        if name in ("Down", "Up", "Tab", "ISO_Left_Tab") or (ctrl and ch in ("j", "k", "n", "p")):
+            d = 1 if name in ("Down", "Tab") or ch in ("j", "n") else -1
+            if rows:
+                v.sel = max(0, min(len(rows) - 1, v.sel + d))
+                while 0 < v.sel < len(rows) - 1 and rows[v.sel][0] == "head":
+                    v.sel += d
+            return
         if name == "Escape":
             if v.buf:
                 v.buf = ""
+                v.sel = 0
             else:
-                self.close()
+                v.mode = "normal"      # пусто — в навигацию, Esc ещё раз — выход
         elif name in ("Return", "KP_Enter"):
             v.mode = "normal"
         elif name == "BackSpace":

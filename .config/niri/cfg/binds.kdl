@@ -29,6 +29,9 @@ binds {
     Mod+U hotkey-overlay-title="Zen (браузер)" { spawn "zen-browser"; }
     Mod+B hotkey-overlay-title="Tor Browser" { spawn "torbrowser-launcher"; }
     Mod+Y hotkey-overlay-title="LibreWolf (браузер)" { spawn "librewolf"; }
+    // Пароли — KeePassXC через обёртку (цвета обоев, пиксельный шрифт); открыт — поднимает окно.
+    Mod+Ctrl+Shift+P hotkey-overlay-title="Пароли (KeePassXC)" { spawn-sh "~/.local/bin/keepassxc"; }
+    Mod+Ctrl+T hotkey-overlay-title="Раскладка стола: прокрутка → мастер-стек → плавающие" { spawn-sh "python3 ~/.config/hypr/scripts/ws_layout.py cycle"; }
     // Калькулятор-переводчик — своё окно (translate_popup.py): rofi-calc не
     // умел показывать длинный перевод строками (23.09.2026). Повторное
     // нажатие закрывает (single_instance внутри).
@@ -407,6 +410,7 @@ binds {
     Alt+F4 hotkey-overlay-title="Меню питания" { spawn-sh "~/.config/niri/scripts/alt-f4"; }
     Mod+Shift+Backslash { power-off-monitors; }
     Mod+Z hotkey-overlay-title="Шпаргалка клавиш" { spawn-sh "python3 ~/.config/hypr/scripts/keybinds_sheet.py"; }
+    Mod+Shift+Z hotkey-overlay-title="Карта staticOS" { spawn-sh "python3 ~/.config/hypr/scripts/config_map.py"; }
     Mod+X hotkey-overlay-title="Лаунчер приложений" { spawn-sh "python3 ~/.config/hypr/scripts/app_launcher.py"; }
 }
 

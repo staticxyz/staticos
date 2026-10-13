@@ -156,7 +156,7 @@ def main():
         save(d)
         apply_focus()
         # микшеры eww, меню rofi и уведомления — в новом стиле (13.10.2026)
-        for sc in ("mixer_style.py", "rofi_style.py", "notif_style.py"):
+        for sc in ("mixer_style.py", "rofi_style.py", "notif_style.py", "zen_style.py", "keepassxc_style.py"):
             subprocess.run(["python3", os.path.join(HERE, sc), "sync"], capture_output=True, timeout=30)
         print(a[1])
     elif a[0] == "widgets" and len(a) > 1:

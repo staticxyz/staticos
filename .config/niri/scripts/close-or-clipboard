@@ -15,6 +15,37 @@ if printf '%s' "$layers" | grep -Eq '"namespace": *"jarvis-keybinds"'; then
         esac
     fi
 fi
+# Карта конфигов Super+Shift+Z — так же: закрыть её, а не окно под ней (13.10.2026).
+if printf '%s' "$layers" | grep -Eq '"namespace": *"jarvis-config-map"'; then
+    pid=
+    { read -r pid < "$RUN/jarvis-config-map.pid"; } 2>/dev/null
+    if [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ]; then
+        case "$(tr '\0' ' ' < "/proc/$pid/cmdline")" in
+            *config_map*) kill -TERM "$pid" 2>/dev/null && exit 0 ;;
+        esac
+    fi
+fi
+# Меню Super+X — тоже закрыть его, а не окно под ним (13.10.2026).
+if printf '%s' "$layers" | grep -Eq '"namespace": *"jarvis-launcher"'; then
+    pid=
+    { read -r pid < "$RUN/jarvis-launcher.pid"; } 2>/dev/null
+    if [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ]; then
+        case "$(tr '\0' ' ' < "/proc/$pid/cmdline")" in
+            *app_launcher*) kill -TERM "$pid" 2>/dev/null && exit 0 ;;
+        esac
+    fi
+fi
+# Super+C (jarvis-calc) и rofi Super+Space — pidfile у них нет, процесс ищем по имени (13.10.2026).
+close_by_args() {
+    pids=$(ps -u "$(id -u)" -o pid=,args= | awk -v pat="$1" '$0 ~ pat && $0 !~ /awk/ {print $1}')
+    [ -n "$pids" ] && kill -TERM $pids 2>/dev/null
+}
+if printf '%s' "$layers" | grep -Eq '"namespace": *"jarvis-calc"'; then
+    close_by_args 'translate_popup[.]py' && exit 0
+fi
+if printf '%s' "$layers" | grep -Eq '"namespace": *"rofi"'; then
+    close_by_args '^ *[0-9]+ +(/usr/bin/)?rofi( |$)' && exit 0
+fi
 if printf '%s' "$layers" | grep -Eq '"namespace": *"jarvis-clipboard"'; then
     pid=
     { read -r pid < "$RUN/jarvis-clipboard.pid"; } 2>/dev/null

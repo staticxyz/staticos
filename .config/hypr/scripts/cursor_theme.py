@@ -26,7 +26,9 @@ JARVIS = "jarvis"
 # ключ, подпись, xcursor-size
 THEMES = [
     (JARVIS, "Jarvis · цвета обоев", cursor_colors.SIZE),
-    ("bit-wall", "Jarvis Bit · цвета обоев", cursor_colors.SIZE),   # свой пиксельный, bit_cursor.py (07.10.2026)
+    # Jarvis Bit (bit_cursor.py, 07.10) убран 13.10.2026 — Просьба: «убери, и новый поставь на его
+    # место». Ветки bit-wall ниже оставлены: если ключ остался в state, курсор соберётся.
+    ("tri-wall", "Стрелка · цвета обоев", cursor_colors.SIZE),   # tri_cursor.py (13.10.2026)
     ("pebble-wall", "Галька · цвета обоев", cursor_colors.SIZE),   # как Jarvis (13.10.2026)
     # Гальки синий/тёмно-синий/голубой/чёрный и Yamikai розовый убраны 07.10.2026 (Пользователь:
     # «убери все, что не берут из акцента») — файлы тем в ~/.local/share/icons остались.
@@ -72,6 +74,8 @@ def theme_dir(key):
         name = now if now.startswith("Yamikai-Wall") else "Yamikai-Wall-A"
     elif key == "bit-wall":
         name = now if now.startswith("Jarvis-Bit") else "Jarvis-Bit-A"
+    elif key == "tri-wall":
+        name = now if now.startswith("Jarvis-Tri") else "Jarvis-Tri-A"
     else:
         name = key
     for base in (pathlib.Path.home() / ".local/share/icons", pathlib.Path("/usr/share/icons")):
@@ -98,6 +102,9 @@ def set_theme(key):
     elif key == "bit-wall":
         import bit_cursor
         cursor_colors.activate(bit_cursor.build(cursor_colors.current_name() or ""), size)
+    elif key == "tri-wall":
+        import tri_cursor
+        cursor_colors.activate(tri_cursor.build(cursor_colors.current_name() or ""), size)
     else:
         cursor_colors.activate(key, size)
     print("курсор:", key)
@@ -123,6 +130,11 @@ def refresh():
     elif key == "bit-wall":
         import bit_cursor
         name = bit_cursor.build(cursor_colors.current_name() or "")
+        cursor_colors.activate(name, cursor_colors.SIZE)
+        print("курсор:", name)
+    elif key == "tri-wall":
+        import tri_cursor
+        name = tri_cursor.build(cursor_colors.current_name() or "")
         cursor_colors.activate(name, cursor_colors.SIZE)
         print("курсор:", name)
     elif key == YAMIKAI_WALL:

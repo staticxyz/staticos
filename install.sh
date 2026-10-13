@@ -60,7 +60,7 @@ PKG_REPO=(
     wl-clipboard cliphist wtype grim slurp satty tesseract tesseract-data-eng
     gpu-screen-recorder ffmpeg imagemagick
     # terminal tools and widgets
-    cava termdown fastfetch btop libqalculate jq
+    cava termdown fastfetch btop libqalculate jq fzf pacman-contrib
     # fonts and icons
     ttf-jetbrains-mono-nerd papirus-icon-theme
     # build tools used by the installer

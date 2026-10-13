@@ -450,4 +450,7 @@
 }
 .notification-row .notification-background, .control-center .notification-row .notification-background, .notification-group .notification-row .notification-background, .floating-notifications .notification-row .notification-background { padding: 5px 7px; }   /* у Noctalia-правила .floating-… вес больше */
 .notification-row .notification-background:hover, .control-center .notification-row .notification-background:hover { background-color: #1f2026; }
+/* Внешний край центра уведомлений — акцентом (13.10.2026, просьба: «рамку, чтобы
+   была видна, где заканчивается»): тёмные слои на тёмных обоях сливались. */
+.control-center { border: 2px solid #6888f3; }
 /* PIXEL-LOOK-END */

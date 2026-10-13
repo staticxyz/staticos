@@ -181,6 +181,9 @@ def css(st):
 }
 %(fr)s, .floating-notifications %(row)s { padding: 5px 7px; }   /* у Noctalia-правила .floating-… вес больше */
 %(row)s:hover, .control-center %(row)s:hover { background-color: %(field)s; }
+/* Внешний край центра уведомлений — акцентом (13.10.2026, просьба: «рамку, чтобы
+   была видна, где заканчивается»): тёмные слои на тёмных обоях сливались. */
+.control-center { border: 2px solid %(acc)s; }
 """ % dict(c, fr=frame_rows, row=ROW))
     elif st == "beta":
         o.append("""/* Beta: плоская карточка, рамка акцентом, углы 8 px (как микшеры Beta) */
