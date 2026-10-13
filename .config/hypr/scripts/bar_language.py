@@ -10,14 +10,31 @@ class "caps", когда Caps включён, — по нему CSS красит
 """
 import glob
 import json
+import os
 import subprocess
 import sys
 import threading
 import time
 
+# wb_hub запускается через setsid и не наследует NIRI_SOCKET из окружения niri.
+# Ищем сокет вручную, чтобы niri msg мог подключиться.
+def _find_niri_socket():
+    sock = os.environ.get("NIRI_SOCKET", "")
+    if sock and os.path.exists(sock):
+        return sock
+    uid = os.getuid()
+    for p in glob.glob("/run/user/%d/niri.*.sock" % uid):
+        if os.path.exists(p):
+            return p
+    return ""
+
+_sock = _find_niri_socket()
+if _sock:
+    os.environ["NIRI_SOCKET"] = _sock
+
 ICON = "\U000f030c"            # тот же значок клавиатуры, что был в niri/language
 CAPS_LEDS = "/sys/class/leds/*::capslock/brightness"
-CAPS_POLL = 0.12
+CAPS_POLL = 0.04        # 13.10.2026: было 0.12 — пользователь заметил задержку; пути кэшируются
 SHORT = {"Russian": "RU", "English (US)": "US", "English": "US"}
 
 state = {"layout": "?", "caps": False}
@@ -25,8 +42,14 @@ lock = threading.Lock()
 last = None
 
 
+_leds = {"paths": [], "at": 0.0}
+
+
 def caps_on():
-    for path in glob.glob(CAPS_LEDS):
+    now = time.monotonic()
+    if now - _leds["at"] > 5:           # клавиатуры могут появиться/уйти — пересмотр раз в 5 с
+        _leds["paths"], _leds["at"] = glob.glob(CAPS_LEDS), now
+    for path in _leds["paths"]:
         try:
             with open(path) as f:
                 if f.read().strip() not in ("", "0"):
@@ -51,7 +74,7 @@ def emit():
     if cur == last:
         return
     last = cur
-    out = {"text": "%s %s" % (ICON, layout),
+    out = {"text": "%s<span font_size='50%%'> </span>%s" % (ICON, layout),   # зазор вдвое уже (13.10.2026)
            "tooltip": "Раскладка: %s%s" % (layout, " · Caps Lock включён" if caps else ""),
            "class": "caps" if caps else ""}
     sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")

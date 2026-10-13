@@ -21,54 +21,79 @@
     {
       "name": "date",
       "cmd": "python3 ~/.config/hypr/scripts/dateview.py",
-      "w": 799,
-      "h": 130,
+      "w": 481,
+      "h": 95,
       "x": 540,
-      "y": 45,
-      "font_size": 6.0
+      "y": 33,
+      "font_size": 6.0,
+      "output": "DP-4"
     },
     {
       "name": "pomo",
       "cmd": "pomo watch",
-      "w": 798,
-      "h": 49,
+      "w": 481,
+      "h": 95,
       "x": 543,
-      "y": 203
+      "y": 191,
+      "output": "DP-4"
     },
     {
       "name": "tclock",
       "cmd": "tclock",
-      "w": 612,
-      "h": 111,
-      "x": 631,
-      "y": 405
+      "w": 481,
+      "h": 95,
+      "x": 697,
+      "y": 822,
+      "output": "DP-4"
     },
     {
       "name": "cava",
       "cmd": "cava",
-      "w": 1888,
-      "h": 101,
-      "x": 13,
-      "y": 534
+      "w": 481,
+      "h": 95,
+      "x": 20,
+      "y": 924,
+      "output": "DP-4"
     },
     {
       "name": "brrt",
       "cmd": "clear; brrt",
-      "w": 904,
-      "h": 403,
+      "w": 481,
+      "h": 95,
       "x": 13,
-      "y": 659,
-      "font_size": 6.0
+      "y": 623,
+      "font_size": 6.0,
+      "output": "DP-4"
     },
     {
       "name": "ffetch",
       "cmd": "~/.config/hypr/scripts/ffetch",
-      "w": 957,
-      "h": 402,
+      "w": 481,
+      "h": 95,
       "x": 945,
-      "y": 661,
-      "font_size": 10.0
+      "y": 625,
+      "font_size": 10.0,
+      "output": "DP-4"
+    },
+    {
+      "name": "dashboard",
+      "cmd": "dashboard save",
+      "w": 481,
+      "h": 95,
+      "x": 492,
+      "y": -6,
+      "output": "DP-4"
+    },
+    {
+      "name": "dashboard2",
+      "cmd": "dashboard save",
+      "w": 481,
+      "h": 95,
+      "x": 492,
+      "y": -6,
+      "output": "DP-4"
     }
   ],
-  "workspace": "󰐷"
+  "workspace": "󰐷",
+  "widget_workspace": "󰜬"
 }

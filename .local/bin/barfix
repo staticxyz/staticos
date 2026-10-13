@@ -20,7 +20,16 @@ for p in $(pgrep -x waybar); do
         kill "$p" 2>/dev/null
     fi
 done
-sleep 0.6
+# Дождаться завершения всех waybar этого сеанса — без этого panels.py
+# поднимал новые поверх ещё живых старых (12.10.2026).
+for i in $(seq 1 20); do
+    found=0
+    for p in $(pgrep -x waybar 2>/dev/null); do
+        grep -qz "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}" "/proc/$p/environ" 2>/dev/null && found=1
+    done
+    [ "$found" = 0 ] && break
+    sleep 0.1
+done
 PANELS="$HOME/.config/hypr/scripts/panels.py"
 # Панели по мониторам (panels.py, 06.10.2026): у каждого монитора свой waybar и режим.
 if [ -n "${NIRI_SOCKET:-}" ] && [ "$(python3 "$PANELS" same 2>/dev/null)" = no ]; then

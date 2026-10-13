@@ -655,7 +655,9 @@ def load_theme(colors=None, vivid=None):
     # за ним. Насыщенность и светлота — пастельно-яркие, как надпись на образце;
     # у почти серых обоев насыщенность пропорционально ниже.
     sat = 0.72 * min(1.0, max(0.25, sa / 0.55))
-    hues = [ha - sgn * 48 / 360, ha - sgn * 22 / 360, ha, ha + d, ha + d + sgn * 34 / 360]
+    # 09.10.2026: перелив был шире 150° (у синих обоев — от бирюзового до розового) и не
+    # читался как цвет обоев. Теперь держится у акцента: ±~20°, в сторону третичного.
+    hues = [ha - sgn * 14 / 360, ha - sgn * 6 / 360, ha, ha + sgn * 9 / 360, ha + sgn * 18 / 360]
     # Перелив идёт по оттенку (HLS), не по RGB: между зелёным и розовым RGB-смесь
     # давала грязно-оливковую середину (проверка на зелёной палитре).
     ramp = [(h, 0.68, sat) for h in hues]
@@ -943,6 +945,126 @@ def ru_date(t=None):
     return "%s, %d %s" % (RU_DAYS[lt.tm_wday], lt.tm_mday, RU_MONTHS[lt.tm_mon - 1])
 
 
+class Orb:
+    """Сфера Джарвиса для второго монитора (09.10.2026). По мотивам jarvis-orb: шар из
+    светящихся нитей с лучами наружу и дыханием, но в пикселях — рендер L×L клеток
+    (numpy), цвет по переливу обоев, яркость квантуется узором Bayer, масштаб NEAREST.
+    Чистая функция времени t (jarvis_lock рисует тот же кадр по тому же зерну)."""
+
+    N = 1500          # нитей в оболочке
+    NR = 34           # лучей наружу
+    LEVELS = 6        # ступеней яркости (с узором Bayer)
+    DRIFT = 14.0      # перелив цвета, с
+
+    def __init__(self, w, h, theme, seed):
+        import numpy as np
+        self.np = np
+        self.theme = theme
+        side = min(w, h)
+        self.px = max(3, side // 135)               # размер «пикселя» на экране
+        self.L = min(120, max(48, int(side * 0.80) // self.px))
+        self.size = self.L * self.px
+        self.x0 = (w - self.size) // 2
+        self.y0 = (h - self.size) // 2 - int(h * 0.02)
+        self.rect = (self.x0, self.y0, self.size, self.size)
+        rs = np.random.RandomState(seed & 0x7FFFFFFF)
+        i = np.arange(self.N) + 0.5
+        phi = np.arccos(1 - 2 * i / self.N)
+        th = math.pi * (1 + 5 ** 0.5) * i
+        self.pts = np.stack([np.cos(th) * np.sin(phi), np.cos(phi), np.sin(th) * np.sin(phi)], 1)
+        self.phase = rs.rand(self.N) * math.tau
+        self.speed = 0.6 + rs.rand(self.N) * 1.8
+        idx = rs.choice(self.N, self.NR, replace=False)
+        self.rays = self.pts[idx]
+        self.ray_len = 0.08 + rs.rand(self.NR) ** 2.2 * 0.42
+        self.ray_ph = rs.rand(self.NR) * math.tau
+        L = self.L
+        yy, xx = np.mgrid[0:L, 0:L]
+        self.c = (L - 1) / 2.0
+        self.R0 = L * 0.28
+        self.X = (xx - self.c) / self.R0
+        self.Y = (yy - self.c) / self.R0
+        self.rr = np.hypot(self.X, self.Y)
+        b4 = np.array([[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]) / 16.0
+        self.bayer = np.tile(b4, (L // 4 + 1, L // 4 + 1))[:L, :L]
+        self.buf = np.zeros((L, L, 4), np.uint8)
+        self.surf = None
+        self.lut_key = None
+        self.u = np.arange(128) / 127.0
+
+    def _lut(self, t):
+        np = self.np
+        key = int(t * 4)
+        if key != self.lut_key:
+            self.lut_key = key
+            sh = key / 4.0 / self.DRIFT
+            self.lut = np.array([ramp_color(self.theme, 0.1 + 0.8 * abs(((u + sh) % 1.0) * 2 - 1)) for u in self.u])
+        return self.lut
+
+    def render(self, t):
+        """Заполнить буфер кадром момента t."""
+        import cairo
+        np = self.np
+        L, c, R0 = self.L, self.c, self.R0
+        breathe = 1.0 + 0.04 * math.sin(t * math.tau / 5.5)
+        R = R0 * breathe
+        ay, ax = t * 0.32, 0.3 * math.sin(t * 0.17) + 0.28
+        cy_, sy_, cx_, sx_ = math.cos(ay), math.sin(ay), math.cos(ax), math.sin(ax)
+        rot = np.array([[cy_, 0, sy_], [0, 1, 0], [-sy_, 0, cy_]]) @ \
+              np.array([[1, 0, 0], [0, cx_, -sx_], [0, sx_, cx_]])
+        p = self.pts @ rot.T
+        flick = 0.55 + 0.45 * np.sin(t * self.speed * 2.6 + self.phase)
+        bright = (0.30 + 0.70 * (p[:, 2] + 1) / 2) * flick
+        ix = np.clip((c + p[:, 0] * R + 0.5).astype(int), 0, L - 1)
+        iy = np.clip((c - p[:, 1] * R + 0.5).astype(int), 0, L - 1)
+        acc = np.bincount(iy * L + ix, weights=bright * 0.62, minlength=L * L)
+        # лучи наружу: по шесть отсчётов вдоль направления, затухают к концу
+        rd = self.rays @ rot.T
+        k = np.linspace(0.0, 1.0, 6)
+        ln = self.ray_len * (0.55 + 0.45 * np.sin(t * 1.3 + self.ray_ph))
+        rad = 1.04 + ln[:, None] * k[None, :]
+        rx = np.clip((c + rd[:, 0:1] * rad * R + 0.5).astype(int), 0, L - 1)
+        ry = np.clip((c - rd[:, 1:2] * rad * R + 0.5).astype(int), 0, L - 1)
+        rw = (1.0 - k)[None, :] * (0.5 + 0.5 * np.sin(t * 2.1 + self.ray_ph))[:, None] * 0.9
+        acc += np.bincount((ry * L + rx).ravel(), weights=rw.ravel(), minlength=L * L)
+        v = acc.reshape(L, L)
+        rr = self.rr / breathe
+        pulse = 0.5 + 0.5 * math.sin(t * math.tau / 3.1)
+        glow = (0.20 * np.exp(-np.maximum(rr - 0.92, 0.0) ** 2 * 9.0) * (rr > 0.92)
+                + 0.12 * np.clip(1.0 - rr, 0.0, 1.0) ** 1.4
+                + (0.30 + 0.25 * pulse) * np.exp(-(rr * 3.4) ** 2))
+        v = np.clip(v + glow, 0.0, 1.0)
+        Q = self.LEVELS
+        lev = np.floor(v * Q + self.bayer).clip(0, Q)
+        a = lev / Q
+        # цвет: перелив по горизонтали и по времени; верхняя ступень — к белому
+        lut = self._lut(t)
+        ci = ((0.5 + 0.5 * self.X * 0.9) * 127).clip(0, 127).astype(int)
+        rgb = lut[ci]
+        w = np.where(lev >= Q, 0.45, 0.0)[..., None]
+        fg = np.array(self.theme["fg"])
+        rgb = rgb * (1 - w) + fg * w
+        buf = self.buf
+        buf[..., 0] = (rgb[..., 2] * a * 255).astype(np.uint8)       # ARGB32, little-endian: B G R A
+        buf[..., 1] = (rgb[..., 1] * a * 255).astype(np.uint8)
+        buf[..., 2] = (rgb[..., 0] * a * 255).astype(np.uint8)
+        buf[..., 3] = (a * 255).astype(np.uint8)
+        if self.surf is None:
+            self.surf = cairo.ImageSurface.create_for_data(buf, cairo.FORMAT_ARGB32, L, L, L * 4)
+        self.surf.mark_dirty()
+
+    def draw(self, cr, t):
+        import cairo
+        self.render(t)
+        cr.save()
+        cr.translate(self.x0, self.y0)
+        cr.scale(self.px, self.px)
+        cr.set_source_surface(self.surf, 0, 0)
+        cr.get_source().set_filter(cairo.FILTER_NEAREST)
+        cr.paint()
+        cr.restore()
+
+
 class Scene:
     """Всё, что рисуется на одном мониторе. Чистая отрисовка cairo по времени t
     (секунды с показа), без GTK — её же зовут проверки, замер и jarvis_lock.
@@ -1098,14 +1220,17 @@ class Scene:
     def build_side(self):
         w, h = self.w, self.h
         self.cell = max(4, w // 160)
-        # ×1,5 к прежнему (просьба: «надо увеличить немного»)
+        # второй монитор — сфера Джарвиса вместо часов (09.10.2026); поля clock_* остаются
+        # для общих расчётов, сами часы здесь не рисуются
         self.clock_scale = max(9, w * 3 // 300)
         self.date_scale = max(3, self.clock_scale // 4)
         self.cy0 = int(h * 0.40)
         self.hint_scale = 2 if h >= 900 else 1
         self.hint_mask, self.hint_w, self.hint_h = text_mask(self.hint, self.hint_scale)
-        cw = 5 * 6 * self.clock_scale
-        self.avoid = ((w - cw) // 2 - 60, self.cy0 - 60, cw + 120, 12 * self.clock_scale + 140)
+        self.orb = Orb(w, h, self.theme, self.seed)
+        ox, oy, ow, oh = self.orb.rect
+        m = 40
+        self.avoid = (ox - m, oy - m, ow + 2 * m, oh + 2 * m)
 
     def build_stars(self):
         """Фон — пиксели-помехи: искры, обрывки строк развёртки, снежинки, мелкие
@@ -1414,9 +1539,12 @@ class Scene:
                 self.draw_cluster(cr, t)
             if hit(self.sub_rect):
                 self.draw_subtitle(cr, t)
-        r = self.clock_rect()
-        if hit(r):
-            self.draw_clock(cr, t)
+        if self.main:
+            r = self.clock_rect()
+            if hit(r):
+                self.draw_clock(cr, t)
+        elif hit(self.orb.rect):
+            self.orb.draw(cr, t)
         r = self.hint_rect()
         if hit(r):
             a = max(0.0, min(1.0, (t - self.t_clock() - 0.5) / 0.6))
@@ -1616,7 +1744,9 @@ class Scene:
             out.append(self.text_rect)
         if frame % 3 == 0:
             out += [(s["x"], s["y"], s["w"], s["h"]) for s in self.stars]
-        if self.clock_strings() != self.clock_text:
+        if not self.main:
+            out.append(self.orb.rect)                     # сфера движется каждый кадр
+        elif self.clock_strings() != self.clock_text:
             out.append(self.clock_rect())
         return out
 
@@ -1788,8 +1918,29 @@ def run_show():
 
         @staticmethod
         def focused_monitor(disp):
-            """Монитор с фокусом niri — по совпадению логического положения."""
+            """Основной монитор заставки (09.10.2026): MSI, если подключён, иначе экран
+            ноутбука (eDP), иначе монитор с фокусом niri. Раньше был «с фокусом» — по
+            совпадению логического положения; имя сохранено ради старых вызовов."""
+            outs = _niri_json("outputs") or {}
             fo = _niri_json("focused-output") or {}
+
+            def pick(pred):
+                for name, o in outs.items():
+                    lg = o.get("logical") or {}
+                    if not lg or not pred(name, o):
+                        continue
+                    for i in range(disp.get_n_monitors()):
+                        m = disp.get_monitor(i)
+                        g = m.get_geometry()
+                        if g.x == lg.get("x") and g.y == lg.get("y"):
+                            return m
+                return None
+            m = pick(lambda n, o: "microstep" in (o.get("make") or "").lower()
+                     or "msi" in (o.get("make") or "").lower())
+            if m is None:
+                m = pick(lambda n, o: n.startswith("eDP"))
+            if m is not None:
+                return m
             lg = fo.get("logical") or {}
             for i in range(disp.get_n_monitors()):
                 m = disp.get_monitor(i)
@@ -1966,6 +2117,16 @@ def bench():
         s3.draw(cairo.Context(surf), mid + i / 60)
     full = (time.perf_counter() - t1) / 30
     print("кадр осыпания целиком: %.2f мс" % (full * 1000))
+    s4 = Scene(1920, 1080, theme, main=False, seed=4)
+    s4.draw(cairo.Context(surf), 5.0)
+    t1 = time.perf_counter()
+    for i in range(60):
+        c2 = cairo.Context(surf)
+        c2.rectangle(*s4.orb.rect)
+        c2.clip()
+        s4.draw(c2, 5.0 + i / FPS, s4.orb.rect)
+    full = (time.perf_counter() - t1) / 60
+    print("кадр сферы (второй монитор): %.2f мс → %.1f %% ядра при %d к/с" % (full * 1000, full * FPS * 100, FPS))
     return 0
 
 

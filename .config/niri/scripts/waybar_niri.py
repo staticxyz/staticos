@@ -19,6 +19,7 @@
 Остальное — оформление, порядок модулей, include с «видом» — остаётся как есть.
 Запуск: из ~/.config/niri/config.kdl перед стартом waybar.
 """
+import json
 import os
 import re
 import subprocess
@@ -36,11 +37,14 @@ STYLE_EXTRA = """
 /* СОБРАНО АВТОМАТИЧЕСКИ из style.css скриптом ~/.config/niri/scripts/waybar_niri.py.
    Не править: при следующем входе в niri файл будет перезаписан. */
 
+/* Стол-дашборд (имя U+F072C виджеты / U+F0437 терминалы) не прячется и пустым:
+   виджеты на нём — слои, не окна, и niri считает его пустым (13.10.2026).
+   Waybar зовёт кнопку niri-workspace-<имя стола>. */
 /* Пустые столы в баре не показываются: в niri они появляются сами и их всегда
    как минимум один лишний в конце (21.09.2026). Тот, на котором вы сейчас,
    виден всегда — иначе, перейдя на пустой стол, вы бы потеряли его из бара.
    display:none в GTK нет, поэтому кнопка схлопывается до нулевой ширины. */
-#workspaces button.empty:not(.focused) {
+window#waybar #workspaces button.empty:not(.focused):not(#niri-workspace-\U000f072c):not(#niri-workspace-\U000f0437) {
     padding: 0;
     margin: 0;
     min-width: 0;
@@ -105,7 +109,7 @@ STYLE_EXTRA = """
 }
 /* Скрытый пустой стол: надпись тоже надо схлопнуть, иначе невидимая цифра
    всё равно занимает место и раздвигает соседей. */
-#workspaces button.empty:not(.focused) label {
+window#waybar #workspaces button.empty:not(.focused):not(#niri-workspace-\U000f072c):not(#niri-workspace-\U000f0437) label {
     font-size: 1px;
 }
 """
@@ -250,7 +254,7 @@ STYLE_COZETTE = """
 #workspaces button label { font-size: 14px; }
 #workspaces button { min-width: 14px; padding: 4px 7px; margin: 5px 3px; }
 #workspaces button.active { padding: 4px 11px; }
-#workspaces button.empty:not(.focused) { padding: 0; margin: 0; }
+window#waybar #workspaces button.empty:not(.focused):not(#niri-workspace-\U000f072c):not(#niri-workspace-\U000f0437) { padding: 0; margin: 0; }
 """
 
 
@@ -282,7 +286,11 @@ def niri_gaps(default=16):
     if not txt:
         return default
     m = re.search(r"^\s*gaps\s+(\d+)", txt, re.M)
-    return int(m.group(1)) if m else default
+    gaps = int(m.group(1)) if m else default
+    # Отступ окон от края экрана = gaps + struts (Настройки → «Отступы от краёв
+    # экрана», 13.10.2026) — «парящий» бар ровняется по нему, а не по зазору.
+    st = re.search(r"^\s*struts\s*\{[^}]*?^\s*left\s+(-?\d+)", txt, re.M | re.S)
+    return gaps + (int(st.group(1)) if st else 0)
 
 
 def look_margin():
@@ -339,7 +347,7 @@ def vertical_margins():
     остаются как у вида.
     """
     try:
-        e, w = (max(0, min(32, int(x))) for x in open(BAR_MARGINS).read().split()[:2])
+        e, w = (max(-16, min(32, int(x))) for x in open(BAR_MARGINS).read().split()[:2])
     except (OSError, ValueError):
         return None
     try:
@@ -389,6 +397,14 @@ def top_bar_mode(s, mode=None, ws=None):
     return s
 
 
+def pixel_look_on():
+    try:
+        with open(os.path.expanduser("~/.config/hypr/state/pixel-look.json"), encoding="utf-8") as f:
+            return json.load(f).get("mode") == "pixel"
+    except (OSError, ValueError):
+        return False
+
+
 def main():
     ensure_icon_font()
     build_style()
@@ -404,6 +420,18 @@ def main():
     # (hypr/scripts/xpbar.py): пользователь — «верни как было, в верхний не добавляем».
     # Описания модулей в NIRI_WINDOW оставлены, в ряд они не ставятся.
     s = s.replace('"custom/ribbon"\n', '"custom/ribbon",\n        "custom/window-title"\n', 1)
+    # pomo — в конце ЛЕВОЙ группы, сразу за заголовком (13.10.2026, просьба: середину «прибить
+    # гвоздями, чтобы её ничего не двигало»). В средней группе остались только датчики, и
+    # waybar держит их по центру, пока правая группа не шире ~870 px. Раньше pomo стоял в
+    # средней группе с распорками 234/249 px: правая распорка оставляла правой группе ~610 px,
+    # и пиксельный шрифт или выдвижной микшер при наведении сдвигали датчики и выдавливали
+    # часы за край. Место pomo держит заголовок: bar_window_title.py добивает его пробелами
+    # до POMO_X. Откат — .bak-pinCenter.
+    # 13.10.2026: перенос pomo в левую группу отменён — вид бара возвращён к 09.10
+    # (pomo в средней группе с распоркой custom/gap). Было:
+    # s = s.replace('"custom/window-title"\n', '"custom/window-title",\n        "custom/pomo"\n', 1)
+    # max-length 12 у network/bluetooth в пиксельном виде снят 13.10.2026: Bluetooth из бара
+    # убран, а имя Wi-Fi пользователь хочет видеть целиком.
     m = re.search(r'"custom/ribbon"\s*:', s)
     if m:
         s = s[:m.start()] + NIRI_WINDOW + s[m.start():]

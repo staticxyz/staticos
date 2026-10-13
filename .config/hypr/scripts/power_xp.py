@@ -42,7 +42,7 @@ import cairo  # noqa: E402
 
 import popup_theme  # noqa: E402
 
-FONT = "PxPlus HP 100LX 6x8 Jarvis"
+FONT = "JetBrainsMono Nerd Font"
 NERD = "Symbols Nerd Font"
 W, H = 640, 300               # окно
 HEAD = 58                     # шапка

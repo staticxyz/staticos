@@ -45,6 +45,9 @@ THEMES = os.path.join(HOME, ".config/Vencord/themes")
 TARGET = os.path.join(THEMES, "pixel.css")
 SETTINGS = os.path.join(HOME, ".config/Vencord/settings/settings.json")
 LOG = os.path.join(HOME, ".cache/jarvis/discord-pixel.log")
+SPLASH_CSS = os.path.join(ST, "discord-splash.css")       # читает discord_splash.js
+SPLASH_JS = os.path.join(HERE, "discord_splash.js")
+DISCORD_DIR = os.path.join(HOME, ".config/discord")         # app-1.0.NNN — новая схема Discord
 NAME = "pixel.css"
 STYLES = ("default", "skeet", "beta")
 APP_IDS = ("discord", "vesktop", "webcord", "legcord")
@@ -230,8 +233,8 @@ VARS_SEL = (":root:root, .theme-dark.theme-dark, .theme-darker.theme-darker, "
             ".theme-darker.visual-refresh.visual-refresh, .theme-midnight.visual-refresh.visual-refresh")
 
 COMMON = VARS_SEL + """ {
-  --px-font: "PxPlus HP 100LX 6x8 Jarvis", "PxPlus HP 100LX 6x8", monospace;
-  --px-mono: "PxPlus HP 100LX 6x8", monospace;
+  --px-font: "JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font", monospace;
+  --px-mono: "JetBrainsMono Nerd Font", monospace;
   --px-red: $red;
   --font-primary: var(--px-font);
   --font-display: var(--px-font);
@@ -574,6 +577,125 @@ def build(style):
     return string.Template(css).substitute(pal)
 
 
+# ── заставка («Checking for updates…») ─────────────────────────────────────
+# 13.10.2026, просьба: «эту часть дискорда тоже сделать пиксельной… начальное маленькое
+# окно». Тема Vencord туда не попадает: заставка — окно хост-приложения (_app.asar/splash,
+# 300×300: #splash, .splash-status, .progress). discord_splash.js подкладывает ей
+# SPLASH_CSS; его грузит прокладка Vencord app.asar (splash_hook вписывает строку).
+SPLASH_COMMON = """/* Сгенерировано discord_pixel.py ($style) — заставка Discord. Не править. */
+html, body, #splash { background: $bg !important; }
+#splash, #splash * { font-family: "JetBrainsMono Nerd Font", monospace !important;
+  font-weight: normal !important; font-synthesis: none !important; }
+.splash-inner .splash-text > span { color: $dim !important; font-size: 16px !important; }
+.splash-inner .splash-text > span.splash-status { color: $text !important; font-size: 16px !important; }
+.progress .progress-bar { background: $trough !important; border-radius: $radius !important; height: 8px !important; }
+.progress .progress-bar .complete { background: $acc !important; border-radius: $radius !important; box-shadow: none !important; }
+.dl-update-message { color: $text !important; font-size: 16px !important; }
+.dl-version-message { color: $dim !important; font-size: 16px !important; text-transform: none !important; }
+.dl-select select { background: $field !important; color: $text !important; border: 1px solid $edge !important; border-radius: $radius !important; }
+.dl-button { background: $acc !important; color: $on_acc !important; border-radius: $radius !important; font-size: 16px !important; }
+.build-override-clear-button { color: $acc !important; }
+"""
+SPLASH_FRAME = {
+    # skeet — рамка в 4 слоя и полоска палитры, как у окна буфера и Настроек skeet
+    "skeet": """#splash { box-shadow: inset 0 0 0 1px $line1_on, inset 0 0 0 4px $line2,
+  inset 0 0 0 5px $line1_on, inset 0 0 0 6px $line3 !important; }
+#splash::before { content: ""; position: absolute; left: 6px; right: 6px; top: 6px; height: 2px;
+  background: linear-gradient(to right, $r1, $r2, $r3); }
+""",
+    # default — рамка «Пуска» XP: тёмная грань, полоса тонов сверху
+    "default": """#splash { box-shadow: inset 0 0 0 3px $st_mid, inset 0 0 0 4px $st_dark !important; }
+#splash::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 22px;
+  background: linear-gradient(to bottom, $st_top, $st_mid 55%, $st_bot); }
+""",
+    # beta — плоская карточка, рамка акцентом
+    "beta": """#splash { box-shadow: inset 0 0 0 1px $acc !important; }
+""",
+}
+
+
+def splash_build(style):
+    pal = palette(style)
+    pal["style"] = style
+    pal.setdefault("radius", "0px")
+    if style == "skeet":
+        pal.update(bg=pal["card"], trough=pal["field_l"], edge=pal["line1"])
+    elif style == "beta":
+        pal.update(bg=pal["card"], trough=pal["field"], edge=pal["edge"], radius="4px")
+    else:
+        pal.update(bg=pal["left_bg"], trough=pal["line"])
+    return string.Template(SPLASH_COMMON + SPLASH_FRAME[style]).substitute(pal)
+
+
+def _asar_read(path):
+    import struct
+    raw = open(path, "rb").read()
+    hs = struct.unpack("<I", raw[4:8])[0]
+    n = struct.unpack("<I", raw[12:16])[0]
+    head, base = json.loads(raw[16:16 + n]), 8 + hs
+    return {k: raw[base + int(v["offset"]):base + int(v["offset"]) + v["size"]]
+            for k, v in head["files"].items()}
+
+
+def _asar_pack(files):
+    """Плоский asar (только файлы в корне) — формат проверен: прокладка Vencord
+    пересобирается байт в байт."""
+    import struct
+    head, off, body = {"files": {}}, 0, b""
+    for k, v in files.items():
+        head["files"][k] = {"size": len(v), "offset": str(off)}
+        off, body = off + len(v), body + v
+    j = json.dumps(head, separators=(",", ":")).encode()
+    pad = (4 - len(j) % 4) % 4
+    pick = struct.pack("<I", 4 + len(j) + pad) + struct.pack("<I", len(j)) + j + b"\0" * pad
+    return struct.pack("<I", 4) + struct.pack("<I", len(pick)) + pick + body
+
+
+def splash_shim():
+    """app.asar самой новой версии Discord (app-1.0.NNN) или None."""
+    try:
+        apps = [d for d in os.listdir(DISCORD_DIR) if d.startswith("app-")]
+    except OSError:
+        return None
+    if not apps:
+        return None
+    key = lambda d: [int(x) if x.isdigit() else 0 for x in d[4:].split(".")]
+    p = os.path.join(DISCORD_DIR, max(apps, key=key), "resources", "app.asar")
+    return p if os.path.isfile(p) else None
+
+
+def splash_hook(install=True):
+    """Есть ли в прокладке Vencord строка, грузящая discord_splash.js; install — вписать.
+    Трогаем только прокладку (маленький app.asar с require patcher.js); настоящий
+    app.asar Discord без Vencord — не наш. Обновился Discord — новая папка app-…, Vencord
+    вшивают заново, и строку вписывает первый же sync. Возврат: None — на месте, иначе
+    строка с причиной."""
+    p = splash_shim()
+    if not p:
+        return "нет ~/.config/discord/app-*/resources/app.asar"
+    if os.path.getsize(p) > 4096:
+        return "app.asar — не прокладка Vencord (Vencord не вшит?)"
+    try:
+        files = _asar_read(p)
+        js = files["index.js"].decode()
+    except Exception as e:
+        return "прокладка не читается: %r" % (e,)
+    if SPLASH_JS in js:
+        return None
+    if "patcher.js" not in js:
+        return "в прокладке нет Vencord patcher.js"
+    if not install:
+        return "заставка: хук не вписан в прокладку (discord_pixel.py sync)"
+    if not os.path.exists(p + ".bak-vencord"):
+        shutil.copy2(p, p + ".bak-vencord")
+    files["index.js"] = ('try{require(%s)}catch(e){}\n' % json.dumps(SPLASH_JS) + js).encode()
+    tmp = p + ".tmp"
+    open(tmp, "wb").write(_asar_pack(files))
+    os.replace(tmp, p)
+    log("заставка: хук вписан в %s" % p)
+    return None
+
+
 def current_style():
     """Стиль, записанный в теме сейчас (из шапки файла), или None."""
     try:
@@ -599,6 +721,18 @@ def sync(out=None, style=None):
             return "не собралась тема: %r" % (e,)
     else:
         css = STUB
+    try:                                        # заставка — следом за темой, тем же стилем
+        sp = splash_build(style) if enabled() else ""
+        try:
+            same = open(SPLASH_CSS).read() == sp
+        except OSError:
+            same = False
+        if not same:
+            write(SPLASH_CSS, sp)
+        if enabled():
+            splash_hook()
+    except Exception as e:                      # заставка — украшение: тему не держит
+        log("заставка: %r" % (e,))
     try:
         if open(TARGET).read() == css:
             return None
@@ -716,14 +850,23 @@ def check():
                 bad.append("%s: в теме осталась $переменная" % st)
         except Exception as e:
             bad.append("%s: не собирается (%r)" % (st, e))
+        try:
+            if "$" in splash_build(st):
+                bad.append("%s: в заставке осталась $переменная" % st)
+        except Exception as e:
+            bad.append("%s: заставка не собирается (%r)" % (st, e))
+    if enabled() and splash_shim():
+        why = splash_hook(install=False)
+        if why:
+            bad.append(why)
     try:
         if NAME not in (json.load(open(SETTINGS)).get("enabledThemes") or []):
             bad.append("pixel.css не включена в Vencord (enabledThemes)")
     except (OSError, ValueError):
         bad.append("не читаются настройки Vencord")
-    r = subprocess.run(["fc-list", ":family=PxPlus HP 100LX 6x8 Jarvis"], capture_output=True, text=True)
+    r = subprocess.run(["fc-list", ":family=JetBrainsMono Nerd Font"], capture_output=True, text=True)
     if not r.stdout.strip():
-        bad.append("шрифт PxPlus HP 100LX 6x8 Jarvis не установлен")
+        bad.append("шрифт JetBrainsMono Nerd Font не установлен")
     try:
         if "discord_pixel.py" not in json.load(open(os.path.join(ST, "staticos-host.json"))):
             bad.append("сторожа нет в staticos-host.json — стиль не будет меняться сам")

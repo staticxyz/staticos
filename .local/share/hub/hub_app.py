@@ -253,7 +253,7 @@ class View:
         self.revealed = False
         self.confirm_delete = None
         self.last_j = 0
-        self.draft_items = []           # черновики — набраны, но не сохранены (Бекзат, 09.10.2026)
+        self.draft_items = []           # черновики — набраны, но не сохранены (09.10.2026)
         self.draft_words = []
         self.draft_seq = -1
         self.text_new = False
@@ -1188,7 +1188,7 @@ class HubWindow(Gtk.ApplicationWindow):
 
     def submit_text(self):
         """Enter/jj/«добавить»: строка уходит в список черновиком. В базу — только по
-        ^S или «сохранить» (Бекзат, 09.10.2026: «ничего не должно сохраняться само»)."""
+        ^S или «сохранить» (09.10.2026: «ничего не должно сохраняться само»)."""
         v = self.view
         text = v.buf.strip()
         v.mode, v.buf, v.text_target, v.text_new, v.editing_id = "normal", "", -1, False, None

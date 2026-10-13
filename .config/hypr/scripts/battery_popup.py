@@ -137,6 +137,13 @@ def current_look():
 
 
 class BatteryPopup(Gtk.Window):
+    def _exit(self):
+        try:
+            popup_theme.animate_close(getattr(self, 'revealer', None), lambda: sys.exit(0))
+        except Exception:
+            sys.exit(0)
+        return True
+
     def __init__(self):
         super().__init__(title="Панель питания")
         self.has_entered = False
@@ -160,7 +167,7 @@ class BatteryPopup(Gtk.Window):
 
         # Прозрачная подложка на весь экран: щелчок по ней закрывает панель.
         bg = Gtk.EventBox()
-        bg.connect("button-press-event", lambda w, e: sys.exit(0))
+        bg.connect("button-press-event", lambda w, e: self._exit())
         self.add(bg)
         # Карточка — в правом углу: под баром, а если бар снизу — над ним.
         align = Gtk.Box()
@@ -177,10 +184,11 @@ class BatteryPopup(Gtk.Window):
         card = Gtk.EventBox()
         card.connect("button-press-event", lambda w, e: True)   # щелчок внутри — не закрывать
         align.add(card)
+        self.revealer = popup_theme.animate_open(self, align, card)
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         vbox.get_style_context().add_class("card")
-        vbox.set_size_request(340, -1)
+        vbox.set_size_request(280, -1)
         card.add(vbox)
 
         vbox.pack_start(self.build_header(), False, False, 0)
@@ -216,16 +224,16 @@ class BatteryPopup(Gtk.Window):
                ряда тонким волоском. Тень оставлена: она отделяет карточку от
                окон под ней. */
             border: 3px solid %(primary)s;
-            border-radius: 18px;
-            padding: 13px 12px 11px 12px;
+            border-radius: 14px;
+            padding: 8px 10px 8px 10px;
             /* 14.09.2026: тёмный контур 1px снаружи рамки, как у всех попапов.
                Размытую тень убрали: край окна обрезал её в серую полосу. */
             margin: 2px;
             box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.60);
         }
-        .title { font-size: 14px; font-weight: bold; color: %(on_surface)s; }
-        .subtitle { font-size: 11px; color: %(on_surface_variant)s; }
-        .row { border-radius: 14px; padding: 9px 10px; min-height: 22px; }
+        .title { font-size: 13px; font-weight: bold; color: %(on_surface)s; }
+        .subtitle { font-size: 10px; color: %(on_surface_variant)s; }
+        .row { border-radius: 10px; padding: 5px 8px; min-height: 18px; }
         .row:hover { background-color: %(hover)s; }
         .icon { color: %(primary)s; font-size: 14px; }
         .name { color: %(on_surface)s; font-size: 13px; }
@@ -234,7 +242,7 @@ class BatteryPopup(Gtk.Window):
             background-color: %(surface_container)s;
             border-radius: 8px; padding: 1px 8px;
         }
-        .rule { background-color: %(hairline)s; min-height: 1px; margin: 10px 6px; }
+        .rule { background-color: %(hairline)s; min-height: 1px; margin: 6px 6px; }
         .sub .name { color: %(on_surface_variant)s; font-size: 12px; }
         .sub .icon { font-size: 12px; }
 
@@ -272,9 +280,7 @@ class BatteryPopup(Gtk.Window):
             background: transparent; background-image: none;
             border: none; box-shadow: none;
             color: %(on_surface_variant)s; padding: 2px 4px;
-            /* Шестерёнка — единственная кнопка в шапке, её видно первой:
-               мелкой она теряется рядом с кольцом заряда. */
-            font-size: 24px;
+            font-size: 18px;
         }
         button.ghost:hover { color: %(primary)s; }
         button.row-btn {
@@ -365,7 +371,7 @@ class BatteryPopup(Gtk.Window):
         head.set_margin_bottom(2)
 
         ring = Gtk.DrawingArea()
-        ring.set_size_request(58, 58)
+        ring.set_size_request(46, 46)
         ring.connect("draw", self.draw_ring)
         head.pack_start(ring, False, False, 0)
 
@@ -427,7 +433,7 @@ class BatteryPopup(Gtk.Window):
         text = str(self.cap)
         layout = PangoCairo.create_layout(cr)
         font = Pango.FontDescription.from_string("JetBrainsMono Nerd Font")
-        font.set_absolute_size(16 * Pango.SCALE)
+        font.set_absolute_size(13 * Pango.SCALE)
         layout.set_font_description(font)
         layout.set_text(text, -1)
         ink, _ = layout.get_pixel_extents()
@@ -649,7 +655,7 @@ class BatteryPopup(Gtk.Window):
                 tile.get_style_context().add_class("look-active")
             inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             area = Gtk.DrawingArea()
-            area.set_size_request(110, 40)
+            area.set_size_request(90, 32)
             area.connect("draw", self.draw_look, key)
             name = Gtk.Label(label=title)
             name.get_style_context().add_class("look-name")

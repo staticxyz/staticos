@@ -27,7 +27,7 @@ JARVIS = "jarvis"
 THEMES = [
     (JARVIS, "Jarvis · цвета обоев", cursor_colors.SIZE),
     ("bit-wall", "Jarvis Bit · цвета обоев", cursor_colors.SIZE),   # свой пиксельный, bit_cursor.py (07.10.2026)
-    ("pebble-wall", "Галька · цвета обоев", 32),
+    ("pebble-wall", "Галька · цвета обоев", cursor_colors.SIZE),   # как Jarvis (13.10.2026)
     # Гальки синий/тёмно-синий/голубой/чёрный и Yamikai розовый убраны 07.10.2026 (Пользователь:
     # «убери все, что не берут из акцента») — файлы тем в ~/.local/share/icons остались.
     # Пиксельные курсоры из поиска 30.09.2026 (~/.local/share/icons, ссылки в ~/.icons
@@ -118,7 +118,7 @@ def refresh():
         subprocess.run(["python3", os.path.join(HERE, "cursor_colors.py")], check=False)
     elif key == WALL:
         name = build_wall()
-        cursor_colors.activate(name, 32)
+        cursor_colors.activate(name, cursor_colors.SIZE)
         print("курсор:", name)
     elif key == "bit-wall":
         import bit_cursor

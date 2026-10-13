@@ -75,7 +75,7 @@ ST_HDR = {"User-Agent": "jarvis-lan/1.0"}
 
 # Светофор. В палитре обоев зелёного и жёлтого нет — берём мягкие свои,
 # красный — error из палитры.
-# Простой вид (08.10.2026, Просьба: «глаза теряются»): сверху вывод крупно,
+# Простой вид (08.10.2026, просьба: «глаза теряются»): сверху вывод крупно,
 # трафик свой и других, кнопка замера; остальное — под «Подробнее».
 DETAILS_FILE = os.path.expanduser("~/.config/hypr/state/lan-popup-details")
 WIFI_MS = 2000          # сигнал Wi-Fi (iw) — плашка Wi-Fi
@@ -97,10 +97,10 @@ label.bad { color: %(error)s; }
 label.down { color: %(primary)s; }
 label.up { color: %(tertiary)s; }
 label.oth { color: %(secondary)s; }
-separator { margin: 3px 0; }
-button.go { font-size: 12px; font-weight: normal; padding: 6px 12px; }
+separator { margin: 2px 0; }
+button.go { font-size: 12px; font-weight: normal; padding: 3px 12px; min-height: 0; }
 label.verdict { font-size: 16px; }
-button.more { font-size: 12px; font-weight: normal; padding: 2px 8px; min-height: 0;
+button.more { font-size: 12px; font-weight: normal; padding: 0 8px; min-height: 0;
               background: none; border: none; box-shadow: none;
               color: %(on_surface_variant)s; }
 button.more:hover { color: %(primary)s; }
@@ -616,6 +616,13 @@ def _rgb(hexcolor):
 
 
 class LanPopup(Gtk.Window):
+    def _exit(self):
+        try:
+            popup_theme.animate_close(getattr(self, 'revealer', None), lambda: sys.exit(0))
+        except Exception:
+            sys.exit(0)
+        return True
+
     def __init__(self):
         super().__init__(title="Сеть")
         self.pal = popup_theme.palette()
@@ -659,7 +666,7 @@ class LanPopup(Gtk.Window):
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         self.bg = Gtk.EventBox()
-        self.bg.connect("button-press-event", lambda w, e: sys.exit(0))
+        self.bg.connect("button-press-event", lambda w, e: self._exit())
         self.add(self.bg)
 
         self.align = Gtk.Box()
@@ -670,8 +677,9 @@ class LanPopup(Gtk.Window):
         self.popup_event = Gtk.EventBox()
         self.popup_event.connect("button-press-event", lambda w, e: True)
         self.align.add(self.popup_event)
+        self.revealer = popup_theme.animate_open(self, self.align, self.popup_event)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         vbox.get_style_context().add_class("popup-box")
         vbox.set_size_request(WIDTH, -1)
         self.popup_event.add(vbox)
@@ -692,7 +700,7 @@ class LanPopup(Gtk.Window):
         self.note.set_justify(Gtk.Justification.CENTER)
         self.note.set_no_show_all(True)
         vbox.pack_start(self.note, False, False, 6)
-        self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         self.body.set_no_show_all(WIFI)   # покажем, когда узнаем, куда идёт сеть
         vbox.pack_start(self.body, False, False, 0)
         vbox = self.body
@@ -726,7 +734,7 @@ class LanPopup(Gtk.Window):
 
         # ── подключение ──
         vbox.pack_start(Gtk.Separator(), False, False, 0)
-        grid = Gtk.Grid(column_spacing=14, row_spacing=4)
+        grid = Gtk.Grid(column_spacing=14, row_spacing=1)
         self.info = {}
         rows = ((("ssid", "Сеть"), ("signal", "Сигнал"), ("band", "Диапазон"),
                  ("rate", "Связь"), ("air", "Соседи"), ("addr", "Адрес"),
@@ -786,14 +794,14 @@ class LanPopup(Gtk.Window):
             w.show()
         vbox.pack_start(self.oth_row, False, False, 0)
         self.graph = Gtk.DrawingArea()
-        self.graph.set_size_request(-1, 80)
+        self.graph.set_size_request(-1, 64)
         self.graph.connect("draw", self.draw_graph)
         self.graph.set_tooltip_text("Трафик за последние %d с. Сплошные линии — этот ноутбук («система»: ↓ загрузка, ↑ отдача), пунктир — другие устройства на роутере." % GRAPH_SEC)
         vbox.pack_start(self.graph, False, False, 2)
 
         # ── пинг ──
         vbox.pack_start(Gtk.Separator(), False, False, 0)
-        pg = Gtk.Grid(column_spacing=10, row_spacing=4)
+        pg = Gtk.Grid(column_spacing=10, row_spacing=1)
         pg.attach(self.label("Пинг", "sec"), 0, 0, 1, 1)
         for c, t in enumerate(("среднее", "разброс", "потери"), 1):
             lb = self.label(t, "dim", xalign=1)
@@ -824,7 +832,7 @@ class LanPopup(Gtk.Window):
         self.speed_msg.set_line_wrap(True)
         self.speed_msg.set_max_width_chars(34)
         vbox.pack_start(self.speed_msg, False, False, 0)
-        self.hist_grid = Gtk.Grid(column_spacing=10, row_spacing=4)
+        self.hist_grid = Gtk.Grid(column_spacing=10, row_spacing=1)
         vbox.pack_start(self.hist_grid, False, False, 2)
         self.fill_history()
 
@@ -846,7 +854,7 @@ class LanPopup(Gtk.Window):
         self.more_btn.get_style_context().add_class("more")
         self.more_btn.connect("clicked", lambda *_a: self.set_details(not self.details_on))
         vbox.pack_start(self.more_btn, False, False, 0)
-        self.details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         for w, pad in ((self.graph, 2), (None, 0), (pg, 0), (None, 0), (grid, 0),
                        (None, 0), (self.hist_grid, 2)):
             if w is None:

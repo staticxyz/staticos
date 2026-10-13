@@ -4,7 +4,7 @@
     launcher.py               показать меню (стиль — launcher_style.py, значки — тема системы)
     launcher.py --rebuild     пересобрать кэш списка программ
 
-05.10.2026, Просьба: «чтобы он тоже понимал синонимы и русскую раскладку, как в Пуске».
+05.10.2026, просьба: «чтобы он тоже понимал синонимы и русскую раскладку, как в Пуске».
 Встроенный `rofi -show drun` подмешать свои слова к программам не даёт, поэтому список
 отдаём rofi сами (-dmenu): у каждой строки значок и невидимые слова (row option «meta»):
 её слова в другой раскладке и синонимы её групп — словарь общий с «Пуском» (app_search.py).
@@ -67,7 +67,7 @@ def build():
                      "icon": icon.to_string() if icon else "",
                      "meta": " ".join(filter(None, (a.get_generic_name() or "",
                                                     " ".join(a.get_keywords() or []),
-                                                    app_search.search_meta(hay))))})
+                                                    app_search.search_meta(hay, a.get_display_name()))))})
     data = {"stamp": dirs_stamp(), "apps": apps}
     os.makedirs(CACHE_DIR, exist_ok=True)
     with open(APPS + ".tmp", "w") as f:

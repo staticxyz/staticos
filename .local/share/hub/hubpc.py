@@ -10,12 +10,12 @@ import tempfile
 import time
 
 LEVEL = {"status": 0, "apps": 0, "shot": 0, "mute": 0, "unmute": 0, "vol": 0,
-         "lock": 1, "dark": 1, "close": 1, "sleep": 2, "reboot": 2, "off": 2}
+         "lock": 1, "dark": 1, "light": 0, "close": 1, "sleep": 2, "reboot": 2, "off": 2}
 HELP = {"status": "состояние системы", "apps": "список окон", "shot": "скриншот",
         "mute": "выключить звук", "unmute": "включить звук", "vol N": "громкость 0–100",
         "lock": "заблокировать", "dark": "погасить мониторы (чёрный экран)",
-        "close N": "закрыть окно по номеру из apps", "sleep": "сон",
-        "reboot": "перезагрузка", "off": "выключение"}
+        "light": "включить мониторы (вернуть яркость)", "close N": "закрыть окно по номеру из apps",
+        "sleep": "сон", "reboot": "перезагрузка", "off": "выключение"}
 
 
 def _run(cmd, t=10):
@@ -99,6 +99,10 @@ def run(action, arg=""):
         idle = os.path.expanduser("~/.config/hypr/scripts/idle_dim")
         subprocess.Popen([idle, "deep"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return "Мониторы гаснут.", None
+    if a == "light":
+        idle = os.path.expanduser("~/.config/hypr/scripts/idle_dim")
+        subprocess.Popen([idle, "restore"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return "Мониторы включены, яркость восстановлена.", None
     if a == "close":
         return close(arg), None
     if a == "sleep":

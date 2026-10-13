@@ -38,6 +38,8 @@ Every color comes from your wallpaper.
 - **Screenshots, OCR and recording.** Annotate, pin a screenshot on top, copy text off the screen,
   record GIFs, videos and Telegram stickers.
 - **Own clipboard, Alt+Tab, lock screen and screensaver**, all keyboard-driven with vim keys.
+- **Pixel or regular look** in one switch: fonts, bar, notifications, menus, mixers and even
+  Discord follow it. **Super+Z** shows every shortcut, grouped and searchable.
 - **Hub** — reminders, lists, timers and a spaced-repetition dictionary with no AI involved,
   its own SQLite database, a Discipline-styled window (`Super+M`) and an optional Telegram bot
   that reaches you when you're away from the computer. [How it works →](docs/hub.md)
@@ -84,7 +86,7 @@ Other distributions, options and removal: [docs/install.md](docs/install.md).
 | Keys | |
 |---|---|
 | `Super+/` | Settings |
-| `Super+Shift+/` | All shortcuts |
+| `Super+Z` | All shortcuts — cheat sheet with search |
 | `Super+Space` | Launch an app |
 | `Super+Return` | Terminal |
 | `Super+W` | Wallpaper (recolors everything) |

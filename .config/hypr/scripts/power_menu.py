@@ -59,7 +59,7 @@ DRY_RUN = "--dry-run" in sys.argv
 
 HOME = os.path.expanduser("~")
 ICON_FONT = "JetBrainsMono NF"
-PIXEL_FONT = "PxPlus HP 100LX 6x8 Jarvis"
+PIXEL_FONT = "JetBrainsMono Nerd Font"
 RING = 96          # сторона области со значком и кольцом, px
 FRAME_MS = 16      # ~60 кадров в секунду: кольцо тает плавно, а не рывками
 

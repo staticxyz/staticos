@@ -158,7 +158,7 @@
 .notification-group.collapsed:hover .notification-row:not(:only-child) .notification {
     background-color: transparent;
 }
-/* Серые зоны вокруг раскрытой группы (04.10.2026, Просьба: «что это за серые зоны»):
+/* Серые зоны вокруг раскрытой группы (04.10.2026, просьба: «что это за серые зоны»):
    базовая тема красит строку с фокусом — .notification-row:focus, --noti-bg-focus.
    Группа получает фокус от щелчка, и вся её область становилась серой. */
 .notification-row:focus,

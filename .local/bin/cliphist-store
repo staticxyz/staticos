@@ -7,6 +7,35 @@ niri msg -j focused-window 2>/dev/null | grep -q '"app_id":"Tor Browser"' && { c
 MAX=$((3 * 1024 * 1024))
 tmp=$(mktemp) || exec cliphist store
 trap 'rm -f "$tmp"' EXIT
-head -c $((MAX + 1)) > "$tmp"
-if [ "$(stat -c %s "$tmp")" -gt "$MAX" ]; then cat >/dev/null; exit 0; fi
-cliphist store < "$tmp"
+head -c $((32 * 1024 * 1024)) > "$tmp"; cat >/dev/null
+# Картинку забираем себе (13.10.2026, просьба: «скрин из ksnip по Ctrl+C не вставляется»).
+# wl-clip-persist картинки не хранит (см. autostart.kdl, 07.10 — Telegram и 38 форматов),
+# и копия жила, только пока открыта программа: закрыл ksnip — вставлять нечего. Теперь
+# буфер переходит к wl-copy одним форматом, PNG или JPEG по сигнатуре. Наш же wl-copy
+# снова вызовет этот скрипт с теми же байтами — эхо в течение 3 с пропускаем целиком.
+case "$(head -c 4 "$tmp" | od -An -tx1 | tr -d ' \n')" in
+  89504e47) mime=image/png ;;
+  ffd8ff*)  mime=image/jpeg ;;
+  *)        mime= ;;
+esac
+if [ -n "$mime" ]; then
+  O="${XDG_RUNTIME_DIR:-/tmp}/cliphist-own"
+  sha=$(sha256sum < "$tmp" | cut -c1-64); now=$(date +%s)
+  read -r osha otime < "$O" 2>/dev/null
+  if [ "$sha" = "$osha" ] && [ $((now - ${otime:-0})) -le 3 ]; then exit 0; fi
+  printf '%s %s\n' "$sha" "$now" > "$O"
+  wl-copy --type "$mime" < "$tmp"
+fi
+if [ "$(stat -c %s "$tmp")" -gt "$MAX" ]; then exit 0; fi
+# XWayland-приложения (mousepad и др.) через мост X11→Wayland иногда отдают
+# текст в JSON-экранировке (текст вместо «текст»).
+# Настоящий текст приходит следом отдельной записью — дубль не нужен.
+if head -c 6 "$tmp" | grep -qP '^\\u[0-9a-f]{4}'; then
+  exit 0
+fi
+cliphist store < "$tmp" || exit $?
+# Время копирования (13.10.2026, просьба: «дата и время копирования» в Clipboard.exe):
+# cliphist его не хранит, поэтому журнал «sha256 время» — clipboard_win.py сверяет по sha
+# содержимого (тот же sha, что он считает для звёзд). Повторное копирование — новая строка.
+T="${JARVIS_CLIP_DIR:-$HOME/.local/share/jarvis-clipboard}/times.log"
+mkdir -p "${T%/*}" && printf '%s %s\n' "$(sha256sum < "$tmp" | cut -c1-64)" "$(date +%s)" >> "$T"

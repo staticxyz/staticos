@@ -13,6 +13,7 @@
 //
 // Длительности в Hyprland — десятые доли секунды: speed 1.49 = 149 мс.
 animations {
+    slowdown 1.0
     // Окно открывается: пружина «easy», как windowsIn (speed 4.1, spring easy).
     // Отскока «popin 87 %» в niri нет — там своя анимация появления.
     window-open {

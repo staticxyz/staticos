@@ -15,21 +15,14 @@
     // подключается через ссылку looks/current.jsonc (её меняет
     // scripts/bar_style.py). Здесь их быть не должно: ключи основного
     // конфига главнее подключённых, и вид перестал бы переключаться.
-    "include": ["~/.config/waybar/looks/current.jsonc"],
+    "include": ["$HOME/.config/waybar/looks/current.jsonc"],
 
     "output": ["DP-4", "eDP-1"],
 
     "modules-left": [
         "custom/launcher",
         "hyprland/workspaces",
-        "custom/ribbon"
-    ],
-    // pomo — слева от капсул, а не справа в общей группе (23.09.2026, просьба
-    // Пользователя): правая группа от этого на ~90 px уже, и запасу под эквалайзер
-    // хватает ближе к центру. Средняя группа прижата правым краем к правой
-    // (см. .modules-right в style.css), поэтому ширина pomo (значок / значок с
-    // минутами) капсулы не двигает — pomo растёт влево.
-    "modules-center": [
+        "custom/ribbon",
         "custom/privacy",
         "custom/rec",
         "custom/pomo",
@@ -38,13 +31,13 @@
         "memory",
         "temperature"
     ],
-    "modules-right": ["custom/librewolf", "custom/mercury", 
+    "modules-right": ["custom/librewolf", "custom/mercury",
         "custom/bongo",
         "custom/cava",
         "custom/mpris",
         "group/group-system",
-        "custom/clock",
-        "custom/power"
+        // кнопка питания убрана (13.10.2026, пользователь) — меню питания по-прежнему Super+Esc/«Пуск»
+        "custom/clock"
     ],
 
     // Кнопка "Пуск" (Arch)
@@ -120,8 +113,10 @@
             // кружок-точку.
             "class<DBeaver>": "",
             "class<com.rafaelmardojai.Blanket>": "",
-            // Dolphin. Единственное, что оставалось без своей иконки,
-            // и потому вечно висело в предупреждениях theme-doctor.
+            // Джарвис: окно зовётся по имени скрипта, orb.py. Голова робота.
+            "class<[^>]*orb\\.py[^>]*>.*": "󰚩",
+            // Dolphin. Единственное, что оставалось без своей иконки помимо
+            // Джарвиса, и потому вечно висело в предупреждениях theme-doctor.
             "class<[^>]*dolphin[^>]*>.*": "",
             "class<sysmontask>": "",
             "class<brave-browser>": "",
@@ -140,7 +135,7 @@
             "class<YouTube Music Desktop App>": "",
             // Яндекс Музыка: своя звезда-вспышка, снятая с иконки приложения
             // (U+E103, собирается build_bar_icons.py). Обычная звезда Nerd Font
-            // на логотип не похожа — пользователь сравнил со значком (25.09.2026).
+            // на логотип не похожа — Пользователь сравнил со значком (25.09.2026).
             "class<YandexMusic>": "",
             "class<org.xfce.mousepad>": "",
             // Sublime Text. U+E697 — фирменная лента-«S» из Devicons, ближе
@@ -184,8 +179,51 @@
             "class<org.kde.discover>": "",
             "class<[^>]*speedcrunch[^>]*>.*": "",
             "class<[^>]*postman[^>]*>.*": "",
+            "class<[^>]*jarvis-panel[^>]*>.*": "󰚩",
+            // ── добавлено 13.10.2026 (П8): программы, у которых вместо значка был номер стола ──
+            // Свои окна Джарвиса
+            "class<(com.jarvis.hub|hub_app\\.py)>": "󰂚",
+            "class<alarm_app\\.py>": "󰀠",
+            "class<(dev.static.calendar|xp_calendar\\.py|org.gnome.Calendar)>": "󰃭",
+            "class<dev.static.avatarpicker>": "󰀄",
+            "class<wallpaper_picker\\.py>": "󰸉",
+            "class<(keybinds_sheet\\.py|com.jarvis.keybinds)>": "󰌌",
+            "class<jarvis-pin>": "󰐃",
+            "class<jarvis-term-font>": "󰛖",
+            "class<[^>]*screentime[^>]*>.*": "󱎫",
+            "class<(jtetris|jtype)>": "󰊖",
+            // Медиа, документы, файлы
+            "class<mpv>": "󰕧",
+            "class<imv>": "󰋩",
+            "class<[^>]*youtube-music[^>]*>.*": "󰎄",
+            "class<com.obsproject.Studio>": "󰑋",
+            "class<(soffice|libreoffice[^>]*)>": "󰈙",
+            "class<org.gnome.Nautilus>": "󰉋",
+            "class<org.gnome.clocks>": "󰥔",
+            "class<org.gnome.seahorse.Application>": "󰌆",
+            "class<[^>]*[Cc]opy[Qq][^>]*>.*": "󰅍",
+            "class<[^>]*Keypunch[^>]*>.*": "󰥻",
+            "class<(foot|footclient)>": "󰆍",
+            "class<(org.kde.plasma-systemmonitor|org.kde.kinfocenter|gtk-lshw|lstopo)>": "󰘚",
+            "class<(org.kde.kmenuedit|org.kde.plasma-welcome|org.kde.plasma.emojier)>": "󰣆",
+            "class<[^>]*(qtcreator|designer|assistant|linguist|qdbusviewer)[^>]*>.*": "󰣆",
+            "class<espanso>": "󰬴",
+            "class<dotnet>": "󰪮",
+            "class<shader-test>": "󰏘",
+            "class<[^>]*([Pp]icker|hyprpicker)[^>]*>.*": "󰸌",
+            "class<[^>]*barehands[^>]*>.*": "󰄀",
+            "class<[^>]*(qv4l2|qvidcap)[^>]*>.*": "󰄀",
+            "class<[^>]*(jconsole|jshell|sun-tools|java)[^>]*>.*": "",
+            "class<[^>]*(avahi|bssh|bvnc)[^>]*>.*": "󰌗",
+            "class<[^>]*xgps[^>]*>.*": "󰍎",
+            "class<[^>]*drkonqi[^>]*>.*": "󱁤",
+            "class<[^>]*gammastep[^>]*>.*": "󰖚",
+            "class<[^>]*torbrowser-launcher[^>]*>.*": "󰯄",
+            // Игры через gamescope (CS2 запускается в нём)
+            "class<gamescope>": "󰊖",
             // Игры
-            "class<[^>]*Counter-Strike[^>]*>.*": ""
+            "class<[^>]*Counter-Strike[^>]*>.*": "",
+            "class<kitty> title<(◇|◐|◓|◑|◒|✳).*>": ""
         }
     },
 
@@ -222,9 +260,9 @@
     // ---- Датчики системы (центр бара) --------------------------------
     "cpu": {
         "interval": 2,
-        "format": "󰻠 {usage}%",
+        "format": "󰻠<span font_size='50%'> </span>{usage}%",
         "tooltip-format": "Загрузка CPU: {usage}%\nСредняя за 1/5/15 мин: {load}",
-        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026, пользователь).
+        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026).
         // btop — из боковой колонки панели (значок «Система»).
         "on-click": "python3 $HOME/.config/hypr/scripts/control_center.py --center",
         "on-click-right": "python3 $HOME/.config/hypr/scripts/control_center.py --center"
@@ -232,9 +270,9 @@
 
     "memory": {
         "interval": 3,
-        "format": "󰘚 {percentage}%",
+        "format": "󰘚<span font_size='50%'> </span>{percentage}%",
         "tooltip-format": "ОЗУ: {used:0.1f} из {total:0.1f} GiB ({percentage}%)\nSwap: {swapUsed:0.1f} из {swapTotal:0.1f} GiB",
-        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026, пользователь).
+        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026).
         // btop — из боковой колонки панели (значок «Система»).
         "on-click": "python3 $HOME/.config/hypr/scripts/control_center.py --center",
         "on-click-right": "python3 $HOME/.config/hypr/scripts/control_center.py --center"
@@ -247,11 +285,11 @@
         "input-filename": "temp1_input",
         "interval": 3,
         "critical-threshold": 85,
-        "format": "{icon} {temperatureC}°",
-        "format-critical": "󰸁 {temperatureC}°",
+        "format": "{icon}<span font_size='50%'> </span>{temperatureC}°",
+        "format-critical": "󰸁<span font_size='50%'> </span>{temperatureC}°",
         "format-icons": ["󰜗", "󰔏", "󰸁"],
         "tooltip-format": "Температура пакета CPU: {temperatureC}°C",
-        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026, пользователь).
+        // Щелчок любой кнопкой — центр управления по середине экрана (30.09.2026).
         // btop — из боковой колонки панели (значок «Система»).
         "on-click": "python3 $HOME/.config/hypr/scripts/control_center.py --center",
         "on-click-right": "python3 $HOME/.config/hypr/scripts/control_center.py --center"
@@ -338,28 +376,30 @@
             "transition-duration": 300,
             "transition-left-to-right": false
         },
-        "modules": ["network", "bluetooth"]
+        // Bluetooth из выдвижного убран (13.10.2026, просьба: «уберём скрытые элементы»)
+        "modules": ["network"]
     },
 
     // Провод отдельным значком: модуль "network" показывает ТОЛЬКО интерфейс
     // маршрута по умолчанию, и при живом Wi-Fi кабель в баре не виден вовсе
     // (21.09.2026). Здесь интерфейс задан явно; когда кабеля нет, текст пустой
     // и waybar прячет модуль.
-    // Подпись строчными — «lan», а не «LAN» (23.09.2026).
+    // 13.10.2026: без подписи, только значок — fa-network-wired U+EF09
+    // (прежний разъём U+F0200 «так себе»). Wi-Fi тоже без имени сети.
     "network#eth": {
         "interface": "enp3s0",
         "format": "",
-        "format-ethernet": "\udb80\ude00 lan",
+        "format-ethernet": "\uef09",
         "format-disconnected": "",
         "format-linked": "",
         "tooltip-format-ethernet": "Провод: {ipaddr}\nСкорость: {bandwidthDownBits} / {bandwidthUpBits}",
         "interval": 5,
         // Щелчок — плашка «Сеть»: диагностика кабель → роутер → интернет → DNS,
-        // трафик, пинг, замер скорости по кнопке (05.10.2026, Просьба: «не
+        // трафик, пинг, замер скорости по кнопке (05.10.2026: «не
         // спидтест, а диагностика сети»). Раньше здесь был центр управления —
         // он остался на правой кнопке.
         "on-click": "python3 $HOME/.config/hypr/scripts/lan_popup.py",
-        // Правой — центр управления в духе Noctalia (30.09.2026, пользователь). «Настройки» — из панели, ⚙.
+        // Правой — центр управления в духе Noctalia (30.09.2026). «Настройки» — из панели, ⚙.
         "on-click-right": "python3 $HOME/.config/hypr/scripts/control_center.py"
     },
 
@@ -369,15 +409,15 @@
         // воткнутом кабеле писал «LAN» — рядом с отдельным значком провода
         // получалось два одинаковых (замечено пользователем 21.09.2026).
         "interface": "wlp0s20f3",
-        // Значки (04.10.2026, Просьба: «вайфай не понятно, включен или нет»): подключён —
+        // Значки (04.10.2026: «вайфай не понятно, включен или нет»): подключён —
         // полный веер акцентом, включён без сети — пустой контур без черты, выключен —
         // перечёркнутый бледный. Раньше «нет сети» и «выключен» оба были перечёркнуты.
         "format-ethernet": "󰈀 LAN",
-        "format-wifi": "<span font_size='12pt'>󰤨</span> {essid}",
+        "format-wifi": "<span font_size='12pt'>󰤨</span>",
         "format-disconnected": "<span font_size='12pt'>󰤯</span>",
         "format-disabled": "<span font_size='12pt'>󰤮</span>",
         "tooltip-format": "Сеть: {essid}\nIP: {ipaddr}",
-        // 08.10.2026 : левой — плашка анализа Wi-Fi (сигнал, канал,
+        // 08.10.2026: левой — плашка анализа Wi-Fi (сигнал, канал,
         // соседи, пинг, замер скорости; это lan_popup.py через ссылку
         // wifi_net_popup.py, при кабеле — одна фраза), правой — список сетей,
         // средней — вкл/выкл.
@@ -390,10 +430,10 @@
         "format": "<span font_size='12pt'></span>",
         "format-off": "<span font_size='12pt'>󰂲</span>",
         "format-disabled": "<span font_size='12pt'>󰂲</span>",
-        "format-connected": "<span font_size='12pt'></span> {device_alias}",
-        "format-connected-battery": "<span font_size='12pt'></span> {device_alias} {device_battery_percentage}%",
+        "format-connected": "<span font_size='12pt'></span><span font_size='50%'> </span>{device_alias}",
+        "format-connected-battery": "<span font_size='12pt'></span><span font_size='50%'> </span>{device_alias} {device_battery_percentage}%",
         "tooltip-format": "{controller_alias}\t{controller_address}",
-        // 08.10.2026 : правой — список устройств, средней — вкл/выкл.
+        // 08.10.2026: правой — список устройств, средней — вкл/выкл.
         // Левая — плашка анализа: заряд, кодек, режим (bt_stats_popup.py, 08.10.2026).
         "on-click": "python3 $HOME/.config/hypr/scripts/bt_stats_popup.py",
         "on-click-right": "python3 $HOME/.config/hypr/scripts/bluetooth_popup.py",
@@ -414,12 +454,13 @@
             "transition-duration": 300,
             "transition-left-to-right": false
         },
-        "modules": ["pulseaudio", "pulseaudio#microphone"]
+        // микрофон из выдвижного убран (13.10.2026, просьба: «уберём скрытые элементы»)
+        "modules": ["pulseaudio"]
     },
 
     "pulseaudio": {
-        "format": "{icon} {volume}%",
-        "format-muted": "󰝟 Muted",
+        "format": "{icon}<span font_size='50%'> </span>{volume}%",
+        "format-muted": "󰝟<span font_size='50%'> </span>Muted",
         "format-icons": {
             "default": ["󰕿", "󰖀", "󰕾"]
         },
@@ -431,8 +472,8 @@
 
     "pulseaudio#microphone": {
         "format": "{format_source}",
-        "format-source": "󰍬 {volume}%",
-        "format-source-muted": "󰍭 Muted",
+        "format-source": "󰍬<span font_size='50%'> </span>{volume}%",
+        "format-source-muted": "󰍭<span font_size='50%'> </span>Muted",
         "on-click": "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle",
         "on-click-right": "python3 $HOME/.config/hypr/scripts/mic_popup.py",
         "on-scroll-up": "wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SOURCE@ 5%+",
@@ -491,6 +532,12 @@
     // Скрипт событийный (pactl subscribe, inotify, события niri) — interval не нужен.
     "custom/privacy": {
         "exec": "$HOME/.config/hypr/scripts/wb_share privacy $HOME/.config/hypr/scripts/privacy_status.py",
+        // 13.10.2026, просьба: ЛКМ — заглушить микрофон, ПКМ — плашка с ползунком,
+        // колесо — громкость микрофона ±5 % и боковой микшер в режиме микрофона.
+        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/mic_popup.py",
+        "on-scroll-up": "$HOME/.config/eww/scripts/volume_manager.sh mic_up 5%",
+        "on-scroll-down": "$HOME/.config/eww/scripts/volume_manager.sh mic_down 5%",
         "return-type": "json",
         "restart-interval": 5,
         "tooltip": true,
@@ -499,7 +546,7 @@
 
     "custom/power": {
         "format": "",
-        // wlogout, как было (Пользователь вернул, 30.09.2026). Выход, перезагрузка и
+        // wlogout, как было (пользователь вернул, 30.09.2026). Выход, перезагрузка и
         // выключение в нём идут через power_menu.py --only: 5 с отсчёт с кольцом,
         // ещё щелчок — сразу, Esc — отмена. Значки — wlogout_icons.py.
         // 01.10.2026: какое меню — решает power_view.py (Настройки → Power):

@@ -40,6 +40,7 @@ import time
 ICON = {"mic": "\U000F036C", "camera": "\U000F05A0", "screen": "\U000F1483"}
 LABEL = {"mic": "Микрофон", "camera": "Камера", "screen": "Экран"}
 ORDER = ("mic", "camera", "screen")
+ICON_MUTED = "\U000F036D"   # 󰍭 mdi-microphone-off
 
 TICK = 3.0          # период дешёвой проверки процессов-записчиков
 DEBOUNCE = 0.15     # склейка пачки событий в одно перечитывание
@@ -121,6 +122,21 @@ def scan_mic():
             continue
         apps.append(name)
     return apps
+
+
+def mic_muted():
+    """(заглушён ли, громкость %) микрофона по умолчанию: заглушён — в баре перечёркнутый
+    значок; громкость — в подсказке (13.10.2026, просьба: «при наведении процент»)."""
+    try:
+        out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SOURCE@"],
+                             capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False, None
+    try:
+        pct = round(float(out.split()[1]) * 100)
+    except (IndexError, ValueError):
+        pct = None
+    return "[MUTED]" in out, pct
 
 
 # ─────────────────────────── камера ───────────────────────────
@@ -252,12 +268,18 @@ def render(state):
     active = [k for k in ORDER if state[k]]
     if not active:
         return {"text": "", "tooltip": "", "class": "idle"}
-    text = " ".join(ICON[k] for k in active)
+    # Щелчок по значку глушит микрофон (config.jsonc, custom/privacy) — значок
+    # это показывает: 󰍭 вместо 󰍬 и класс muted (13.10.2026, пользователь).
+    muted = state.get("mute") and "mic" in active
+    text = " ".join(ICON_MUTED if (k == "mic" and muted) else ICON[k] for k in active)
     lines = []
     for k in active:
         uniq = list(dict.fromkeys(state[k]))
-        lines.append(f"{ICON[k]}  {LABEL[k]}: {esc(', '.join(uniq))}")
-    return {"text": text, "tooltip": "\n".join(lines), "class": active}
+        vol = f" — {state['micvol']}%" if k == "mic" and state.get("micvol") is not None else ""
+        lines.append(f"{ICON[k]}  {LABEL[k]}{vol}: {esc(', '.join(uniq))}")
+    if muted:
+        lines.append("Микрофон заглушён — щелчок включит")
+    return {"text": text, "tooltip": "\n".join(lines), "class": active + (["muted"] if muted else [])}
 
 
 def main():
@@ -293,6 +315,7 @@ def main():
 
     mic = scan_mic()
     state["mic"] = mic or []
+    state["mute"], state["micvol"] = mic_muted()
     state["camera"] = scan_camera()
     if os.environ.get("NIRI_SOCKET"):
         for c in run_json(["niri", "msg", "-j", "casts"]) or []:
@@ -432,6 +455,8 @@ def main():
                 if kind == "pactl":
                     if b"source-output" in ln or (b"on source #" in ln and b"'change'" not in ln):
                         dirty.add("mic")
+                    elif b"'change' on source #" in ln:
+                        dirty.add("mute")    # заглушили / сменили громкость
                 elif kind == "niri":
                     if not ln.startswith(b'{"Cast'):
                         continue  # окна/столы — мимо, даже не разбираем JSON
@@ -481,6 +506,8 @@ def main():
                 m = scan_mic()
                 if m is not None:
                     state["mic"] = m
+            if "mute" in dirty or "mic" in dirty:
+                state["mute"], state["micvol"] = mic_muted()
             if "camera" in dirty:
                 state["camera"] = scan_camera()
             if "screen" in dirty:

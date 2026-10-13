@@ -33,7 +33,7 @@ CACHE = os.path.expanduser("~/.cache/jarvis")
 BASE = os.path.expanduser("~/.config/rofi/config.rasi")
 TITLE = "Programs.exe"
 HINT = "Enter — открыть · Esc — закрыть"
-FONT = "PxPlus HP 100LX 6x8 Jarvis"
+FONT = "JetBrainsMono Nerd Font"
 
 
 def read_style():

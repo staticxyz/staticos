@@ -15,6 +15,7 @@
 
     steam_space.py apply     применить (цвета + шрифт)
     steam_space.py on|off    включить SpaceTheme | вернуть прежнюю JarvisPixel
+    steam_space.py get       on — SpaceTheme включена, off — нет
 
 Откат целиком: steam_space.py off и перезапуск Steam.
 """
@@ -30,7 +31,7 @@ MCONF = os.path.expanduser("~/.config/millennium/config.json")
 FONT_NAME = "Jarvis Pixel"
 FONT_FILE = "options/fonts/jarvisPixel.css"
 FONT_CSS = ('/* Шрифт системы (Jarvis). Пишет ~/.config/hypr/scripts/steam_space.py */\n'
-            '* {\n    font-family: "PxPlus HP 100LX 6x8 Jarvis", "PxPlus HP 100LX 6x8", monospace !important;\n}\n')
+            '* {\n    font-family: "JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font", monospace !important;\n}\n')
 
 
 def rgb(hexstr):
@@ -155,6 +156,13 @@ def main():
         changed = add_font() or changed
         changed = save_colors(palette()) or changed
         print("SpaceTheme: %s" % ("обновлена (Steam подхватит после перезапуска)" if changed else "без изменений"))
+        return 0
+    if cmd == "get":                      # для Настроек → Applications (13.10.2026)
+        try:
+            active = json.load(open(MCONF)).get("themes", {}).get("activeTheme")
+        except (OSError, ValueError):
+            active = None
+        print("on" if active == "SpaceTheme" else "off")
         return 0
     if cmd in ("on", "off"):
         set_active("SpaceTheme" if cmd == "on" else "JarvisPixel")

@@ -34,7 +34,7 @@ sys.path.insert(0, HERE)
 # JARVIS_SCREENTIME_DIR — подложить другие данные (проверка вида на выдуманных днях).
 DATA = os.environ.get("JARVIS_SCREENTIME_DIR") or os.path.expanduser("~/.local/share/jarvis/screentime")
 LOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "jarvis-screentime.lock")
-FONT = "PxPlus HP 100LX 6x8 Jarvis"
+FONT = "JetBrainsMono Nerd Font"
 TOP = 5                 # программ со своим цветом; остальные — «другие»
 LIST_ROWS = 8           # строк в списке
 WIDTH = 520             # ширина содержимого окна

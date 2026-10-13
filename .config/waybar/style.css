@@ -1,3 +1,5 @@
+/* 13.10.2026: вид бара возвращён к снимку 09.10 (дотфайлы 8a2b4e9) по просьбе пользователя —
+   «как было неделю назад, иконку батареи сохранить». Прежнее — style.css.bak-preweek. */
 @import "../../.cache/matugen/colors.css";
 @import "../../.cache/matugen/sensor-colors.css";
 /* Вид бара — подложка и её рамка (window#waybar). Текущий вид — ссылка
@@ -12,6 +14,8 @@
 /* Столы с виджетами видны в баре и пустыми — правила пишет scripts/desktop_widgets.py
    (файл существует всегда; пустой — если виджетов нет). 02.10.2026. */
 @import "widget-desks.css";
+/* Тонкая рамка под баром — bar_border.py set on|off. */
+@import "looks/bar-border.css";
 
 * {
     border: none;
@@ -140,24 +144,30 @@
     margin: 4px 2px;
 }
 
-/* Цвет в полную силу, подложка заметная — на плотном фоне панели датчики
-   иначе терялись. */
-#cpu         { color: @sensor-cpu;  background-color: alpha(@sensor-cpu, 0.18); }
-#memory      { color: @sensor-mem;  background-color: alpha(@sensor-mem, 0.18); }
-#temperature { color: @sensor-temp; background-color: alpha(@sensor-temp, 0.18); }
+/* 13.10.2026 (Просьба: «убери пилюли с центра и цвета добавь от обоев»): датчики без
+   подложки, текстом в прямых цветах палитры обоев matugen — primary / tertiary /
+   secondary. Пилюли были до этого (alpha(@sensor-*, 0.18)) — style.css.bak-sensorpill. */
+#cpu         { color: @primary; }
+#memory      { color: @tertiary; }
+#temperature { color: @secondary; }
 
-/* Скруглить только внешние края группы, чтобы читалась одним блоком */
-#cpu         { border-radius: 10px 0 0 10px; margin-left: 3px; }
-#memory      { border-radius: 0; }
-#temperature { border-radius: 0 10px 10px 0; margin-right: 3px; }
+#cpu,
+#memory,
+#temperature {
+    background-color: transparent;
+    border-radius: 0;
+    padding: 0 6px;
+    margin: 4px 0;
+}
 
-#cpu:hover         { background-color: alpha(@sensor-cpu, 0.32); }
-#memory:hover      { background-color: alpha(@sensor-mem, 0.32); }
-#temperature:hover { background-color: alpha(@sensor-temp, 0.32); }
+/* Средняя группа прижата правым краем к правой (.modules-right min-width): без подложек
+   датчики уехали на ~15 px вправо от середины экрана — поле справа возвращает их на 960. */
+#temperature { margin-right: 28px; }   /* 13.10.2026: подписи ближе к значкам — блок уже, центр снова ~960 */
+
+#cpu:hover, #memory:hover, #temperature:hover { background-color: alpha(@primary, 0.10); border-radius: 6px; }
 
 /* Перегрев виден без чтения цифр */
 #temperature.critical {
-    background-color: alpha(@error, 0.30);
     color: @error;
 }
 
@@ -223,7 +233,9 @@ tooltip label {
    подписью «LAN» — маленький глиф рядом с Wi-Fi читался плохо (21.09.2026). */
 #network.eth {
     font-size: 14px;
-    padding: 0 6px;
+    /* Справа шире (13.10.2026): рисунок fa-network-wired ~16 px при ячейке ~8 px вылезает
+       вправо на поле модуля, и при 6 px его правый край обрезался. */
+    padding: 0 16px 0 8px;
 }
 
 #network,
@@ -234,7 +246,7 @@ tooltip label {
 #custom-battery {
     background: transparent;
     color: @foreground;
-    padding: 0 6px;
+    padding: 0 8px;   /* было 6: значки стояли тесно (13.10.2026) */
     margin: 0;
     font-size: 13px;
 }
@@ -250,7 +262,7 @@ tooltip label {
     color: @primary;
 }
 
-/* Wi-Fi и Bluetooth (04.10.2026, Просьба: «чуть-чуть крупнее; вайфай не понятно,
+/* Wi-Fi и Bluetooth (04.10.2026: «чуть-чуть крупнее; вайфай не понятно,
    включён или нет»): на 1 px крупнее общего кегля; подключённое — акцентом; бледное —
    только выключенное. «Включён, без сети» — обычной яркости (у него свой значок —
    пустой веер без черты, config.jsonc). */
@@ -265,6 +277,9 @@ tooltip label {
 #bluetooth.connected {
     color: @primary;
 }
+/* Wi-Fi только значком (13.10.2026): включён без сети и выключен — оба бледные,
+   подключён — акцентом. Имя сети — в подсказке. */
+#network.disconnected:not(.eth),
 #network.disabled,
 #bluetooth.disabled,
 #bluetooth.off {
@@ -272,15 +287,11 @@ tooltip label {
 }
 
 #custom-battery.savage {
-    /* @vivid — насыщенный оттенок самих обоев. Раньше стоял @error: он хоть
-       и из палитры, но это сигнальный красный, одинаковый на любых обоях, и
-       спидометр выбивался из гаммы. Правило: цвет только из палитры обоев,
-       любой ценой, для всех элементов.
-       14px, а не прежние 15: внутри системной таблетки (поля 4px) строка
-       в 15px требовала от бара 33px вместо заданных 32 — waybar ругался
-       "minimum height: 33" и панель вырастала на пиксель. */
-    color: @vivid;
-    font-size: 14px;
+    /* Savage — только подсветка, как у раскладки при Caps Lock: тот же цвет и то же
+       свечение, размер прежний (13.10.2026, просьба: «размер увеличивается, а должен
+       только подсвечиваться»). Раньше здесь стояли @vivid и font-size 14px. */
+    color: @primary;
+    text-shadow: 0 0 6px @primary;
 }
 
 /* «Не отключать экран» включён (класс awake ставит savage_battery.py) — спидометр
@@ -501,6 +512,10 @@ window#waybar.empty #window {
 #custom-privacy.screen {
     color: @error;
 }
+/* Микрофон заглушён щелчком (13.10.2026): значок 󰍭 бледнее — занят, но не слышит. */
+#custom-privacy.muted:not(.camera):not(.screen) {
+    color: alpha(@tertiary, 0.5);
+}
 
 /* Bongo Cat (30.09.2026): цвет — акцент обоев, ширина прибита (глиф 32 px). */
 #custom-bongo {
@@ -540,3 +555,49 @@ window#waybar.empty #window {
     margin: 0 2px;
     font-weight: normal;
 }
+
+/* ─── Без таблеток (13.10.2026, просьба: «убери пилюли с бара в целом, кроме столов слева») ───
+   Подложки, рамки и скругления сняты у всего, кроме кнопки «Пуск» и столов. Состояния,
+   которые раньше читались по заливке (помидор: идёт / перерыв / пауза / фокус), теперь
+   читаются по цвету текста. Откат — style.css.bak-nopills. */
+window#waybar #custom-clock,
+window#waybar #custom-mpris,
+window#waybar #group-system,
+window#waybar #custom-pomo,
+window#waybar #custom-power,
+window#waybar #custom-lyrics,
+window#waybar #cpu,
+window#waybar #memory,
+window#waybar #temperature {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    /* Поля сверху/снизу были нужны только таблетке. С ними правая группа просила у бара
+       34 px вместо 32 («minimum height: 34» в журнале), и приклеенные плашки (они считают
+       бар по "height": 32) вставали на 2 px выше его нижней линии — ушки висели в воздухе
+       (13.10.2026). */
+    margin-top: 0;
+    margin-bottom: 0;
+}
+/* Часы — на том же шаге, что значки системы (13.10.2026, просьба: «время стоит не ровно»).
+   Без таблетки их поля (3 + 5) плюс правый край группы (4 + 3) давали перед часами 23 px
+   против 16 между остальными. 4 + 3 + 0 + 1 + 8 (у батареи) = 16. */
+window#waybar #custom-clock {
+    margin-left: 0;
+    padding-left: 1px;
+}
+window#waybar #custom-clock:hover,
+window#waybar #custom-mpris:hover,
+window#waybar #custom-pomo:hover,
+window#waybar #cpu:hover,
+window#waybar #memory:hover,
+window#waybar #temperature:hover {
+    background: transparent;
+    color: @primary;
+}
+window#waybar #custom-pomo          { color: @vivid; }
+window#waybar #custom-pomo.break    { color: @primary; }
+window#waybar #custom-pomo.focus    { color: @primary; }
+window#waybar #custom-pomo.paused   { color: alpha(@foreground, 0.55); }
+window#waybar #custom-pomo.idle     { color: alpha(@foreground, 0.35); }

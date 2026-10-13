@@ -21,6 +21,8 @@ APP_SYNONYMS = [
     {"настройки", "settings", "параметры"},
     {"редактор", "editor", "блокнот", "код", "code", "nvim", "vim", "micro", "mousepad"},
     {"игры", "games", "стим", "steam"},
+    # 13.10.2026, просьба: «кс — counter strike»
+    {"кс", "кс2", "cs", "cs2", "контра", "контр-страйк", "counter-strike", "counter strike"},
     {"видео", "video", "mpv", "vlc"},
     {"картинки", "фото", "images", "image viewer", "loupe", "gwenview"},
     {"калькулятор", "calculator", "calc"},
@@ -71,7 +73,52 @@ def swap_layout(text):
     return "".join(_LAYOUT.get(ch, ch) for ch in text)
 
 
-def search_meta(hay):
+# Латиница → кириллица «как слышится» (13.10.2026): «discord» → «дискорд», «kitty» →
+# «китти». Точности не нужно — это лишь лишние слова для поиска; для «стим», «кс» есть
+# словарь выше. Сначала сочетания, потом буквы.
+_PH2 = [("sh", "ш"), ("ch", "ч"), ("zh", "ж"), ("th", "т"), ("ph", "ф"), ("ck", "к"),
+        ("ee", "и"), ("ea", "и"), ("oo", "у"), ("ou", "ау"), ("qu", "кв"), ("ce", "се"),
+        ("ci", "си"), ("cy", "си"), ("ye", "е"), ("yo", "ё"), ("ya", "я"), ("yu", "ю")]
+_PH1 = dict(zip("abcdefghijklmnopqrstuvwxyz",
+                ["а", "б", "к", "д", "е", "ф", "г", "х", "и", "дж", "к", "л", "м", "н", "о", "п",
+                 "к", "р", "с", "т", "у", "в", "в", "кс", "и", "з"]))
+
+
+def phonetic(word):
+    w, out, i = word.lower(), [], 0
+    while i < len(w):
+        for a, b in _PH2:
+            if w.startswith(a, i):
+                out.append(b)
+                i += 2
+                break
+        else:
+            out.append(_PH1.get(w[i], w[i]))
+            i += 1
+    return "".join(out)
+
+
+def name_words(name):
+    """Кириллические «звучания» слов имени и сокращение по первым буквам
+    («Counter-Strike 2» → cs, кс, cs2, кс2)."""
+    import re
+    parts = re.findall(r"[a-z]+|\d+", (name or "").lower())
+    out = set()
+    for p in parts:
+        if p.isalpha() and len(p) >= 3:
+            out.add(phonetic(p))
+    alpha = [p for p in parts if p.isalpha()]
+    if len(alpha) >= 2:
+        ini = "".join(p[0] for p in alpha)
+        num = "".join(p for p in parts if p.isdigit())
+        for v in (ini, ini + num):
+            out.update((v, phonetic(v) if len(v) > 1 else v))
+        out.add("".join(_PH1.get(c, c)[0] for c in ini))        # «cs» → «кс»
+        out.add("".join(_PH1.get(c, c)[0] for c in ini) + num)
+    return out
+
+
+def search_meta(hay, name=None):
     """Невидимые слова для поиска в rofi (row option meta): слова программы в другой
     раскладке, синонимы её групп и они же в другой раскладке. rofi сравнивает набранное с
     именем и с этими словами — так «еудупкфь», «браузер», «тг» находят своё."""
@@ -87,4 +134,5 @@ def search_meta(hay):
                 out.add(m)
                 if len(m) >= 3:
                     out.add(swap_layout(m))
+    out |= name_words(name)
     return " ".join(sorted(out - words))

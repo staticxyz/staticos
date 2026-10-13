@@ -5,7 +5,8 @@
 The full list of binds from `binds.kdl`, grouped the same way the file itself is.
 For a first look, the "First keys" table in the README is enough — this is
 everything, down to small habits carried over from Hyprland. **Mod** is Super
-(the logo key). A live list is always available in the system: **Super+Shift+/**.
+(the logo key). A live list is always available in the system: **Super+Z** — a searchable cheat sheet
+built from `binds.kdl` (niri's own overlay is still on **Super+Shift+/**).
 
 ---
 
@@ -18,6 +19,7 @@ everything, down to small habits carried over from Hyprland. **Mod** is Super
 | `Mod + Return` | Terminal |
 | `Mod + Shift + Return` | Fallback terminal (foot) |
 | `Mod + Space` | App launcher |
+| `Mod + X` | App launcher, Omarchy-style list |
 | `Ctrl + Q` | close window (or clear the buffer, if it's a terminal) |
 | `Mod + E` | Dolphin (files) |
 | `Mod + I` | Helium (browser) |
@@ -124,6 +126,8 @@ everything, down to small habits carried over from Hyprland. **Mod** is Super
 
 | Keys | Action |
 |---|---|
+| `Ctrl + Alt + K` | column to workspace up |
+| `Ctrl + Alt + J` | column to workspace down |
 | `Mod + Ctrl + Alt + K` | column to workspace up |
 | `Mod + Ctrl + Alt + J` | column to workspace down |
 | `Mod + Ctrl + Alt + Up` | column to workspace up |
@@ -232,6 +236,7 @@ Super + wheel scrolls through the strip's windows.
 |---|---|
 | `Print` | screenshot |
 | `Alt + Print` | screenshot of a window |
+| `Mod + Ctrl + S` / `Ctrl + Shift + Print` | screenshot of the focused window, no picking |
 | `Ctrl + Print` | screenshot of the whole screen |
 | `Mod + Print` | annotated screenshot |
 | `Shift + Print` | copy text off the screen (OCR) |
@@ -257,6 +262,7 @@ Super + wheel scrolls through the strip's windows.
 | `Mod + F3` | keyboard backlight brighter |
 | `F7` / `F8` / `F9` | media: previous / play-pause / next |
 | `F1` / `F2` | volume -5% / +5% |
+| `Shift + F1` / `Shift + F2` (also Shift + volume keys) | microphone volume -5% / +5% |
 | `F10` | like the current track |
 | `Ctrl + Shift + ]` | picture-in-picture |
 
@@ -264,6 +270,7 @@ Super + wheel scrolls through the strip's windows.
 
 | Keys | Action |
 |---|---|
+| `Mod + Z` | cheat sheet: every bind by category, with search |
 | `Mod + Shift + /` | show all shortcuts (doesn't work on a Russian layout — that physical key sends `.` there, use the duplicate below) |
 | `Mod + Shift + Period` | show all shortcuts (duplicate for the Russian layout) |
 | `Mod + Escape` | give all keys to the focused window on/off |

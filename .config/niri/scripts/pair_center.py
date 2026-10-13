@@ -37,7 +37,8 @@ import socket
 import subprocess
 import time
 
-GAPS = 16           # layout.gaps из config.kdl: зазор по краям и между колонками
+GAPS = 16           # запасное значение; действующее — layout.gaps из cfg/layout.kdl
+LAYOUT = os.path.expanduser("~/.config/niri/cfg/layout.kdl")
 SLACK = 8           # на столько пара может превысить экран (округление)
 ROOM = 48           # меньше этого свободного места — считаем, что третьему не влезть
 SETTLE = 0.05       # дать niri дорисовать раскладку перед опросом
@@ -60,6 +61,40 @@ def screen_width():
             width = (o.get("logical") or {}).get("width")
             break
     return float(width or 1920)
+
+
+def gaps():
+    """Зазор читается при каждом решении: его меняет ползунок «Отступы» в Настройках →
+    Compositor. Прибитые 16 при зазоре 8 (13.10.2026) давали «пара не заполняет экран»,
+    и две половины центрировались при каждом переходе."""
+    import re
+    try:
+        with open(LAYOUT) as f:
+            m = re.search(r"^    gaps (\d+(?:\.\d+)?)\s*$", f.read(), re.M)
+        return float(m.group(1)) if m else GAPS
+    except OSError:
+        return GAPS
+
+
+def edges():
+    """Отступы у левого и правого края экрана: gaps + struts (left/right). niri_compositor.py
+    edge пишет отрицательные struts — 13.10.2026 край стал 16−8 = 8, половины выросли до
+    944, а счёт «три зазора по 16» давал 1936 > 1920: пара из двух половин считалась
+    невлезшей и центрировалась при каждом переходе (Просьба: «окна двигаются, хотя не должны»)."""
+    import re
+    g = gaps()
+    try:
+        with open(LAYOUT) as f:
+            txt = f.read()
+    except OSError:
+        return g, g
+    st = re.search(r"struts\s*\{([^}]*)\}", txt)
+    side = {}
+    if st:
+        for k in ("left", "right"):
+            m = re.search(r"^\s*%s\s+(-?\d+(?:\.\d+)?)" % k, st.group(1), re.M)
+            side[k] = float(m.group(1)) if m else 0.0
+    return g + side.get("left", 0.0), g + side.get("right", 0.0)
 
 
 def center():
@@ -104,10 +139,10 @@ def decide(prev):
         return here
 
     came_from = cols.get(prev_col)
-    total = cols.get(mine, 0) + (came_from or 0) + GAPS * 3
+    total = cols.get(mine, 0) + (came_from or 0) + gaps() + sum(edges())
     screen = screen_width()
     fills = came_from is not None and total <= screen + SLACK and screen - total < ROOM
-    # Узкая колонка рядом — чат стрима, заметки (05.10.2026, Просьба: «переключаюсь на окно
+    # Узкая колонка рядом — чат стрима, заметки (05.10.2026: «переключаюсь на окно
     # с чатом справа — не центрируй, окна остаются на местах, фокус на уменьшенном окне»).
     # Одна из пары не шире трети экрана и вдвоём они помещаются — вид не трогаем, в обе
     # стороны (на чат и обратно). niri с "never" сам лишь довернёт, если что-то обрезано.

@@ -30,7 +30,7 @@ WEEKDAYS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 # Высота одной недельной строки. Дублируется в CSS как min-height у ячейки:
 # именно из неё складывается постоянная высота окна (шесть строк в любом
 # месяце), поэтому менять эти два числа надо вместе.
-ROW_H = 26
+ROW_H = 20
 
 # Размер коробки календаря. Высота — по месяцу на ПЯТЬ недель: так окно
 # компактнее, а месяц на шесть недель ужимается в ту же высоту (строки делят
@@ -40,8 +40,8 @@ ROW_H = 26
 # на деле растягивала до 376 подсказка внизу одной строкой; теперь она
 # переносится, и ширина снова от сетки. Пропорция — шире, чем выше: при 272
 # календарь казался сдавленным. Высота прежняя, 229.
-BOX_W = 358
-BOX_H = 229
+BOX_W = 280
+BOX_H = 185
 
 # Переключатель: второй запуск гасит первый и уходит.
 #
@@ -132,6 +132,13 @@ def mix(a, b, t):
 
 
 class CalendarPopup(Gtk.Window):
+    def _exit(self):
+        try:
+            popup_theme.animate_close(getattr(self, 'revealer', None), lambda: sys.exit(0))
+        except Exception:
+            sys.exit(0)
+        return True
+
     def __init__(self):
         super().__init__(title="Календарь")
         # Отсчёт месяцев свой, а не общий с баром: попап открывают, чтобы
@@ -166,7 +173,7 @@ class CalendarPopup(Gtk.Window):
             background-color: %(bg)s;
             border: 3px solid %(frame)s;   /* акцент — видно, что открыт; 3px с 14.09.2026, как у всех попапов */
             border-radius: 12px;
-            padding: 8px 10px 6px 10px;
+            padding: 5px 8px 4px 8px;
             /* Тёмный контур 1px снаружи — рамка видна и на светлых обоях
                (14.09.2026). Без размытой тени: окно обрезало её краем в
                полупрозрачную полосу. */
@@ -176,18 +183,18 @@ class CalendarPopup(Gtk.Window):
         /* Шапка: месяц акцентом и крупнее, год приглушённым рядом — так
            взгляд цепляется за месяц, а год не спорит с ним за внимание. */
         label.cal-month {
-            color: %(accent)s; font-size: 15px; font-weight: bold;
+            color: %(accent)s; font-size: 12px; font-weight: bold;
             font-family: 'JetBrainsMono Nerd Font', monospace;
         }
         label.cal-year {
-            color: %(dim)s; font-size: 15px; font-weight: normal;
+            color: %(dim)s; font-size: 12px; font-weight: normal;
             font-family: 'JetBrainsMono Nerd Font', monospace;
         }
         button.cal-arrow {
             background: none; border: none; box-shadow: none;
-            color: %(dim)s; padding: 0; min-width: 20px; min-height: 20px;
+            color: %(dim)s; padding: 0; min-width: 16px; min-height: 16px;
             border-radius: 999px;
-            font-family: 'JetBrainsMono Nerd Font', monospace; font-size: 13px;
+            font-family: 'JetBrainsMono Nerd Font', monospace; font-size: 11px;
         }
         /* Красим и саму кнопку, и её надпись: цвет с button на вложенный
            label GTK не наследует, и без второй строки стрелка при наводке
@@ -209,15 +216,15 @@ class CalendarPopup(Gtk.Window):
            она читалась хуже самих чисел, хотя должна вести взгляд по
            колонкам. */
         label.cal-wd {
-            color: %(fg)s; font-size: 14px; font-weight: 900;
+            color: %(fg)s; font-size: 11px; font-weight: 900;
             font-family: 'JetBrainsMono Nerd Font', monospace;
-            padding-bottom: 3px;
+            padding-bottom: 1px;
         }
         label.cal-wd-off { color: %(wknd)s; }
         label.cal-day {
-            color: %(fg)s; font-size: 13px;
+            color: %(fg)s; font-size: 11px;
             font-family: 'JetBrainsMono Nerd Font', monospace;
-            padding: 0; min-width: 36px; min-height: 18px;
+            padding: 0; min-width: 28px; min-height: 16px;
         }
         /* Выходные — третичной ролью. Пробовал основным акцентом, чтобы не
            выбиваться из гаммы, но он почти совпадает с цветом обычного
@@ -237,11 +244,11 @@ class CalendarPopup(Gtk.Window):
             font-weight: bold; border-radius: 999px;
             /* Одинаковые ширина и высота при нулевом поле — иначе подложка
                растягивалась в овал. */
-            padding: 0; min-width: 36px; min-height: 18px;
+            padding: 0; min-width: 28px; min-height: 16px;
         }
-        separator.cal-rule { background-color: %(line)s; margin: 2px 0 4px 0; }
+        separator.cal-rule { background-color: %(line)s; margin: 1px 0 2px 0; }
         label.cal-hint {
-            color: %(pad)s; font-size: 10px; font-weight: normal;
+            color: %(pad)s; font-size: 9px; font-weight: normal;
             font-family: 'JetBrainsMono Nerd Font', monospace;
         }
         """ % {
@@ -274,7 +281,7 @@ class CalendarPopup(Gtk.Window):
 
         # Клик мимо сетки закрывает окно, клик по самой сетке — нет.
         self.bg = Gtk.EventBox()
-        self.bg.connect("button-press-event", lambda w, e: sys.exit(0))
+        self.bg.connect("button-press-event", lambda w, e: self._exit())
         self.add(self.bg)
 
         align = Gtk.Box()
@@ -303,6 +310,7 @@ class CalendarPopup(Gtk.Window):
         self.popup_event.add_events(Gdk.EventMask.SCROLL_MASK)
         self.popup_event.connect("scroll-event", self.on_scroll)
         align.add(self.popup_event)
+        self.revealer = popup_theme.animate_open(self, align, self.popup_event)   # выезд из бара, 13.10.2026
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
         box.get_style_context().add_class("cal-box")

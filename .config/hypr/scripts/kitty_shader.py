@@ -39,7 +39,7 @@ KEY = "custom_shaders"
 SLOTS = {
     "screen": [("crt90", "ЭЛТ-монитор 90-х"), ("susanoo", "Сусаноо")],
     "cursor": [("trail-lightning", "Разряд"), ("trail-blaze", "Огонь")],
-    "typing": [("typestorm", "Отдача и молнии"), ("typeshake", "Только отдача"),
+    "typing": [("typestorm", "Обе"), ("typeshake", "Только отдача"),
                ("speedburst", "Только молнии")],
 }
 # Порядок в строке важен: тряска двигает картинку, поэтому идёт ПОСЛЕДНЕЙ —

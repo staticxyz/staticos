@@ -7,6 +7,17 @@ import os
 import signal
 
 PID_FILE = "/tmp/savage_mode.pid"
+# FIFO, по которому бар (wb_persist.py battery) перерисовывает батарею сразу после щелчка
+POKE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "wb-battery.poke")
+
+
+def poke_bar():
+    try:
+        fd = os.open(POKE, os.O_WRONLY | os.O_NONBLOCK)
+        os.write(fd, b"1")
+        os.close(fd)
+    except OSError:          # бара нет / FIFO ещё не создан — догонит опрос
+        pass
 
 def is_savage_active():
     if not os.path.exists(PID_FILE):
@@ -45,6 +56,7 @@ def toggle_savage():
             except OSError:
                 pass
         subprocess.run(["pkill", "-f", "systemd-inhibit.*24/7 mode"], stderr=subprocess.DEVNULL)
+        poke_bar()
         # Выключая Savage Mode, гасим и его спутника «не отключать экран»:
         # сам по себе он ничего не значит, а забытым однажды оставил бы
         # машину незапертой. См. scripts/screen_awake.py.
@@ -63,6 +75,7 @@ def toggle_savage():
         ])
         with open(PID_FILE, "w") as f:
             f.write(str(proc.pid))
+    poke_bar()
 
 def read(path, default=""):
     try:
@@ -122,19 +135,28 @@ def get_battery_info():
     cap, status, on_ac, limit = info["cap"], info["status"], info["on_ac"], info["limit"]
     mode = "savage" if is_savage else "normal"
 
-    # Значок — всегда режим: шестерёнка, в Savage — спидометр (27.09.2026,
-    # Просьба: «почему они постоянно меняются?»). Процент — в кольце «Энергии»
-    # и в подсказке. От батареи при малом заряде значок лишь меняет цвет
-    # (классы low / critical): 27.09 ноутбук сел в ноль незаметно.
-    if is_savage:
-        text = "<span size=\"12500\" line_height=\"0.7\">\U000f04c5</span>"
+    # Заряд батареи вместо шестерёнки (13.10.2026, просьба: «отобразим текущий заряд батареи…
+    # если заряжается — соответствующая иконка, если нет — другая; Savage — значок светится
+    # акцентом, как у caps lock»). Раньше (27.09) значком был режим: шестерёнка / спидометр.
+    # Значок — горизонтальная батарейка Font Awesome (как на примере пользователя 13.10.2026:
+    # «▭ 100%», лёжа), пять ступеней заливки. Зарядка и «от сети, на паузе» (лимит
+    # FlexiCharger 60–70 %, а не сбой) — та же батарейка с маленькой молнией или вилкой
+    # ВНУТРИ, из своего шрифта JarvisBattery (build_battery_font.py, 13.10.2026, просьба:
+    # «верни иконку до этого и просто нарисуй маленькую иконку заряда внутри»). Раньше
+    # молния/вилка стояли отдельными значками рядом (бэкап .bak-onefont).
+    # Savage виден по цвету и свечению (класс savage в style.css), а не по форме.
+    level = 0 if cap < 10 else 1 if cap < 35 else 2 if cap < 60 else 3 if cap < 90 else 4
+    if status == "Charging":
+        glyph = '<span font_family="JarvisBattery">%s</span>' % chr(0xE210 + level)
+    elif on_ac:
+        glyph = '<span font_family="JarvisBattery">%s</span>' % chr(0xE220 + level)
     else:
-        # fa-cog, а не mdi-cog: у mdi вокруг глифа поля, и при том же кегле он
-        # мельче соседей. Кегль не трогаем — от 15px бар вырастал на пиксель.
-        # Крупнее соседей через Pango, а не через CSS font-size: от 15px в CSS
-        # waybar требовал бар 33–34px (лог ~/.cache/waybar.log), а <span size>
-        # с line_height не трогает высоту строки. 12500 = 12.2pt ≈ 16px.
-        text = "<span size=\"12500\" line_height=\"0.7\">\uf013</span>"   #  nf-fa-cog
+        glyph = "\uf244\uf243\uf242\uf241\uf240"[level]      # fa-battery-empty … -full
+    # Рисунок FA шире своей ячейки (~17 px при ~10), обычный пробел почти весь уходит под
+    # него — плюс узкий пробел, чтобы число не липло (13.10.2026).
+    # Значок 16 px выше строки текста — число без rise вставало на 1 px ниже соседей
+    # («RU», «70%», часы; замер по снимку бара 13.10.2026). rise 1 px (1024) — ровно.
+    text = "<span line_height=\"0.7\" size=\"12288\">%s</span><span font_size='30%%'> </span> <span rise='1024'>%d%%</span>" % (glyph, cap)  # 16 px — крупнее текста, как на примере
     classes = [mode]
     # «Не отключать экран» включён — значок светится (класс awake, свечение в style.css).
     # пользователь, 02.10.2026: по одному спидометру не было видно, горит ли ещё и этот режим.

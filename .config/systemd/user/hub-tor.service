@@ -1,0 +1,8 @@
+[Unit]
+Description=Tor для бота hub — запасной путь до api.telegram.org (13.10.2026)
+[Service]
+ExecStart=/usr/bin/tor --defaults-torrc /dev/null -f %h/.local/share/hub/torrc
+Restart=on-failure
+RestartSec=10
+[Install]
+WantedBy=default.target

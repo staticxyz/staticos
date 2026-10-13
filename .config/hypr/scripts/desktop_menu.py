@@ -57,7 +57,7 @@ CURSOR_FILES = [os.path.expanduser("~/.cache/matugen/niri-cursor.kdl"),
                 os.path.expanduser("~/.config/hypr/state/cursor-theme")]
 POLL_S = 3
 
-FONT = "PxPlus HP 100LX 6x8 Jarvis"
+FONT = "JetBrainsMono Nerd Font"
 ICON_FONT = "JetBrainsMono Nerd Font"
 QUICK_N = 5            # значков в верхнем ряду
 QUICK_MIN_S = 60       # меньше минуты за неделю — не «часто используемая»
@@ -232,6 +232,8 @@ WIDGET_KINDS = [
     ("banner", "\U000f0284", "banner.exe — бегущая надпись…"),
     ("pomo", "\U000f051b", "pomodoro.exe — помодоро"),
     ("screentime", "\U000f13ab", "screentime.exe — экранное время"),
+    ("appmem", "\U000f035b", "ram.exe — память по программам"),
+    ("appcpu", "\U000f0ee0", "cpu.exe — процессор по программам"),
     ("sysinfo", "\U000f08c7", "fetch.exe — fastfetch"),
     ("matrix", "\U000f0e2b", "matrix.exe — цифровой дождь"),
     ("sprite", "\U000f0531", "octopus.exe — осьминог"),
@@ -348,7 +350,7 @@ SUB_MORE = [
     ("\U000f0489", "Снимок области", "screenshot", "Print"),
     ("\U000f0570", "Обзор столов", "overview", "Super+G"),
     ("\U000f00e3", "Внешний вид", "look", ""),
-    # «Убрать это меню» убран (05.10.2026, Просьба: «случайно нажал — убери кнопку»);
+    # «Убрать это меню» убран (05.10.2026, просьба: «случайно нажал — убери кнопку»);
     # выключить меню можно в Настройках или `desktop_menu.py off`.
 ]
 SUB_WIDGET = [(i, t, "widget-" + k, "") for k, i, t in WIDGET_KINDS]
@@ -387,7 +389,7 @@ def _sub_presets():
 
 
 def _sub_presets_del():
-    """Подменю «Удалить пресет» (05.10.2026, Просьба: «добавь возможность удалять пресеты»).
+    """Подменю «Удалить пресет» (05.10.2026, просьба: «добавь возможность удалять пресеты»).
     Файл не стирается, а уходит в widget-presets/.deleted — промах можно вернуть руками."""
     try:
         names = subprocess.run(["python3", WIDGETS, "preset", "list"], capture_output=True,
@@ -397,7 +399,7 @@ def _sub_presets_del():
     out = []
     for n in [x for x in names if x.strip()]:
         key = "preset-del:" + n
-        # защита от промаха (05.10.2026, Просьба: «подтверждение — отдельное окно по центру»):
+        # защита от промаха (05.10.2026, просьба: «подтверждение — отдельное окно по центру»):
         # delete-ask показывает окно Preset.exe «Удалить пресет «…»?», удаляет только «Удалить»
         ACTIONS[key] = (lambda name: lambda dry: [["python3", WIDGETS, "preset", "delete-ask", name]])(n)
         out.append(("\U000f01b4", n, key, ""))
@@ -459,7 +461,7 @@ menu.jd {
     margin: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.60);
     font-family: '%(font)s', sans-serif; font-size: 14px; font-weight: normal;
 }
-/* 04.10.2026, Просьба: «чуть компактнее» — было 16px, отступы 4px, высота 24px.
+/* 04.10.2026, просьба: «чуть компактнее» — было 16px, отступы 4px, высота 24px.
    Бэкап desktop_menu.py.bak-compact-classic. */
 menu.jd menuitem {
     padding: 2px 8px 2px 5px; border-radius: 6px; min-height: 20px;
@@ -506,7 +508,7 @@ tooltip label {
 """
 
 
-# Вид «XP» (01.10.2026, Просьба: «компактнее, рамки системные убери, сделай
+# Вид «XP» (01.10.2026, просьба: «компактнее, рамки системные убери, сделай
 # собственную в стиле Windows XP, и само меню перерисуй в стиле XP»): прямые углы,
 # объёмная кромка в два тона (светлая сверху-слева, тёмная снизу-справа) и тень
 # со сдвигом, полоса выделения во всю ширину акцентом, мелкий шрифт 12 px, значки
@@ -567,6 +569,26 @@ tooltip label {
 }
 """
 STYLE_FILE = os.path.expanduser("~/.config/hypr/state/desktop-menu-style")
+BAR_LOOK = os.path.expanduser("~/.config/waybar/looks/current.jsonc")
+
+# Компактный вид бара (13.10.2026, просьба: «при Вид бара — компакт пусть и меню на ПКМ
+# открывается компактным»). Как и у бара, кегли не ужимаются — только вертикальные
+# поля пунктов и разделителей. Поверх CSS / CSS_XP.
+CSS_COMPACT = """
+menu.jd { padding-top: 2px; padding-bottom: 2px; }
+menu.jd menuitem { padding-top: 0; padding-bottom: 0; min-height: 16px; }
+menu.jd menuitem.quick { padding-top: 1px; padding-bottom: 1px; }
+menu.jd separator { margin-top: 1px; margin-bottom: 1px; }
+menu.jd separator.quick-sep { margin-top: 1px; margin-bottom: 2px; }
+"""
+
+
+def bar_compact():
+    """Вид бара compact / edge-compact (bar_style.py держит ссылку current.jsonc)."""
+    try:
+        return os.path.basename(os.readlink(BAR_LOOK)) in ("compact.jsonc", "edge-compact.jsonc")
+    except OSError:
+        return False
 
 
 def menu_style():
@@ -597,9 +619,12 @@ def load_css(Gdk, Gtk, state={}):
         c = xpbar_colors.colors()
         p.update(xp_bg=xpbar_colors.mix(c["base"], c["primary"], 0.13),
                  xp_light=c["t_hi"], xp_dark=c["tr_dark"], xp_sel=c["st_mid"])
-        data = (CSS_XP % p).encode()
+        data = CSS_XP % p
     else:
-        data = (CSS % p).encode()
+        data = CSS % p
+    if bar_compact():
+        data += CSS_COMPACT
+    data = data.encode()
     old = state.get("provider")
     if old is not None and state.get("data") == data:
         return
@@ -804,7 +829,7 @@ def run(dry_run=False):
             GLib.timeout_add(300, restart)
 
     def fit_menus(menu, py, surf_h):
-        """Меню и подменю — целиком НАД нижней панелью (05.10.2026, Просьба: «меню
+        """Меню и подменю — целиком НАД нижней панелью (05.10.2026, просьба: «меню
         должно быть видно полностью; не хватает места — пусть открывается выше»).
         niri ограничивает всплывающие меню только краем экрана, а XP-панель лежит поверх
         них — низ подменю уходил под неё. Поэтому место считаем сами: где кончается

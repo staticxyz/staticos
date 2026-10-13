@@ -21,6 +21,13 @@
 
 Миниатюры 480 px кэшируются в ~/.cache/wallpaper-thumbs (имя + время правки),
 собираются в фоне от выбранной к краям — окно открывается сразу.
+
+Предпросмотр (13.10.2026, просьба: «лента сверху, а под ней живое мини-превью стола с
+новыми цветами на окнах и виджетах; ничего не применяется, пока не нажмёшь
+„применить“»). Лента теперь наверху, под ней — снимок монитора, сделанный до
+открытия ленты, перекрашенный под выбранные обои (wallpaper_preview.py: matugen
+--dry-run, подмена обоев по раскладке niri). Листание ничего не ставит: ставят
+Enter или кнопка «Применить». Tab — превью другого монитора, Esc — закрыть.
 """
 import os
 import subprocess
@@ -39,6 +46,9 @@ sys.path.insert(0, HERE)
 import popup_theme  # noqa: E402
 
 popup_theme.single_instance(__file__)
+import cairo  # noqa: E402
+import numpy as np  # noqa: E402
+import wallpaper_preview as wpv  # noqa: E402
 
 WAYPAPER_CONF = os.path.expanduser("~/.config/waypaper/config.ini")
 DEFAULT_FOLDER = os.path.expanduser("~/wallpapers/main")
@@ -66,10 +76,11 @@ STATE = os.path.expanduser("~/.cache/matugen/wallpaper")
 THUMBS = os.path.expanduser("~/.cache/wallpaper-thumbs")
 EXTS = (".jpg", ".jpeg", ".png", ".webp")
 
-NORM_W, NORM_H = 300, 169     # обычный кадр, 16:9
-SEL_W, SEL_H = 430, 242       # выбранный
-SKEW = 52                     # верх кадра сдвинут вправо от низа на столько
-GAP = 26                      # просвет между кадрами
+NORM_W, NORM_H = 200, 113     # обычный кадр, 16:9 (с 13.10 лента меньше: под ней превью)
+SEL_W, SEL_H = 290, 163       # выбранный
+SKEW = 36                     # верх кадра сдвинут вправо от низа на столько
+GAP = 20                      # просвет между кадрами
+PREVIEW_DELAY = 140           # мс тишины после листания — тогда считать превью
 DIM = 0.45                    # яркость невыбранных
 ANIM_MS = 16                  # кадр анимации (~60 в секунду)
 EASE = 0.22                   # доля пути за кадр: меньше — мягче
@@ -78,6 +89,7 @@ EASE = 0.22                   # доля пути за кадр: меньше �
 LEFT_KEYS = ("Left", "h", "j", "Cyrillic_er", "Cyrillic_o")
 RIGHT_KEYS = ("Right", "l", "k", "Cyrillic_de", "Cyrillic_el")
 CLOSE_KEYS = ("Escape", "q", "Cyrillic_shorti")
+APPLY_KEYS = ("Return", "KP_Enter", "space")
 # f / а — выбрать другую папку с обоями (21.09.2026).
 FOLDER_KEYS = ("f", "F", "Cyrillic_a", "Cyrillic_A")
 
@@ -167,6 +179,17 @@ def hexrgb(color):
     return tuple(int(c[i:i + 2], 16) / 255 for i in (0, 2, 4))
 
 
+def to_surface(img):
+    """numpy H×W×3 → (cairo.ImageSurface, буфер). Буфер хранить, пока жива поверхность."""
+    h, w, _ = img.shape
+    stride = cairo.ImageSurface.format_stride_for_width(cairo.FORMAT_RGB24, w)
+    buf = np.zeros((h, stride // 4, 4), np.uint8)
+    rgb = np.clip(img, 0, 255).astype(np.uint8)
+    buf[:, :w, 0], buf[:, :w, 1], buf[:, :w, 2] = rgb[..., 2], rgb[..., 1], rgb[..., 0]
+    surf = cairo.ImageSurface.create_for_data(memoryview(buf).cast("B"), cairo.FORMAT_RGB24, w, h, stride)
+    return surf, buf
+
+
 class Picker(Gtk.Window):
     def __init__(self):
         super().__init__()
@@ -182,6 +205,22 @@ class Picker(Gtk.Window):
             t["w"], t["h"], t["dim"] = float(SEL_W), float(SEL_H), 1.0
         self.offset = None
         self.anim_id = None
+
+        # Снимки мониторов — ДО того, как лента закроет экран.
+        try:
+            self.desks, self.mons, focused = wpv.grab_all()
+        except Exception:
+            self.desks, self.mons, focused = {}, [], None
+        self.mons = [m for m in self.mons if self.desks[m].shot is not None]
+        self.mon = focused if focused in self.mons else (self.mons[0] if self.mons else None)
+        self.pv_cache = {}            # (обои, монитор) → (cairo-поверхность, палитра)
+        self.pv_shown = None          # что сейчас нарисовано в превью
+        self.pv_want = None
+        self.pv_timer = None
+        self.pv_lock = threading.Lock()
+        self.pv_event = threading.Event()
+        self.old_pal = None
+        threading.Thread(target=self.preview_worker, daemon=True).start()
 
         GtkLayerShell.init_for_window(self)
         GtkLayerShell.set_namespace(self, "jarvis-wallpapers")
@@ -210,10 +249,18 @@ class Picker(Gtk.Window):
         p = self.pal
         css = ("""
         window { background-color: %(veil)s; }
-        .name {
+        .name, .hint {
             color: %(on_surface)s; font-size: 13px; letter-spacing: 1px;
             font-family: 'JetBrainsMono Nerd Font', 'Noto Sans', sans-serif;
         }
+        .hint { color: %(on_surface_variant)s; font-size: 12px; letter-spacing: 0; }
+        button.wp-btn {
+            background: %(surface_container)s; color: %(on_surface)s; box-shadow: none;
+            border: 1px solid %(outline_variant)s; border-radius: 6px; padding: 4px 16px;
+            font-family: 'JetBrainsMono Nerd Font', sans-serif; font-size: 13px;
+        }
+        button.wp-btn:hover { border-color: %(primary)s; }
+        button.wp-apply { background: %(primary)s; color: %(on_primary)s; border-color: %(primary)s; }
         """ % dict(p, veil=popup_theme.rgba(p["surface"], 0.72))).encode()
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
@@ -221,19 +268,40 @@ class Picker(Gtk.Window):
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def build(self):
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=22)
-        outer.set_valign(Gtk.Align.CENTER)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        outer.set_margin_top(28)
+        outer.set_margin_bottom(24)
 
         self.canvas = Gtk.DrawingArea()
-        self.canvas.set_size_request(-1, SEL_H + 90)
+        self.canvas.set_size_request(-1, SEL_H + 36)
         self.canvas.connect("draw", self.draw)
         self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.canvas.connect("button-press-event", self.on_click)
-        outer.pack_start(self.canvas, True, True, 0)
+        outer.pack_start(self.canvas, False, False, 0)
 
         self.title = Gtk.Label(label="")
         self.title.get_style_context().add_class("name")
         outer.pack_start(self.title, False, False, 0)
+
+        self.preview = Gtk.DrawingArea()
+        self.preview.connect("draw", self.draw_preview)
+        outer.pack_start(self.preview, True, True, 0)
+
+        row = Gtk.Box(spacing=10)
+        row.set_halign(Gtk.Align.CENTER)
+        self.hint = Gtk.Label(label="")
+        self.hint.get_style_context().add_class("hint")
+        row.pack_start(self.hint, False, False, 12)
+        cancel = Gtk.Button(label="Отмена")
+        cancel.get_style_context().add_class("wp-btn")
+        cancel.connect("clicked", lambda *_: self.close())
+        apply_ = Gtk.Button(label="Применить")
+        for c in ("wp-btn", "wp-apply"):
+            apply_.get_style_context().add_class(c)
+        apply_.connect("clicked", lambda *_: self.choose())
+        row.pack_end(apply_, False, False, 0)
+        row.pack_end(cancel, False, False, 0)
+        outer.pack_start(row, False, False, 0)
         self.update_title()
         return outer
 
@@ -303,6 +371,137 @@ class Picker(Gtk.Window):
         cr.stroke()
         cr.restore()
 
+    # ── предпросмотр ──────────────────────────────────────────────────────
+    def preview_worker(self):
+        """Один фоновый поток: берёт последнюю просьбу и считает превью (0,4–0,5 с)."""
+        shown = None
+        while True:
+            self.pv_event.wait()
+            self.pv_event.clear()
+            with self.pv_lock:
+                want = self.pv_want
+            if not want or want in self.pv_cache:
+                continue
+            path, mon = want
+            desk = self.desks.get(mon)
+            try:
+                if shown is None:
+                    shown = wpv.shown_now()
+                if desk.mask is None:
+                    desk.prepare(shown.get(mon))
+                if self.old_pal is None:
+                    self.old_pal = wpv.palette_of(current()) if current() else {}
+                new_pal = wpv.palette_of(path)
+                if path == current():
+                    img = desk.shot                          # нынешние обои — стол как есть
+                else:
+                    img = desk.render(path, self.old_pal, new_pal)
+                surf = to_surface(img)          # (поверхность, буфер) — живут вместе
+            except Exception as e:  # превью не должно ронять ленту
+                print("wallpaper preview:", e, file=sys.stderr)
+                continue
+            GLib.idle_add(self.preview_ready, want, surf, new_pal)
+
+    def preview_ready(self, key, surf, pal):
+        self.pv_cache[key] = (surf[0], pal, surf[1])
+        if key == self.pv_key():
+            self.pv_shown = key
+            self.preview.queue_draw()
+            self.update_title()
+        return False
+
+    def pv_key(self):
+        if not self.items or not self.mon:
+            return None
+        return (self.items[self.index], self.mon)
+
+    def request_preview(self):
+        """Листание: превью считаем, когда лента на PREVIEW_DELAY мс замерла."""
+        if self.pv_timer:
+            GLib.source_remove(self.pv_timer)
+        self.pv_timer = GLib.timeout_add(PREVIEW_DELAY, self._fire_preview)
+
+    def _fire_preview(self):
+        self.pv_timer = None
+        key = self.pv_key()
+        if key in self.pv_cache:
+            self.pv_shown = key
+            self.preview.queue_draw()
+            self.update_title()
+        elif key:
+            with self.pv_lock:
+                self.pv_want = key
+            self.pv_event.set()
+        return False
+
+    def draw_preview(self, area, cr):
+        aw, ah = area.get_allocated_width(), area.get_allocated_height()
+        hit = self.pv_cache.get(self.pv_shown) if self.pv_shown else None
+        desk = self.desks.get(self.mon)
+        if desk is None:
+            return False
+        iw, ih = desk.w, desk.h
+        sc = min((aw - 40) / iw, ah / ih, 1.0)
+        w, h = iw * sc, ih * sc
+        x, y = (aw - w) / 2, (ah - h) / 2
+        pal = hit[1] if hit else {}
+        acc = tuple(c / 255 for c in pal.get("primary", (0, 0, 0))) if pal else hexrgb(self.pal["primary"])
+        cr.save()
+        self.rounded(cr, x, y, w, h, 10)
+        cr.clip()
+        if hit:
+            cr.save()
+            cr.translate(x, y)
+            cr.scale(sc, sc)
+            cr.set_source_surface(hit[0], 0, 0)
+            cr.get_source().set_filter(cairo.FILTER_GOOD)
+            cr.paint()
+            cr.restore()
+        else:
+            cr.set_source_rgba(*hexrgb(self.pal["surface_container"]), 0.9)
+            cr.paint()
+        cr.restore()
+        if self.pv_shown != self.pv_key():                 # ещё считается — притушить
+            self.rounded(cr, x, y, w, h, 10)
+            cr.set_source_rgba(*hexrgb(self.pal["surface"]), 0.45)
+            cr.fill()
+        self.rounded(cr, x, y, w, h, 10)
+        cr.set_source_rgba(*acc, 0.95)
+        cr.set_line_width(2)
+        cr.stroke()
+        if pal:                                             # полоска новой палитры под превью
+            roles = ("primary", "secondary", "tertiary", "primary_container", "surface_container", "on_surface")
+            sw = 22
+            sx = x + w - len(roles) * (sw + 4) - 6
+            for i, r in enumerate(roles):
+                c = pal.get(r)
+                if c:
+                    self.rounded(cr, sx + i * (sw + 4), y + h - 18, sw, 12, 3)
+                    cr.set_source_rgb(*(v / 255 for v in c))
+                    cr.fill_preserve()
+                    cr.set_source_rgba(0, 0, 0, 0.5)
+                    cr.set_line_width(1)
+                    cr.stroke()
+        return False
+
+    @staticmethod
+    def rounded(cr, x, y, w, h, r):
+        cr.new_sub_path()
+        cr.arc(x + w - r, y + r, r, -1.5708, 0)
+        cr.arc(x + w - r, y + h - r, r, 0, 1.5708)
+        cr.arc(x + r, y + h - r, r, 1.5708, 3.1416)
+        cr.arc(x + r, y + r, r, 3.1416, 4.7124)
+        cr.close_path()
+
+    def switch_monitor(self):
+        if len(self.mons) < 2:
+            return
+        self.mon = self.mons[(self.mons.index(self.mon) + 1) % len(self.mons)]
+        self.pv_shown = None
+        self.update_title()
+        self.preview.queue_draw()
+        self.request_preview()
+
     # ── миниатюры ─────────────────────────────────────────────────────────
     def load_thumbs(self):
         for i in sorted(range(len(self.tiles)), key=lambda k: abs(k - self.index)):
@@ -362,6 +561,10 @@ class Picker(Gtk.Window):
             return
         name = os.path.splitext(os.path.basename(self.items[self.index]))[0]
         self.title.set_text("%s · %s" % (folder, name))
+        if hasattr(self, "hint"):
+            mon = ("превью: %s · Tab — другой монитор · " % self.mon) if len(self.mons) > 1 else ""
+            same = self.items[self.index] == current()
+            self.hint.set_text(mon + ("это нынешние обои" if same else "Enter — применить · Esc — отмена"))
 
     def move(self, delta):
         if not self.items:
@@ -372,6 +575,7 @@ class Picker(Gtk.Window):
         self.index = i
         self.update_title()
         self.animate()
+        self.request_preview()
 
     def choose(self):
         if not self.items:
@@ -397,12 +601,9 @@ class Picker(Gtk.Window):
         return None
 
     def on_click(self, _w, event):
+        # Щелчок только выбирает: ставят обои Enter и «Применить» (13.10.2026).
         i = self.hit(event.x, event.y)
-        if i is None:
-            self.close()
-        elif i == self.index:
-            self.choose()
-        else:
+        if i is not None and i != self.index:
             self.move(i - self.index)
         return True
 
@@ -472,8 +673,10 @@ class Picker(Gtk.Window):
             self.move(len(self.items) - 1 - self.index)
         elif key in FOLDER_KEYS:
             self.pick_folder()
-        elif key in ("Return", "KP_Enter", "space"):
+        elif key in APPLY_KEYS:
             self.choose()
+        elif key in ("Tab", "ISO_Left_Tab"):
+            self.switch_monitor()
         return True
 
     def close(self):
@@ -481,7 +684,9 @@ class Picker(Gtk.Window):
 
 
 def main():
-    Picker().show_all()
+    p = Picker()
+    p.show_all()
+    p.request_preview()
     Gtk.main()
     return 0
 

@@ -623,7 +623,7 @@ def main():
     pal = popup_theme.palette()
     css = popup_theme.css("""
     .dock {
-        font-family: 'PxPlus HP 100LX 6x8 Jarvis', sans-serif;
+        font-family: 'JetBrainsMono Nerd Font', sans-serif;
         font-size: 16px; font-weight: normal;
         border-radius: 16px; padding: 6px 10px 2px 10px;
     }
@@ -643,7 +643,7 @@ def main():
         border: 2px solid %(primary)s; border-radius: 10px; padding: 4px;
     }
     menuitem {
-        font-family: 'PxPlus HP 100LX 6x8 Jarvis', sans-serif; font-size: 16px;
+        font-family: 'JetBrainsMono Nerd Font', sans-serif; font-size: 16px;
         padding: 5px 12px; border-radius: 6px;
     }
     menuitem:hover { background-color: %(surface_high)s; color: %(primary)s; }
@@ -653,7 +653,7 @@ def main():
         border: 1px solid %(primary)s; border-radius: 8px;
     }
     tooltip label {
-        font-family: 'PxPlus HP 100LX 6x8 Jarvis', sans-serif; font-size: 16px;
+        font-family: 'JetBrainsMono Nerd Font', sans-serif; font-size: 16px;
         font-weight: normal; padding: 2px 6px;
     }
     """, focus_bg=popup_theme.rgba(pal["primary"], "0.16"))

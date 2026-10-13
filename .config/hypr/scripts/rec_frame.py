@@ -41,7 +41,7 @@ from gi.repository import Gdk, GLib, Gtk, GtkLayerShell, Pango, PangoCairo  # no
 
 # Pango, а не cairo.show_text: только он подбирает запасной шрифт для значков
 # (у PxPlus их нет, а имена Nerd Font fontconfig подменяет на PxPlus же).
-FONT = Pango.FontDescription("PxPlus HP 100LX 6x8 Jarvis 12")   # 16 px — сетка шрифта
+FONT = Pango.FontDescription("JetBrainsMono Nerd Font 12")   # 16 px — сетка шрифта
 
 
 def glib_signal_add(prio, signum, handler):
@@ -103,7 +103,7 @@ def _rgb(v):
 C = {k: ([_rgb(x) for x in v] if isinstance(v, list) else _rgb(v))
      for k, v in rec_style.colors(STYLE).items()}
 if STYLE == "skeet":                          # 16 px (12 pt): 12 px (9 pt) мылится — сетка 8 px, 05.10.2026
-    FONT = Pango.FontDescription("PxPlus HP 100LX 6x8 Jarvis 9")
+    FONT = Pango.FontDescription("JetBrainsMono Nerd Font 9")
 
 
 def read(path, default=""):

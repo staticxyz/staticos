@@ -18,6 +18,7 @@ import hublib as H  # noqa: E402
 import hubtg as T  # noqa: E402
 import hubguard  # noqa: E402
 from idle_guard import video_in_focus  # noqa: E402
+import session_env  # noqa: E402
 
 TICK = 2
 DEFAULT_ESC_MIN = 10
@@ -187,6 +188,17 @@ def say(text):
             bot.call("sendMessage", {"chat_id": ch, "text": text}, timeout=4)
         except Exception as e:
             log("say:", repr(e))
+            # 13.10.2026: Telegram с этой сети соединяется через раз — сообщение охраны
+            # пропадало. Теперь — в очередь (flush_outbox повторяет каждый такт), с
+            # временем, когда оно было сказано.
+            try:
+                q = H.connect()
+                T.enqueue(q, "%s\n(с опозданием, было в %s)" % (text, time.strftime("%H:%M")))
+                q.commit()
+                q.close()
+            except Exception as e2:
+                log("say → очередь:", repr(e2))
+            return
 
 
 def photo(caption):
@@ -254,10 +266,6 @@ def main():
     signal.signal(signal.SIGINT, lambda *a: stop.set())
     c = H.connect()
     H.meta_set(c, "started", H.now())
-    if not H.meta_get(c, "twin_imported"):
-        n = H.import_twin(c)
-        H.meta_set(c, "twin_imported", 1)
-        log("импорт из twin-claude:", n)
     # возврат после выключения/сна: сколько молчали
     last = H.meta_get(c, "heartbeat")
     reason = H.meta_get(c, "down_reason", "")
@@ -269,11 +277,35 @@ def main():
             daemon=True).start()
     H.meta_set(c, "down_reason", "")
     threading.Thread(target=power_watch, daemon=True).start()
-    guard = hubguard.Guard(say, photo, log)
+    def send_file(path, caption="", kind="document"):
+        tok = T.token()
+        if not tok or not T.owner_ids():
+            return
+        b = T.Bot(tok)
+        for ch in T.owner_ids():
+            try:
+                if kind == "voice":
+                    b.call("sendVoice", {"chat_id": ch, "caption": caption}, {"voice": path})
+                elif kind == "video":
+                    b.call("sendVideo", {"chat_id": ch, "caption": caption}, {"video": path})
+                elif kind == "photo":
+                    b.call("sendPhoto", {"chat_id": ch, "caption": caption}, {"photo": path})
+                else:
+                    b.call("sendDocument", {"chat_id": ch, "caption": caption}, {"document": path})
+            except Exception as e:
+                log("send_file:", repr(e))
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    guard = hubguard.Guard(say, photo, send_file, log)
+    hubguard.active_guard = guard
     polling = False
     bot = None
     last_tok = None
     while not stop.is_set():
+        session_env.fill()      # при входе niri ещё не отдал переменные — ищем, пока не найдём
         try:
             tick(c)
             digest(c)

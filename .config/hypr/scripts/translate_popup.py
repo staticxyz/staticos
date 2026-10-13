@@ -13,8 +13,8 @@ rofi-calc, — поведение один в один. Enter — calc_copy.sh: 
 чего окно закрывается. Esc — закрыть. Повторное SUPER+C закрывает окно
 (popup_theme.single_instance).
 
-Вид — как у панели rofi: 520 px, стекло на 85 %, рамка @outline, строка
-ввода на @surface_high; цвета из палитры обоев (popup_theme.palette).
+Вид — в стиле системы (13.10.2026): окно «Calculator.exe» в default/skeet/beta
+по монитору в фокусе (state/clipboard-style), как «Programs.exe»; см. style_css().
 Это слой (layer-shell) поверх окон с именем jarvis-calc — размытие под ним
 даёт layer-rule niri, как у rofi.
 """
@@ -32,6 +32,8 @@ from gi.repository import Gdk, GLib, Gtk, GtkLayerShell  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import popup_theme  # noqa: E402
+import launcher_style  # noqa: E402
+import rec_style  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CALC = os.path.join(HERE, "calc_qalc.py")
@@ -40,6 +42,66 @@ WIDTH = 520
 DEBOUNCE_MS = 120
 ICON_CALC = "\U000f00ec"       # nf-md-calculator
 ICON_TRANSLATE = "\U000f05ca"  # nf-md-translate
+TITLE = "Calculator.exe"
+
+# Вид в трёх стилях системы (13.10.2026, просьба: «Super+C привести под внешний вид
+# системы»). Прежнее «стекло» со скруглениями — translate_popup.py.bak-style.
+# Цвета — те же, что у «Programs.exe»: launcher_style.xp_colors() и rec_style.colors().
+COMMON_CSS = """
+window { background-color: transparent; }
+.panel, .inputbar, .title { border-radius: 0; }
+textview.entry, textview.entry text { background-color: transparent; color: %(text)s; caret-color: %(acc)s; }
+.prompt { color: %(acc)s; }
+.result { padding: 2px 8px 2px 8px; }
+.result-icon { color: %(dim)s; }
+.answer { color: %(text)s; }
+"""
+DEFAULT_CSS = """
+.panel { background-color: %(bg)s; border: 3px solid %(st_mid)s; }
+.title { padding: 4px 10px; color: #ffffff; border-bottom: 1px solid %(st_dark)s;
+         background-image: linear-gradient(to bottom, %(st_top)s, %(st_mid)s, %(st_bot)s); }
+.body { padding: 8px; }
+.inputbar { background-color: %(field)s; border: 1px solid %(st_mid)s; padding: 6px 8px; }
+"""
+SKEET_CSS = """
+/* Рамка как у окна буфера Super+Alt+V (13.10.2026, просьба: «обводка как у Буфера обмена»):
+   слоями снаружи внутрь — 1 светлая с акцентом, 3 средняя, 1 светлая, 1 почти чёрная
+   (clipboard_win.frame_skeet). Внутренние слои — inset-тенями; GTK3 кладёт ПОСЛЕДНЮЮ тень
+   сверху, поэтому от широкой к узкой. padding 5 — содержимое (и полоска) внутри рамки. */
+.panel { background-color: %(bg)s; border: 1px solid %(line1_on)s; padding: 5px;
+         box-shadow: inset 0 0 0 5px %(line3)s, inset 0 0 0 4px %(line1_on)s, inset 0 0 0 3px %(line2)s; }
+.strip { background-image: linear-gradient(to right, %(s0)s, %(s1)s, %(s2)s); min-height: 1px; }
+.strip-d { background-image: linear-gradient(to right, %(s0d)s, %(s1d)s, %(s2d)s); min-height: 1px; }
+.title { padding: 8px 12px 0 12px; color: %(text)s; }
+.body { padding: 6px 10px 10px 10px; }
+.inputbar { background-color: %(field)s; border: 1px solid %(line1)s; padding: 5px 7px; }
+"""
+BETA_CSS = """
+.panel { background-color: %(bg)s; border: 1px solid %(frame)s; }
+.title { padding: 6px 12px; color: %(text)s; background-color: %(bar)s; border-bottom: 1px solid %(line)s; }
+.body { padding: 10px; }
+.inputbar { background-color: %(field)s; border: 1px solid %(line_strong)s; padding: 6px 8px; }
+"""
+
+
+def style_css(style):
+    if style == "skeet":
+        c = rec_style.colors("skeet")
+        for i, s in enumerate(c["strip"]):
+            c["s%d" % i] = s
+            c["s%dd" % i] = rec_style._mix(s, "#000000", 0.55)
+        c["line1_on"] = rec_style._mix(c["line1"], c["acc"], 0.45)   # как clipboard_win
+        body = SKEET_CSS
+    elif style == "beta":
+        c = rec_style.colors("beta")
+        c.setdefault("frame", c.get("acc"))
+        c.setdefault("line_strong", c.get("line", c.get("acc")))
+        body = BETA_CSS
+    else:
+        c = launcher_style.xp_colors()
+        c["acc"] = c["st_hi"]
+        body = DEFAULT_CSS
+    return (COMMON_CSS + body) % c
 
 
 def compute(text):
@@ -82,9 +144,24 @@ class Popup(Gtk.Window):
         self.connect("destroy", Gtk.main_quit)
 
     def build(self):
-        self.panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        # Стиль системы (13.10.2026, П5): панель → [заголовок «Calculator.exe» или полоска
+        # skeet] + тело с вводом и ответом — та же схема, что «Programs.exe» (launcher_style).
+        self.style = launcher_style.read_style()
+        self.panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.panel.get_style_context().add_class("panel")
         self.panel.set_size_request(WIDTH, -1)
+        if self.style == "skeet":
+            for cls in ("strip", "strip-d"):
+                bar = Gtk.Box()
+                bar.set_size_request(-1, 1)
+                bar.get_style_context().add_class(cls)
+                self.panel.pack_start(bar, False, False, 0)
+        title = Gtk.Label(label=TITLE, xalign=0.0)
+        title.get_style_context().add_class("title")
+        self.panel.pack_start(title, False, False, 0)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        body.get_style_context().add_class("body")
+        self.panel.pack_start(body, False, False, 0)
 
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         row.get_style_context().add_class("inputbar")
@@ -99,7 +176,7 @@ class Popup(Gtk.Window):
         self.entry.get_buffer().connect("changed", self.on_changed)
         row.pack_start(icon, False, False, 0)
         row.pack_start(self.entry, True, True, 0)
-        self.panel.pack_start(row, False, False, 0)
+        body.pack_start(row, False, False, 0)
 
         res = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         res.get_style_context().add_class("result")
@@ -116,26 +193,12 @@ class Popup(Gtk.Window):
         res.pack_start(self.res_icon, False, False, 0)
         res.pack_start(self.answer, True, True, 0)
         self.result_row = res
-        self.panel.pack_start(res, False, False, 0)
+        body.pack_start(res, False, False, 0)
         res.set_no_show_all(True)              # пока нечего показывать
         self.add(self.panel)
 
     def apply_css(self):
-        p = popup_theme.palette()
-        css = """
-        window { background-color: transparent; }
-        .panel {
-            background-color: %(glass)s; border: 1px solid %(outline)s;
-            border-radius: 12px; padding: 12px;
-        }
-        .inputbar { background-color: %(bar)s; border-radius: 10px; padding: 10px 14px; }
-        .prompt { color: %(primary)s; }
-        textview.entry, textview.entry text { background-color: transparent; color: %(on_surface)s; caret-color: %(primary)s; }
-        .result { padding: 4px 14px 2px 14px; }
-        .result-icon { color: %(on_surface_variant)s; }
-        .answer { color: %(on_surface)s; }
-        """ % dict(p, glass=popup_theme.rgba(p["surface"], 0.85), bar=p["surface_high"],
-                   outline=p["outline_variant"])
+        css = style_css(self.style)
         provider = Gtk.CssProvider()
         provider.load_from_data(css.encode())
         Gtk.StyleContext.add_provider_for_screen(

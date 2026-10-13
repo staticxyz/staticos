@@ -30,8 +30,8 @@ from gi.repository import Gdk, GLib, Gtk, GtkLayerShell  # noqa: E402
 APPMEM = os.path.expanduser("~/.local/bin/appmem")
 PLACE_NAME = "appmem"      # ~/.config/hypr/state/appmem-place
 REFRESH_MS = 2000
-ROWS = 10
-CHROME_H = 150             # шапка, линия, итог, кнопка, поля карточки — сверх списка
+ROWS = 10                  # Пользователь 13.10.2026: «ограничь до топ 10»; остальное — «▾ all»
+CHROME_H = 120             # шапка, линия, итог, кнопка, поля карточки — сверх списка
 
 
 def list_max_height():
@@ -48,7 +48,7 @@ def list_max_height():
     except Exception:
         screen_h = 1080
     free = screen_h - popup_theme.bar_edge() - popup_theme.bar_height() - 32
-    return max(200, free // 2 - CHROME_H)
+    return max(200, free * 2 // 3 - CHROME_H)
 
 
 def appmem():
@@ -61,6 +61,13 @@ def appmem():
 
 
 class MemPopup(Gtk.Window):
+    def _exit(self):
+        try:
+            popup_theme.animate_close(getattr(self, 'revealer', None), lambda: sys.exit(0))
+        except Exception:
+            sys.exit(0)
+        return True
+
     def __init__(self):
         super().__init__(title="Память приложений")
         self.pal = popup_theme.palette()
@@ -78,7 +85,7 @@ class MemPopup(Gtk.Window):
         self.apply_css()
 
         bg = Gtk.EventBox()
-        bg.connect("button-press-event", lambda w, e: sys.exit(0))
+        bg.connect("button-press-event", lambda w, e: self._exit())
         self.add(bg)
         align = Gtk.Box()
         popup_theme.place_side(align, popup_theme.place_get(PLACE_NAME))
@@ -262,7 +269,7 @@ class MemPopup(Gtk.Window):
             background-color: %(surface)s; color: %(on_surface)s;
             font-family: 'JetBrainsMono Nerd Font', sans-serif; font-size: 12px;
             border: 3px solid %(primary)s; border-radius: 18px;
-            padding: 10px 11px 8px 11px;
+            padding: 6px 9px 5px 9px; min-width: 440px;
             margin: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.60);
         }
         /* Размеры — крупнее обычного (01.10.2026). Строки и шапка 16 px, подписи 12 px.
@@ -274,13 +281,13 @@ class MemPopup(Gtk.Window):
         .num { font-size: 16px; color: %(primary)s; }
         .num.warm { color: %(tertiary)s; }
         .num.hot { color: %(error)s; }
-        .rule { background-color: %(hairline)s; min-height: 1px; margin: 7px 2px; }
+        .rule { background-color: %(hairline)s; min-height: 1px; margin: 4px 2px; }
         scrollbar { background: transparent; border: none; margin-left: 6px; }
         scrollbar slider { background-color: alpha(%(primary)s, 0.55); border-radius: 3px;
                            min-width: 5px; border: none; }
         scrollbar slider:hover { background-color: %(primary)s; }
         scrollbar trough { background-color: alpha(%(on_surface)s, 0.08); border-radius: 3px; }
-        .total { font-size: 12px; color: %(on_surface)s; margin-top: 5px; }
+        .total { font-size: 11px; color: %(on_surface)s; margin-top: 3px; }
         button.more {
             background: transparent; background-image: none; border: none; box-shadow: none;
             padding: 0 2px; margin: 3px 0 0 0; min-height: 0; min-width: 0;

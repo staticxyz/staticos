@@ -138,6 +138,12 @@ def main():
             top_bar.opacity_rule()
         except Exception as e:
             print("bar_style: плотность фона не пересчитана: %s" % e, file=sys.stderr)
+        # Пиксельный вид: кегль текста зависит от вида бара (pixel_look.py, 13.10.2026).
+        try:
+            import pixel_look
+            pixel_look.bar_css()
+        except Exception as e:
+            print("bar_style: pixel-font.css не пересобран: %s" % e, file=sys.stderr)
         restart_waybar()
         print("вид бара: " + name)
     else:

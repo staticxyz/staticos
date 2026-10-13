@@ -5,19 +5,22 @@
 bat=$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1)
 [ -n "$bat" ] || exit 0
 cap=$(cat "$bat/capacity" 2>/dev/null); st=$(cat "$bat/status" 2>/dev/null)
-case "$st" in
-    Charging) icon=$'\U000f0084' ;;                   # заряжается
-    Full|"Not charging") icon=$'\U000f06a5' ;;        # от сети
-    *) if [ "$cap" -ge 80 ]; then icon=$'\U000f0079'
-       elif [ "$cap" -ge 50 ]; then icon=$'\U000f007f'
-       elif [ "$cap" -ge 20 ]; then icon=$'\U000f007b'
-       else icon=$'\U000f0083'; fi ;;
-esac
-# Savage Mode — его значок (спидометр), как в баре: без него на экране
-# блокировки режим не было видно (30.09.2026).
-sav=""
-pid=$(cat /tmp/savage_mode.pid 2>/dev/null)
-if [ -n "$pid" ] && tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q "24/7 mode"; then
-    sav=$'\U000f04c5  '
+cap=${cap:-0}
+ac=$(cat /sys/class/power_supply/AC/online 2>/dev/null)
+# Та же батарейка, что в баре (savage_battery.py, 13.10.2026): горизонтальная Font Awesome,
+# пять ступеней; заряжается — молния ВНУТРИ, от сети на паузе (лимит FlexiCharger) — вилка
+# внутри; оба — шрифт JarvisBattery. Savage больше не спидометром: батарейка светится
+# (jarvis_lock.py). Прежняя версия — lock_battery.sh.bak-lan.
+if   [ "$cap" -lt 10 ]; then lv=0
+elif [ "$cap" -lt 35 ]; then lv=1
+elif [ "$cap" -lt 60 ]; then lv=2
+elif [ "$cap" -lt 90 ]; then lv=3
+else lv=4; fi
+if [ "$st" = Charging ]; then
+    icon=$(printf "\\u$(printf %X $((0xE210 + lv)))"); icon=$(printf "$icon")
+elif [ "$ac" = 1 ] || { [ -z "$ac" ] && [ "$st" != Discharging ]; }; then
+    icon=$(printf "\\u$(printf %X $((0xE220 + lv)))"); icon=$(printf "$icon")
+else
+    icon=$(printf "\\u$(printf %X $((0xF244 - lv)))"); icon=$(printf "$icon")
 fi
-printf '%s%s  %s%%' "$sav" "$icon" "$cap"
+printf '%s  %s%%' "$icon" "$cap"

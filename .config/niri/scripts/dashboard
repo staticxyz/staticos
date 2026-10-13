@@ -45,12 +45,13 @@ PREFIX = "dash-"
 OFF_FLAG = HOME / ".config/niri/dashboard.off"   # есть файл — при входе не открывать
 KITTY_CONF = HOME / ".config/kitty/kitty.conf"
 FONT_KITTEN = HOME / ".config/kitty/font_size_of.py"
-# Dashboard mode (05.10.2026, Просьба: «Terminal dashboard (как сейчас, по умолчанию) и Widget
+# Dashboard mode (05.10.2026, просьба: «Terminal dashboard (как сейчас, по умолчанию) и Widget
 # dashboard — авто-спавн моих виджетов вместо терминальных; и для них специальная иконка
 # на столе»). Значок стола = его имя в niri (бар показывает имя как есть): terminal — радар
 # U+F0437 (ключ workspace), widgets — md-widgets U+F072C (ключ widget_workspace; глиф есть в
 # JarvisBarIcons, EXTRA в build_bar_icons.py). Стол один и тот же — переименовывается.
 MODE_FILE = HOME / ".config/niri/dashboard-mode"
+PREV_WS_FILE = HOME / ".config/niri/dashboard-prev-ws"  # запоминает прошлый стол для toggle
 WS_KDL = HOME / ".config/niri/cfg/workspaces.kdl"
 WIDGETS = HOME / ".config/hypr/scripts/desktop_widgets.py"
 WIDGET_WS = "\U000f072c"
@@ -464,7 +465,7 @@ def save():
 
 
 # Окна, открытые руками на столе дашборда (app-id не dash-…), save забирает в
-# дашборд сам (28.09.2026, Просьба: «я же не буду каждый раз через тебя это
+# дашборд сам (28.09.2026, просьба: «я же не буду каждый раз через тебя это
 # сохранять»). Раньше он их только перечислял и просил dashboard add.
 SHELLS = {"fish", "bash", "zsh", "sh", "dash"}
 INTERPRETERS = {"bash", "sh", "dash", "python3", "python", "perl", "node"}
@@ -623,8 +624,50 @@ def main():
                             "Включить: Настройки → Applications → Дашборд или пресет с дашбордом"],
                            check=False)
         else:
-            subprocess.run(["niri", "msg", "action", "focus-workspace", live_desk_name(load())],
-                           check=False)
+            # Toggle (12.10.2026): хранит ID стола вместо имени — niri_bar
+            # переименовывает столы динамически, старое имя приводило в никуда.
+            dash_ws = live_desk_name(load())
+            try:
+                ws_list = niri_json("workspaces")
+            except (OSError, ValueError, subprocess.CalledProcessError):
+                ws_list = []
+            ws_by_id = {w["id"]: w for w in ws_list}
+
+            cur = None
+            try:
+                focused = niri_json("focused-window")
+                if focused and focused.get("workspace_id"):
+                    cur = ws_by_id.get(focused["workspace_id"])
+            except (OSError, ValueError, subprocess.CalledProcessError):
+                pass
+            if not cur:
+                cur = next((w for w in ws_list
+                            if w.get("is_active") and w.get("output") == "eDP-1"), None)
+
+            def strip_zwsp(s):
+                return s.lstrip("\u200b") if s else s
+
+            on_dash = cur and strip_zwsp(cur.get("name")) == strip_zwsp(dash_ws)
+
+            if on_dash:
+                try:
+                    prev_id = int(PREV_WS_FILE.read_text().strip())
+                except (OSError, ValueError):
+                    prev_id = None
+                prev = ws_by_id.get(prev_id) if prev_id else None
+                if prev:
+                    out = prev.get("output")
+                    if out:
+                        subprocess.run(["niri", "msg", "action", "focus-monitor", out], check=False)
+                    ref = prev.get("name") or str(prev["idx"])
+                    subprocess.run(["niri", "msg", "action", "focus-workspace", ref], check=False)
+            else:
+                if cur:
+                    try:
+                        PREV_WS_FILE.write_text(str(cur["id"]))
+                    except OSError:
+                        pass
+                subprocess.run(["niri", "msg", "action", "focus-workspace", dash_ws], check=False)
     elif args[0] == "rules":
         write_rules(load())
         print("правила пересобраны:", RULES)

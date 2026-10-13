@@ -3,7 +3,7 @@
 
     bar_margins.py get          «край окна источник край_вида окна_вида»,
                                 например «0 0 look 0 0» или «4 8 custom 0 0»
-    bar_margins.py set E W      от края экрана E px, до окон W px (0..32)
+    bar_margins.py set E W      от края экрана E px, до окон W px (−16..32)
     bar_margins.py reset        вернуть отступы формы панели
 
 «От края экрана» — отступ бара от того края, у которого он стоит (margin-top у
@@ -33,7 +33,7 @@ import sys
 STATE = os.path.expanduser("~/.config/hypr/state/bar-margins")
 LOOK = os.path.expanduser("~/.config/waybar/looks/current.jsonc")
 GEN = os.path.expanduser("~/.config/niri/scripts/waybar_niri.py")
-LO, HI = 0, 32
+LO, HI = -16, 32   # меньше нуля — с 13.10.2026 (ползунки в Настройках)
 
 
 def look_values():

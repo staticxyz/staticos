@@ -74,7 +74,7 @@ CACHE = os.path.expanduser("~/.cache/jarvis-widgets")
 MATUGEN = os.path.expanduser("~/.cache/matugen")
 DASH_JSON = os.path.expanduser("~/.config/niri/dashboard.json")
 BRRT_GIF = os.path.expanduser("~/Pictures/brrtfetch/gifs/defaults/brrt.gif")
-FONT = "PxPlus HP 100LX 6x8 Jarvis"
+FONT = "JetBrainsMono Nerd Font"
 GAMES = (b"cs2", b"gamescope")
 
 # тип → (название, ширина, высота по умолчанию)
@@ -94,16 +94,19 @@ TYPES = {
     "timer": ("Таймер", 420, 150),
     "weather": ("Погода", 400, 200),
     "screentime": ("Экранное время", 320, 196),
+    "appmem": ("Память по программам", 320, 196),
+    "appcpu": ("Процессор по программам", 320, 196),
     "miku": ("Мику", 200, 236),
     "fire": ("Огонь", 320, 222),
     "life": ("Жизнь", 320, 262),
     "cmd": ("Команда", 520, 300),
 }
-# Имя в полосе заголовка (Просьба: «названия на англ., в конце приписка .exe»).
+# Имя в полосе заголовка (просьба: «названия на англ., в конце приписка .exe»).
 EXE = {"clock": "clock.exe", "date": "today.exe", "pomo": "pomodoro.exe", "matrix": "matrix.exe",
        "cava": "visualizer.exe", "sprite": "octopus.exe", "sysinfo": "fetch.exe",
        "sysmon": "sysmon.exe", "banner": "banner.exe", "player": "player.exe", "playermini": "nowplaying.exe",
        "calendar": "calendar.exe", "timer": "timer.exe", "weather": "weather.exe", "screentime": "screentime.exe",
+       "appmem": "ram.exe", "appcpu": "cpu.exe",
        "miku": "miku.exe", "fire": "fire.exe", "life": "life.exe", "cmd": "cmd.exe"}
 # Общий вид плашек (Настройки → Visuals → Виджеты): прозрачный фон или сплошной,
 # насколько прозрачный и насколько размыты обои под ним.
@@ -181,6 +184,7 @@ DASH_TYPES = {"tmatrix": "matrix", "tmatrix2": "matrix", "date": "date", "pomo":
 # Панели «Всегда», от которых отодвигаются виджеты (Manager.push_layout): файлы их выбора
 PANEL_STATE_FILES = ("panels.json", "top-bar", "xpbar-show", "bottom-bar", "bar-margins")
 XP_BAR_H = 32             # высота нижней XP-панели (xpbar.py H)
+XP_SHOWN = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "xpbar-shown")  # xpbar.py SHOWN_FILE
 
 
 def niri_json(*args):
@@ -192,13 +196,13 @@ def niri_json(*args):
         return None
 
 
-# Именованные пресеты (05.10.2026, Просьба: «пресетов несколько, легко переключаться;
+# Именованные пресеты (05.10.2026: «пресетов несколько, легко переключаться;
 # сохранение и загрузка — на ВСЕ столы и виджеты; «Сохранить пресет» → окошко, пишу
 # название → сохранён; потом «Загрузить пресет ▸ <название>»»). Каждый — полный снимок
 # раскладки, как старый `preset save`: файл widget-presets/<имя>.json. Постоловые пресеты
 # (desktop-widgets-desks*.json, утро 05.10) отменены — «как понять, на каком столе?».
 PRESETS = os.path.join(STATE, "widget-presets")
-# какой пресет сейчас загружен/сохранён (05.10.2026, Просьба: «в окне сохранения я должен
+# какой пресет сейчас загружен/сохранён (05.10.2026: «в окне сохранения я должен
 # видеть, какой пресет у меня сейчас стоит») — имя; «Как было до этого»/«Удалить все» его снимают
 PRESET_CUR = os.path.join(STATE, "widget-preset-current")
 
@@ -413,6 +417,62 @@ def default_layout(live=True):
                  {"name": "clock", "type": "clock", "output": out, "x": cx - 306, "y": 220,
                   "w": 612, "h": 111, "opts": {}}]
     return {"widgets": items}
+
+
+# ── место в гостях само (13.10.2026) ─────────────────────────────────────────
+# Просьба: «выбирать, какие виджеты мы будем переносить, а какие нет» — в Настройках
+# галочка на виджет; включённой нужно место на другом мониторе. Ищется ближайшее к той же
+# доле экрана свободное место: не на других гостях и не на закреплённых виджетах
+# монитора гостей, с полями 12 px и отступом от баров. Потом место можно перетащить мышью.
+GUEST_HOME = "eDP-1"           # монитор ноутбука — туда уходят гости
+
+
+def niri_outputs():
+    try:
+        out = json.loads(subprocess.run(["niri", "msg", "-j", "outputs"], capture_output=True,
+                                        text=True, timeout=3).stdout or "{}")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {}
+    return {n: o["logical"] for n, o in out.items() if (o or {}).get("logical")}
+
+
+def guest_target(w, outs=None):
+    """Куда виджету ходить в гости: ноутбук, а виджету ноутбука — первый другой монитор."""
+    if w.get("output") != GUEST_HOME:
+        return GUEST_HOME
+    outs = outs if outs is not None else niri_outputs()
+    return next((o for o in sorted(outs) if o != GUEST_HOME), GUEST_HOME)
+
+
+def guest_auto(w, widgets):
+    outs = niri_outputs()
+    to = guest_target(w, outs)
+    if to not in outs or to == w.get("output"):
+        return None
+    W, H = outs[to]["width"], outs[to]["height"]
+    home = outs.get(w.get("output")) or {"width": W, "height": H}
+    ww, hh = int(w.get("w", 300)), int(w.get("h", 150))
+    busy = []
+    for o in widgets:
+        if o is w:
+            continue
+        g = o.get("guest")
+        if isinstance(g, dict) and g.get("output") == to:
+            busy.append((int(g["x"]), int(g["y"]), int(o["w"]), int(o["h"])))
+        elif o.get("output") == to and o.get("pinned"):
+            busy.append((int(o["x"]), int(o["y"]), int(o["w"]), int(o["h"])))
+    gap, top, bottom = 12, 44, 44
+    want = (int(w.get("x", 0)) * W / max(1, home["width"]), int(w.get("y", 0)) * H / max(1, home["height"]))
+    best = None
+    for y in range(top, H - bottom - hh + 1, 8):
+        for x in range(gap, W - gap - ww + 1, 8):
+            if any(x < bx + bw + gap and bx < x + ww + gap and y < by + bh + gap and by < y + hh + gap
+                   for bx, by, bw, bh in busy):
+                continue
+            d = (x - want[0]) ** 2 + (y - want[1]) ** 2
+            if best is None or d < best[0]:
+                best = (d, x, y)
+    return {"output": to, "x": best[1], "y": best[2]} if best else None
 
 
 def load_conf():
@@ -675,7 +735,7 @@ def cli(a):
         print(name)
     elif a[0] == "timer":
         # timer [at=X,Y] [ask=1] [название] [время] — таймер-виджет; без времени — секундомер.
-        # Не закреплён, как и прочие (Просьба: «почему таймер закреплён по умолчанию?»).
+        # Не закреплён, как и прочие (просьба: «почему таймер закреплён по умолчанию?»).
         # Таймер с таким же названием уже есть — перезапускается он, второй не создаётся.
         kv = [x for x in a[1:] if re.match(r"^(at|ask|url)=", x)]
         words = [x for x in a[1:] if x not in kv]
@@ -859,14 +919,29 @@ def cli(a):
                                                   g.get("x"), g.get("y")))
             print("гости: %s" % ("вкл" if load_style()["guests"] else "выкл (style guests on)"))
             return
+        if a[1] == "json":
+            # для Настроек (13.10.2026): все виджеты не на мониторе гостей — кто ходит в гости
+            print(json.dumps([{"name": w.get("name"), "type": w.get("type"),
+                               "exe": EXE.get(w.get("type"), w.get("type")), "output": w.get("output"),
+                               "guest": bool(w.get("guest"))}
+                              for w in c["widgets"] if w.get("output") != GUEST_HOME],
+                             ensure_ascii=False))
+            return
         for w in c["widgets"]:
             if w.get("name") == a[1]:
                 if len(a) > 2 and a[2] == "off":
                     w.pop("guest", None)
+                elif len(a) > 2 and a[2] == "auto":
+                    place = guest_auto(w, c["widgets"])
+                    if not place:
+                        print("некуда поставить %s" % a[1], file=sys.stderr)
+                        return
+                    w["guest"] = place
                 elif len(a) == 5:
                     w["guest"] = {"output": a[2], "x": int(float(a[3])), "y": int(float(a[4]))}
                 else:
-                    print("guest ИМЯ МОНИТОР X Y | guest ИМЯ off", file=sys.stderr)
+                    print("guest ИМЯ МОНИТОР X Y | guest ИМЯ auto | guest ИМЯ off | guest json",
+                          file=sys.stderr)
                     return
                 break
         else:
@@ -1065,6 +1140,23 @@ def beta_tiles(p, n=6):
 COZETTE = os.path.exists(os.path.expanduser("~/.config/fontconfig/conf.d/61-cozette-trial.conf"))
 
 
+def _pixel_ui():
+    """Рисуется ли FONT на деле пиксельным шрифтом (правило шрифта системы подставляет
+    перед ним PxPlus / Cozette). Часы clock.exe растят текст целыми пикселями только тогда:
+    обычный шрифт, увеличенный так, выходил рублеными ступеньками (13.10.2026)."""
+    if COZETTE:
+        return True
+    try:
+        fam = subprocess.run(["fc-match", "-f", "%{family}", FONT], capture_output=True,
+                             text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return True
+    return "PxPlus" in fam or "Cozette" in fam
+
+
+PIXEL_UI = _pixel_ui()
+
+
 def font_px(px):
     """Кегль, которым строка нарисуется на деле."""
     if not COZETTE:
@@ -1108,7 +1200,7 @@ def fit_px(chars, w, h, top=64, low=8):
 def draw_digits(cr, text, x, y, w, h, color, fill=False):
     """Время цифрами 3×5 во весь прямоугольник — глифы и раскладка jclock.
     fill — клетка по ширине и высоте отдельно: цифры занимают всё место, без пустых полос
-    (clock.exe, 05.10.2026, Просьба: «чтобы время заполняло всё вокруг»)."""
+    (clock.exe, 05.10.2026: «чтобы время заполняло всё вокруг»)."""
     # цифры — всегда по 6 (ширина часов не прыгает от «1»), буквы и пробел — по себе
     widest = sum(2 if c == ":" else (2 * len(DIGITS[c][0]) if c in "APM " else 6)
                  for c in text) + len(text) - 1
@@ -1153,6 +1245,32 @@ def draw_bitmap(cr, bmp, x, y, pw, ph):
                 c += 1
     cr.fill()
 
+
+
+def bar_ws_sizes():
+    """Размеры кнопки стола в баре: база из waybar_niri.py (STYLE_EXTRA), поверх —
+    правила window#waybar #workspaces button… из текущего вида looks/current.css."""
+    import re
+    z = {"padding": "5px 9px", "margin": "0 3px", "min-width": "17px", "active": "5px 13px",
+         "font-size": "17px"}
+    try:
+        txt = open(os.path.expanduser("~/.config/waybar/looks/current.css"), encoding="utf-8").read()
+    except OSError:
+        return z
+    txt = re.sub(r"/\*.*?\*/", "", txt, flags=re.S)
+    for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", txt):
+        sel = " ".join(sel.split())
+        props = dict((k.strip(), v.strip()) for k, v in
+                     (d.split(":", 1) for d in body.split(";") if ":" in d))
+        if sel == "window#waybar #workspaces button":
+            for k in ("padding", "margin", "min-width"):
+                if k in props:
+                    z[k] = props[k]
+        elif sel == "window#waybar #workspaces button.active" and "padding" in props:
+            z["active"] = props["padding"]
+        elif sel == "window#waybar #workspaces button label" and "font-size" in props:
+            z["font-size"] = props["font-size"]
+    return z
 
 class Backdrop:
     """Размытые обои под плашкой — считаем сами, а не просим niri.
@@ -1369,7 +1487,22 @@ class Niri:
             g = re.search(r"^\s*gaps\s+(\d+)", txt, re.M)
             c = re.search(r'^\s*center-focused-column\s+"(\w+)"', txt, re.M)
             self._lc = (int(g.group(1)) if g else 16, (c.group(1) if c else "never") == "always")
+            # Отступ у краёв экрана = gaps + struts (13.10.2026: niri_compositor.py edge пишет
+            # struts −8 → край 8, половины 944). Раньше край считался = gaps, и пара половин
+            # «не заполняла экран» — модель центрировала колонку, виджеты на MSI то уходили,
+            # то возвращались при каждом переходе между двумя терминалами.
+            st = re.search(r"struts\s*\{([^}]*)\}", txt)
+            e = {}
+            for k in ("left", "right", "top", "bottom"):
+                m = re.search(r"^\s*%s\s+(-?\d+(?:\.\d+)?)" % k, st.group(1), re.M) if st else None
+                e[k] = self._lc[0] + (float(m.group(1)) if m else 0.0)
+            self._edges = e
         return self._lc
+
+    def edges(self):
+        """Отступы у краёв экрана: {"left","right","top","bottom"} = gaps + struts."""
+        self.layout_conf()
+        return self._edges
 
     def tiled_cover(self, ws, mon_w):
         """Полоса экрана по горизонтали, НАВЕРНЯКА закрытая колонками ленты: (x0, x1) или
@@ -1403,12 +1536,13 @@ class Niri:
         off = sum(cols[c] + gap for c in order if c < ac)       # начало колонки с фокусом в ленте
         total = sum(cols.values()) + gap * (len(cols) - 1)
         wf = cols[ac]
+        el, er = self.edges()["left"], self.edges()["right"]
         if len(cols) == 1 or center:
             lo = hi = (mon_w - wf) / 2 - off
-        elif wf >= mon_w - 2 * gap:
-            lo = hi = gap - off
+        elif wf >= mon_w - el - er:
+            lo = hi = el - off
         else:
-            lo, hi = gap - off, mon_w - gap - wf - off
+            lo, hi = el - off, mon_w - er - wf - off
         x0, x1 = hi, lo + total
         return (x0, x1) if x1 > x0 else None
 
@@ -1467,13 +1601,14 @@ class Niri:
     def vm_fit(self, x, w, W):
         """niri с "never": колонку целиком на экране не трогает, обрезанную доворачивает
         до ближнего края с зазором; шире экрана — по центру (полный экран — от нуля)."""
-        g = self.VM_GAP
-        if w >= W - 2 * g:
+        e = self.edges()
+        el, er = e["left"], e["right"]
+        if w >= W - el - er:
             return (W - w) / 2
-        if x < g:
-            return g
-        if x + w > W - g:
-            return W - g - w
+        if x < el:
+            return el
+        if x + w > W - er:
+            return W - er - w
         return x
 
     def vm_focus(self, wid):
@@ -1497,7 +1632,8 @@ class Niri:
         if abs(prev[0] - col) != 1 or came is None:
             center = True
         else:
-            total = cols.get(col, 0) + came + 3 * self.VM_GAP
+            e = self.edges()
+            total = cols.get(col, 0) + came + self.layout_conf()[0] + e["left"] + e["right"]
             fills = total <= W + self.VM_SLACK and W - total < self.VM_ROOM
             narrow = min(cols.get(col, 0), came) <= W * self.VM_NARROW
             fits = total <= W + self.VM_SLACK
@@ -1532,7 +1668,7 @@ class Niri:
             elif cen and cen[0] == act and now - cen[1] < 0.5:
                 x = (W - w) / 2                # только что центрировали: ширина могла доехать позже
             elif old[0] in colof:
-                x = self.vm_fit(self.vm_xs(cols, colof[old[0]], old[1], self.VM_GAP)[ac], w, W)
+                x = self.vm_fit(self.vm_xs(cols, colof[old[0]], old[1], self.layout_conf()[0])[ac], w, W)
             else:                              # прежнее окно закрыто — на его место встал сосед
                 x = self.vm_fit(old[1], w, W)
             self.view[wsid] = (act, x)
@@ -1547,7 +1683,8 @@ class Niri:
             if ws is None:
                 return []
             W, H = self.out_geo.get(output, (1920, 1080))
-            g = self.VM_GAP
+            g = self.layout_conf()[0]
+            top = self.edges()["top"]
             rects = []
             for win in self.win.values():
                 if win.get("workspace_id") != ws["id"]:
@@ -1564,9 +1701,9 @@ class Niri:
             if cols and v and v[0] in colof:
                 for c, x in self.vm_xs(cols, colof[v[0]], v[1], g).items():
                     h = sum(hs[c]) + g * (len(hs[c]) - 1)
-                    if h > H - 2 * g:
+                    if h > H - top - self.edges()["bottom"]:
                         h = max(hs[c])
-                    rects.append((x, g, x + cols[c], g + h))
+                    rects.append((x, top, x + cols[c], top + h))
             return rects
 
     def obstacles(self, output, mon_w):
@@ -2411,7 +2548,7 @@ class Clock(Widget, SecondTicker):
     def cleanup(self):
         self.stop_seconds()
 
-    # AM/PM теми же блоками, что цифры (05.10.2026, Просьба: «стиль разный — сделай
+    # AM/PM теми же блоками, что цифры (05.10.2026: «стиль разный — сделай
     # одинаковый»; шрифтом PM выглядел чужим). «M» — с двумя вершинами, штрих как у цифр.
     # Потом: «сделай более пиксельнее» — буквы 5×7 из КВАДРАТНЫХ пикселей, как пиксельный
     # шрифт (у цифр клетка растянута 2:1, буквам это не шло).
@@ -2460,7 +2597,7 @@ class Clock(Widget, SecondTicker):
         date = "%s, %d %s" % (self.RU_DAYS[lt.tm_wday], lt.tm_mday, self.RU_MONTHS[lt.tm_mon - 1])
         # кегли — только сетка 8 px (шрифт чёткий лишь на них)
         grid = (8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 96, 112, 128)
-        # перед датой — искорка «Пуска» (Просьба: «сердечко убери, поставь то, что в Пуске»).
+        # перед датой — искорка «Пуска» (просьба: «сердечко убери, поставь то, что в Пуске»).
         # Заполнение (05.10.2026, «всё ещё пространство не заполняет»): текст рисуется в
         # родном кегле 8 px и увеличивается ЦЕЛЫМИ пикселями отдельно по ширине (kx) и по
         # высоте (ky ≤ 1.5·kx — не «палочки»), с фильтром NEAREST — чётко на любом размере.
@@ -2496,10 +2633,24 @@ class Clock(Widget, SecondTicker):
                     c3 = cairo.Context(cut)
                     c3.set_source_surface(surf, 0, -r0)
                     c3.paint()
-                    return cut, tw, r1 - r0
-            return surf, tw, th
+                    return cut, tw, r1 - r0, s
+            return surf, tw, th, s
 
         def blit(m, xx, yy, kx, ky, color, alpha=1.0):
+            if not PIXEL_UI:
+                # Обычный шрифт — гладко, настоящим кеглем base·ky в ту же клетку tw·kx × th·ky.
+                cr.save()
+                lay = PangoCairo.create_layout(cr)
+                fd = Pango.FontDescription(FONT)
+                fd.set_absolute_size(base * ky * Pango.SCALE)
+                lay.set_font_description(fd)
+                lay.set_text(m[3], -1)
+                lw, lh = lay.get_pixel_size()
+                cr.move_to(int(xx + (m[1] * kx - lw) / 2), int(yy + (m[2] * ky - lh) / 2))
+                cr.set_source_rgba(*color, alpha)
+                PangoCairo.show_layout(cr, lay)
+                cr.restore()
+                return
             surf = m[0]
             cr.save()
             cr.translate(int(xx), int(yy))
@@ -2647,7 +2798,7 @@ class DateW(Widget, SecondTicker):
         return [[c != " " for c in r.ljust(width)] for r in block]
 
     def paint(self, cr, x, y, w, h):
-        # 05.10.2026, пользователь: блочные буквы figlet крупно — узкие и «M» как «H». Теперь по
+        # 05.10.2026: блочные буквы figlet крупно — узкие и «M» как «H». Теперь по
         # умолчанию пиксельный шрифт системы, увеличенный целыми пикселями (как clock.exe);
         # прежние блочные — opts look=blocks.
         if self.opts.get("look", "font") == "font":
@@ -2674,10 +2825,10 @@ class DateW(Widget, SecondTicker):
         lines = [now.strftime(self.opts.get("top", "%A")).upper(),
                  now.strftime(self.opts.get("bottom", "%d %B")).upper()]
         ms = [text_mask(t) for t in lines]
-        # обе строки ОДНОГО размера (Просьба: «хочу, чтобы было так всегда») — масштаб по
+        # обе строки ОДНОГО размера (просьба: «хочу, чтобы было так всегда») — масштаб по
         # самой длинной; по высоте ky ≤ 1.5·kx, обе строки и зазор входят в окно
         th = ms[0][2]
-        # пиксели КВАДРАТНЫЕ, как у clock.exe (05.10.2026, пользователь: растянутые по высоте
+        # пиксели КВАДРАТНЫЕ, как у clock.exe (05.10.2026: растянутые по высоте
         # некрасиво): общий целый масштаб — наибольший, при котором обе строки входят и по
         # ширине, и по высоте; лишнее место — поровну сверху и снизу
         k = max(1, int(w * 0.94 / max(m[1] for m in ms)))
@@ -2693,7 +2844,7 @@ class DateW(Widget, SecondTicker):
     def paint_text(self, cr, x, y, w, h):
         """Тесно для блочных букв: день недели и дата обычным пиксельным шрифтом, по центру,
         два ряда (или один «SUN 04 OCT», если и так не помещается по ширине)."""
-        # 05.10.2026, Просьба: «today.exe не заполняет пространство, когда уменьшен» — кегли
+        # 05.10.2026: «today.exe не заполняет пространство, когда уменьшен» — кегли
         # только сеткой 8 px (чёткие), у каждой строки свой: сперва наибольший по ширине,
         # потом больший из двух уменьшается, пока обе строки не войдут по высоте.
         now = datetime.datetime.now()
@@ -3342,7 +3493,7 @@ class SysInfo(Cmd):
         super().run_cmd()
 
     def variants(self):
-        """Полный вывод, а тесно — ОДИН ЛОГОТИП (не текст). Просьба: «я хотел
+        """Полный вывод, а тесно — ОДИН ЛОГОТИП (не текст). Пользователь, 02.10.2026: «я хотел
         видеть логотип арча больше, а не текст… если сжимать, логотип в приоритете».
         Логотип вырезается из полного вывода: это его левые колонки до начала сведений
         (ширина = длина полной строки минус длина той же строки без логотипа)."""
@@ -3388,12 +3539,12 @@ EDIT_CSS = b"""
              padding: 6px 8px; }
 .wedit-bar button { background: transparent; background-image: none; border: 1px solid alpha(@accent, 0.5);
              border-radius: 0; box-shadow: none; color: #e1e1ef; padding: 2px 8px; min-height: 0;
-             font-family: "PxPlus HP 100LX 6x8 Jarvis"; font-size: 12pt; }
+             font-family: "JetBrainsMono Nerd Font"; font-size: 12pt; }
 .wedit-bar button:hover { background-color: alpha(@accent, 0.25); }
 .wedit-bar button.done, .wedit-bar button.done:hover { background-color: @accent; }
 .wedit-bar button.done label { color: #10131c; }
 .wedit-bar button.armed, .wedit-bar button.armed:hover { background-color: rgba(224, 82, 82, 0.55); border-color: #e05252; }
-.wedit-bar label { color: #a9b1d6; font-family: "PxPlus HP 100LX 6x8 Jarvis"; font-size: 12pt; }
+.wedit-bar label { color: #a9b1d6; font-family: "JetBrainsMono Nerd Font"; font-size: 12pt; }
 """
 HANDLE = 16
 SNAP = 7
@@ -3438,7 +3589,7 @@ class Editor(Gtk.Window):
         bar.set_margin_top(40)
         bar.set_margin_bottom(44)
         self.bar = bar
-        # Панель мешала ставить виджеты на её место (05.10.2026, Просьба: «окно в режиме
+        # Панель мешала ставить виджеты на её место (05.10.2026: «окно в режиме
         # редактирования мешает ставить виджеты на её место»). Теперь: на время переноса и
         # растягивания панель прячется (on_press/on_release), а кнопка «▾» сворачивает её до
         # одной строки — ряды «+ виджет» и подсказка уходят; выбор помнится.
@@ -3473,7 +3624,7 @@ class Editor(Gtk.Window):
         self.mini_btn.set_tooltip_text("Свернуть / развернуть панель")
         self.mini_btn.connect("clicked", lambda _b: self.set_mini(not self.mini))
         row.pack_start(self.mini_btn, False, False, 0)
-        # «Очистить стол» (04.10.2026, пользователь): убрать разом все виджеты текущего стола.
+        # «Очистить стол» (04.10.2026): убрать разом все виджеты текущего стола.
         # Кнопка взводится первым щелчком («Убрать N?») и срабатывает вторым в течение
         # 3 с; Shift+Delete — то же без вопроса. Закреплённые на всех столах остаются.
         self.clear_btn, self.clear_armed = Gtk.Button(label="Очистить стол"), None
@@ -3492,7 +3643,7 @@ class Editor(Gtk.Window):
         self.mini = os.path.exists(EDIT_MINI)    # применяется после show_all (set_mini)
 
     def dodge(self):
-        """Панель не должна закрывать виджеты (05.10.2026, Просьба: «а если я перетащил виджет
+        """Панель не должна закрывать виджеты (05.10.2026: «а если я перетащил виджет
         туда, где стоит это окно, как его вытаскивать?»). Виджет под панелью — она уезжает к
         другому краю; заняты оба места — сворачивается в строку у края, где перекрытие меньше."""
         a = self.bar.get_allocation()
@@ -3796,6 +3947,11 @@ class Manager:
                 continue
             m.connect("changed", self.on_panel_file, names)
             self.zone_mons.append(m)
+        # Super+S (XP-панель «по кнопке»): xpbar.py пишет, на каких мониторах она выдвинута.
+        # Тут без паузы в 600 мс — виджеты должны ехать вместе с окнами (13.10.2026).
+        m = Gio.File.new_for_path(XP_SHOWN).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+        m.connect("changed", lambda *_a: self.xp_shown_changed())
+        self.zone_mons.append(m)
 
     # ── панели «Всегда» отодвигают виджеты ────────────────────────────────
     # Пользователь (06.10.2026): «верхний и нижний бар двигали виджеты, если установлен режим
@@ -3813,6 +3969,11 @@ class Manager:
         if self.zones_id:
             GLib.source_remove(self.zones_id)
         self.zones_id = GLib.timeout_add(600, self.zones_changed)
+
+    def xp_shown_changed(self):
+        if self.zones_id:
+            GLib.source_remove(self.zones_id)
+        self.zones_id = GLib.timeout_add(30, self.zones_changed)
 
     def zones_changed(self):
         self.zones_id = None
@@ -3835,9 +3996,14 @@ class Manager:
             bar = popup_theme.bar_height() + max(0, popup_theme.bar_edge())
             wb_bottom = popup_theme.bar_position() == "bottom"
             xp_all = bottom_bar.get() == "xp" and bottom_bar.get_show() == "always"
+            try:                                  # выдвинутые по Super+S (xpbar.py, SHOWN_FILE)
+                xp_shown = set(open(XP_SHOWN).read().split()) if bottom_bar.get() == "xp" else set()
+            except OSError:
+                xp_shown = set()
             for out in self.outs:
                 t = bar if panels.top_for(out, d) == "always" else 0
-                b = XP_BAR_H if ((panels.bottom_for(out, d) == "always") if per else xp_all) else 0
+                b = XP_BAR_H if (((panels.bottom_for(out, d) == "always") if per else xp_all)
+                                 or out in xp_shown) else 0
                 if wb_bottom:                     # вид бара «Снизу»: waybar тоже у нижнего края
                     t, b = 0, b + t
                 zones[out] = (t, b)
@@ -3875,7 +4041,7 @@ class Manager:
                 order = sorted(ws, key=lambda w: r[id(w)][1])
                 for i, w in enumerate(order):
                     a = r[id(w)]
-                    # 07.10.2026, Просьба: «отодвигала бы ещё ниже — на столько, сколько было между
+                    # 07.10.2026: «отодвигала бы ещё ниже — на столько, сколько было между
                     # виджетом и верхним краем»: зазор до края экрана сохраняется под панелью
                     # (было: вплотную, на PANEL_GAP ниже панели)
                     y = a[1] + top if a[1] < lim else a[1]
@@ -4267,16 +4433,32 @@ class Manager:
             names = {w["name"] for w in wss if slot_of(w.get("name"))}
             names |= {(w.spec.get("ws") or {}).get("name") for w in self.widgets
                       if not w.spec.get("pinned") and not (w.spec.get("ws") or {}).get("slot")} - {None}
-        if names == getattr(self, "bar_names", None):
+        # Ключ — и имена, и размеры кнопок текущего вида бара (13.10.2026): по одним именам
+        # после смены вида (компакт → edge) в файле оставались чужие размеры, и стол
+        # дашборда вне фокуса был мельче остальных — «меняет размер при переходе».
+        z = bar_ws_sizes()
+        key = (frozenset(names), tuple(sorted(z.items())))
+        if key == getattr(self, "bar_names", None):
             return
-        self.bar_names = names
+        self.bar_names = key
         css = ["/* Пишет desktop_widgets.py — не править: столы с виджетами видны в баре и пустыми. */"]
+        # Тот же вид, что у обычных кнопок столов в текущем виде бара (13.10.2026: были
+        # прибиты 17 px — в компактном виде значок вне фокуса был крупнее, чем в фокусе).
+        # Хвост :not(#…) — как у правила схлопывания в waybar_niri.py, плюс свой id:
+        # так это правило всегда специфичнее схлопывания.
+        # Столы-исключения схлопывание и так не трогает — им хвост не нужен (а свой же id в
+        # :not(#…) сделал бы правило невыполнимым: стол дашборда — 󰜬).
+        keep = ("\U000f072c", "\U000f0437")
         for n in sorted(names):
-            sel = "#workspaces button#niri-workspace-%s.empty:not(.focused)" % n
-            css.append("%s { padding: 5px 9px; margin: 0 3px; min-width: 17px; font-size: 13px; opacity: 0.55; }" % sel)
+            tail = "" if n in keep else "".join(":not(#niri-workspace-%s)" % k for k in keep)
+            sel = "window#waybar #workspaces button#niri-workspace-%s.empty:not(.focused)%s" % (n, tail)
+            css.append("%s { padding: %s; margin: %s; min-width: %s; opacity: 0.55; }"
+                       % (sel, z["padding"], z["margin"], z["min-width"]))
+            css.append("%s { padding: %s; }" % (sel.replace(".empty:not", ".empty.active:not", 1),
+                                                 z["active"]))
             # «*», а не «label»: с label правило к надписи не применялось (проверено
             # снимками 02.10.2026), и стол оставался пустой таблеткой
-            css.append("%s * { font-size: 17px; }" % sel)
+            css.append("%s * { font-size: %s; }" % (sel, z["font-size"]))
         try:
             with open(self.BAR_CSS + ".tmp", "w", encoding="utf-8") as f:
                 f.write("\n".join(css) + "\n")
@@ -4292,7 +4474,7 @@ class Manager:
 
     def toggle_pin(self, w):
         """Закреплён — виден на всех столах своего монитора; нет — только на том столе,
-        где его открепили (или создали). По умолчанию новые не закреплены ."""
+        где его открепили (или создали). По умолчанию новые не закреплены."""
         s = w.spec
         s["pinned"] = not s.get("pinned")
         s["ws"] = None                      # открепили — привяжется к активному столу в refreeze
@@ -4483,7 +4665,7 @@ class Manager:
             return out if out and out != s.get("output") and out in self.outs else None
 
         def move(s, out):
-            """Место — ПОСЛЕДНЕЕ, какое виджету дали (05.10.2026, Просьба: «виджеты должны
+            """Место — ПОСЛЕДНЕЕ, какое виджету дали (05.10.2026: «виджеты должны
             запоминать последнее изменение и отображаться так же»). Раньше (03.10) место
             помнилось отдельно на каждом мониторе (`at`), и стол, перенесённый на MSI,
             вставал по старому набору, правленному там когда-то давно. Теперь: экраны
@@ -4626,9 +4808,21 @@ class Manager:
             print("гости:", e, file=sys.stderr)
             return {}
 
+    def guest_desk_ok(self, out):
+        """Можно ли гостю показаться на мониторе out. 13.10.2026, просьба: «перееханные
+        виджеты оставались только на столе Дешборда… опускаю на другой стол на мониторе
+        от ноута — я не хочу видеть эти виджеты». Исключение из «закреплённые видны на любом
+        столе»: в гостях — только на активном столе дашборда в режиме виджетов; на другом
+        столе гость спрятан (дома его и так закрывает окно). Дашборда нет — как раньше."""
+        names = dash_names()
+        if not names:
+            return True
+        cur = self.niri.active_ws(out)
+        return bool(cur) and cur.get("name") in names and dash_mode() != "terminal"
+
     def foreign_desk(self, output):
         """Активный стол монитора пришёл с другого монитора? Тогда закреплённые виджеты
-        ЭТОГО монитора на нём не показываются (05.10.2026, Просьба: «переношу стол с
+        ЭТОГО монитора на нём не показываются (05.10.2026: «переношу стол с
         дашбордами на MSI — закреплённые там виджеты не должны появляться»). Чужой стол —
         стол дашборда не на своём мониторе (dashboard.json → output) или стол, у
         незакреплённого виджета которого «свой» монитор (`home`: где виджет создан, откреплён
@@ -4679,7 +4873,10 @@ class Manager:
                 if o not in foreign:
                     foreign[o] = self.foreign_desk(o)
                 mine = not foreign[o]
-            w.go_away(guests.get(id(w)) if mine else None)
+            away = guests.get(id(w)) if mine else None
+            if away and not self.guest_desk_ok(away["out"]):
+                away, mine = None, False         # в гостях — только на столе дашборда
+            w.go_away(away)
             # показать/убрать — сразу, одним кадром: стол въезжает уже со своими виджетами
             w.set_cloaked(not mine)
             if not mine:

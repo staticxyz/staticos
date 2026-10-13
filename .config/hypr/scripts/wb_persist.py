@@ -257,28 +257,65 @@ def run_mpris():
     def compute():
         if state["proc"] is None and time.monotonic() >= state["retry"]:
             start_follow()
-        return capture(mpris_status.main)
+        state["best"] = None
+        try:
+            state["best"] = mpris_status.mpris_common.pick()
+        except Exception:
+            pass
+        return capture(lambda: mpris_status.main(state["best"] or {}))
+
+    def step():
+        """Шаг бегущей строки: тот же трек, сдвиг на знак, без вызова playerctl."""
+        mpris_status.scroll["pos"] += 1
+        return capture(lambda: mpris_status.main(state["best"] or {}))
 
     # fds меняются (перезапуск playerctl) — оборачиваем цикл вручную
     emit(compute())
-    last = time.monotonic()
+    last = tick = time.monotonic()
     while True:
         if not parent_alive():
             os._exit(0)
-        timeout = max(0.0, last + 2 - time.monotonic())
+        due = last + 2
+        if mpris_status.scroll["active"]:
+            due = min(due, tick + mpris_status.SCROLL_STEP)
+        timeout = max(0.0, due - time.monotonic())
         f = fds()
         r = select.select(f, [], [], timeout)[0] if f else (time.sleep(timeout) or [])
-        fire = time.monotonic() >= last + 2
+        now = time.monotonic()
+        fire = now >= last + 2
         if r and on_fd(r):
             fire = True
         if fire:
             emit(compute())
-            last = time.monotonic()
+            last = tick = time.monotonic()
+        elif mpris_status.scroll["active"] and now >= tick + mpris_status.SCROLL_STEP:
+            emit(step())
+            tick = now
 
 
 def run_battery():
+    """Опрос раз в 2 с — и сразу по «тычку» в FIFO wb-battery.poke: его пишет
+    savage_battery.py --toggle (13.10.2026, просьба: ПКМ по батарее включалась «с
+    задержкой, как будто лагает» — бар узнавал о Savage только на следующем опросе)."""
     import savage_battery
-    loop(lambda: capture(savage_battery.get_battery_info), 2)
+    path = savage_battery.POKE
+    try:
+        if not os.path.exists(path):
+            os.mkfifo(path, 0o600)
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        os.open(path, os.O_WRONLY | os.O_NONBLOCK)   # свой писатель — нет вечного EOF
+    except OSError:
+        fd = None
+
+    def drain(_r):
+        try:
+            os.read(fd, 512)
+        except OSError:
+            pass
+        return True
+
+    loop(lambda: capture(savage_battery.get_battery_info), 2,
+         fds=(fd,) if fd is not None else (), on_fd=drain)
 
 
 def run_browser(args):

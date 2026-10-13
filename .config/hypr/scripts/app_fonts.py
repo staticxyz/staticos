@@ -249,7 +249,7 @@ def apply_obsidian(font):
     except OSError:
         return False
     # Имя в кавычках: без них CSS роняет всё правило, если в названии есть
-    # слово, начинающееся с цифры («PxPlus HP 100LX 6x8» → «6x8» — недопустимый
+    # слово, начинающееся с цифры («JetBrainsMono Nerd Font» → «6x8» — недопустимый
     # идентификатор), и Obsidian молча рисует шрифтом по умолчанию (23.09.2026).
     value = "var(--font-default)" if font == "default" else '"%s"' % font
     new, n = re.subn(r"(--jv-font-(?:text|ui): )[^;]*;", lambda m: m.group(1) + value + ";", css)

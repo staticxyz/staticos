@@ -114,7 +114,7 @@
    файл пересобирается при смене обоев. Поэтому перекрываем здесь. */
 
 .control-center {
-    background-color: rgba(var(--noti-bg), 0.98);
+    background-color: rgba(var(--noti-bg), 0.95);
     border: 1px solid rgba(var(--accent-rgb), 0.45);
     border-radius: var(--border-radius);
 }
@@ -333,7 +333,7 @@
 .notification-group.collapsed:hover .notification-row:not(:only-child) .notification {
     background-color: transparent;
 }
-/* Серые зоны вокруг раскрытой группы (04.10.2026, Просьба: «что это за серые зоны»):
+/* Серые зоны вокруг раскрытой группы (04.10.2026, просьба: «что это за серые зоны»):
    базовая тема красит строку с фокусом — .notification-row:focus, --noti-bg-focus.
    Группа получает фокус от щелчка, и вся её область становилась серой. */
 .notification-row:focus,
@@ -367,3 +367,87 @@
     box-shadow: none;
 }
 /* NOCTALIA-LOOK-END */
+/* PIXEL-LOOK-BEGIN */
+/* notif_style.py: пиксельный вид уведомлений, стиль skeet. Не править — пересобирается
+   при смене обоев, стиля системы и вида (Настройки → Compositor → Стиль). */
+.floating-notifications, .control-center, .control-center * , .notification-row .notification-background, .notification-row .notification-background * {
+    font-family: "PxPlus HP 100LX 6x8 Jarvis";
+}
+.notification-row .notification-background, .notification-row .notification-background:hover, .notification-row .notification-background:focus, .notification-row .notification-background:active,
+.control-center .notification-row .notification-background, .control-center .notification-row .notification-background:hover,
+.notification-group .notification-row .notification-background {
+    border-radius: 0;
+    background-color: #17191e;
+}
+/* Внутренние узлы базовой темы скруглены (--border-radius 12) и обрезали полоски по дуге */
+:root { --border-radius: 0; }
+.notification-row .notification-background .notification, .notification-row .notification-background .notification .notification-default-action, .notification-row .notification-background .notification .notification-default-action .notification-content,
+.notification-row .notification-background .notification .notification-alt-actions, .notification-group, .notification-group .notification-row .notification {
+    border-radius: 0;
+}
+.notification-row .notification-background .notification .notification-default-action .notification-content .image {
+    border-radius: 0;            /* аватарка — квадратом, как пиксель */
+}
+.notification-row .notification-background .notification .notification-default-action { padding-top: 11px; }
+.notification-row .notification-background .notification.critical .notification-default-action { padding-top: 1px; }   /* у срочных (таймер) полоски нет — и места под неё не нужно (13.10) */
+.notification-row .notification-background .notification .notification-action > button, .notification-row .notification-background .notification .notification-default-action + * button,
+.notification-row .notification-background .notification .notification-action, .widget-title > button, .notification-row .notification-background .notification .inline-reply .inline-reply-button,
+.notification-row .notification-background .notification .inline-reply .inline-reply-entry, .control-center .notification-action > button {
+    border-radius: 0;
+    border: 1px solid #40424b;
+    background-color: #1f2026;
+    background-image: none;
+    box-shadow: none;
+    color: #d4d4d9;
+}
+.notification-row .notification-background .notification .notification-action > button:hover, .widget-title > button:hover,
+.control-center .notification-action > button:hover {
+    background-color: #3e5292;
+    border-color: #89a2f6;
+}
+.close-button {
+    border-radius: 0;
+    min-width: 16px;
+    min-height: 16px;
+}
+.close-button:hover { background: #3e5292; color: #d4d4d9; }
+.notification-row .notification-background .notification .notification-default-action .notification-content .text-box .summary { color: #d4d4d9; }
+.notification-row .notification-background .notification .notification-default-action .notification-content .text-box .body { color: #8e919c; }
+.control-center switch, .control-center switch slider, .control-center progressbar,
+.control-center progressbar progress, .control-center progressbar trough,
+.control-center trough, .control-center slider, .notification-group-buttons button {
+    border-radius: 0;
+}
+.control-center {
+    border-radius: 0;
+    background-color: #17191e;
+}
+@keyframes jarvis-noti-timer-px {
+    from { background-size: 100% 4px, 100% 4px, 100% 2px; }
+    to   { background-size: 100% 4px, 0% 4px, 100% 2px; }
+}
+.floating-notifications .notification-row .notification-background .notification.normal,
+.floating-notifications .notification-row .notification-background .notification.low {
+    background-image: repeating-linear-gradient(to right, transparent 0px, transparent 6px, #17191e 6px, #17191e 8px), linear-gradient(to bottom, #89a2f6, #6888f3), linear-gradient(to right, #6888f3, #d1bdf6, #c5c3ea);
+    background-repeat: no-repeat;
+    background-position: center 4px, center 4px, 0 0;
+    background-size: 100% 4px, 100% 4px, 100% 2px;
+}
+.floating-notifications *:first-child > .notification-row:not(:hover) .notification-background .notification.normal { animation: jarvis-noti-timer-px 9s steps(48) 1 forwards; }
+.floating-notifications *:first-child > .notification-row:not(:hover) .notification-background .notification.low    { animation: jarvis-noti-timer-px 5s steps(48) 1 forwards; }
+.floating-notifications *:not(:first-child) > .notification-row .notification-background .notification.normal, .floating-notifications *:not(:first-child) > .notification-row .notification-background .notification.low {
+    background-image: linear-gradient(to right, #6888f3, #d1bdf6, #c5c3ea);
+    background-position: 0 0;
+    background-size: 100% 2px;
+    animation: none;
+}
+/* Skeet: рамка в 4 слоя (#0a / #3c / #28 / #3c), как окно Настроек и «Пуск» */
+.notification-row .notification-background, .control-center .notification-row .notification-background, .notification-group .notification-row .notification-background, .control-center {
+    border: 1px solid #0d0e11;
+    /* GTK 4 кладёт внутренние тени последнюю поверх первой (не как в браузере):
+       в обратном порядке 4 px легли сверху и залили всю рамку одним цветом. */
+    box-shadow: inset 0 0 0 4px #40424b, inset 0 0 0 3px #2c2e34, inset 0 0 0 1px #40424b;
+}
+.notification-row .notification-background, .control-center .notification-row .notification-background, .notification-group .notification-row .notification-background, .floating-notifications .notification-row .notification-background { padding: 5px 7px; }   /* у Noctalia-правила .floating-… вес больше */
+.notification-row .notification-background:hover, .control-center .notification-row .notification-background:hover { background-color: #1f2026; }
+/* PIXEL-LOOK-END */

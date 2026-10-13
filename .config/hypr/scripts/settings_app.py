@@ -18,7 +18,7 @@ workspace.lua (класс окна com.jarvis.settings). Второй запус
   значком (16 px), строки «подпись слева — управление справа». Выбор из 2–5
   вариантов — сегменты, не выпадающие списки. Плитки-схемы — небольшие, по
   3–4 в ряд, ползунки — фиксированной ширины (SLIDER_W);
-* пиксельный шрифт PxPlus HP 100LX 6x8 Jarvis и только 12/16/24/32 px:
+* пиксельный шрифт JetBrainsMono Nerd Font и только 12/16/24/32 px:
   на других размерах он мылится. Значки — Nerd Font;
 * пояснение к строке — подсказкой при наведении, по нему же ищет поиск;
 * все цвета — из палитры обоев (popup_theme.palette), ни одного зашитого.
@@ -135,12 +135,12 @@ NIRI = (bool(os.environ.get("NIRI_SOCKET")) and not os.environ.get("HYPRLAND_INS
 # текста и мало иконок»). Значки из Nerd Font, наличие каждого проверено.
 ROW_ICONS = {
     "Форма панели": "\U000f1513",
-    "Скругление углов бара": "\U000f0607",
+    "Скругление углов": "\U000f0607",
     "Шейдер терминала": "\U000f0e30",
     "Скругление окон": "\U000f0607",
-    "Прозрачность Obsidian": "\U000f1853",
-    "Окно с фокусом": "\U000f061e",
-    "Наведение мыши": "\U000f037d",
+    "Фон окна": "\U000f1853",
+    "Центрировать окно": "\U000f061e",
+    "Фокус следует": "\U000f037d",
     "Neovim": "\U000f05e7",
     "Ночной режим": "\U000f0594",
     "Размытие": "\U000f00b5",
@@ -148,34 +148,34 @@ ROW_ICONS = {
     "Тема экрана входа": "\U000f0009",
     "Предпросмотр": "\U000f0976",
     "Стиль экрана блокировки": "\U000f033e",
-    "Экран блокировки — свой": "\U000f033e",
+    "Свой экран блокировки": "\U000f033e",
     "Энергосбережение": "\U000f0084",
     "Savage Mode": "\U000f0241",
     "Не беспокоить": "\U000f009b",
     "Уведомление при смене трека": "\U000f0386",
     "Эквалайзер": "\U000f1542",
-    "Попапы приклеены к бару": "\U000f0403",
+    "Приклеить попапы к бару": "\U000f0403",
     "Масштаб центра управления": "\U000f0a68",
     "Bongo Cat в баре": "\U000f011b",
     "Тексты песен в баре": "\U000f0387",
-    "Кнопка «Пуск» — пиксельная": "\U000f08c7",
+    "Пиксельная кнопка «Пуск»": "\U000f08c7",
     "Окна в баре — панель задач": "\U000f0570",
-    "Меню выключения — новые значки": "\U000f0425",
+    "Новые значки в меню выключения": "\U000f0425",
     "Окна в доке": "\U000f0eb2",
     "Появление": "\U000f06d0",
-    "Окна и панель": "\U000f0a6e",
+    "Окна у панели": "\U000f0a6e",
     "Тексты песен": "\U000f0387",
     "Редактор": "\U000f11e4",
     "Эффект экрана": "\U000f07b7",
     "След курсора": "\U000f01bf",
     "Отдача и молнии": "\U000f140c",
-    "ЭЛТ-монитор": "\U000f07f4",
+    "ЭЛТ-эффект": "\U000f07f4",
     "Какой курсор": "\U000f01bf",
     "Теплота": "\U000f0594",
     "Дашборд": "\U000f056e",
     "Менять и в открытых": "\U000f018d",
     "Zen": "\U000f059f",
-    "Действие на правый клик": "\U000f035c",
+    "Меню по правому клику на обоях": "\U000f035c",
     "Яркость ноутбука": "\U000f00de",
     "Яркость MSI": "\U000f0379",
     "Подсветка клавиатуры": "\U000f030c",
@@ -187,9 +187,9 @@ ROW_ICONS = {
     "Терминал kitty": "\U000f018d",
     "LibreWolf": "\U000f059f",
     "Helium": "\U000f059f",
-    "Где показывать окно": "\U000f061e",
+    "Где окно лимитов": "\U000f061e",
     "Окно памяти": "\U000f035b",
-    "Показать сейчас": "\U000f06a9",
+    "Окно лимитов": "\U000f06a9",
     "От края экрана": "\U000f0603",
     "До окон": "\U000f084f",
     "Отступы — как у формы": "\U000f099b",
@@ -203,7 +203,7 @@ PIXEL = os.path.join(HERE, "wallpaper_pixel.py")
 CLIPBOARD = os.path.join(HERE, "clipboard_win.py")
 REC_AREA = os.path.join(HERE, "rec_area.sh")
 SYSSTYLE = os.path.join(HERE, "system_style.py")    # единый стиль системы (04.10.2026)
-STYLE_LOOKS = [("default", "Обычный"), ("skeet", "Skeet"), ("beta", "Beta")]
+STYLE_LOOKS = [("default", "XP"), ("skeet", "Skeet"), ("beta", "Beta")]
 
 
 def has_command(path, word):
@@ -218,10 +218,12 @@ def has_command(path, word):
 MOUSE = os.path.join(HERE, "mouse_focus.py")
 RIBBON_CENTER = os.path.join(HERE, "ribbon_center.py")
 ROUNDING = os.path.join(HERE, "window_rounding.py")
+NIRI_COMPOSITOR = os.path.join(HERE, "niri_compositor.py")
 OBSIDIAN_OPACITY = os.path.join(HERE, "obsidian_opacity.py")
 LOGIN_THEME = os.path.join(HERE, "login_theme.py")
 LOCK_STYLE = os.path.join(HERE, "lock_style.py")
 BAR_ROUNDING = os.path.join(HERE, "bar_rounding.py")
+BAR_BORDER = os.path.join(HERE, "bar_border.py")
 BAR_MARGINS = os.path.join(HERE, "bar_margins.py")
 SAVAGE = os.path.join(HERE, "savage_battery.py")
 APP_FONTS = os.path.join(HERE, "app_fonts.py")
@@ -246,13 +248,13 @@ PAM_HELPER = (
 def watch_daily_on():
     try:
         with open(WAKE_STATE) as f:
-            return bool(json.load(f).get("watch_daily", {}).get("enabled", False))
+            return bool(json.load(f).get("watch_daily", {}).get("enabled", True))
     except (OSError, ValueError):
         return True
 
 
 def watch_log_open():
-    """Журнал выключений Сторожа целиком — текстом в блокноте (09.10.2026, Просьба:
+    """Журнал выключений Сторожа целиком — текстом в блокноте (09.10.2026, просьба:
     «журнал сделай кнопкой, откроется блокнот»; открывается и пустым). Отдельным окном на
     текущем столе: mousepad без --opening-mode=window открывал файл вкладкой в уже открытом
     окне — на другом столе, и казалось, что кнопка не работает. Файл каждый раз новый
@@ -346,8 +348,8 @@ def cursor_pixbuf(path, want=32):
 # уведомления, питание и приложения — свои пункты, в Misc — экран и снимки.
 TREE = [
     ("waybar", "\U000f1513", "Waybar", True, []),
-    ("fonts", "\U000f0284", "Fonts", True, []),
-    ("cursor", "\U000f01bf", "Cursors", True, []),
+    ("fonts", "\U000f0284", "Design", True, []),
+    ("compositor", "\U000f0379", "Compositor", True, []),
     ("apps", "\U000f003b", "Applications", True, []),
     ("visuals", "\U000f08b5", "Visuals", True, []),
     ("misc", "\U000f01d8", "Misc", True, []),
@@ -370,8 +372,10 @@ for _k, _i, _t, _own, _kids in TREE:
 PAGE_ALIASES = {"look": "waybar", "bar-shape": "waybar", "bar-geometry": "waybar",
                 "bottom": "waybar", "xp": "waybar", "notify": "misc", "power": "misc",
                 "shaders": "apps", "terminal": "apps",
-                "windows": "misc", "visuals-windows": "misc", "niri": "misc",
-                "shots": "misc", "screen": "visuals"}
+                "windows": "compositor", "visuals-windows": "compositor", "niri": "compositor",
+                "shots": "misc", "screen": "visuals",
+                # 13.10.2026: Fonts → Design (и курсор там же), Cursors → Compositor
+                "cursor": "fonts", "design": "fonts"}
 # Какие пункты раскрыты — помнится между запусками.
 NAV_STATE = os.path.expanduser("~/.cache/jarvis/settings_nav.json")
 SECTION_ICON_DEFAULT = "\U000f08bb"
@@ -450,7 +454,7 @@ def _rrect(cr, x, y, w, h, r):
 def _pixel_text(cr, text, x, y, color, a=1.0, px=8):
     """Надпись пиксельным шрифтом в родном размере (8 px — без мыла)."""
     layout = PangoCairo.create_layout(cr)
-    fd = Pango.FontDescription.from_string("PxPlus HP 100LX 6x8 Jarvis")
+    fd = Pango.FontDescription.from_string("JetBrainsMono Nerd Font")
     fd.set_absolute_size(px * Pango.SCALE)
     layout.set_font_description(fd)
     layout.set_text(text, -1)
@@ -901,7 +905,7 @@ BETA_GROUP_STARTS = {"apps", "misc"}
 # силуэт человека, Misc — шестерёнки. Остальным пунктам в skeet вкладок нет:
 # их маски — сплошные силуэты в той же манере (waybar, notify, xp, power, apps).
 SK_ICON_DIR = os.path.join(HERE, "skeet_icons")
-SK_ICONS = {"waybar": "waybar", "fonts": "skins", "cursor": "aim", "notify": "notify",
+SK_ICONS = {"waybar": "waybar", "fonts": "skins", "compositor": "aim", "notify": "notify",
             "xp": "xp", "power": "power", "apps": "rage", "visuals": "visuals",
             "misc": "misc", "config": "players"}
 SK_RAIL_W = 76             # колонка вкладок
@@ -911,7 +915,7 @@ SK_COL_GAP = 10
 # Ширина колонки групп: окно − рамка − вкладки − поля страницы, пополам.
 SK_COL_W = (WIN_W - 2 * SK_FRAME - SK_RAIL_W - 2 * 10 - SK_COL_GAP) // 2
 SK_ROW_W = SK_COL_W - 2 - 2 * 10
-SK_SLIDER_W = 110
+SK_SLIDER_W = 96         # 110 → 96 (13.10.2026): подпись слева не ломалась в две строки
 
 
 # ── сброс страницы (раунд 7, 03.10.2026) ────────────────────────────────────
@@ -933,32 +937,33 @@ SK_SLIDER_W = 110
 # Отступы бара — одна составная настройка «Отступы бара» (page_waybar).
 DEFAULTS = {
     "waybar": {
-        "Скругление углов бара": 0,                  # bar_rounding.py DEFAULT
-        "Кнопка «Пуск» — пиксельная": False,         # start_button.py DEFAULT = "nerd"
+        "Скругление углов": 0,                  # bar_rounding.py DEFAULT
+        "Рамка бара": 0,                             # bar_border.py: нет файла — off
+        "Пиксельная кнопка «Пуск»": False,         # start_button.py DEFAULT = "nerd"
         "Bongo Cat в баре": True,                    # bongo_cat.py: нет флага bongo-off
         "Эквалайзер": "blocks",                      # cava_bar.py: нет bar-vis — блоки
-        "Меню выключения — новые значки": False,     # wlogout_icons.py status → "old"
-        "Попапы приклеены к бару": False,            # popup_theme.attached(): нет флага
+        "Новые значки в меню выключения": False,     # wlogout_icons.py status → "old"
+        "Приклеить попапы к бару": False,            # popup_theme.attached(): нет флага
         "Масштаб центра управления": "medium",       # control_center.py: нет control-center-scale
-        "Действие на правый клик": True,             # desktop_menu.py: нет desktop-menu-off
-        "Вид меню": "xp",                            # desktop_menu.py style → "xp"
+        "Меню по правому клику на обоях": True,             # desktop_menu.py: нет desktop-menu-off
+        "Вид меню ПКМ": "xp",                            # desktop_menu.py style → "xp"
         "Меню программ": "jarvis",                   # state/launcher-look: нет файла — своё
         "Форма панели": "dock",                      # bottom_bar.py get(): нет состояния и dock-off
         "Появление": "always",                       # bottom_bar.py get_show()
         "Верхний бар": "always",                     # top_bar.py get_mode(): нет файла — always
         "Список столов": "top",                      # top_bar.py ws_place()
-        "Плотность фона бара": 88,                   # top_bar.py: как у вида бара (alpha 0.88)
+        "Фон бара": 88,                   # top_bar.py: как у вида бара (alpha 0.88)
         "Размытие под баром": True,                  # top_bar.py: нет флага bar-blur-off
-        "Окна и панель": "on",                       # bottom_bar.py get_gap()
+        "Окна у панели": "on",                       # bottom_bar.py get_gap()
         "Тексты песен": True,                        # lyrics_bar.py: нет флага lyrics-off
         "Подсказка раскладки": "normal",             # state/layout-osd-look: нет файла — normal
         "Окна в доке": "all",                        # dock.py get_mode()
     },
     "fonts": {
-        "Менять и в открытых окнах": False,          # app_fonts.py scope() → "new"
-        "LibreWolf: навязывать шрифт сайтам": False,  # app_fonts.py browser_fonts() → "off"
-        "Helium: навязывать шрифт сайтам": False,
-        "Zen: навязывать шрифт сайтам": False,       # app_fonts.py zen_fonts() → "off"
+        "Применять и к открытым окнам": False,          # app_fonts.py scope() → "new"
+        "LibreWolf": False,  # app_fonts.py browser_fonts() → "off"
+        "Helium": False,
+        "Этот шрифт и на сайтах": False,       # app_fonts.py zen_fonts() → "off"
     },
     "apps": {
         "Эффект экрана": "off",                      # kitty_shader.py get() → "off"
@@ -966,10 +971,9 @@ DEFAULTS = {
         "Отдача и молнии": "off",
         "Neovim: курсор по центру": True,            # nvim_center_get(): нет файла — вкл
         "Neovim: тёмный фон": False,                 # nvim_darkbg_get()
-        "ЭЛТ-монитор в Zen": False,                  # zen-crt: нет файла — off
-        "Dashboard mode": "terminal",                # dashboard mode → terminal (нет файла dashboard-mode)
+        "ЭЛТ-эффект в Zen": False,                  # zen-crt: нет файла — off
         "Окно памяти": "top-right",                  # popup_theme.PLACE_DEFAULT
-        "Прозрачность Obsidian": 96,                 # obsidian_opacity.py DEFAULT
+        "Фон окна": 96,                 # obsidian_opacity.py DEFAULT
     },
     "visuals": {
         "Теплота": 65,                               # night_mode.py DEFAULT_WARMTH
@@ -981,27 +985,40 @@ DEFAULTS = {
         "Часы: секунды": True,                       # state/clock-seconds: нет файла — секунды есть
         "Часы: дата": True,                          # state/clock-date: нет файла — дата есть
         "Часы: 24 часа": False,                      # state/clock-24h: нет файла — 12 ч AM/PM
-        "Плотность фона": 62,
+        "Фон виджетов": 62,
         "Размытие под виджетом": 16,
-        "Анимация под окнами": False,
-        "Экран блокировки — свой (с обводкой кнопок)": False,   # нет state/lock-engine — hyprlock
+        "Двигаться под окнами": False,
+        "Свой экран блокировки": False,   # нет state/lock-engine — hyprlock
     },
     "config": {},                                    # «Стиль системы» в сброс не входит, как выбор вида
     "misc": {
         "Редактор": "ksnip",                         # shot_get()
-        "Скругление окон": 4,                        # window_rounding.py DEFAULT
-        "Окно с фокусом — по центру": False,         # ribbon_center.py DEFAULT = "fit"
-        "Наведение мыши забирает фокус": False,      # mouse_focus.py DEFAULT = "detached"
-        "Эффект открытия/закрытия окон": "off",      # window_fx.py get(): нет файла — off
         "Уведомление при смене трека": True,         # track_notify.py: нет флага -off
         "Вид как в Noctalia": False,                 # notif-look: без вставки в style.css — off
         "Громкость уведомлений": 100,                # ui_sound.py get_notify_volume()
-        "Звуки интерфейса": True,                   # ui_sound.py: нет флага ui-sound-off
+        "Звуки включены": True,                   # ui_sound.py: нет флага ui-sound-off
         "Набор звуков": "xp",                        # ui_sound.py get_pack()
         "Громкость звуков": 75,                      # ui_sound.py VOLUME_DEFAULT
-        "Меню питания (кнопка в баре)": "wlogout",   # power_view.py get()
-        "Встряхни мышь — найти курсор": True,        # cursor_shake.py: нет флага -off
-        "Авто «Не беспокоить» при записи экрана": True,   # auto_dnd.py: нет флага -off
+        "Меню питания": "wlogout",   # power_view.py get()
+        "Встряхнуть мышь — найти курсор": True,        # cursor_shake.py: нет флага -off
+        "«Не беспокоить» во время записи": True,   # auto_dnd.py: нет флага -off
+    },
+    "compositor": {
+        "Шрифт и значки": "normal",                     # pixel_look.py: обычный
+        "Скругление окон": 4,                       # window_rounding.py DEFAULT
+        "Центрировать окно в фокусе": False,         # ribbon_center.py DEFAULT = "fit"
+        "Фокус следует за мышью": False,      # mouse_focus.py DEFAULT = "detached"
+        "Анимация окон": "off",      # window_fx.py get(): нет файла — off
+        # niri_compositor.py KEYS — значения, что стояли в конфиге на 13.10.2026
+        "Отступы между окнами": 16,
+        "Отступы от краёв экрана": 16,               # niri_compositor.py edge = gaps + struts
+        "Толщина рамки": 5,
+        "Стол дашборда": "terminal",                 # dashboard mode → terminal (нет файла dashboard-mode)
+        "Скорость анимаций": 1.0,
+        "Проходы": 3,
+        "Радиус": 5.0,
+        "Зерно": 0.01,
+        "Насыщенность": 1.5,
     },
 }
 # Группы звуков интерфейса: включена ли по умолчанию — ui_sound.py GROUPS.
@@ -1373,7 +1390,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # неактивное — приглушённая; в skeet её заменяют слои рамки skeet.
         self.outer.get_style_context().add_class("win-frame")
         self.connect("notify::is-active", self.on_active_changed)
-        self.add(self.outer)
+        # Размер мышью за края и углы (13.10.2026, П6: «отсутствует изменение размера окна
+        # с помощью курсора»). Рамки niri у окна нет, — поверх краёв лежат невидимые
+        # полоски-ручки (resize_grips): курсор на них — стрелки, нажатие отдаёт niri
+        # begin_resize_drag. Развёрнутое окно ручки прячет.
+        self._grip_overlay = Gtk.Overlay()
+        self._grip_overlay.add(self.outer)
+        self.add(self._grip_overlay)
+        self._grips = self.resize_grips(self._grip_overlay)
         self.outer.pack_start(self.build_titlebar(), False, False, 0)
         root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self.root = root
@@ -1417,7 +1441,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # Super+/ открывался с задержкой в пару секунд.
         self.builders = {
             "waybar": self.page_waybar, "fonts": self.page_fonts,
-            "cursor": self.page_cursor, "apps": self.page_apps,
+            "compositor": self.page_compositor, "apps": self.page_apps,
             "visuals": self.page_screen, "misc": self.page_misc,
             "config": self.page_config,
         }
@@ -1667,7 +1691,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         css = ("""
         window {
             background-color: %(surface)s; color: %(on_surface)s;
-            font-family: 'PxPlus HP 100LX 6x8 Jarvis', 'JetBrainsMono Nerd Font', monospace;
+            font-family: 'JetBrainsMono Nerd Font', 'JetBrainsMono Nerd Font', monospace;
             font-size: 16px; font-weight: normal;
         }
         scrolledwindow, viewport { background: transparent; border: none; box-shadow: none; }
@@ -2196,6 +2220,44 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.connect("window-state-event", self.on_window_state)
         return bar
 
+    # ── размер окна мышью ─────────────────────────────────────────────────
+    EDGE_GRAB = 5                # толщина ручки у края, px
+    EDGE_CORNER = 16             # длина угловой ручки вдоль каждой стороны: в угол 5×5 не попасть
+
+    def resize_grips(self, overlay):
+        """Восемь краёв окна: стороны — полосы во всю длину, углы — по две короткие
+        полосы поверх них (буквой «Г»), чтобы не закрывать кнопки заголовка квадратом."""
+        g, c = self.EDGE_GRAB, self.EDGE_CORNER
+        F, S_, E_ = Gtk.Align.FILL, Gtk.Align.START, Gtk.Align.END
+        E = Gdk.WindowEdge
+        spec = [(E.NORTH, F, S_, -1, g, "n-resize"), (E.SOUTH, F, E_, -1, g, "s-resize"),
+                (E.WEST, S_, F, g, -1, "w-resize"), (E.EAST, E_, F, g, -1, "e-resize")]
+        for edge, ha, va, cur in ((E.NORTH_WEST, S_, S_, "nw-resize"), (E.NORTH_EAST, E_, S_, "ne-resize"),
+                                  (E.SOUTH_WEST, S_, E_, "sw-resize"), (E.SOUTH_EAST, E_, E_, "se-resize")):
+            spec += [(edge, ha, va, c, g, cur), (edge, ha, va, g, c, cur)]
+        grips = []
+        for edge, ha, va, w, h, cur in spec:
+            eb = Gtk.EventBox()
+            eb.set_visible_window(False)
+            eb.set_above_child(True)
+            eb.set_halign(ha)
+            eb.set_valign(va)
+            eb.set_size_request(w, h)
+            eb.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            eb.connect("realize", lambda w_, name=cur: w_.get_window().set_cursor(
+                Gdk.Cursor.new_from_name(w_.get_display(), name)))
+            eb.connect("button-press-event", self.on_grip_press, edge)
+            eb.set_no_show_all(False)
+            overlay.add_overlay(eb)
+            grips.append(eb)
+        return grips
+
+    def on_grip_press(self, _w, ev, edge):
+        if ev.button != 1 or ev.type != Gdk.EventType.BUTTON_PRESS:
+            return False
+        self.begin_resize_drag(edge, 1, int(ev.x_root), int(ev.y_root), ev.time)
+        return True
+
     def on_active_changed(self, *_a):
         ctx = self.outer.get_style_context()
         (ctx.add_class if self.is_active() else ctx.remove_class)("active")
@@ -2238,6 +2300,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def on_window_state(self, _w, ev):
         self._maximized = bool(ev.new_window_state & Gdk.WindowState.MAXIMIZED)
+        for g in getattr(self, "_grips", ()):
+            g.set_visible(not self._maximized)
         self.max_btn.get_child().set_text("\U000f05b2" if self._maximized else "\U000f05af")
         self.max_btn.set_tooltip_text("Восстановить" if self._maximized else "Развернуть")
         return False
@@ -3511,8 +3575,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
             if card.get_style_context().has_class("card") and not card.get_children():
                 wrap.get_style_context().add_class("first")
         else:
-            wrap.set_margin_top(2 if sk else 4)
-            wrap.set_margin_bottom(2 if sk else 4)
+            # skeet: 2 → 4 px (13.10.2026, «настройки зажаты друг к другу»)
+            wrap.set_margin_top(4)
+            wrap.set_margin_bottom(4)
         line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8 if sk else 12)
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         if not sk and not bt:                        # у skeet и beta в строках значков нет
@@ -3549,7 +3614,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
             if control is not None:
                 words.append(getattr(control, "search_words", ""))
                 need = getattr(control, "est_width", 0)
-                if need and title_w + 12 + need > row_w:
+                if sk and isinstance(control, Gtk.MenuButton):
+                    # 13.10.2026 (П6): в skeet списки выбора всегда под подписью и во всю
+                    # строку колонки, как в gamesense, — раньше одни стояли справа, другие
+                    # уходили вниз, и название шрифта обрезалось на «PxPlus HP 100LX 6x8 Ja…».
+                    control.set_size_request(max(need, SK_ROW_W), -1)
+                    under.append(control)
+                elif need and title_w + 12 + need > row_w:
                     under.append(control)
                 else:
                     control.set_valign(Gtk.Align.CENTER)
@@ -3790,13 +3861,16 @@ class SettingsWindow(Gtk.ApplicationWindow):
         box.est_width = sum(len(t) for _, t in items) * 9 + n * 16 + (n - 1) * 4
         return box
 
-    def slider(self, lo, hi, step, value, cb, suffix="", labels=None):
+    def slider(self, lo, hi, step, value, cb, suffix="", labels=None, digits=0):
         """Ползунок и число справа от него. Возвращает (число, ползунок).
 
         `labels` — словарь {значение: подпись}: для ступеней, у которых число
-        ничего не говорит.
+        ничего не говорит. `digits` — знаков после точки (Compositor, 13.10.2026:
+        размытие и скорость анимаций дробные).
         """
         def text(v):
+            if digits:
+                return "%.*f%s" % (digits, v, suffix)
             return labels.get(int(v), str(int(v))) if labels else "%d%s" % (int(v), suffix)
 
         s = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, lo, hi, step)
@@ -3831,7 +3905,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
             s.set_value(val)
             quiet["on"] = False
         s.set_quiet = set_quiet
-        s.rs = dict(get=lambda: int(round(s.get_value())), put=set_quiet, cb=cb, arg=float)
+        s.rs = dict(get=(lambda: round(s.get_value(), digits)) if digits else
+                    (lambda: int(round(s.get_value()))), put=set_quiet, cb=cb, arg=float)
 
         # Ctrl+щелчок по числу или по ползунку — ввести значение вручную (04.10.2026,
         # Пользователь). Enter или уход фокуса — применить (с шагом и в пределах ползунка),
@@ -3852,7 +3927,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
         def start_edit():
             editing["on"] = True
-            entry.set_text(str(int(round(s.get_value()))))
+            entry.set_text(("%.*f" % (digits, s.get_value())) if digits
+                           else str(int(round(s.get_value()))))
             stack.set_visible_child_name("edit")
             entry.grab_focus()
             entry.select_region(0, -1)
@@ -4071,9 +4147,22 @@ class SettingsWindow(Gtk.ApplicationWindow):
         chip, sc = self.slider(0, 16, 1, bar_r,
                                lambda val: run("python3", BAR_ROUNDING, "set", "%d" % val),
                                suffix=" px")
-        self.row(c, "Скругление углов бара", chip,
+        self.row(c, "Скругление углов", chip,
                  "Углы самой панели: 0 — прямые. Значки внутри бара не меняются. "
                  "Применяется сразу к любому виду бара.",
+                 below=sc)
+
+        # Рамка бара (13.10.2026, просьба: «менять толщину рамки от waybar»)
+        try:
+            bar_b = int(run("python3", BAR_BORDER, "get"))
+        except ValueError:
+            bar_b = 0
+        chip, sc = self.slider(0, 4, 1, bar_b,
+                               lambda val: run("python3", BAR_BORDER, "set", "%d" % val),
+                               suffix=" px")
+        self.row(c, "Рамка бара", chip,
+                 "Обводка вокруг панели цветом акцента обоев: 0 — рамки нет. Высота бара "
+                 "не меняется. Применяется сразу к любому виду бара.",
                  below=sc)
 
         # Отступы сверху и снизу (01.10.2026): bar_margins.py пишет состояние,
@@ -4087,46 +4176,50 @@ class SettingsWindow(Gtk.ApplicationWindow):
             edge, win, look = 0, 0, (0, 0)
         cur = {"edge": edge, "win": win}
 
-        def steps(val):
-            return [(str(x), "%d px" % x) for x in sorted({0, 4, 8, 12, 16, val})]
+        # Ползунки вместо кнопок 0/4/8/12/16 (13.10.2026, пользователь) и меньше нуля: −16..32.
+        # Отрицательный «до окон» уменьшает исключительную зону бара — окна подходят ближе
+        # обычного зазора niri; отрицательный «от края» уводит бар частью за край экрана.
+        # Кнопка «Отступы — как у формы панели · Сбросить» убрана: то же делает «Сбросить
+        # эту страницу» внизу (умолчание отступов — форма панели).
+        timer = {"id": None}
 
-        def put(which, k):
-            cur[which] = int(k)
-            run_serial(["python3", BAR_MARGINS, "set", str(cur["edge"]), str(cur["win"])])
-        edge_seg = self.segments(steps(edge), str(edge), lambda k: put("edge", k))
-        win_seg = self.segments(steps(win), str(win), lambda k: put("win", k))
-        edge_row = self.row(c, "От края экрана", edge_seg,
+        def put(which, val):
+            cur[which] = int(round(val))
+            if timer["id"]:
+                GLib.source_remove(timer["id"])
+
+            def go():
+                timer["id"] = None
+                run_serial(["python3", BAR_MARGINS, "set", str(cur["edge"]), str(cur["win"])])
+                return False
+            timer["id"] = GLib.timeout_add(500, go)    # бар перезапускается — не на каждый шаг
+        edge_chip, edge_sc = self.slider(-16, 32, 1, edge, lambda val: put("edge", val), suffix=" px")
+        win_chip, win_sc = self.slider(-16, 32, 1, win, lambda val: put("win", val), suffix=" px")
+        edge_row = self.row(c, "От края экрана", edge_chip,
                  "Расстояние от бара до края экрана, у которого он стоит (у формы «Снизу» — "
-                 "до нижнего). 0 — вплотную. Приклеенные попапы пока считают бар стоящим "
-                 "вплотную к краю: при отступе больше 0 они заходят на бар.")
-        self.row(c, "До окон", win_seg,
-                 "Промежуток между баром и окнами — сверх обычного зазора niri. Обычные "
-                 "попапы бара отодвигаются вместе с окнами.")
-
-        def reset():
-            run_serial(["python3", BAR_MARGINS, "reset"])
-            cur["edge"], cur["win"] = look
-            edge_seg.select(str(look[0]))
-            win_seg.select(str(look[1]))
+                 "до нижнего). 0 — вплотную, меньше нуля — бар заходит за край. Приклеенные "
+                 "попапы считают бар стоящим вплотную к краю.", below=edge_sc)
+        self.row(c, "До окон", win_chip,
+                 "Промежуток между баром и окнами — сверх обычного зазора niri; меньше нуля — "
+                 "окна ближе обычного. Обычные попапы бара двигаются вместе с окнами. "
+                 "Умолчание — как у формы панели (сейчас от края %d px, до окон %d px); "
+                 "вернуть — «Сбросить эту страницу»." % look, below=win_sc)
 
         # Для «Сбросить эту страницу» оба отступа — одна настройка: умолчание —
         # как у формы панели (нет файла bar-margins), вернуть его — «reset», а
         # не «set» (тот оставил бы свои отступы, пусть и равные форме).
         def margins_show(val):
             cur["edge"], cur["win"] = val
-            edge_seg.select(str(val[0]))
-            win_seg.select(str(val[1]))
+            edge_sc.set_quiet(val[0])
+            win_sc.set_quiet(val[1])
 
         def margins_apply(val):
             if tuple(val) == tuple(look):
                 run_serial(["python3", BAR_MARGINS, "reset"])
             else:
                 run_serial(["python3", BAR_MARGINS, "set", str(val[0]), str(val[1])])
-        self.register(edge_row, "Отступы бара", edge_seg, tuple(look),
+        self.register(edge_row, "Отступы бара", edge_sc, tuple(look),
                       get=lambda: (cur["edge"], cur["win"]), put=margins_show, cb=margins_apply)
-        self.row(c, "Отступы — как у формы панели", self.go_button("Сбросить", reset),
-                 "Убрать свои отступы: бар встанет так, как задумано в выбранной форме "
-                 "панели (сейчас — от края %d px, до окон %d px)." % look)
         self.bar_extras(v)
         self.xp_cards(v)
         return scroll
@@ -4211,7 +4304,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             chip, sc = self.slider(20, 100, 2, tb_num("always", 88),
                                    lambda val: run_serial(["python3", tb, "opacity", "always", str(int(val))]),
                                    suffix="%")
-            self.row(c, "Плотность фона бара", chip,
+            self.row(c, "Фон бара", chip,
                      "Режим «Всегда»: 100% — глухой фон, меньше — сквозь бар видны обои. "
                      "У вида «Прозрачный» фона нет — ползунок его не меняет.",
                      below=sc, icon="\U000f0e8e")
@@ -4224,7 +4317,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                      icon="\U000f00b6")
             if pn is not None:
                 # Одна группа «Мониторы» во всю ширину: ноутбук слева, MSI справа — рядом,
-                # а не врозь по колонкам (06.10.2026, Просьба: «хочу видеть Ноутбук и MSI
+                # а не врозь по колонкам (06.10.2026, просьба: «хочу видеть Ноутбук и MSI
                 # вместе»). Шире колонки — раскладка skeet сама ставит её во всю ширину.
                 self.section(v, "Мониторы", "\U000f0379",
                              "Панели каждого монитора — своя колонка.")
@@ -4278,7 +4371,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         c = self.card(v)
         # «Пуск» в стиле XP (30.09.2026): start_button.py.
         sb = os.path.join(HERE, "start_button.py")
-        self.row(c, "Кнопка «Пуск» — пиксельная",
+        self.row(c, "Пиксельная кнопка «Пуск»",
                  self.pill(run("python3", sb, "get") == "pixel",
                            lambda on: subprocess.run(["python3", sb, "set", "pixel" if on else "nerd"],
                                                      capture_output=True)),
@@ -4313,7 +4406,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # Значки меню выключения (wlogout): новые, как в power_menu.py, или
         # стандартные — выбор пользователя, 30.09.2026.
         wli = os.path.join(HERE, "wlogout_icons.py")
-        self.row(c, "Меню выключения — новые значки",
+        self.row(c, "Новые значки в меню выключения",
                  self.pill(run("python3", wli, "status") == "new",
                            lambda on: subprocess.run(["python3", wli, "new" if on else "old"],
                                                      capture_output=True)),
@@ -4327,7 +4420,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 open(att_file, "w").close()
             elif os.path.exists(att_file):
                 os.remove(att_file)
-        self.row(c, "Попапы приклеены к бару", self.pill(os.path.exists(att_file), set_attached),
+        self.row(c, "Приклеить попапы к бару", self.pill(os.path.exists(att_file), set_attached),
                  "Плеер, звук, Wi-Fi, Bluetooth, центр управления открываются вплотную "
                  "под баром, его цветом, с вогнутыми углами на стыке — как в Noctalia. "
                  "Действует на следующее открытие попапа.")
@@ -4348,13 +4441,49 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 f.write(key + "\n")
         self.row(c, "Масштаб центра управления",
                  self.segments([("compact", "Компактный"), ("medium", "Средний"),
-                                ("large", "Как сейчас")], cc_scale, set_cc_scale),
+                                ("large", "Крупный")], cc_scale, set_cc_scale),
                  "Компактный — около 72 % прежнего размера, средний — около 85 %, "
-                 "«Как сейчас» — прежний крупный вид. Буквы пиксельного шрифта мельчают "
+                 "крупный — прежний размер. Буквы пиксельного шрифта мельчают "
                  "ступенями (24 → 16 → 12 px), чтобы оставаться чёткими. "
                  "Действует на следующее открытие панели.")
 
     # Niri: всё про окна (01.10.2026 — было Visuals → «Окна»)
+    def timer_sound_card(self, v):
+        """Громкость звонка виджета «Таймер» (13.10.2026). Читает его сам виджет
+        (desktop_widgets_extra: alarm_volume) перед каждым повтором звонка."""
+        self.section(v, "Таймер", "\U000f051b")
+        c = self.card(v)
+        path = os.path.join(os.path.expanduser("~/.config/hypr/state"), "timer-volume")
+        try:
+            cur = int(run("cat", path) or 67)
+        except ValueError:
+            cur = 67
+
+        def put(val):
+            try:
+                with open(path + ".tmp", "w") as f:
+                    f.write("%d\n" % val)
+                os.replace(path + ".tmp", path)
+            except OSError:
+                pass
+        chip, sc = self.slider(0, 100, 1, cur, put, suffix="%")
+        self.row(c, "Громкость звонка", chip,
+                 "Звук, которым виджет «Таймер» звенит, когда время вышло. Шкала как у "
+                 "микшера; 0 — без звука (уведомление останется). Действует и на уже "
+                 "звенящий таймер со следующего повтора.",
+                 below=sc)
+
+        def probe():
+            try:
+                pct = int(open(path).read().strip())
+            except (OSError, ValueError):
+                pct = 67
+            subprocess.Popen(["timeout", "8", "pw-play", "--volume", "%.4f" % ((pct / 100) ** 3),
+                              "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+        self.row(c, "Послушать", self.go_button("Звонок", probe))
+
     def obsidian_card(self, v):
         """Прозрачность Obsidian (была в «Окнах»)."""
         self.section(v, "Obsidian", "\U000f0354")
@@ -4366,7 +4495,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         chip, sc = self.slider(70, 100, 1, obs,
                                lambda val: run("python3", OBSIDIAN_OPACITY, "set", "%d" % val),
                                suffix="%")
-        self.row(c, "Прозрачность Obsidian", chip,
+        self.row(c, "Фон окна", chip,
                  "100 — окно плотное, меньше — сквозь него проступают размытые обои. "
                  "Неактивное окно чуть прозрачнее. Цвета из обоев не меняются. "
                  "Применяется сразу и запоминается.",
@@ -4387,13 +4516,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "0 — прямые углы. Применяется сразу ко всем окнам и запоминается. "
                  "Бар, попапы и меню приложений скругляются отдельно.",
                  below=sc)
-        self.row(c, "Окно с фокусом — по центру",
+        self.row(c, "Центрировать окно в фокусе",
                  self.pill(run("python3", RIBBON_CENTER, "get") == "center",
                            lambda on: run("python3", RIBBON_CENTER, "center" if on else "fit")),
                  "Лента ставит окно с фокусом в центр экрана, соседи видны по краям — "
                  "вернулись к окну, и вид тот же. Выкл — лента сдвигается ровно настолько, "
                  "чтобы окно влезло, и вид зависит от того, откуда пришли.")
-        self.row(c, "Наведение мыши забирает фокус",
+        self.row(c, "Фокус следует за мышью",
                  self.pill(run("python3", MOUSE, "get") == "follow",
                            lambda on: run("python3", MOUSE, "follow" if on else "detached")),
                  "Выкл — наведение отдаёт окну только мышь, клавиатура остаётся на месте. "
@@ -4403,7 +4532,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # dim_inactive Hyprland, под niri они были погашены и не работали.
         # Эффект открытия/закрытия окон (02.10.2026): window_fx.py get|set pixel|off.
         wf = os.path.join(HERE, "window_fx.py")
-        self.row(c, "Эффект открытия/закрытия окон", self.segments(
+        self.row(c, "Анимация окон", self.segments(
             [("pixel", "Пиксели"), ("off", "Выкл")],
             (lambda x: x if x in ("pixel", "off") else "off")(run("python3", wf, "get")),
             lambda k: subprocess.run(["python3", wf, "set", k], capture_output=True)),
@@ -4414,9 +4543,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.section(v, "Мышь и запись", "\U000f037d")
         c = self.card(v)
         for title, script, hint in (
-                ("Встряхни мышь — найти курсор", "cursor_shake.py",
+                ("Встряхнуть мышь — найти курсор", "cursor_shake.py",
                  "Быстро подвигать мышью из стороны в сторону — курсор на миг вырастает."),
-                ("Авто «Не беспокоить» при записи экрана", "auto_dnd.py",
+                ("«Не беспокоить» во время записи", "auto_dnd.py",
                  "Пока идёт запись или демонстрация экрана, уведомления не всплывают.")):
             path = os.path.join(HERE, script)
             self.row(c, title,
@@ -4425,11 +4554,95 @@ class SettingsWindow(Gtk.ApplicationWindow):
                                    ["python3", pth, "on" if on else "off"], capture_output=True)),
                      hint, icon="\U000f037d")
 
+    # Compositor (13.10.2026, просьба пользователя; была страница Cursors): окна, отступы,
+    # рамка, размытие и скорость анимаций niri, стол дашборда. Значения niri правит
+    # niri_compositor.py: на месте, с `niri validate` и откатом, если конфиг не принят.
+    def page_compositor(self):
+        scroll, v = self.page("Compositor", "Окна, отступы, рамка, размытие и анимации niri. "
+                              "Применяется сразу.")
+        # Вид системы (13.10.2026): pixel_look.py — шрифты системы/Obsidian/Zen, «Пуск» обеих
+        # панелей, значки, подсказка раскладки разом; после применения сам проверяет каждую
+        # часть. «Смешанный» — ни одна кнопка не отмечена.
+        pl = os.path.join(HERE, "pixel_look.py")
+        self.section(v, "Вид системы", "\U000f03d8")
+        c = self.card(v)
+        self.row(c, "Шрифт и значки", self.segments(
+            [("normal", "Гладкие"), ("pixel", "Пиксельные")], run("python3", pl, "get"),
+            lambda k: run_serial(["python3", pl, "set", k])),
+                 "Меняет всё разом: шрифт системы, Obsidian и Zen, «Пуск» в баре и нижней "
+                 "панели, значки (пиксельные везде), подсказку раскладки, микшеры громкости и курсор. Обычный — "
+                 "каким он был до переключения. Не трогает kitty, обои и Telegram (его "
+                 "шрифт — в настройках чатов). Бар, панель и виджеты перезапустятся сами "
+                 "(секунд 15), открытые программы и эти Настройки — после перезапуска.",
+                 icon="\U000f03d8")
+        self.window_cards(v)
+        try:
+            cur = json.loads(run("python3", NIRI_COMPOSITOR, "get"))
+        except ValueError:
+            cur = {}
+
+        def setter(key, fmt="%d"):
+            return lambda val: subprocess.Popen(
+                ["python3", NIRI_COMPOSITOR, "set", key, fmt % val],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+        def slide(c, title, key, lo, hi, step, default, hint, suffix="", digits=0):
+            chip, sc = self.slider(lo, hi, step, cur.get(key, default),
+                                   setter(key, "%%.%df" % digits),
+                                   suffix=suffix, digits=digits)
+            self.row(c, title, chip, hint, below=sc)
+
+        self.section(v, "Раскладка", "\U000f0379")
+        c = self.card(v)
+        slide(c, "Отступы между окнами", "gaps", 0, 40, 1, 16,
+              "Зазор между соседними окнами. Отступ у краёв экрана при этом не меняется.",
+              suffix=" px")
+        # 13.10.2026, просьба: отступ от краёв — отдельно от зазора между окнами.
+        # В niri это gaps + struts; niri_compositor.py пересчитывает struts сам.
+        slide(c, "Отступы от краёв экрана", "edge", 0, 80, 1, 16,
+              "Расстояние от окон до краёв экрана и до бара — со всех четырёх сторон.",
+              suffix=" px")
+        slide(c, "Толщина рамки", "border", 0, 12, 1, 5,
+              "Цветная рамка окна с фокусом, цвет — из обоев. 0 — рамки нет. Обои "
+              "сменятся — толщина останется.", suffix=" px")
+        slide(c, "Скорость анимаций", "slowdown", 0.25, 3, 0.05, 1.0,
+              "Множитель длительности всех анимаций niri: 1 — как настроено, меньше — "
+              "быстрее, больше — медленнее.", suffix="×", digits=2)
+
+        self.section(v, "Размытие", "\U000f00b5")
+        c = self.card(v)
+        slide(c, "Проходы", "blur_passes", 1, 6, 1, 3,
+              "Сколько раз размывать. Больше — мягче и тяжелее для видеокарты.")
+        slide(c, "Радиус", "blur_offset", 0.5, 10, 0.5, 5.0,
+              "Насколько далеко растекается каждый проход.", digits=1)
+        slide(c, "Зерно", "blur_noise", 0, 0.1, 0.005, 0.01,
+              "Шум поверх размытия — убирает полосы на плавных переходах.", digits=3)
+        slide(c, "Насыщенность", "blur_saturation", 0, 3, 0.1, 1.5,
+              "Цвета под стеклом: 1 — как есть, больше — ярче, 0 — серые.", digits=1)
+
+        if NIRI:
+            # Режим дашборда (05.10.2026; с 13.10.2026 только здесь — из Applications
+            # убран: «в Настройках не должно быть копий»). Его же хранит пресет виджетов.
+            self.section(v, "Столы", "\U000f056e")
+            c = self.card(v)
+            mode = run("python3", DASHBOARD, "mode") or "terminal"
+            self.row(c, "Стол дашборда",
+                     self.segments([("off", "Выключен"), ("terminal", "Терминалы"), ("widgets", "Виджеты")],
+                                   mode if mode in ("off", "terminal", "widgets") else "terminal",
+                                   lambda k: subprocess.Popen(
+                                       ["python3", DASHBOARD, "mode", k], stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL, start_new_session=True)),
+                     "Выключен — стола дашборда нет ни в баре, ни в ленте, окна закрыты, память "
+                     "свободна. Terminal — окна kitty на экране ноутбука (часы, cava, brrt…). "
+                     "Widget — стол без окон, на нём ваши виджеты (ПКМ по обоям → Редактировать). "
+                     "Режим запоминает пресет виджетов вместе с раскладкой. SUPER+D — на стол "
+                     "дашборда.", icon="\U000f056e")
+        return scroll
+
     # Misc: снимки экрана и окна (01.10.2026, раунд 3)
     def page_misc(self):
-        scroll, v = self.page("Misc", "Снимки, окна, уведомления, питание, мышь и запись.")
+        scroll, v = self.page("Misc", "Снимки, уведомления, питание, мышь и запись.")
         self.shots_cards(v)
-        self.window_cards(v)
         self.notify_cards(v)
         self.power_cards(v)
         self.mouse_cards(v)
@@ -4440,7 +4653,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         scroll, v = self.page("Config", "Вид окна Настроек.")
         if self.look == "beta":
             self.quick_card(v)
-        # «Стиль системы» (04.10.2026, Просьба: «не нравится выбор вида для каждого окна —
+        # «Стиль системы» (04.10.2026, просьба: «не нравится выбор вида для каждого окна —
         # давай единый стиль для всей системы, разделить можно только мониторы»). Один
         # выбор раздаёт стиль всем окнам (system_style.py: Настройки, буфер обмена,
         # Recorder, «Пуск», виджеты); у виджетов по мониторам — только «Без рамок».
@@ -4498,20 +4711,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
                      "Один вид для всей системы: Настройки, буфер обмена, Recorder, меню «Пуск» "
                      "и виджеты. Обычный — в духе Windows XP, Skeet — меню gamesense, Beta — "
                      "новый плоский вид. Цвета — из обоев.")
-        # Кнопка «Пуск» в нижней панели (04.10.2026): обычная или квадратная, как у angelOS
-        # (start_menu.py button default|square). Само меню «Пуск» — в стиле монитора.
-        sm = os.path.join(HERE, "start_menu.py")
-        if os.path.exists(sm):
-            curb = run("python3", sm, "button", "get")
-            # своя группа — не в одном месте со стилем окон (04.10.2026)
-            self.section(v, "Нижняя панель", "\U000f035c")
-            pc = self.card(v)
-            self.row(pc, "Кнопка «Пуск»",
-                     self.segments([("default", "Обычная"), ("square", "Квадратная")],
-                                   curb if curb in ("default", "square") else "default",
-                                   lambda k: run_serial(["python3", sm, "button", k])),
-                     "Кнопка «Пуск» в нижней панели. Меню «Пуск» само берёт стиль монитора.",
-                     icon="\U000f035c", default="default")
         if os.path.exists(SYSSTYLE):
             self.section(v, "Виджеты на обоях", "\U000f05af")
             wc = self.card(v)
@@ -4533,7 +4732,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "по Super+/ появляются сразу; значения при показе перечитываются. "
                  "Выкл — окно закрывается насовсем, каждый запуск — с нуля.",
                  icon="\U000f04c5")
-        self.row(c, "Жёстко закрыть", self.go_button("Закрыть", self.hard_quit),
+        self.row(c, "Завершить процесс", self.go_button("Завершить", self.hard_quit),
                  "Убивает процесс Настроек целиком (SIGKILL), в том числе резидент. "
                  "Запуск заново — Super+/, «Пуск» или rofi: откроются с нуля, "
                  "с актуальными шрифтами и цветами.",
@@ -4574,7 +4773,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         go.connect("clicked", lambda _b: self.watch_next())
         entry.connect("activate", lambda _e: self.watch_next())
         no.connect("clicked", lambda _b: self.watch_cancel())
-        self.row(c, "Сторож", pill,
+        self.row(c, "Проверки «не спите?»", pill,
                  "Выключить можно только паролем и с причиной — она попадёт в журнал. "
                  "Выключается насовсем, до включения. Только на сегодня — в Discipline "
                  "(Super+Alt+F → Alarm).",
@@ -4706,7 +4905,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
              lambda: spawn("python3", os.path.join(HERE, "wallpaper_picker.py"))),
             ("\U000f050e", "Light/Dark", flip),
             ("\U000f0284", "Шрифты", lambda: self.select_page("fonts")),
-            ("\U000f01bf", "Курсор", lambda: self.select_page("cursor")),
+            ("\U000f01bf", "Курсор", lambda: self.select_page("fonts")),
             ("\U000f072c", "Расставить\nвиджеты",
              lambda: spawn("python3", os.path.join(HERE, "desktop_widgets.py"), "edit")),
         ]
@@ -4791,14 +4990,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # Меню рабочего стола в стиле XP (30.09.2026): desktop_menu.py on|off|state.
         # Строка переименована 01.10.2026, заголовок секции убран (просьба пользователя).
         dm = os.path.join(HERE, "desktop_menu.py")
-        self.row(c, "Действие на правый клик",
+        self.row(c, "Меню по правому клику на обоях",
                  self.pill(run("python3", dm, "state") == "on",
                            lambda on: subprocess.run(["python3", dm, "on" if on else "off"],
                                                      capture_output=True)),
                  "Правый щелчок по пустым обоям — меню как в Windows XP: частые программы, "
                  "создать/открыть, обои, терминал, экранное время. Выкл — убирается совсем.")
         # Вид этого меню (01.10.2026): desktop_menu.py style [xp|classic].
-        self.row(c, "Вид меню", self.segments(
+        self.row(c, "Вид меню ПКМ", self.segments(
             [("xp", "XP"), ("classic", "Прежний")],
             (lambda v: v if v in ("xp", "classic") else "xp")(run("python3", dm, "style")),
             lambda k: subprocess.run(["python3", dm, "style", k], capture_output=True)),
@@ -4860,7 +5059,18 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "когда курсор доходит до нижнего края. По Super+S — появляется и прячется "
                  "только по сочетанию клавиш. Super+S работает в любом режиме. Если в «Показе "
                  "панелей» снято «На всех мониторах» — режим у каждого монитора свой, там.")
-        # 07.10.2026, Просьба: «что делает „Появление“, если сверху оно уже есть, разделённое на
+        # Кнопка «Пуск» XP-панели (04.10.2026, как у angelOS; start_menu.py button
+        # default|square). До 13.10.2026 жила на странице Config — перенесена к самой панели.
+        sm = os.path.join(HERE, "start_menu.py")
+        if os.path.exists(sm):
+            curb = run("python3", sm, "button", "get")
+            self.row(xcard, "Кнопка «Пуск»",
+                     self.segments([("default", "Обычная"), ("square", "Квадратная")],
+                                   curb if curb in ("default", "square") else "default",
+                                   lambda k: run_serial(["python3", sm, "button", k])),
+                     "Кнопка «Пуск» слева в XP-панели. Меню «Пуск» само берёт стиль монитора.",
+                     icon="\U000f035c", default="default")
+        # 07.10.2026, просьба: «что делает „Появление“, если сверху оно уже есть, разделённое на
         # два монитора?» — в раздельном режиме общее не действует, поэтому прячется (как общие
         # ряды «Показа панелей»); галочка «На всех мониторах» показывает его обратно.
         self.bottom_glob = [show_row]
@@ -4875,7 +5085,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # Зазор между окнами и панелью (01.10.2026) — когда панель отодвигает окна:
         # «всегда» и «по Super+S». Выезжающая при наведении окна не двигает.
         gbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.row(gbox, "Окна и панель",
+        self.row(gbox, "Окна у панели",
                  self.segments([("on", "С зазором"), ("off", "Вплотную")],
                                run("python3", BOTTOM_BAR, "gap"),
                                lambda k: run_serial(["python3", BOTTOM_BAR, "gap", k])),
@@ -4897,7 +5107,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # Свой синхронный текст (06.10.2026, lyrics_sync.py): песни без него записываются и
         # разбираются Whisper на видеокарте; флаг state/lyrics-sync-off.
         lsync = os.path.join(HERE, "lyrics_sync.py")
-        self.row(xcard, "Тексты — дописывать самим",
+        self.row(xcard, "Распознавать тексты песен",
                  self.pill(not os.path.exists(os.path.expanduser("~/.config/hypr/state/lyrics-sync-off")),
                            lambda on: subprocess.run(["python3", lsync, "on" if on else "off"],
                                                      capture_output=True)),
@@ -4968,31 +5178,23 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # (chrome/crt.css). Переключается на лету через `zen-crt` — без перезапуска.
         self.section(v, "Браузер Zen", "\U000f059f")
         c = self.card(v)
-        self.row(c, "ЭЛТ-монитор в Zen", self.pill(run("zen-crt", "status") == "on",
+        self.row(c, "ЭЛТ-эффект в Zen", self.pill(run("zen-crt", "status") == "on",
                                                   lambda on: run("zen-crt", "on" if on else "off")),
                  "Строки развёртки, маска люминофора, виньетка и тёмная кромка поверх "
                  "всего окна Zen — как ЭЛТ у kitty, но без выпуклости (в браузере её не "
                  "сделать). Включается и выключается сразу, без перезапуска браузера.")
-        if NIRI:
-            self.section(v, "Дашборд", "\U000f056e")
-            c = self.card(v)
-            # Режим дашборда (05.10.2026). Три режима, применяется сразу; его же хранит пресет
-            # виджетов («пресет = вся сцена», решение пользователя). Прежние строки «Дашборд при
-            # входе», «Применить режим сейчас» и «Взять с этого стола» убраны: «Выключен»
-            # заменяет первую, режим применяется сам, виджеты стола дашборда — обычные виджеты.
-            def dash_mode_set(k):
-                subprocess.Popen(["python3", DASHBOARD, "mode", k], stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, start_new_session=True)
-            mode = run("python3", DASHBOARD, "mode") or "terminal"
-            self.row(c, "Dashboard mode",
-                     self.segments([("off", "Выключен"), ("terminal", "Terminal"), ("widgets", "Widget")],
-                                   mode if mode in ("off", "terminal", "widgets") else "terminal",
-                                   dash_mode_set),
-                     "Выключен — стола дашборда нет, окна закрыты, память свободна. Terminal — "
-                     "окна kitty на экране ноутбука (часы, cava, brrt…). Widget — стол без окон, "
-                     "на нём ваши виджеты: расставьте их прямо там (ПКМ по обоям → Редактировать). "
-                     "Режим запоминает пресет виджетов вместе с раскладкой. SUPER+D — на стол дашборда.",
-                     icon="\U000f056e")
+        # Steam (13.10.2026, просьба: «убери SpaceTheme из Steam. Добавь в Настройки
+        # переключатель на странице Applications»). steam_space.py on|off|get.
+        self.timer_sound_card(v)
+        self.section(v, "Steam", "\U000f04d3")
+        c = self.card(v)
+        self.row(c, "Тема SpaceTheme",
+                 self.pill(run("python3", os.path.join(HERE, "steam_space.py"), "get") == "on",
+                           lambda on: run("python3", os.path.join(HERE, "steam_space.py"),
+                                          "on" if on else "off")),
+                 "Тема Millennium SpaceTheme в цветах обоев. Выкл — прежняя JarvisPixel. "
+                 "Steam увидит смену после перезапуска; если он был открыт, Millennium "
+                 "может вернуть старую тему — тогда переключить ещё раз при закрытом Steam.")
         self.section(v, "Карточки на столе", "\U000f0639")
         c = self.card(v)
         self.row(c, "Окно памяти", self.place_combo(APPMEM_POPUP),
@@ -5025,7 +5227,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         kbd = kbd_light_get()
         if kbd is not None:
             kchip, ksc = self.slider(0, 100, 5, kbd, kbd_light_set, suffix="%")
-            self.row(c, "Подсветка клавиатуры ноутбука", kchip,
+            self.row(c, "Подсветка ноутбука", kchip,
                      "Встроенная подсветка клавиш. Цвет следует за обоями (kbd_colors.py), "
                      "здесь — только яркость. 0 — погашена.", below=ksc)
         rz_chip, rz_sc = self.slider(0, 100, 5, last_number(RAZER_LAST, 100),
@@ -5151,7 +5353,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             def dw_run(*a):
                 subprocess.Popen(["python3", dw, *a], stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL, start_new_session=True)
-            self.row(c, "Виджеты на обоях",
+            self.row(c, "Показывать виджеты",
                      self.pill(run("python3", dw, "status") == "on",
                                lambda on: subprocess.run(["python3", dw, "on" if on else "off"],
                                                          capture_output=True)),
@@ -5178,13 +5380,71 @@ class SettingsWindow(Gtk.ApplicationWindow):
             # Перенос на другой монитор (08.10.2026, «если будут другие планы — отключать»):
             # style guests on|off. Выкл — clock/player/sysmon остаются на своём
             # мониторе, даже когда их закрыло окно или полный экран. Сторож видит сразу.
-            self.row(c, "Уходить на другой монитор",
+            self.row(c, "Уходить из-под окон",
                      self.pill(run("python3", dw, "style", "guests") == "on",
                                lambda on: dw_style("guests", "on" if on else "off")),
-                     "Окно закрыло часы, плеер или монитор ресурсов на MSI хотя бы на "
-                     "пятую часть (или полный экран) — они переезжают на ноутбук. Выкл — "
-                     "остаются на месте под окном.",
+                     "Окно закрыло виджеты на MSI хотя бы на пятую часть (или полный экран) — "
+                     "отмеченные ниже переезжают на ноутбук. Выкл — все остаются под окном.",
                      icon="\U000f0379")
+            # Кто переезжает (13.10.2026, просьба: «выбирать, какие виджеты мы будем
+            # переносить, а какие нет»): guest json — виджеты не на ноутбуке; галочка —
+            # guest ИМЯ auto (свободное место на ноутбуке ищется само, потом его можно
+            # перетащить мышью в гостях) или guest ИМЯ off.
+            # 13.10.2026 (позже), просьба: «не статичный список, а чтобы я сам добавлял виджеты,
+            # которые будут переезжать, и удалял, если не нужен». В списке — только переезжающие,
+            # у каждого «убрать»; ниже «Добавить виджет» — меню из остальных виджетов не с ноутбука.
+            # Тот же guest ИМЯ auto|off; список перестраивается на месте.
+            gbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            c.pack_start(gbox, False, False, 0)
+            gpage = self._building
+
+            def guest_label(gw):
+                return gw["exe"] + ("" if gw["name"] == gw["type"] or gw["name"].startswith("d-")
+                                    or gw["name"].rstrip("0123456789") == gw["type"]
+                                    else " · " + gw["name"])
+
+            def guest_fill():
+                old = set(gbox.get_children())
+                self._rows[:] = [r for r in self._rows if r[1] not in old]
+                for ch in old:
+                    ch.destroy()
+                try:
+                    guests = json.loads(run("python3", dw, "guest", "json") or "[]")
+                except ValueError:
+                    guests = []
+                was, self._building = self._building, gpage
+
+                def guest_set(name, on):
+                    subprocess.run(["python3", dw, "guest", name, "auto" if on else "off"],
+                                   capture_output=True)
+                    GLib.idle_add(guest_fill)
+                for gw in [g for g in guests if g["guest"]]:
+                    rm = Gtk.Button(label="убрать")
+                    rm.get_style_context().add_class("seg")
+                    rm.set_relief(Gtk.ReliefStyle.NONE)
+                    rm.connect("clicked", lambda _b, n=gw["name"]: guest_set(n, False))
+                    self.row(gbox, "Переезжает: " + guest_label(gw), rm,
+                             "Виджет с %s уходит на ноутбук, когда его закрывают окна. Место — "
+                             "свободное, ближе к тому же углу; перетаскивается мышью. "
+                             "«убрать» — остаётся под окном." % gw["output"],
+                             icon="\U000f0379")
+                rest = [g for g in guests if not g["guest"]]
+                btn, lbl, menu = self.menu_button(260)
+                lbl.set_text("выбрать…" if rest else "все уже переезжают")
+                for gw in rest:
+                    it = Gtk.MenuItem(label=guest_label(gw))
+                    it.connect("activate", lambda _i, n=gw["name"]: guest_set(n, True))
+                    menu.append(it)
+                menu.show_all()
+                btn.set_sensitive(bool(rest))
+                self.row(gbox, "Добавить переезжающий виджет", btn,
+                         "Виджеты не с ноутбука, которые пока остаются под окнами. Выбранный "
+                         "начнёт уходить на ноутбук, когда его закроет окно.",
+                         icon="\U000f0415")
+                self._building = was
+                gbox.show_all()
+                return False
+            guest_fill()
             # Тень (03.10.2026): desktop_widgets.py style shadow → on|off, запись — 1|0.
             self.row(c, "Тень у виджетов",
                      self.pill(run("python3", dw, "style", "shadow") == "on",
@@ -5248,14 +5508,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
                      icon="\U000f0150")
             ochip, osc = self.slider(0, 100, 5, dw_num("opacity", 62), lambda v: dw_style("opacity", int(v)),
                                      suffix="%")
-            self.row(c, "Плотность фона", ochip,
+            self.row(c, "Фон виджетов", ochip,
                      "100 — фон почти сплошной, 0 — обои видны как есть. Работает при прозрачном фоне.",
                      below=osc, icon="\U000f05b0")
             bchip, bsc = self.slider(0, 40, 2, dw_num("blur", 16), lambda v: dw_style("blur", int(v)))
             self.row(c, "Размытие под виджетом", bchip,
                      "Сила размытия обоев под плашкой; 0 — без размытия.",
                      below=bsc, icon="\U000f00b5")
-            self.row(c, "Анимация под окнами",
+            self.row(c, "Двигаться под окнами",
                      self.pill(run("python3", dw, "style", "under") == "on",
                                lambda on: dw_style("under", "on" if on else "off")),
                      "Вкл — виджеты двигаются и под окнами. Выкл — закрытый окном виджет замирает "
@@ -5266,7 +5526,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                      icon="\U000f01be")
             # Выключатель, а не кнопка: по кнопке «Показать / убрать» не было видно, включено
             # ли сейчас (02.10.2026). Состояние — desktop_widgets.py peek status.
-            self.row(c, "Показать поверх окон",
+            self.row(c, "Поверх окон",
                      self.pill(run("python3", dw, "peek", "status") == "on",
                                lambda on: subprocess.run(["python3", dw, "peek", "on" if on else "off"],
                                                          capture_output=True)),
@@ -5327,7 +5587,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             engine_on = open(engine_file).read().strip() == "jarvis"
         except OSError:
             engine_on = False
-        self.row(c, "Экран блокировки — свой (с обводкой кнопок)", self.pill(engine_on, engine_set),
+        self.row(c, "Свой экран блокировки", self.pill(engine_on, engine_set),
                  "Свой экран: кнопки питания подсвечиваются под указателем. Пароль — тот же "
                  "PAM, что у hyprlock. Не запустился или упал — сразу hyprlock. Стили выше "
                  "относятся к hyprlock. Выкл — hyprlock, как раньше.")
@@ -5402,17 +5662,17 @@ class SettingsWindow(Gtk.ApplicationWindow):
         if self.night_pill.get_active():
             night_set(True, val)
 
-    def page_cursor(self):
-        """Выбор курсора (28.09.2026): Jarvis в цветах обоев, «галька» в четырёх цветах, Breeze."""
-        scroll, v = self.page("Cursors", "Щелчок по плитке меняет курсор сразу, везде.")
+    def cursor_cards(self, v):
+        """Выбор курсора (28.09.2026): Jarvis в цветах обоев, «галька» в четырёх цветах, Breeze.
+        С 13.10.2026 — на странице Design (была своя страница Cursors)."""
         spec = importlib.util.spec_from_file_location("cursor_theme", CURSOR_THEME)
         ct = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(ct)
         self._cursor_theme = ct
         self.section(v, "Тема курсора", "\U000f01bf")
         c = self.card(v)
-        self.row(c, "Какой курсор", hint="Jarvis, Галька и Yamikai перекрашиваются под обои сами. Остальные "
-                 "держат свой цвет при любых обоях.",
+        self.row(c, "Какой курсор", hint="Щелчок по плитке меняет курсор сразу, везде. Jarvis, Галька "
+                 "и Yamikai перекрашиваются под обои сами. Остальные держат свой цвет при любых обоях.",
                  below=self.tiles([(k, label) for k, label, _ in ct.THEMES], ct.current(),
                                   self.draw_cursor_look,
                                   lambda k: subprocess.Popen(
@@ -5420,7 +5680,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                       start_new_session=True),
                                   per_row=4, height=44))
-        return scroll
 
     def draw_cursor_look(self, cr, w, h, key, pal):
         """Плитка темы курсора: стрелка, рука, текст и ожидание из самих файлов темы."""
@@ -5469,7 +5728,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "Процессор работает тише и медленнее — батареи хватает дольше.")
         # Что открывает кнопка питания в баре (01.10.2026): power_view.py get|set.
         pv = os.path.join(HERE, "power_view.py")
-        self.row(c, "Меню питания (кнопка в баре)", self.segments(
+        self.row(c, "Меню питания", self.segments(
             [("wlogout", "wlogout"), ("jarvis", "Свой")],
             (lambda v: v if v in ("wlogout", "jarvis") else "wlogout")(run("python3", pv, "get")),
             lambda k: subprocess.run(["python3", pv, "set", k], capture_output=True)),
@@ -5504,7 +5763,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def notify_cards(self, v):
         """Уведомления (была страница Notifications; с 02.10.2026 — в Misc)."""
-        # Звук и микрофон (04.10.2026, Просьба: «отдельно настройки звука/микрофона; понравилась
+        # Звук и микрофон (04.10.2026, просьба: «отдельно настройки звука/микрофона; понравилась
         # фича — нажать кнопку и услышать себя; и чтобы сверху была иконка, что микрофон
         # используется»). mic_monitor.py; значок «микрофон занят» в баре даёт privacy_status.
         mm = os.path.join(HERE, "mic_monitor.py")
@@ -5577,14 +5836,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
                      "Своя громкость звука «пришло уведомление» — не зависит от громкости звуков интерфейса. "
                      "Звуки самих программ (Telegram) — в их настройках.",
                      below=sc, icon="\U000f009a")
-        # Своя группа (04.10.2026, Просьба: «набор звуков и уведомления — отдели»)
+        # Своя группа (04.10.2026, просьба: «набор звуков и уведомления — отдели»)
         self.section(v, "Звуки интерфейса", "\U000f057e")
         c = self.card(v)
         sp = self.pill(have and run("python3", us, "status") == "on",
                        lambda on: subprocess.run(["python3", us, "on" if on else "off"],
                                                  capture_output=True))
         sp.set_sensitive(have)
-        self.row(c, "Звуки интерфейса", sp,
+        self.row(c, "Звуки включены", sp,
                  "Короткие звуки на действия оболочки." + ("" if have else " Скрипт ui_sound.py "
                                                            "ещё не установлен."),
                  icon="\U000f057e")
@@ -5650,66 +5909,78 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  " ".join("%s — %s" % (t, h) for _k, t, h in EDITORS))
 
     def page_fonts(self):
-        scroll, v = self.page("Fonts", "Список — шрифты с кириллицей, что стоят в системе. Не понравится — верните здесь же.")
+        scroll, v = self.page("Design", "Шрифты и курсор. Список шрифтов — с кириллицей, что стоят в системе. Не понравится — верните здесь же.")
         self.section(v, "Система", "\U000f06d6")
         c = self.card(v)
+        # «Пиксельный шрифт» (pixel_mode.py) убран 13.10.2026: менял только шрифт оболочки —
+        # весь вид переключает «Вид системы» на странице Compositor (pixel_look.py).
         self.row(c, "Шрифт системы", self.font_combo("system"),
                  "Бар, попапы, лаунчер, экран блокировки, Настройки и программы. Бар "
                  "перезапускается сразу, открытые программы — после перезапуска. "
                  "Значки остаются на месте.")
         # Подгонка размеров под Cozette (08.10.2026): cozette_fit.py on|off.
         fit = os.path.join(HERE, "cozette_fit.py")
-        self.row(c, "Подгонка размеров под Cozette", self.pill(
+        self.row(c, "Размеры под Cozette", self.pill(
             run("python3", fit, "status") == "on",
             lambda on: subprocess.Popen(["python3", fit, "on" if on else "off"],
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)),
                  "Cozette мельче PxPlus (13 px против 16), и кнопки рядом с ним казались "
-                 "пустыми. Вкл — капсулы бара ниже и плотнее, поля попапов и виджет "
+                 "пустыми. Вкл — капсулы бара ниже и плотнее, поля попапов "
                  "в ту же меру. Выкл — размеры как до подгонки. При PxPlus "
                  "ничего не меняет. Бар и виджеты перезапускаются сразу, попапы — со "
                  "следующего открытия.")
-        self.section(v, "Приложения", "\U000f0614")
+        # 13.10.2026, просьба: «здесь настройки буквально сжаты друг в друга. Раздели их
+        # немного, чтобы свободнее чувствовалось» — одна карточка «Приложения» на семь
+        # строк разбита по программам (бэкап settings_app.py.bak-fontgroups).
+        self.section(v, "Obsidian", "\U000f0614")
         c = self.card(v)
-        self.row(c, "Obsidian", self.font_combo("obsidian"),
+        self.row(c, "Шрифт", self.font_combo("obsidian"),
                  "Заметки и интерфейс темы Jarvis, меняется сразу. «Как в Obsidian» — "
                  "шрифт по умолчанию. Если шрифт выбран в Style Settings, тот главнее.")
-        self.row(c, "Терминал kitty", self.font_combo("kitty"),
+        self.section(v, "Терминал kitty", "\U000f018d")
+        c = self.card(v)
+        self.row(c, "Шрифт", self.font_combo("kitty"),
                  "Шрифт новых окон. «Как было» — Noto Sans Mono: им терминал "
                  "рисовал до Hack. Список — все моноширинные шрифты с кириллицей, "
                  "что стоят в системе.")
-        self.row(c, "Менять и в открытых окнах", self.pill(
+        self.row(c, "Применять и к открытым окнам", self.pill(
             run("python3", APP_FONTS, "scope") == "all", self.set_kitty_scope),
                  "Выключено — открытые терминалы остаются как есть, шрифт меняется "
                  "только в новых. Включено — все окна перечитывают конфиг сразу: "
                  "размер шрифта сохраняется, но ширина клетки у другого шрифта своя, "
                  "и подогнанные руками размеры окон съезжают.")
-        self.row(c, "LibreWolf: навязывать шрифт сайтам", self.pill(
+        self.section(v, "Шрифт системы на сайтах", "\U000f059f")
+        c = self.card(v)
+        self.row(c, "LibreWolf", self.pill(
             run("python3", APP_FONTS, "lwfonts") == "on", self.set_lw_fonts),
                  "То же, что у Zen, только через его собственный overrides.cfg — он "
                  "действует на все профили сразу. Включено — сайты рисуются шрифтом "
                  "системы; выключено — своим. Применяется при следующем запуске браузера.")
-        self.row(c, "Helium: навязывать шрифт сайтам", self.pill(
+        self.row(c, "Helium", self.pill(
             run("python3", APP_FONTS, "hefonts") == "on", self.set_he_fonts),
                  "В Chromium настройки шрифтов действуют только на страницы без своих "
                  "шрифтов, поэтому здесь работает маленькое расширение (оно всегда "
                  "подключено, а выключенный переключатель просто очищает его стиль). "
                  "Семейства с «icon» в имени не трогаются — иначе вместо значков буквы. "
                  "Применяется при следующем запуске браузера.")
-        self.row(c, "Браузер Zen", self.font_combo("zen"),
+        self.section(v, "Браузер Zen", "\U000f059f")
+        c = self.card(v)
+        self.row(c, "Шрифт", self.font_combo("zen"),
                  "Интерфейс Zen и, при включённом «навязывать», сайты. «Как в "
                  "системе» — шрифт системы. Действует после перезапуска Zen.")
-        self.row(c, "Zen: навязывать шрифт сайтам", self.pill(
+        self.row(c, "Этот шрифт и на сайтах", self.pill(
             run("python3", APP_FONTS, "zenfonts") == "on", self.set_zen_fonts),
                  "Выключено — сайты со своим шрифтом (чат YouTube и прочие рамки) "
                  "рисуют им же. Включено — ваш шрифт встаёт везде, но сайты, у "
                  "которых значки нарисованы шрифтом, покажут вместо них буквы. "
                  "Действует после перезапуска Zen.")
-        self.section(v, "Проба", "\U000f018d")
+        self.section(v, "Пробный терминал", "\U000f018d")
         c = self.card(v)
-        self.row(c, "Терминал на Super+`", self.font_combo("termalt"),
+        self.row(c, "Шрифт окна Super+`", self.font_combo("termalt"),
                  "Отдельное окно этим шрифтом. Шрифт уходит kitty аргументом — "
                  "ни конфиг, ни открытые терминалы не трогаются. Посмотреть, "
                  "не меняя ничего в системе.")
+        self.cursor_cards(v)
         return scroll
 
     def place_combo(self, script):

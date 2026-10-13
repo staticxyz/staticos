@@ -175,7 +175,7 @@ import lyrics_bar as LB  # noqa: E402
 from PIL import Image  # noqa: E402
 
 H = 32                   # высота панели, как у верхнего бара
-TASK_W = 136             # ширина кнопки окна — наибольшая (было 176; 05.10.2026, Просьба: «чтобы больше вмещалось»)
+TASK_W = 136             # ширина кнопки окна — наибольшая (было 176; 05.10.2026, просьба: «чтобы больше вмещалось»)
 TASK_MIN = 90            # окон много — кнопки сжимаются до этой ширины, дальше прокрутка (было 110)
 GLUE_SHOW = 4            # «вплотную»: сколько пикселей нижней рамки окна видно над панелью (2 → 4, 04.10.2026: «рамки вообще не вижу»)
 LYR_W = 470              # место под текст песни справа — постоянное, панель не пляшет
@@ -184,11 +184,11 @@ PREVIEW = 0.4            # строка появляется раньше, че�
                          # (0.8 — «переборщил со скоростью», 01.10.2026)
 PAUSE_HIDE_S = 30        # текст песни прячется, если пауза дольше
 HIDE_MS = 600            # режим «при наведении»: курсор ушёл — через столько спрятать
-FONT = "'PxPlus HP 100LX 6x8 Jarvis', 'JetBrainsMono NF', monospace"
-# Подписи окон и трей — 12 px, как было до сведения к сетке (05.10.2026, Просьба: «раньше было
+FONT = "'JetBrainsMono Nerd Font', 'JetBrainsMono NF', monospace"
+# Подписи окон и трей — 12 px, как было до сведения к сетке (05.10.2026, просьба: «раньше было
 # мельче», «эстетичность, но пиксельность»). Оригинальное имя шрифта (без «Jarvis»): правило
 # fontconfig 62-pxplus-grid-trial (12 → 16) его не трогает.
-FONT12 = "'PxPlus HP 100LX 6x8', 'PxPlus HP 100LX 6x8 Jarvis', monospace"
+FONT12 = "'JetBrainsMono Nerd Font', 'JetBrainsMono Nerd Font', monospace"
 NERD = "'Symbols Nerd Font', 'JetBrainsMono NF'"
 HIDDEN_APPS = ("dash-",)
 LB.MAX_LEN = LYRICS_MAX
@@ -270,7 +270,7 @@ button.ws.active {
     border-color: %(f_border)s; box-shadow: inset 1px 1px 2px alpha(black, 0.6);
 }
 button.ws.empty { color: alpha(%(text)s, 0.5); }
-/* Стол в фокусе — светлая плашка акцента, даже ПУСТОЙ (05.10.2026, Просьба: «перешёл на
+/* Стол в фокусе — светлая плашка акцента, даже ПУСТОЙ (05.10.2026, просьба: «перешёл на
    пустой стол — непонятно, где фокус»). Раньше было только цветом текста, и правило
    .empty (тусклый текст) его перебивало. */
 button.ws.focused, button.ws.focused.empty {
@@ -323,7 +323,7 @@ button.xptray-item {
 button.xptray-item:hover { border-color: %(tr_light)s; background-color: alpha(%(primary)s, 0.18); }
 .tray label.glyph { font-family: %(nerd)s; font-size: 14px; }
 .tray label.clock { font-size: 12px; }
-/* Раскладка — как индикатор языка в трее Windows XP (05.10.2026, Просьба: «стали больше,
+/* Раскладка — как индикатор языка в трее Windows XP (05.10.2026, просьба: «стали больше,
    хочу как в Windows — помельче и в своей маленькой рамке»): родной кегль шрифта 8 px
    (чёткий), квадратик тонами «Пуска» со светлой кромкой. */
 .tray label.lang {
@@ -815,7 +815,7 @@ class LangBadge(Gtk.DrawingArea):
         fo = cairo.FontOptions()
         fo.set_antialias(cairo.ANTIALIAS_NONE)
         PangoCairo.context_set_font_options(lay.get_context(), fo)
-        lay.set_font_description(Pango.FontDescription("PxPlus HP 100LX 6x8 8px"))
+        lay.set_font_description(Pango.FontDescription("JetBrainsMono Nerd Font 8px"))
         lay.set_text(self.text, -1)
         tw, th = lay.get_pixel_size()
         cr.set_source_rgb(*rgb("on_surface", "#e1e1ef"))
@@ -1058,7 +1058,7 @@ class Lyrics(LB.App):
             key = p.track_key()
             # Песню на паузе показываем, только если панель видела, как она играла:
             # иначе каждый перезапуск панели выводил на 30 с текст давно остановленного
-            # трека (06.10.2026, Просьба: «показывать, только когда трек включён»).
+            # трека (06.10.2026, просьба: «показывать, только когда трек включён»).
             if getattr(self, "played_key", None) != key:
                 self.emit({"text": ""})
                 return None
@@ -1137,7 +1137,7 @@ def short_layout(name):
 
 
 # ── плашка системного трея (значки программ) ─────────────────────────────
-# 01.10.2026, Просьба: «иконку, по нажатию на которую открывается маленькая плашка с
+# 01.10.2026, просьба: «иконку, по нажатию на которую открывается маленькая плашка с
 # треем (в стиле XP), компактно». Значки берём у того же наблюдателя, что и бар
 # (org.kde.StatusNotifierWatcher): свойства значка — org.kde.StatusNotifierItem,
 # меню — com.canonical.dbusmenu. ЛКМ — Activate, ПКМ — меню программы.
@@ -1499,7 +1499,7 @@ class Tray(Gtk.Box):
         if e.button != 3:
             return
         # Фокус на монитор — только если он сейчас на другом: focus-monitor ставит курсор
-        # в центр монитора (05.10.2026, Просьба: «курсор прыгает в центр, не трогай»).
+        # в центр монитора (05.10.2026, просьба: «курсор прыгает в центр, не трогай»).
         try:
             cur = json.loads(subprocess.run(["niri", "msg", "-j", "focused-output"],
                                             capture_output=True, text=True, timeout=1).stdout or "{}")
@@ -1724,6 +1724,7 @@ def prewarm_menus():
             print("xpbar: start menu: %r" % e, file=sys.stderr)
     return False
 VISIBLE_FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "xpbar-visible")
+SHOWN_FILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "xpbar-shown")
 
 
 def update_visible_flag():
@@ -1741,6 +1742,22 @@ def update_visible_flag():
                 f.write("%d\n" % max(0, over))
         elif os.path.exists(VISIBLE_FLAG):
             os.remove(VISIBLE_FLAG)
+    except OSError:
+        pass
+    # На каких мониторах панель выдвинута и держит место (не «при наведении») — для
+    # виджетов на обоях: по Super+S они отодвигаются от панели вместе с окнами
+    # (13.10.2026, пользователь). Пишем только при изменении — desktop_widgets следит за файлом.
+    outs = sorted(b.connector for b in BARS if getattr(b, "shown_now", False) and b.mode != "hover")
+    txt = " ".join(outs) + "\n"
+    try:
+        if open(SHOWN_FILE).read() == txt:
+            return
+    except OSError:
+        pass
+    try:
+        with open(SHOWN_FILE + ".tmp", "w") as f:
+            f.write(txt)
+        os.replace(SHOWN_FILE + ".tmp", SHOWN_FILE)
     except OSError:
         pass
 
@@ -1786,7 +1803,7 @@ class XPBar(Gtk.Window):
         else:
             # «Всегда» / «По кнопке»: окно всегда высотой с панель, панель — у его низа.
             # Пока она выезжает (Super+S), окно уже на экране и полной высоты: кадры
-            # анимации идут, и окну не бывает нулевой высоты (06.10.2026, Просьба: «на
+            # анимации идут, и окну не бывает нулевой высоты (06.10.2026, просьба: «на
             # MSI она просто резко появляется», хотелось как при наведении).
             col.set_size_request(-1, H)
             self.rev.set_valign(Gtk.Align.END)
@@ -1961,7 +1978,7 @@ class XPBar(Gtk.Window):
     def flush(self, on):
         """«При наведении»: пока панель показана, окно опущено на 2 px за край экрана —
         полоска-датчик под панелью уходит за край, и между панелью и краем не видно
-        обоев (06.10.2026, Просьба: «маленький зазор, где виднеется часть обоев»)."""
+        обоев (06.10.2026, просьба: «маленький зазор, где виднеется часть обоев»)."""
         if self.mode == "hover":
             GtkLayerShell.set_margin(self, GtkLayerShell.Edge.BOTTOM, -2 if on else 0)
 

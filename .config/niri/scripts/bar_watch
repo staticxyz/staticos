@@ -113,11 +113,37 @@ def waybar_connected():
             owners[local_inode] = m.group(1) if m else ""   # сокеты waybar → его pid
     connected = {owners[i] for i in peers if i in owners}
     # Панели по мониторам (06.10.2026): баров этого сеанса может быть несколько — связь
-    # с niri нужна каждому. Один бар — как раньше: есть связь хоть у одного.
+    # с niri нужна каждому, У КОГО ОНА ВООБЩЕ БЫВАЕТ. 13.10.2026: бар ноутбука со столами
+    # внизу (модулей niri нет) или бар выключенного монитора соединения не держит, а
+    # проверка требовала его от всех — 12.10 бар перезапускался каждые 22 с (134 раза
+    # за час; Просьба: «waybar на левом мониторе исчезает и заново появляется»).
     mine = session_waybar_pids()
     if len(mine) > 1:
-        return all(p in connected for p in mine)
+        need = [p for p in mine if pid_needs_niri(p)]
+        return all(p in connected for p in need)
     return bool(connected)
+
+
+def pid_needs_niri(pid):
+    """Должен ли этот waybar держать соединение с niri: в его конфиге (-c) есть модули
+    niri/*, и его монитор (поле "output") сейчас включён."""
+    try:
+        argv = open("/proc/%s/cmdline" % pid, "rb").read().decode(errors="replace").split("\0")
+        cfg = argv[argv.index("-c") + 1] if "-c" in argv else \
+            os.path.expanduser("~/.config/waybar/config-niri.jsonc")
+        text = re.sub(r"//[^\n]*", "", open(cfg).read())
+    except (OSError, ValueError, IndexError):
+        return True
+    lists = re.findall(r'"modules(?:-left|-center|-right)?"\s*:\s*\[([^\]]*)\]', text)
+    if not any('"niri/' in l for l in lists):
+        return False
+    m = re.search(r'"output"\s*:\s*(\[[^\]]*\]|"[^"]*")', text)
+    if m:
+        want = set(re.findall(r'"([^"]+)"', m.group(1)))
+        on = enabled_outputs()
+        if on is not None and not (want & on):
+            return False
+    return True
 
 
 def bar_uses_niri():

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Окно проверки «не спите?» и окно звонка будильника — во весь экран, на всех мониторах.
 
-08.10.2026, Просьба: «выключить будильник кнопкой можно в полусне — пусть надо набрать текст,
+08.10.2026, просьба: «выключить будильник кнопкой можно в полусне — пусть надо набрать текст,
 чтобы чуть задумался. Раскладку менять самому, но она должна быть видна. Один неверный
 символ — дальше не пускать». Поэтому:
   * фраза из набора (русские, английские и смешанные — раскладку иногда надо переключить),
@@ -28,7 +28,7 @@ from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 
-FONT = "PxPlus HP 100LX 6x8 Jarvis"
+FONT = "JetBrainsMono Nerd Font"
 LAYOUT_SHORT = {"English (US)": "EN", "Russian": "RU"}
 
 
@@ -118,12 +118,7 @@ def draw(cr, w, h, st, c):
     p.text(cx, y, st["head"], c["acc"] if not ring else c["err"], 16, "c")
     y += 32
     p.text(cx, y, st["clock"], c["acc_l"] if ring else c["text"], big, "c")
-    y += big + 28
-    p.text(cx, y, st["title"], c["text"], 24, "c")
-    y += 40
-    if st.get("sub"):
-        p.text(cx, y, st["sub"], c["dim"], 16, "c")
-    y += 52
+    y += big + 56
 
     # фраза: по клеткам, набранное — акцентом, курсор — рамка, ошибка — красная клетка
     phrase, typed = st["phrase"], st["typed"]
@@ -164,13 +159,10 @@ def draw(cr, w, h, st, c):
         p.text(cx, y, "%d из %d" % (typed, len(phrase)), c["faint"], 16, "c")
     y += 44
 
-    # раскладка — крупно, видно во время набора
+    # раскладка — крупно, видно во время набора (без подписи "раскладка")
     lay = st.get("layout") or "?"
     lw, lh = p.size(lay, 24)
-    tw = p.size("раскладка", 16)[0]
-    bx = round(cx - (tw + 16 + lw + 24) / 2)
-    p.text(bx, y + 4, "раскладка", c["dim"], 16)
-    px0 = bx + tw + 16
+    px0 = round(cx - (lw + 24) / 2)
     p.rect(px0, y - 4, lw + 24, lh + 8, c["acc"] if lay == "RU" else c["acc_d"])
     p.text(px0 + 12, y, lay, c["bg"] if lay == "RU" else c["text"], 24)
     y += lh + 44
@@ -241,6 +233,8 @@ class Overlay:
     def open(self):
         LS = self.LS
         display = Gdk.Display.get_default()
+        if display is None:
+            raise RuntimeError("нет экрана (WAYLAND_DISPLAY)")
         mons = [display.get_monitor(i) for i in range(display.get_n_monitors())] or [None]
         for mon in mons:
             win = Gtk.Window(title="Будильник")
@@ -340,7 +334,7 @@ def shot(path, args):
               steps=[("ok", "10:55"), ("wait" if mode == "check" else "fail", "11:10"),
                      ("wait", "11:20"), ("wait", "11:30")],
               cur=1, clock=kv.get("clock", "11:08"),
-              tg="или ответом на пример в Telegram")
+              tg="или кодом из Telegram")
     draw(cr, w, h, st, theme())
     surf.write_to_png(path)
     print(path)

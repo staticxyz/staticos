@@ -16,6 +16,13 @@ from audio_names import stream_name  # noqa: E402,F401
 
 
 class VolumePopup(Gtk.Window):
+    def _exit(self):
+        try:
+            popup_theme.animate_close(getattr(self, 'revealer', None), lambda: sys.exit(0))
+        except Exception:
+            sys.exit(0)
+        return True
+
     def __init__(self):
         super().__init__(title="Микшер")
 
@@ -32,10 +39,10 @@ class VolumePopup(Gtk.Window):
         # обычно совпадает с primary, и ручка сливалась бы с заполнением.
         css = popup_theme.css(
             popup_theme.SCALE_CSS + """
-        /* Компактнее (30.09.2026, просьба: «слишком крупно»): пиксельный шрифт
+        /* Компактнее (30.09.2026: «слишком крупно»): пиксельный шрифт
            12 px (он чёткий на 12/16/24), тонкая шкала, маленькая ручка. */
         .popup-box { font-family: 'PxPlus HP 100LX 6x8 Jarvis', 'JetBrainsMono NF', sans-serif;
-                     font-size: 12px; padding: 12px 18px 22px 18px; }
+                     font-size: 12px; padding: """ + ("8px 12px 14px 12px" if popup_theme.IS_COMPACT else "12px 18px 22px 18px") + """; }
         label { font-weight: normal; font-size: 12px; }
         label.section { color: %(on_surface_variant)s; }
         scale { padding: 0; margin: 0; min-height: 0; }
@@ -50,7 +57,7 @@ class VolumePopup(Gtk.Window):
         Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         self.bg = Gtk.EventBox()
-        self.bg.connect("button-press-event", lambda w, e: sys.exit(0))
+        self.bg.connect("button-press-event", lambda w, e: self._exit())
         self.add(self.bg)
 
         self.align = Gtk.Box()
@@ -64,6 +71,7 @@ class VolumePopup(Gtk.Window):
         self.popup_event = Gtk.EventBox()
         self.popup_event.connect("button-press-event", lambda w, e: True)
         self.align.add(self.popup_event)
+        self.revealer = popup_theme.animate_open(self, self.align, self.popup_event)
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
         vbox.get_style_context().add_class("popup-box")
@@ -126,7 +134,7 @@ class VolumePopup(Gtk.Window):
                 vol = max(inp.volume.value_flat for inp in streams)
                 self.build_slider(vbox, disp, [inp.index for inp in streams], vol, False)
 
-        self.connect("key-press-event", lambda w, e: sys.exit(0))
+        self.connect("key-press-event", lambda w, e: self._exit())
 
     def build_slider(self, box, title, obj_ids, current_vol, is_sink):
         hbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)

@@ -225,6 +225,11 @@ fi
 # themes/ Vencord (или заглушку, если выключена) — открытый Discord подхватит сам.
 ( python3 "$HOME/.config/hypr/scripts/discord_pixel.py" sync >/dev/null 2>&1 ) &
 
+# Микшеры eww и меню rofi (13.10.2026): цвета Skeet/Beta/Default берутся из обоев.
+( python3 "$HOME/.config/hypr/scripts/mixer_style.py" sync >/dev/null 2>&1 ) &
+( python3 "$HOME/.config/hypr/scripts/rofi_style.py" sync >/dev/null 2>&1 ) &
+( python3 "$HOME/.config/hypr/scripts/notif_style.py" sync >/dev/null 2>&1 ) &   # П9: пиксельные уведомления
+
 # Приглашение fish (Tide): сегмент пути красится акцентом обоев напрямую.
 # Через ANSI-слот «blue» он уезжал в розовое: генератор палитры поворачивает
 # все слоты к акценту, и при тёплых обоях «синий» переставал быть синим

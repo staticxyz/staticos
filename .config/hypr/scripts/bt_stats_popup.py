@@ -58,7 +58,7 @@ CODECS = {
 }
 
 EXTRA_CSS = """
-.popup-box { font-family: 'PxPlus HP 100LX 6x8 Jarvis', 'JetBrainsMono NF', sans-serif;
+.popup-box { font-family: 'JetBrainsMono Nerd Font', 'JetBrainsMono NF', sans-serif;
              font-size: 12px; padding: 8px 10px 8px 10px; }
 label { font-weight: normal; font-size: 12px; }
 label.title { font-size: 16px; }
@@ -244,7 +244,7 @@ class BtPopup(Gtk.Window):
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         bg = Gtk.EventBox()
-        bg.connect("button-press-event", lambda w, e: sys.exit(0))
+        bg.connect("button-press-event", lambda w, e: self._exit())
         self.add(bg)
         self.align = Gtk.Box()
         bg.add(self.align)
@@ -252,6 +252,7 @@ class BtPopup(Gtk.Window):
         ev = Gtk.EventBox()
         ev.connect("button-press-event", lambda w, e: True)
         self.align.add(ev)
+        self.revealer = popup_theme.animate_open(self, self.align, ev)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.get_style_context().add_class("popup-box")
@@ -299,6 +300,13 @@ class BtPopup(Gtk.Window):
         GLib.timeout_add(POLL_MS, self.poll)
 
     # ── helpers ──
+    def _exit(self):
+        try:
+            popup_theme.animate_close(getattr(self, 'revealer', None), lambda: sys.exit(0))
+        except Exception:
+            sys.exit(0)
+        return True
+
     def label(self, text, cls=None, xalign=0):
         lb = Gtk.Label(label=text, xalign=xalign)
         if cls:
@@ -317,7 +325,7 @@ class BtPopup(Gtk.Window):
 
     def on_key(self, _w, event):
         if event.keyval == Gdk.KEY_Escape:
-            sys.exit(0)
+            self._exit()
         return False
 
     def say(self, text, cls="dim"):

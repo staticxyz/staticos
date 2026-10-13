@@ -6,6 +6,8 @@ Bot ходит на HUB_TG_API (по умолчанию api.telegram.org) — д
 import json
 import mimetypes
 import os
+import socket
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -16,6 +18,29 @@ import hublib as H
 import hubpc
 
 API = os.environ.get("HUB_TG_API", "https://api.telegram.org")
+# Запасной путь (13.10.2026): у провайдера адреса Bot API api.telegram.org открываются через
+# раз (1 из 4), бот молчал. Сначала напрямую; не вышло — через Tor: 9050 — служба tor,
+# 9150 — Tor Browser, пока он открыт. Удачный путь помнится ROUTE_TTL секунд.
+TOR_PORTS = (9050, 9150)
+DIRECT_CONNECT = 6          # сек на соединение напрямую, дальше — через Tor
+ROUTE_TTL = 600
+
+
+def _port_open(port):
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
+def _opener(port):
+    if port is None:
+        return urllib.request.build_opener()
+    import socks
+    import sockshandler
+    return urllib.request.build_opener(
+        sockshandler.SocksiPyHandler(socks.SOCKS5, "127.0.0.1", port, rdns=True))
 PRESETS = [(5, "5м"), (10, "10м"), (15, "15м"), (25, "25м"), (45, "45м"), (60, "1ч")]
 CONFIRM_TTL = 60
 
@@ -33,6 +58,43 @@ def token():
 class Bot:
     def __init__(self, tok):
         self.base = "%s/bot%s/" % (API, tok)
+        self.route, self.route_at = None, 0.0     # None — напрямую, число — порт Tor
+        self.lock = threading.Lock()
+
+    def routes(self):
+        """Порядок путей: последний удачный первым, если ему меньше ROUTE_TTL."""
+        tor = [p for p in TOR_PORTS if _port_open(p)] if API.startswith("https://api.telegram.org") else []
+        order = [None] + tor
+        with self.lock:
+            if self.route in order and time.time() - self.route_at < ROUTE_TTL:
+                order.remove(self.route)
+                order.insert(0, self.route)
+        return order
+
+    def open(self, req, timeout):
+        last = None
+        order = self.routes()
+        for port in order:
+            if port is None and len(order) > 1:
+                # Напрямую соединение висит до таймаута. Таймаут urllib действует и на чтение,
+                # а длинный опрос getUpdates молчит до 25 с, поэтому соединение проверяем
+                # отдельно, коротко, и только потом шлём запрос.
+                try:
+                    host = urllib.parse.urlsplit(req.full_url).hostname
+                    socket.create_connection((host, 443), timeout=DIRECT_CONNECT).close()
+                except OSError as e:
+                    last = e
+                    continue
+            try:
+                r = _opener(port).open(req, timeout=timeout if port is None else max(timeout, 30))
+                with self.lock:
+                    self.route, self.route_at = port, time.time()
+                return r
+            except urllib.error.HTTPError:
+                raise
+            except (urllib.error.URLError, OSError) as e:
+                last = e
+        raise last or urllib.error.URLError("нет пути до Telegram")
 
     def call(self, method, params=None, files=None, timeout=40):
         params = params or {}
@@ -53,7 +115,7 @@ class Bot:
         else:
             data = json.dumps(params).encode()
             req = urllib.request.Request(self.base + method, data, {"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with self.open(req, timeout) as r:
             j = json.loads(r.read())
         if not j.get("ok"):
             raise RuntimeError(j.get("description", "telegram error"))
@@ -202,8 +264,83 @@ HELP_TEXT = (
     "«Показать перевод» → «Знал»/«Не знал». Пример: /quiz 10\n"
     "/pc [действие] — управление ПК: статус, окна, скрин, звук, блок, сон, выключение; "
     "без аргумента — кнопки. Пример: /pc vol 40\n"
-    "/away on|off — охрана в отсутствие: сообщу о клавиатуре/мыши, новых окнах, "
-    "снятии блокировки и неверном пароле. Пример: /away on\n")
+    "/away on|off — охрана: клавиши, мышь, окна, блокировка, пароли. Пример: /away on\n"
+    "/away photo — снимок с камеры · /away rec [сек] — видео · "
+    "/away mic [сек] — микрофон · /away listen [сек] — длинная запись\n")
+
+
+def _get_guard():
+    import hubguard
+    return hubguard.active_guard
+
+
+def _away_photo():
+    g = _get_guard()
+    if not g or not g.threads:
+        return "Охрана не включена. /away on", None
+    path, err = g.take_photo()
+    if err:
+        return "Камера: %s" % err, None
+    threading.Thread(target=lambda: (g.send_file(path, "📷 Снимок с камеры", "photo"),), daemon=True).start()
+    return "Делаю снимок…", None
+
+
+def _away_rec(secs):
+    g = _get_guard()
+    if not g or not g.threads:
+        return "Охрана не включена. /away on", None
+
+    def do():
+        path, err = g.record_video(secs)
+        if err:
+            g.say("Видео: %s" % err)
+        else:
+            g.send_file(path, "📹 Видео с камеры (%dс)" % secs, "video")
+    threading.Thread(target=do, daemon=True).start()
+    return "Записываю видео %dс…" % secs, None
+
+
+def _away_mic(secs):
+    g = _get_guard()
+    if not g or not g.threads:
+        return "Охрана не включена. /away on", None
+
+    def do():
+        path, err = g.record_mic(secs)
+        if err:
+            g.say("Микрофон: %s" % err)
+        else:
+            g.send_file(path, "🎤 Запись микрофона (%dс)" % secs, "voice")
+    threading.Thread(target=do, daemon=True).start()
+    return "Записываю микрофон %dс…" % secs, None
+
+
+def _away_listen(secs):
+    g = _get_guard()
+    if not g or not g.threads:
+        return "Охрана не включена. /away on", None
+    path, err = g.start_mic_stream(secs)
+    if err:
+        return "Микрофон: %s" % err, None
+
+    def wait_and_send():
+        if g._mic_proc:
+            g._mic_proc.wait()
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            g.send_file(path, "🎤 Запись (%dс)" % secs, "voice")
+        else:
+            g.say("Запись не удалась.")
+    threading.Thread(target=wait_and_send, daemon=True).start()
+    return "Слушаю %dс… Остановить: /away stop" % secs, None
+
+
+def _away_stop():
+    g = _get_guard()
+    if not g:
+        return "Охрана не включена.", None
+    g.stop_mic()
+    g.stop_cam()
+    return "Запись остановлена.", None
 
 
 def cmd_ls(c, arg):
@@ -345,20 +482,43 @@ def command(c, cmd, arg, bot=None, chat=None):
     if cmd == "pc":
         return pc_command(c, arg)
     if cmd == "away":
-        a = arg.lower()
-        if a in ("on", "вкл", "1"):
+        a = arg.lower().split()
+        sub = a[0] if a else ""
+        if sub in ("on", "вкл", "1"):
             H.meta_set(c, "away", 1)
             import hubguard
             lk = hubguard.locked()
-            return ("Охрана включена, сэр. Сообщу о касании клавиатуры и мыши (со снимком экрана), "
-                    "новых окнах, снятии блокировки и неверном пароле.\nЭкран сейчас %s.%s\nВыключить: /away off"
+            return ("Охрана включена, сэр. Сообщу о касании клавиатуры и мыши (какие клавиши, "
+                    "какие кнопки мыши, частота), новых окнах, снятии блокировки и неверном пароле.\n"
+                    "Экран сейчас %s.%s\n\n"
+                    "Камера/микрофон:\n"
+                    "/away photo — снимок с камеры\n"
+                    "/away rec [сек] — видео с камеры (по умолч. 10с)\n"
+                    "/away mic [сек] — запись микрофона (по умолч. 30с)\n"
+                    "/away listen [сек] — длинная запись (по умолч. 60с)\n"
+                    "/away stop — остановить запись\n"
+                    "Выключить: /away off"
                     % ("заблокирован" if lk else "НЕ заблокирован",
                        "" if lk else " Заблокировать: /pc lock")), None
-        if a in ("off", "выкл", "0"):
+        if sub in ("off", "выкл", "0"):
             H.meta_set(c, "away", 0)
             return "Охрана выключена. С возвращением, сэр.", None
-        return "Охрана: %s. /away on — включить, /away off — выключить." % (
-            "включена" if H.meta_get(c, "away", "0") == "1" else "выключена"), None
+        if sub == "photo":
+            return _away_photo()
+        if sub == "rec":
+            secs = int(a[1]) if len(a) > 1 and a[1].isdigit() else 10
+            return _away_rec(secs)
+        if sub == "mic":
+            secs = int(a[1]) if len(a) > 1 and a[1].isdigit() else 30
+            return _away_mic(secs)
+        if sub == "listen":
+            secs = int(a[1]) if len(a) > 1 and a[1].isdigit() else 60
+            return _away_listen(secs)
+        if sub == "stop":
+            return _away_stop()
+        return ("Охрана: %s.\n/away on — включить · /away off — выключить\n"
+                "/away photo · /away rec · /away mic · /away listen · /away stop" % (
+                    "включена" if H.meta_get(c, "away", "0") == "1" else "выключена")), None
     if cmd == "stop":
         n = 0
         for it in H.items(c, None, "open", "timer"):
@@ -384,10 +544,11 @@ def pc_command(c, arg):
     a = arg.split(None, 1)
     if not a:
         rows = [[{"text": "Состояние", "callback_data": "p:status"}, {"text": "Окна", "callback_data": "p:apps"},
-                 {"text": "Скрин", "callback_data": "p:shot"}],
+                  {"text": "Скрин", "callback_data": "p:shot"}],
                 [{"text": "Mute", "callback_data": "p:mute"}, {"text": "Unmute", "callback_data": "p:unmute"},
-                 {"text": "Блок", "callback_data": "p:lock"}],
-                [{"text": "Мониторы off", "callback_data": "p:dark"}, {"text": "Сон", "callback_data": "p:sleep"}],
+                  {"text": "Блок", "callback_data": "p:lock"}],
+                [{"text": "Мониторы off", "callback_data": "p:dark"}, {"text": "Мониторы on", "callback_data": "p:light"},
+                  {"text": "Сон", "callback_data": "p:sleep"}],
                 [{"text": "Перезагрузка", "callback_data": "p:reboot"}, {"text": "Выключить", "callback_data": "p:off"}]]
         return "Управление ПК. Опасные действия спросят подтверждение.\n/pc vol 40 · /pc close N", rows
     return pc_do(c, a[0].lower(), a[1] if len(a) > 1 else "", confirmed=False)
@@ -539,7 +700,9 @@ def transcribe(bot, voice):
         info = bot.call("getFile", {"file_id": voice["file_id"]})
         d = tempfile.mkdtemp()
         ogg, wav = os.path.join(d, "v.ogg"), os.path.join(d, "v.wav")
-        urllib.request.urlretrieve(bot.base.replace("/bot", "/file/bot") + info["file_path"], ogg)
+        with bot.open(urllib.request.Request(bot.base.replace("/bot", "/file/bot") + info["file_path"]), 60) as r, \
+                open(ogg, "wb") as f:
+            f.write(r.read())
         subprocess.run(["ffmpeg", "-loglevel", "error", "-i", ogg, "-ar", "16000", "-ac", "1", wav], timeout=30)
         return subprocess.run(["python3", asr, wav], capture_output=True, text=True, timeout=120).stdout.strip()
     except Exception:

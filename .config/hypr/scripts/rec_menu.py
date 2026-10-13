@@ -49,7 +49,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXIT_CANCEL, EXIT_ERROR = 1, 3
 ANIM_MS = 130                       # сдвиг списка при входе в подменю и назад
-FONT = "PxPlus HP 100LX 6x8 Jarvis"
+FONT = "JetBrainsMono Nerd Font"
 NAMESPACE = "jarvis-recmenu"
 TITLE = "Recorder.exe"
 BACK = "󰁍  Назад"

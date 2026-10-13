@@ -1,4 +1,7 @@
 (defpoll current-vol :interval "100ms" :initial "50" "wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{print int($2 * 100)}'")
+(defvar vol-target "sink")   ;; sink — динамик, source — микрофон (volume_manager.sh mic_up/mic_down)
+(defpoll mic-vol :interval "100ms" :initial "50" :run-while {vol-target == "source"} "wpctl get-volume @DEFAULT_AUDIO_SOURCE@ | awk '{print int($2 * 100)}'")
+(defpoll mic-muted :interval "100ms" :initial "false" :run-while {vol-target == "source"} "wpctl get-volume @DEFAULT_AUDIO_SOURCE@ | grep -q 'MUTED' && echo 'true' || echo 'false'")
 (defpoll is-muted :interval "100ms" :initial "false" "wpctl get-volume @DEFAULT_AUDIO_SINK@ | grep -q 'MUTED' && echo 'true' || echo 'false'")
 
 
@@ -78,7 +81,7 @@
 (defwindow volume-sidebar
   :monitor '["MAG 255XF", 0]'
   ;; Ширина 64px: пиксельный шрифт на четверть шире, «100» в 52px не влезало (24.09.2026).
-  :geometry (geometry :x "12px" :y "0px" :width "64px" :height "260px" :anchor "right center")
+  :geometry (geometry :x "12px" :y "0px" :width "60px" :height "230px" :anchor "right center")
   :stacking "overlay"
   :exclusive false
   (eventbox
@@ -95,10 +98,13 @@
              :flipped true
              :min 0
              :max 101
-             :value current-vol
-             :onchange "wpctl set-volume @DEFAULT_AUDIO_SINK@ {}%")
-      (label :class {is-muted == "true" ? "vol-text muted" : "vol-text"}
-             :text {is-muted == "true" ? "Mute" : "${current-vol}"}))))
+             :value {vol-target == "source" ? mic-vol : current-vol}
+             :onchange {vol-target == "source"
+                        ? "$HOME/.config/eww/scripts/volume_manager.sh set source {}"
+                        : "$HOME/.config/eww/scripts/volume_manager.sh set sink {}"})
+      (label :class {(vol-target == "source" ? mic-muted : is-muted) == "true" ? "vol-text muted" : "vol-text"}
+             :text {(vol-target == "source" ? mic-muted : is-muted) == "true" ? "Mute"
+                    : (vol-target == "source" ? mic-vol : current-vol)}))))
 
 ;; ── Подсказка о смене раскладки ────────────────────────────────────────
 ;; Снизу по центру, как в KDE. Держится меньше секунды и гаснет: она нужна
@@ -123,7 +129,9 @@
   :stacking "overlay"
   :exclusive false
   :focusable false
-  (box :class "appvol" :space-evenly false :spacing 10
+  (box :class "appvol" :orientation "v" :space-evenly false :spacing 0
+   (box :class "vol-strip")
+   (box :class "appvol-row" :space-evenly false :spacing 10
     ;; Значок говорит, ЧЕЙ это звук: динамик — у окна в фокусе, нота — у
     ;; играющего плеера, когда само окно молчит.
     (label :class {appvol-muted == "yes" ? "appvol-icon off" : "appvol-icon"}
@@ -133,7 +141,7 @@
     (progress :class "appvol-bar" :orientation "h" :valign "center"
               :value {appvol-muted == "yes" ? 0 : appvol-level})
     (label :class "appvol-level" :show-truncated false
-           :text {appvol-muted == "yes" ? "тихо" : "${appvol-level}%"})))
+           :text {appvol-muted == "yes" ? "тихо" : "${appvol-level}%"}))))
 
 (defvar layout-name "US")
 (defvar layout-icon "󰌌")

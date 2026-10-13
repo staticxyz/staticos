@@ -259,7 +259,7 @@ def poll():
     if own and own == side:
         text = f"{ICON_CAL} {now:%d.%m.%Y}"
     else:
-        text = f"{ICON_TIME} {now:%H:%M}"
+        text = now.strftime("%H:%M")   # только время (13.10.2026, просьба: «убери Oct 13»)
 
     # Ключа "tooltip" здесь больше нет: подсказка по наведению отключена
     # (tooltip: false в config.jsonc), сетку показывает попап по щелчку.

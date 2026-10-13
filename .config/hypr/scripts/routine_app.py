@@ -52,7 +52,7 @@ MATUGEN = os.path.expanduser("~/.cache/matugen")
 POMO = os.path.expanduser("~/.local/bin/pomo")
 POMO_LOG = os.path.expanduser("~/.local/share/pomo/log.tsv")
 POMO_CONF = os.path.expanduser("~/.config/pomo/config")
-FONT = "PxPlus HP 100LX 6x8 Jarvis"
+FONT = "JetBrainsMono Nerd Font"
 PX = 12            # основной кегль — как у Skeet в Настройках
 BIG = 48           # крупные цифры (кратно 8 — без мыла)
 SLEEP_H = 8
@@ -436,9 +436,30 @@ def watch_today():
     """Ежедневный Сторож сегодня: "on" — стоит, "skip" — выключен на сегодня, None — выключен
     в Настройках совсем (тогда кнопки в Discipline нет: включают там же, где выключили)."""
     s = wa.load()
-    if not s.get("watch_daily", {}).get("enabled", False):
+    if not s.get("watch_daily", {}).get("enabled", True):
         return None
     return "skip" if dt.date.today().isoformat() in s.get("watch_skip", []) else "on"
+
+
+_HEALTH = [0.0, (True, "")]
+
+
+def watch_label():
+    """Подпись Сторожа над «По умолчанию» (13.10.2026, просьба: «показывать, от скольки до
+    скольки работает сторож, и только если он работоспособен»). Часы — только когда Сторож
+    стоит сегодня И служба жива (wa.watch_health); сломан — причина красным. Проверка
+    systemd раз в 30 с: кадр рисуется часто."""
+    if not wa.load().get("watch_daily", {}).get("enabled", True):
+        return "", None
+    if time.monotonic() - _HEALTH[0] > 30:
+        _HEALTH[:] = [time.monotonic(), wa.watch_health()]
+    ok, why = _HEALTH[1]
+    if not ok:
+        return "Сторож: " + why, "bad"
+    w = wa.watch_for(wa.load(), dt.date.today())
+    if not w:
+        return "Сторож сегодня выключен", None
+    return "Сторож %s–%s" % (w["from"], w["to"]), "on"
 
 
 # 09.10.2026: выключить Сторожа на день — только через такое «точно?». Каждый раз
@@ -941,7 +962,7 @@ class View:
         p.cr.rectangle(x + 1, y + 1, 6, 6)
         p.cr.fill()
 
-    def group(self, p, x, y, w, h, title, right=""):
+    def group(self, p, x, y, w, h, title, right="", right_color=None):
         c = self.c
         if c["frame"] == "skeet":
             p.box(x, y, w, h, c["gdark"])
@@ -960,7 +981,7 @@ class View:
         if right:
             rw = p.text_w(right)
             p.rect(x + w - 18 - rw, y - 1, rw + 8, 3, under)
-            p.text(x + w - 14, y - 7, right, c["dim"], align="r")
+            p.text(x + w - 14, y - 7, right, right_color or c["dim"], align="r")
 
     def button(self, p, x, y, w, label, key, accent=False, dim=False):
         c = self.c
@@ -1112,7 +1133,9 @@ class View:
         right = ("вовремя %d из %d" % (sum(known), len(known))) if known else ""
         self.group(p, x0, L["week"], x1 - x0, 8 + 18 + DAYS * ROW_H + 8, "Неделя", right)
         self.draw_week(p, x0, x1, L["week"] + 8)
-        self.group(p, x0, L["default"], x1 - x0, 8 + ROW_H + 8, "По умолчанию")
+        wl, wc = watch_label()
+        self.group(p, x0, L["default"], x1 - x0, 8 + ROW_H + 8, "По умолчанию", wl,
+                   c["err"] if wc == "bad" else c["acc_l"] if wc == "on" else None)
         self.draw_day(p, x0 + 1, x1 - 1, L["default"] + 8, DAYS)
         ser = live_series()
         if self.mode == "confirm" and self.doubt:
@@ -1506,7 +1529,7 @@ class View:
                        c["text"] if is_today else c["dim"], align="c")
             p.text(cx + cw_ / 2, base + 4, DOW[d.weekday()], c["acc_l"] if is_today else c["faint"],
                    align="c")
-        # «Сегодня» вместо «Старт» (07.10.2026, Просьба: «старт не нужен — покажи, сколько
+        # «Сегодня» вместо «Старт» (07.10.2026, просьба: «старт не нужен — покажи, сколько
         # помидоров за сегодня, одинаковые названия суммируй»). Запуск — Space / SUPER+T.
         sy = gy + gh + 14
         sh = L["buttons"] - 14 - sy
@@ -1546,7 +1569,7 @@ class View:
     PHASE = {"work": "работа", "short": "перерыв", "long": "длинный"}
 
     def draw_pomo_today(self, p, x0, x1, L):
-        """Кратко за день (07.10.2026, Просьба: «вкладка непонятная, 14 дней не надо, базово —
+        """Кратко за день (07.10.2026, просьба: «вкладка непонятная, 14 дней не надо, базово —
         минимально: сколько помидоров за сегодня, список, внизу общее время на задачи и
         перерывы; подробное — отдельной кнопкой»). Только работа; перерывы — в итоге."""
         c = self.c
@@ -1639,7 +1662,7 @@ class View:
         self.buttons(p, x0, x1, L["buttons"], btns)
 
     def draw_pomo_stats(self, p, x0, x1, L):
-        """Статистика помидоров (07.10.2026, Просьба: «сколько в днях помидорок и подробно,
+        """Статистика помидоров (07.10.2026, просьба: «сколько в днях помидорок и подробно,
         как это проходило»): итоги за 14 дней, столбики по дням, отрезки выбранного дня."""
         c = self.c
         ent = pomo_entries(14)

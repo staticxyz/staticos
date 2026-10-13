@@ -1,7 +1,7 @@
 // Вид «во всю ширину, компактный»: от края до края, вплотную к верху, 26 px.
 {
     "position": "top",
-    "height": 24,
+    "height": 26,
     "margin-top": 0,
     "margin-left": 0,
     "margin-right": 0

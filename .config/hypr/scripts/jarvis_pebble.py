@@ -31,7 +31,7 @@ from PIL import Image
 
 HOME = pathlib.Path.home()
 ICONS = HOME / ".local/share/icons"
-SIZES = (24, 32, 48, 64)
+SIZES = (20, 24, 32, 48, 64)   # 20 — 13.10.2026, просьба: «Гальку уменьши, как Jarvis»
 IMAGE_TYPE = 0xFFFD0002
 ANIM_FRAMES = 12
 ANIM_DELAY = 55

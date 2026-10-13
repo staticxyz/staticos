@@ -3,7 +3,7 @@
 // Активная рамка — непрозрачный насыщенный оттенок акцента: строку active-color ниже после matugen подменяет sensor_colors.py (08.10.2026, по образцу angelOS); без него — акцент на 90%. Неактивная — акцент на ~22%.
 layout {
     border {
-        width 5
+        width 4
         active-color "#{{colors.primary.default.hex_stripped}}e6"
         inactive-color "#{{colors.primary.default.hex_stripped}}38"
         urgent-color "#9b0000"

@@ -26,14 +26,20 @@ import sys
 # в баре + 14 px на точку ленты (лента видна от 2 колонок). Левый край средней группы —
 # CENTER0 при: часы показывают время, значков приватности нет, записи нет, Bluetooth
 # выключен, трек есть (≤14 знаков), числа двузначные, помидор «44:54».
-LEFT0, WS_W, COL_W = 72, 42, 14
-CENTER0 = 722               # 688 при одном значке микрофона + его 34 px
+def _compact():
+    try:
+        return "compact" in os.readlink(os.path.expanduser(
+            "~/.config/waybar/looks/current.css"))
+    except OSError:
+        return False
+
+_IS_COMPACT = _compact()
+LEFT0, WS_W, COL_W = (60, 32, 10) if _IS_COMPACT else (72, 42, 14)
+CENTER0 = 722
 CHAR_W, GAP = 10.6, 16
-DATE_W = 46                 # дата «07.10.2026» вместо «21:43» (waybar_clock: side-файл)
-# Запас на то, что меняется чаще, чем обновляется заголовок: CPU 100% (+2 знака),
-# звук «Muted» (+2), помидор дольше часа (+2), значок фокуса у помидора (16 px).
-GROW = 21 + 21 + 21 + 16
-BT_ICON = 28                # значок Bluetooth с полями, когда он включён
+DATE_W = 46
+GROW = (21 + 21 + 16) if _IS_COMPACT else (21 + 21 + 21 + 16)
+BT_ICON = 22 if _IS_COMPACT else 28
 MIN_LEN, MAX_LEN = 15, 90
 SIDE_FILE = os.path.expanduser("~/.cache/waybar-calendar-side")
 REWRITE = [         # срезаем имя программы: его и так видно по значку стола

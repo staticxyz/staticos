@@ -1,0 +1,23 @@
+/* pixel_look.py: пиксельный вид — PxPlus HP 100LX 6x8 Jarvis 12 px, как в Настройках. Не править:
+   пересобирается при смене вида бара (bar_style.py). */
+window#waybar *, tooltip label:not(#pixel-look) { font-weight: normal; }
+window#waybar #custom-clock,
+window#waybar #cpu,
+window#waybar #memory,
+window#waybar #temperature,
+window#waybar #network,
+window#waybar #bluetooth,
+window#waybar #language,
+window#waybar #custom-language,
+window#waybar #pulseaudio,
+window#waybar #custom-battery,
+window#waybar #custom-pomo,
+window#waybar #custom-mpris,
+window#waybar #custom-window-title,
+window#waybar #custom-privacy,
+window#waybar #custom-rec,
+window#waybar #custom-taskbar,
+window#waybar #mpris,
+window#waybar #window,
+window#waybar #clock,
+tooltip label:not(#pixel-look) { font-family: "PxPlus HP 100LX 6x8 Jarvis"; font-size: 12px; font-weight: normal; }

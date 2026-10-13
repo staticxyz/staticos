@@ -881,7 +881,7 @@ class App:
             text = render(lines[i][1], done, self.accent, getattr(lines, "approx", False))
             nw = next_word_time(lines[i][1], start, elapsed, dur)
             nxt_t = min(nw, line_end) if nw else (line_end if i + 1 < len(lines) else None)
-        # Нота перед строкой (30.09.2026, Просьба: «забыли иконку ноты»): сразу
+        # Нота перед строкой (30.09.2026, просьба: «забыли иконку ноты»): сразу
         # видно, что это текст песни, а не заголовок окна. В проигрыше — только нота.
         note = '<span foreground="%s">\U000f075a</span>' % self.accent
         text = note if "gap" in cls else note + "  " + text

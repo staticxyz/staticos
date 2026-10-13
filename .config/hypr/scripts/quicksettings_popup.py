@@ -4,16 +4,11 @@ import os
 import sys
 import gi
 
-pid = os.getpid()
-try:
-    pids = subprocess.check_output(["pgrep", "-f", "quicksettings_popup.py"], text=True).strip().split()
-    other_pids = [p for p in pids if int(p) != pid]
-    if other_pids:
-        for p in other_pids:
-            subprocess.run(["kill", "-9", p])
-        sys.exit(0)
-except Exception:
-    pass
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import popup_theme  # noqa: E402
+# Второй щелчок закрывает плашку. Был `pgrep -f` + `kill -9` — бил всякого, у кого
+# имя файла в командной строке (13.10.2026 убил проверку) — см. popup_theme.single_instance.
+popup_theme.single_instance(__file__)
 
 gi.require_version('Gtk', '3.0')
 gi.require_version('GtkLayerShell', '0.1')
@@ -22,6 +17,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import popup_theme  # noqa: E402
 
 class QuickSettingsPopup(Gtk.Window):
+    def _exit(self):
+        try:
+            popup_theme.animate_close(getattr(self, 'revealer', None), lambda: sys.exit(0))
+        except Exception:
+            sys.exit(0)
+        return True
+
     def __init__(self):
         super().__init__(title="Быстрые настройки")
         
@@ -37,7 +39,7 @@ class QuickSettingsPopup(Gtk.Window):
         .popup-box {
             font-family: 'JetBrainsMono Nerd Font', 'Noto Sans', sans-serif;
             font-size: 13px;
-            padding: 16px;
+            padding: """ + ("10px" if popup_theme.IS_COMPACT else "16px") + """;
         }
         label { color: %(on_surface)s; }
         switch:checked { background-color: %(primary)s; }
@@ -56,7 +58,7 @@ class QuickSettingsPopup(Gtk.Window):
 
         # Невидимый фон-перехватчик
         self.bg = Gtk.EventBox()
-        self.bg.connect("button-press-event", lambda w, e: sys.exit(0))
+        self.bg.connect("button-press-event", lambda w, e: self._exit())
         self.add(self.bg)
 
         # Контейнер для сдвига
@@ -71,6 +73,7 @@ class QuickSettingsPopup(Gtk.Window):
         self.popup_event = Gtk.EventBox()
         self.popup_event.connect("button-press-event", lambda w, e: True)
         self.align.add(self.popup_event)
+        self.revealer = popup_theme.animate_open(self, self.align, self.popup_event)
 
         # Сам контент
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
@@ -128,7 +131,7 @@ class QuickSettingsPopup(Gtk.Window):
         bt_box.pack_start(bt_btn, False, False, 0)
         vbox.pack_start(bt_box, False, False, 0)
 
-        self.connect("key-press-event", lambda w, e: sys.exit(0))
+        self.connect("key-press-event", lambda w, e: self._exit())
 
     def get_wifi_info(self):
         try:

@@ -119,7 +119,7 @@ SKEET_RASI = """/* Меню Recorder — вид Skeet (собирает rec_styl
 @import "%(base)s"
 
 * {
-    font:             "PxPlus HP 100LX 6x8 Jarvis 9";
+    font:             "JetBrainsMono Nerd Font 9";
     accent:           %(acc_l)s;
     fg:               %(text)s;
     fg-alt:           %(dim)s;
@@ -182,7 +182,7 @@ BETA_RASI = """/* Меню Recorder — вид Beta (собирает rec_style.
 @import "%(base)s"
 
 * {
-    font:             "PxPlus HP 100LX 6x8 Jarvis 12";
+    font:             "JetBrainsMono Nerd Font 12";
     accent:           %(text)s;
     fg:               %(text)s;
     fg-alt:           %(dim)s;
@@ -235,7 +235,7 @@ DEFAULT_RASI = """/* Меню Recorder — вид Default, окно XP (соби
 @import "%(base)s"
 
 * {
-    font:             "PxPlus HP 100LX 6x8 Jarvis 12";
+    font:             "JetBrainsMono Nerd Font 12";
     accent:           #ffffff;
     fg:               %(text)s;
     fg-alt:           %(dim)s;

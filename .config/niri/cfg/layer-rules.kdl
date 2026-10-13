@@ -115,6 +115,23 @@ layer-rule {
 // плашкой виджет рисует сам (сила настраивается, и niri не тратит кадр на восемь
 // размытий). Правило с blur true стояло здесь 02.10.2026 несколько часов.
 
+// Лаунчер приложений (Super+X) и шпаргалка клавиш (Super+Z) — слои с размытием.
+layer-rule {
+    match namespace=r#"^jarvis-launcher$"#
+    background-effect {
+        blur true
+        xray false
+    }
+}
+
+layer-rule {
+    match namespace=r#"^jarvis-keybinds$"#
+    background-effect {
+        blur true
+        xray false
+    }
+}
+
 // Слой «Фокус» поверх запрещённого окна (scripts/focus_mode.py overlay, 06.10.2026):
 // окно под ним размыто — видно, что там что-то есть, но смотреть нельзя.
 layer-rule {

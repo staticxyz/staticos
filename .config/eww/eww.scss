@@ -50,31 +50,31 @@
 .vol-container {
   background-color: rgba($m-surface-container, 0.88);
   border: 2px solid $m-outline-variant;
-  border-radius: 20px;
-  padding: 16px 8px;
+  border-radius: 18px;
+  padding: 10px 6px;
 }
 
 .vol-icon {
-  font-size: 20px;
+  font-size: 18px;
   color: $m-primary;
 }
 
 .vol-text {
   font-family: "JetBrainsMono Nerd Font", monospace;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: bold;
   color: $m-on-surface;
 }
 
 scale.vol-slider trough {
-  min-width: 10px;
-  min-height: 140px;
-  border-radius: 10px;
+  min-width: 8px;
+  min-height: 125px;
+  border-radius: 8px;
   background-color: rgba($m-surface-low, 0.6);
 }
 
 scale.vol-slider highlight {
-  border-radius: 10px;
+  border-radius: 8px;
   background-color: $m-primary;
 }
 
@@ -82,8 +82,9 @@ scale.vol-slider highlight {
   background: transparent;
   border: none;
   padding: 0;
-  margin: 0;
+  margin: 0 0 10px 0;     // вместо :spacing 10 у коробки (13.10.2026)
 }
+scale.vol-slider { margin-bottom: 10px; }
 .vol-btn:hover {
   opacity: 0.7;
 }
@@ -94,7 +95,7 @@ scale.vol-slider highlight {
 
 .vol-text.muted {
   color: $m-error;
-  font-size: 11px;
+  font-size: 9px;
 }
 
 scale.vol-slider.muted highlight {
@@ -211,7 +212,7 @@ scale.vol-slider.muted highlight {
 }
 .layout-osd-pixel .layout-osd-chip { border-radius: 0; }
 .layout-osd-text.pixel {
-  font-family: "PxPlus HP 100LX 6x8";
+  font-family: "JetBrainsMono Nerd Font", monospace;
   font-size: 16px;
   padding-top: 0;
 }
@@ -223,3 +224,7 @@ window {
   box-shadow: none;
   border: none;
 }
+
+// Пиксельный или обычный вид микшеров — файл пишет pixel_look.py (13.10.2026).
+// Должен стоять последним: его правила перекрывают обычные выше.
+@import "mixer-look.scss";

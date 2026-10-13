@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Обёртка rofi: пиксельный вид для ВСЕХ меню rofi (13.10.2026, Просьба: «после выбора режима
+# Пиксельный в системе всё должно стать пиксельным, без исключения»). Собирает файлы
+# ~/.config/hypr/scripts/rofi_style.py. ~/.local/bin стоит в PATH первым.
+#  - ~/.cache/jarvis/rofi-look.rasi (его подключает config.rasi) — ссылка на вид стиля
+#    монитора в фокусе (state/clipboard-style, его держит system_style.py);
+#  - rofi-pixel.rasi — шрифт PxPlus, углы 0: первым -theme-str, т.е. поверх -theme файлов,
+#    но раньше -theme-str вызывающего (его раскладка главнее);
+#  - значки — тема системы (gsettings), если вызывающий не задал свою -icon-theme.
+# В обычном виде (rofi_style.py set normal) файлы пустые — rofi как был.
+REAL=/usr/bin/rofi
+C="$HOME/.cache/jarvis"
+st=$(cat "$HOME/.config/hypr/state/clipboard-style" 2>/dev/null)
+case "$st" in default|skeet|beta) ;; *) st=default ;; esac
+[ "$(readlink "$C/rofi-look.rasi" 2>/dev/null)" = "$C/rofi-look-$st.rasi" ] \
+    || ln -sfn "$C/rofi-look-$st.rasi" "$C/rofi-look.rasi" 2>/dev/null
+px=""
+[ -s "$C/rofi-pixel.rasi" ] && px=$(<"$C/rofi-pixel.rasi")
+[ -z "$px" ] && exec "$REAL" "$@"
+extra=(-theme-str "$px")
+case " $* " in *" -icon-theme "*) ;; *)
+    it=$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'")
+    [ -n "$it" ] && extra+=(-icon-theme "$it") ;;
+esac
+exec "$REAL" "${extra[@]}" "$@"

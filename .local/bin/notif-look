@@ -18,11 +18,14 @@ E="/* NOCTALIA-LOOK-END */"
 
 strip() { sed -i "\|^/\* NOCTALIA-LOOK-BEGIN \*/\$|,\|^/\* NOCTALIA-LOOK-END \*/\$|d" "$CSS"; }
 width() { sed -i -E "s/(\"notification-window-width\": )[0-9]+/\1$1/" "$CFG"; }
+# Пиксельный блок notif_style.py (13.10.2026) обязан стоять ПОСЛЕ вида Noctalia —
+# sync переносит его в конец заново (без своего перечитывания, reload ниже).
+pixel() { python3 "$HOME/.config/hypr/scripts/notif_style.py" sync-noreload >/dev/null 2>&1; }
 reload() { swaync-client -R >/dev/null 2>&1; swaync-client -rs >/dev/null 2>&1; }
 
 case "${1:-status}" in
-    on)  strip; { echo "$B"; cat "$LOOK"; echo "$E"; } >> "$CSS"; width 400; reload; echo on ;;
-    off) strip; width 500; reload; echo off ;;
+    on)  strip; { echo "$B"; cat "$LOOK"; echo "$E"; } >> "$CSS"; width 400; pixel; reload; echo on ;;
+    off) strip; width 500; pixel; reload; echo off ;;
     status) grep -qF "$B" "$CSS" && echo on || echo off ;;
     *) echo "notif-look on|off|status" >&2; exit 1 ;;
 esac

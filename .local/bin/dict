@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""dict — словарь hub.  dict слово = перевод | dict (без аргументов: выделенный текст как слово)
+dict ls [поиск] | quiz [N] | del N | stats"""
+import os, subprocess, sys
+sys.path.insert(0, os.path.expanduser("~/.local/share/hub"))
+import hublib as H
+c = H.connect()
+a = sys.argv[1:]
+if a and a[0] in ("-h", "--help"): print(__doc__); sys.exit(0)
+if not a:
+    sel = subprocess.run(["wl-paste", "-p", "-n"], capture_output=True, text=True).stdout.strip()
+    if not sel: sys.exit("ничего не выделено")
+    tr = input("%s = " % sel).strip()
+    a = [sel + " = " + tr]
+if a[0] == "ls":
+    for w in H.words(c, " ".join(a[1:]) or None, 100): print("#%d %s — %s  [коробка %d]" % (w["id"], w["term"], w["translation"], w["box"]))
+elif a[0] == "stats": print(H.word_stats(c))
+elif a[0] == "del": H.del_word(c, int(a[1])); print("ok")
+elif a[0] == "quiz":
+    n = int(a[1]) if len(a) > 1 else 5
+    for w in H.due_words(c, n):
+        input("%s  (Enter — перевод) " % w["term"])
+        r = input("%s  — знал? [y/n] " % w["translation"]).strip().lower()
+        H.review(c, w["id"], r.startswith("y") or r == "")
+else:
+    s = " ".join(a)
+    for sep in ("=", " — ", " - "):
+        if sep in s:
+            t, tr = [x.strip() for x in s.split(sep, 1)]
+            _, new = H.add_word(c, t, tr); print(("добавил" if new else "обновил"), t, "—", tr); break
+    else: sys.exit("формат: dict слово = перевод")

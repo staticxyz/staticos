@@ -12,11 +12,11 @@ import socket
 import sys
 
 SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "jarvis-settings.sock")
-APP = "/home/static/.config/hypr/scripts/settings_app.py"
+APP = os.path.expanduser("~/.config/hypr/scripts/settings_app.py")
 args = sys.argv[1:]
 # 09.10.2026: окно уже открыто — просто перейти к нему (на другом столе/мониторе тоже).
 # GTK present() из сокета niri фокус не отдаёт (нет токена активации), поэтому — через niri.
-# Бекзат, 09.10.2026: если окно уже в фокусе — повторный бинд его закрывает (как сворачивание).
+# 09.10.2026: если окно уже в фокусе — повторный бинд его закрывает (как сворачивание).
 if not args:
     import json
     import subprocess

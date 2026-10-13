@@ -16,6 +16,15 @@ import sys
 
 PALETTE = os.path.expanduser("~/.cache/matugen/colors.json")
 
+def is_compact():
+    try:
+        return "compact" in os.readlink(os.path.expanduser(
+            "~/.config/waybar/looks/current.css"))
+    except OSError:
+        return False
+
+IS_COMPACT = is_compact()
+
 FALLBACK = {
     "surface": "#1a1b26",
     "surface_container": "#24283b",
@@ -48,45 +57,50 @@ def palette():
 # Общий каркас: подложка, рамка, кнопки списка, активный элемент, поле ввода,
 # строка состояния. `item` — класс обычной кнопки списка, `item-active` —
 # выбранной; каждому попапу остаётся только повесить их на свои кнопки.
+_BORDER = "2px" if IS_COMPACT else "3px"
+_RADIUS = "8px" if IS_COMPACT else "12px"
+_PAD = "8px" if IS_COMPACT else "14px"
+_ITEM_PAD = "4px" if IS_COMPACT else "6px"
+_ITEM_RAD = "4px" if IS_COMPACT else "6px"
+_ITEM_MB = "2px" if IS_COMPACT else "4px"
+_SEP_M = "6px 0" if IS_COMPACT else "10px 0"
+PAD = _PAD
+BORDER = _BORDER
+RADIUS = _RADIUS
+
 BASE_CSS = """
 window { background-color: transparent; }
 .popup-box {
-    background-color: %(surface)s; color: %(on_surface)s;
+    background-color: %%(surface)s; color: %%(on_surface)s;
     font-family: sans-serif; font-weight: bold;
-    /* Рамка цвета акцента: сразу видно, что попап открыт (была приглушённая).
-       14.09.2026: 2px -> 3px, пользователь попросил рамку чуть толще. */
-    border: 3px solid %(primary)s; border-radius: 12px; padding: 14px;
-    /* Тёмный контур 1px снаружи рамки (14.09.2026): на светлых обоях светлая
-       рамка акцента сливалась с фоном (календарь поверх #85a8e2). Мягкую тень
-       с размытием убрали: окно обрезало её краем, и вокруг попапа стояла
-       полупрозрачная серая полоса (Просьба: «некрасивая рамка»). Контуру
-       хватает поля 2px. */
+    border: %(brd)s solid %%(primary)s; border-radius: %(rad)s; padding: %(pad)s;
     margin: 2px;
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.60);
 }
 button.item {
-    background-color: %(surface_container)s; color: %(on_surface)s;
-    border: 1px solid transparent; border-radius: 6px;
-    padding: 6px; margin-bottom: 4px;
+    background-color: %%(surface_container)s; color: %%(on_surface)s;
+    border: 1px solid transparent; border-radius: %(irad)s;
+    padding: %(ipad)s; margin-bottom: %(imb)s;
 }
-button.item:hover { background-color: %(surface_high)s; }
+button.item:hover { background-color: %%(surface_high)s; }
 button.item-active {
-    background-color: %(surface_high)s; color: %(primary)s;
-    border: 1px solid %(primary)s; border-radius: 6px;
-    padding: 6px; margin-bottom: 4px;
+    background-color: %%(surface_high)s; color: %%(primary)s;
+    border: 1px solid %%(primary)s; border-radius: %(irad)s;
+    padding: %(ipad)s; margin-bottom: %(imb)s;
 }
 button.go {
-    background-color: %(primary)s; color: %(on_primary)s;
-    border: none; border-radius: 6px; padding: 4px 10px;
+    background-color: %%(primary)s; color: %%(on_primary)s;
+    border: none; border-radius: %(irad)s; padding: 4px 10px;
 }
 entry.pw {
-    background-color: %(surface_container)s; color: %(on_surface)s;
-    border: 1px solid %(outline_variant)s; border-radius: 6px; padding: 4px;
+    background-color: %%(surface_container)s; color: %%(on_surface)s;
+    border: 1px solid %%(outline_variant)s; border-radius: %(irad)s; padding: 4px;
 }
-label.status { color: %(on_surface_variant)s; font-weight: normal; }
-label.err { color: %(error)s; font-weight: normal; }
-separator { background: %(outline_variant)s; margin: 10px 0; }
-"""
+label.status { color: %%(on_surface_variant)s; font-weight: normal; }
+label.err { color: %%(error)s; font-weight: normal; }
+separator { background: %%(outline_variant)s; margin: %(sep)s; }
+""" % {"brd": _BORDER, "rad": _RADIUS, "pad": _PAD, "ipad": _ITEM_PAD,
+       "irad": _ITEM_RAD, "imb": _ITEM_MB, "sep": _SEP_M}
 
 # Шкала громкости/яркости. Заполненная часть — акцент, ручка — вторичный цвет:
 # одним и тем же цветом ручка сливается с заполнением и её не видно.
@@ -175,7 +189,10 @@ ATTACHED_CSS = """
 /* Приклеенный попап рисует свою фигуру сам (draw_attached): фон и рамка —
    одним контуром вместе с вогнутыми углами. У самой коробки попапа фона и
    рамки нет, иначе поверх фигуры легли бы прежние линии. */
-.popup-attached > * > .popup-box, .popup-attached > * > .card, .popup-attached .cal-box {
+/* > * > * > — Центр управления: align > Revealer > EventBox > коробка (13.10.2026:
+   без этого у него оставалась своя рамка — линия поверх стыка с баром). */
+.popup-attached > * > .popup-box, .popup-attached > * > * > .popup-box,
+.popup-attached > * > .card, .popup-attached .cal-box {
     background-color: transparent; background-image: none;
     border-width: 0; box-shadow: none; margin: 0;
 }
@@ -191,9 +208,27 @@ def draw_attached(widget, cr, bottom=False):
     верхней кромки (там стык с баром). Рисуется ДО детей (сигнал draw идёт
     раньше обработчика класса), содержимое попапа ложится сверху."""
     import math
+    import cairo
     alloc = widget.get_allocation()
     W, H = alloc.width, alloc.height
     E, R, B = EAR, RADIUS_ATTACHED, BORDER_ATTACHED
+    # Выезд из бара (13.10.2026, «как в Центре управления»): фигура высотой H·p
+    # растёт от бара, содержимое съезжает следом и обрезано по ней. Размер align
+    # при этом не меняется — snap_to_pill и слой стоят на месте (Revealer SLIDE
+    # менял размер, отсюда и были лишние ушки над плашкой).
+    p = getattr(widget, "_reveal_p", 1.0)
+    full = H
+    H = int(round(full * p))
+    if p < 1:
+        # clip и сдвиг остаются на cr и после этого обработчика — ими рисуются дети
+        if bottom:
+            cr.rectangle(0, full - H, W, H)
+            cr.clip()
+            cr.translate(0, full - H)
+        else:
+            cr.rectangle(0, 0, W, H)
+            cr.clip()
+            cr.translate(0, H - full)
     if W < 2 * E + 2 * R or H < E + R:
         return False
 
@@ -214,8 +249,10 @@ def draw_attached(widget, cr, bottom=False):
     ac = palette()["primary"].lstrip("#")
     rgb = lambda h: tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
     cr.save()
+    if p < 1:
+        cr.translate(0, -(full - H) if bottom else full - H)
     if bottom:                    # у нижнего края экрана — та же фигура вверх ногами
-        cr.translate(0, H)
+        cr.translate(0, full)
         cr.scale(1, -1)
     path(True)
     cr.set_source_rgba(*rgb(bg), 1.0)      # без прозрачности (05.10.2026: было 0.96 — сквозь плашку просвечивало)
@@ -225,8 +262,53 @@ def draw_attached(widget, cr, bottom=False):
     cr.set_line_width(2 * B)
     cr.set_source_rgba(*rgb(ac), 1)
     cr.stroke()
+    # Ушки — сужающиеся (13.10.2026, просьба: «плашки приклеиваются всё ещё не идеально»).
+    # У кончика ушко продолжает нижнюю линию бара: та же толщина и тот же бледный цвет,
+    # к боку плашки плавно растёт до рамки B акцентом. Раньше ушко было сразу 3 px яркое,
+    # а линия бара — 1 px на 45 %, и на стыке была ступенька.
+    w0, la = bar_line()
+    tip = tuple(c1 * la + c0 * (1 - la) for c1, c0 in zip(rgb(ac), rgb(bg)))
+    for cx, sgn in ((0, 1), (W, -1)):
+        cr.new_path()                              # стереть ровную рамку на ушке
+        cr.arc(cx, E, E + B + 1, -math.pi, 0)
+        cr.arc_negative(cx, E, E - 0.5, 0, -math.pi)
+        cr.close_path()
+        cr.set_source_rgba(*rgb(bg), 1.0)
+        cr.fill()
+        N = 48
+        outer, inner = [], []
+        for i in range(N + 1):
+            t = i / N                              # 0 — кончик у бара, 1 — бок плашки
+            th = -math.pi / 2 + sgn * t * math.pi / 2
+            w = w0 + (B - w0) * (1 - math.cos(t * math.pi)) / 2
+            outer.append((cx + (E + w) * math.cos(th), E + (E + w) * math.sin(th)))
+            inner.append((cx + E * math.cos(th), E + E * math.sin(th)))
+        cr.new_path()
+        cr.move_to(*inner[0])
+        for pt in outer + inner[::-1]:
+            cr.line_to(*pt)
+        cr.close_path()
+        g = cairo.LinearGradient(0, 0, 0, E)
+        g.add_color_stop_rgba(0, *tip, 1)
+        g.add_color_stop_rgba(1, *rgb(ac), 1)
+        cr.set_source(g)
+        cr.fill()
     cr.restore()
     return False
+
+
+def bar_line():
+    """Нижняя линия бара текущего вида: (толщина px, прозрачность акцента). Без линии — (0, 0).
+    Читается из looks/current.css: border-bottom: Npx solid alpha(@primary, A)."""
+    import re
+    try:
+        css = open(os.path.expanduser("~/.config/waybar/looks/current.css"), encoding="utf-8").read()
+    except OSError:
+        return 0, 0.0
+    m = re.search(r"border-bottom:\s*(\d+)px\s+solid\s+(?:alpha\(@primary,\s*([0-9.]+)\)|@primary)", css)
+    if not m:
+        return 0, 0.0
+    return int(m.group(1)), float(m.group(2) or 1.0)
 
 
 def add_ears(align, bottom=False):
@@ -261,7 +343,7 @@ def add_ears(align, bottom=False):
         return True
     def under_bar(*_a):
         # Заходим под бар, только когда align уже в окне-слое: у части попапов
-        # (appmem и т. п.) место ставится ДО того, как align попал в окно.
+        # (appmem) место ставится ДО того, как align попал в окно.
         top = align.get_toplevel()
         if not isinstance(top, Gtk.Window):
             return
@@ -700,7 +782,10 @@ def place_under_cursor(align, gap=6, edge=20, snap_to_pill=False, pill_width=Non
                 return 0 if c[0] <= x <= c[1] else min(abs(x - c[0]), abs(x - c[1]))
             for cands in (exact, merged):
                 best = min(cands, key=dist) if cands else None
-                if best and dist(best) <= 260:
+                # 100px, не 260: 260 давало «не ту» пилюлю шириной 148 —
+                # например, lan вместо плеера (12.10.2026: клик 1544, пилюля
+                # (1220,1368) ошибочно выбрана). Больше 100 — ошибка не курсора.
+                if best and dist(best) <= 100:
                     span = found = best
                     by_width = True
                     break
@@ -856,9 +941,9 @@ def draw_bar_look(cr, w, h, key, pal):
         color(pal["primary"], 0.30)
         cr.rectangle(0, 0, w, hh)
         cr.fill()
-        # Линия акцента снизу осталась только у «во всю ширину»: у компактного
-        # вида её убрали 12.09.2026 — черта по краю экрана мешала.
-        if key == "edge":
+        # Линия акцента снизу — у обоих (12.09.2026 её убирали у компактного,
+        # 13.10.2026 пользователь спросил, почему она пропадает, — вернули).
+        if True:
             color(pal["primary"], 0.85)
             cr.rectangle(0, hh, w, 1)
             cr.fill()
@@ -990,14 +1075,14 @@ def place_side(align, spot=PLACE_DEFAULT, gap=6, edge=20, detach_in_hover=False)
     """Поставить карточку у края экрана: «<верх|низ>-<лево|центр|право>».
 
     Для окон, которые зовут с клавиши: под курсором они «прыгали» бы по
-    экрану — мышь в этот момент где угодно (Пользователь 24.09.2026). «cursor»
+    экрану — мышь в этот момент где угодно (24.09.2026). «cursor»
     остаётся у попапов бара, его ставит place_under_cursor.
 
     Зазор считается от края слоя, а слой начинается уже под панелью (у бара
     своя exclusive zone), поэтому высоту бара прибавлять не нужно — где бы он
     ни стоял.
 
-    detach_in_hover (04.10.2026): при верхнем баре
+    detach_in_hover (04.10.2026, пользователь про приклеенную плашку): при верхнем баре
     «при наведении» бара на экране нет, и приклеенная к нему плашка висела у края
     ни к чему — тогда она открывается отдельно: с зазором и со своей рамкой.
     """
@@ -1023,3 +1108,118 @@ def place_side(align, spot=PLACE_DEFAULT, gap=6, edge=20, detach_in_hover=False)
     else:
         align.set_halign(Gtk.Align.END)
         align.set_margin_end(edge)
+
+
+# ── Анимация появления/закрытия (12.10.2026) ─────────────────────────────
+# Любой попап бара можно открыть «проявлением»: обернуть его содержимое в
+# Gtk.Revealer, направление определить по положению бара. Закрывается
+# симметрично: сначала откатить revealer, после — Gtk.main_quit().
+#
+# Применение в попапе:
+#   window = Gtk.Window(...); window.add(align); align.add(root_box)
+# заменить на:
+#   revealer = animate_open(window, align, root_box)   # root_box уже внутри
+#   def quit(*_a):
+#       animate_close(revealer, Gtk.main_quit)
+#   window.connect("button-press-event", lambda *_: (quit(), True)[1])
+def animate_open(window, align, root, duration=200):
+    """Вставляет Gtk.Revealer между align и root. Запускает проявление после
+    первой отрисовки окна (обработчик map).
+
+    Возвращает Revealer — его нужен для animate_close.
+    """
+    try:
+        from gi.repository import Gtk, GLib
+    except Exception:
+        return None
+    # Если root уже сидит в align, снять его оттуда.
+    parent = root.get_parent() if hasattr(root, "get_parent") else None
+    if parent is not None:
+        parent.remove(root)
+    # Приклеенные плашки (add_ears → draw_attached по сигналу draw самого align)
+    # не оборачиваем в Revealer: draw рисует фигуру по размеру align, а Revealer
+    # добавляет свою область геометрии, из-за которой align вытягивается и над
+    # попапом видна лишняя линия/ушки (12.10.2026). В «приклеенном» режиме попап
+    # прилегает к бару — анимации почти не видно, можно без неё.
+    try:
+        if "popup-attached" in align.get_style_context().list_classes():
+            align.add(root)
+            return _AttachedReveal(window, align, duration + 20)
+    except Exception:
+        pass
+    rev = Gtk.Revealer()
+    # CROSSFADE, не SLIDE: SLIDE меняет размер и ломает позиционирование у
+    # snap_to_pill (margin_start посчитан под фиксированную ширину).
+    rev.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
+    rev.set_transition_duration(duration)
+    rev.set_reveal_child(False)
+    rev.add(root)
+    align.add(rev)
+    rev.show()
+    window.connect("map", lambda _w: GLib.timeout_add(
+        10, lambda: (rev.set_reveal_child(True), False)[1]))
+    return rev
+
+
+class _AttachedReveal:
+    """Выезд приклеенной плашки из бара (13.10.2026): draw_attached рисует фигуру
+    высотой H·align._reveal_p, здесь p идёт 0→1 по кадрам с замедлением в конце
+    (ease-out, как SLIDE у Revealer в Центре управления). Для animate_close
+    выглядит как Revealer: set_reveal_child / get_transition_duration."""
+
+    def __init__(self, window, align, duration):
+        from gi.repository import GLib
+        self.align, self.duration = align, duration
+        self._target, self._from, self._t0, self._tick = 0.0, 0.0, None, None
+        align._reveal_p = 0.0
+        window.connect("map", lambda _w: GLib.timeout_add(
+            10, lambda: (self.set_reveal_child(True), False)[1]))
+
+    def get_transition_duration(self):
+        return self.duration
+
+    def set_reveal_child(self, on):
+        self._from = getattr(self.align, "_reveal_p", 1.0)
+        self._target = 1.0 if on else 0.0
+        self._t0 = None
+        if self._tick is None:
+            try:
+                self._tick = self.align.add_tick_callback(self._step)
+            except Exception:           # нет часов кадров — сразу конечный вид
+                self.align._reveal_p = self._target
+                self.align.queue_draw()
+
+    def _step(self, widget, clock):
+        now = clock.get_frame_time() / 1000.0          # мс
+        if self._t0 is None:
+            self._t0 = now
+        t = min(1.0, (now - self._t0) / max(1, self.duration))
+        k = 1 - (1 - t) ** 3                           # ease-out cubic
+        widget._reveal_p = self._from + (self._target - self._from) * k
+        widget.queue_draw()
+        if t >= 1:
+            self._tick = None
+            return False
+        return True
+
+
+def animate_close(revealer, on_done):
+    """Откатывает revealer, затем вызывает on_done (обычно Gtk.main_quit).
+    Повторный вызов во время анимации игнорируется.
+    """
+    try:
+        from gi.repository import GLib
+    except Exception:
+        on_done()
+        return
+    if revealer is None:
+        on_done()
+        return
+    if getattr(revealer, "_closing", False):
+        return
+    revealer._closing = True
+    try:
+        revealer.set_reveal_child(False)
+        GLib.timeout_add(revealer.get_transition_duration() + 20, lambda: (on_done(), False)[1])
+    except Exception:
+        on_done()

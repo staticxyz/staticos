@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Шпаргалка клавиш — стиль системы, vim-навигация, поиск.
 
-Super+X: j/k прокрутка, / поиск, q/Esc закрыть, g/G в начало/конец.
+Super+Z: j/k прокрутка, / поиск, q/Esc закрыть, g/G в начало/конец.
 Тема и цвета — из обоев (palette + settings-skin).
 """
 import os
@@ -15,13 +15,17 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gdk, Gio, GLib, Gtk, Pango, PangoCairo
+gi.require_version("GtkLayerShell", "0.1")
+from gi.repository import Gdk, Gio, GLib, Gtk, GtkLayerShell, Pango, PangoCairo
 import cairo
 
+NAMESPACE = "jarvis-keybinds"
+
 APP_ID = "com.jarvis.keybinds"
-W, H_MIN = 480, 560
-ROW_H = 22
-PAD = 16
+W, H_MIN = 640, 640
+ROW_H = 26
+PAD = 20
+FONT_SZ = 16
 
 KEYS = {}
 for _row, _start in (("1234567890-=", 10), ("qwertyuiop[]", 24), ("asdfghjkl;'", 38),
@@ -44,6 +48,13 @@ RE_BIND = re.compile(
 
 PRETTY = {
     "Mod": "Super", "Ctrl": "Ctrl", "Shift": "Shift", "Alt": "Alt",
+    "Grave": "`", "Return": "Enter", "Slash": "/", "Period": ".", "Comma": ",",
+    "Minus": "-", "Equal": "=", "BracketLeft": "[", "BracketRight": "]", "Backslash": "\\",
+    "Escape": "Esc", "KP_Add": "Num+", "KP_Subtract": "Num-", "Page_Up": "PgUp", "Page_Down": "PgDn",
+    "XF86AudioRaiseVolume": "Vol+", "XF86AudioLowerVolume": "Vol-", "XF86AudioMute": "Mute",
+    "XF86AudioMicMute": "MicMute", "XF86MonBrightnessUp": "Bright+", "XF86MonBrightnessDown": "Bright-",
+    "XF86AudioNext": "Next", "XF86AudioPrev": "Prev", "XF86AudioPlay": "Play", "XF86AudioPause": "Pause",
+    "TouchpadScrollLeft": "тачпад ←", "TouchpadScrollRight": "тачпад →",
 }
 
 def pretty_key(raw):
@@ -52,48 +63,132 @@ def pretty_key(raw):
     for p in parts:
         p = p.strip()
         out.append(PRETTY.get(p, p))
-    return " + ".join(out)
+    return "+".join(out)
+
+# Неподписанные бинды — стандартные действия niri. Раньше шпаргалка их пропускала, и в ней
+# не было ни навигации, ни столов 1–9, ни Print (13.10.2026, просьба: «обнови бинды на
+# Super+Z»). Подпись и категория — отсюда; binds.kdl не трогаем. Повторы (стрелки, KP,
+# колесо) склеиваются по подписи: остаётся первая клавиша, т.е. vim-вариант.
+RE_FULL = re.compile(r'^\s*([A-Za-z0-9_+]+)\s+([^{\n]*)\{[ \t]*([^}\n]*)\}', re.MULTILINE)
+RE_TITLE = re.compile(r'hotkey-overlay-title="([^"]*)"')
+WIN, SHOT, MEDIA, SYS = "Окна и столы", "Снимки и запись", "Звук, яркость, медиа", "Система"
+ACTION_RU = {
+    "toggle-overview": ("Обзор столов", WIN),
+    "focus-column-left": ("Колонка слева", WIN),
+    "focus-column-right": ("Колонка справа", WIN),
+    "focus-column-first": ("Первая колонка", WIN),
+    "focus-column-last": ("Последняя колонка", WIN),
+    "focus-workspace-up": ("Стол выше", WIN),
+    "focus-workspace-down": ("Стол ниже", WIN),
+    "focus-window-up": ("Окно выше в колонке", WIN),
+    "focus-window-down": ("Окно ниже в колонке", WIN),
+    "move-column-left": ("Сдвинуть колонку влево", WIN),
+    "move-column-right": ("Сдвинуть колонку вправо", WIN),
+    "move-column-to-first": ("Колонку в начало", WIN),
+    "move-column-to-last": ("Колонку в конец", WIN),
+    "move-window-up": ("Окно вверх в колонке", WIN),
+    "move-window-down": ("Окно вниз в колонке", WIN),
+    "move-workspace-up": ("Переставить стол выше", WIN),
+    "move-workspace-down": ("Переставить стол ниже", WIN),
+    "move-column-to-workspace-up": ("Колонку на стол выше", WIN),
+    "move-column-to-workspace-down": ("Колонку на стол ниже", WIN),
+    "move-workspace-to-monitor-left": ("Стол на монитор слева", WIN),
+    "move-workspace-to-monitor-right": ("Стол на монитор справа", WIN),
+    "move-window-to-monitor-left": ("Окно на монитор слева", WIN),
+    "move-window-to-monitor-right": ("Окно на монитор справа", WIN),
+    "focus-monitor-next": ("Следующий монитор", WIN),
+    "consume-or-expel-window-left": ("Окно в колонку слева / вынуть", WIN),
+    "consume-or-expel-window-right": ("Окно в колонку справа / вынуть", WIN),
+    "consume-window-into-column": ("Втянуть соседнее окно в колонку", WIN),
+    "fullscreen-window": ("Окно на весь экран", WIN),
+    "maximize-column": ("Колонка во всю ширину", WIN),
+    "switch-focus-between-floating-and-tiling": ("Фокус: плавающие ↔ плитка", WIN),
+    "toggle-column-tabbed-display": ("Колонка вкладками", WIN),
+    "center-column": ("Колонку в центр", WIN),
+    "screenshot": ("Снимок области", SHOT),
+    "screenshot-window": ("Снимок окна", SHOT),
+    "screenshot-screen": ("Снимок экрана", SHOT),
+    "show-hotkey-overlay": ("Подсказка клавиш niri", SYS),
+    "toggle-keyboard-shortcuts-inhibit": ("Отдать клавиши окну (игры, ВМ)", SYS),
+    "quit": ("Выйти из niri", SYS),
+    "power-off-monitors": ("Погасить мониторы", SYS),
+}
+
+
+def untitled(key, action):
+    """(подпись, категория, ключ) для неподписанного бинда или None."""
+    a = action.strip().rstrip(";").strip()
+    name, _, arg = a.partition(" ")
+    if name in ("focus-workspace", "move-column-to-workspace") and arg.isdigit():
+        if "KP_" in key:                                   # дубль цифрового ряда
+            return None
+        what = "Стол" if name == "focus-workspace" else "Колонку на стол"
+        return (what + " 1…9", WIN, re.sub(r"\d+$", "1…9", key))
+    if name == "set-window-height":
+        return ("Высота окна " + ("+" if "+" in arg else "−"), WIN, key)
+    if name == "spawn-sh" and "set-mute" in arg:
+        return ("Микрофон вкл/выкл" if "SOURCE" in arg else "Звук вкл/выкл", MEDIA, key)
+    if name in ACTION_RU:
+        return ACTION_RU[name] + (key,)
+    return None
+
+
+def category(title):
+    t = title.lower()
+    if "терминал" in t:
+        return "Терминал"
+    if any(w in t for w in ("браузер", "helium", "zen", "tor ", "libre")):
+        return "Браузеры"
+    if any(w in t for w in ("снимок", "запись", "gif", "стикер", "replay", "текст с экрана")):
+        return SHOT
+    if any(w in t for w in ("помидор", "discipline")):
+        return "Фокус"
+    if any(w in t for w in ("hub", "напомин", "словарь")):
+        return "Hub"
+    if any(w in t for w in ("громкость", "микрофон", "трек", "играть", "яркость", "подсветка", "картинка в картинке")):
+        return MEDIA
+    if any(w in t for w in ("буфера обмена", "блокнот")):
+        return "Программы"
+    if any(w in t for w in ("настрой", "noctalia", "обо", "стиль", "панель", "аватар")):
+        return "Настройки и вид"
+    if any(w in t for w in ("окно", "окна", "окон", "стол", "монитор", "плавающ", "колон", "лент", "дашборд", "полноэкранн")):
+        return WIN
+    if any(w in t for w in ("блокировка", "питани")):
+        return SYS
+    return "Программы"
+
 
 def load_binds():
     try:
         text = open(BINDS_KDL).read()
     except OSError:
         return []
-    result = []
-    for m in RE_BIND.finditer(text):
-        key, title = m.group(1), m.group(2)
-        if not title:
-            continue
-        result.append((pretty_key(key), title))
-    cats = {}
-    for key, title in result:
-        if "терминал" in title.lower():
-            cat = "Терминал"
-        elif "браузер" in title.lower() or "helium" in title.lower() or "zen" in title.lower() or "tor" in title.lower() or "libre" in title.lower():
-            cat = "Браузеры"
-        elif "снимок" in title.lower() or "запись" in title.lower() or "gif" in title.lower() or "стикер" in title.lower():
-            cat = "Снимки и запись"
-        elif "помидор" in title.lower() or "фокус" in title.lower():
-            cat = "Фокус"
-        elif "hub" in title.lower() or "напомин" in title.lower() or "словарь" in title.lower():
-            cat = "Hub"
-        elif "настрой" in title.lower() or "noctalia" in title.lower() or "обо" in title.lower() or "стиль" in title.lower():
-            cat = "Настройки и вид"
-        elif "окно" in title.lower() or "стол" in title.lower() or "монитор" in title.lower() or "плавающ" in title.lower() or "колон" in title.lower() or "полноэкранн" in title.lower():
-            cat = "Окна и столы"
+    text = re.sub(r"//[^\n]*", "", text)
+    CAT_ICONS = {
+        "Терминал": ">_", "Браузеры": "🌐", "Hub": "📋",
+        "Фокус": "⏱", SHOT: "📷", MEDIA: "♪",
+        "Настройки и вид": "⚙", WIN: "▣", SYS: "⏻", "Программы": "◆",
+    }
+    cats, seen = {}, set()
+    for m in RE_FULL.finditer(text):
+        key, attrs, action = m.groups()
+        t = RE_TITLE.search(attrs)
+        if t:
+            title, cat, shown = t.group(1), category(t.group(1)), key
         else:
-            cat = "Другое"
-        cats.setdefault(cat, []).append((key, title))
-    order = ["Терминал", "Браузеры", "Hub", "Фокус", "Снимки и запись", "Настройки и вид", "Окна и столы", "Другое"]
+            u = untitled(key, action)
+            if not u:
+                continue
+            title, cat, shown = u
+            if (cat, title) in seen:                       # стрелки/KP/колесо — тот же смысл
+                continue
+        seen.add((cat, title))
+        cats.setdefault(cat, []).append((pretty_key(shown), title))
+    order = ["Терминал", "Браузеры", "Hub", "Фокус", SHOT, MEDIA, "Настройки и вид", WIN, SYS, "Программы"]
     rows = []
-    for c in order:
+    for c in order + [c for c in cats if c not in order]:
         if c in cats:
-            rows.append(("head", c))
-            for k, t in cats[c]:
-                rows.append(("bind", k, t))
-    for c in cats:
-        if c not in order:
-            rows.append(("head", c))
+            rows.append(("head", c, CAT_ICONS.get(c, "")))
             for k, t in cats[c]:
                 rows.append(("bind", k, t))
     return rows
@@ -124,7 +219,7 @@ class Painter:
 
     def text(self, x, y, text, color, size=12, align="l", maxw=0, bold=False):
         lay = PangoCairo.create_layout(self.cr)
-        fd = Pango.FontDescription("PxPlus HP 100LX 6x8 %dpx" % size)
+        fd = Pango.FontDescription("JetBrainsMono Nerd Font %dpx" % size)
         if bold:
             fd.set_weight(Pango.Weight.BOLD)
         lay.set_font_description(fd)
@@ -144,7 +239,7 @@ class Painter:
 
     def text_w(self, text, size=12):
         lay = PangoCairo.create_layout(self.cr)
-        lay.set_font_description(Pango.FontDescription("PxPlus HP 100LX 6x8 %dpx" % size))
+        lay.set_font_description(Pango.FontDescription("JetBrainsMono Nerd Font %dpx" % size))
         lay.set_text(text, -1)
         return lay.get_pixel_size()[0]
 
@@ -176,40 +271,48 @@ class View:
     def draw(self, cr, w, h):
         c = self.c
         p = Painter(cr, c)
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        BG_ALPHA = 0.88
         if c["frame"] == "skeet":
-            p.rect(0, 0, w, h, c.get("line3", c["bg"]))
-            p.rect(2, 2, w - 4, h - 4, c["line"])
-            p.rect(4, 4, w - 8, h - 8, c["bg"])
+            cr.set_source_rgba(*c.get("line3", c["bg"]), BG_ALPHA)
+            cr.rectangle(0, 0, w, h); cr.fill()
+            cr.set_source_rgba(*c["line"], BG_ALPHA)
+            cr.rectangle(2, 2, w - 4, h - 4); cr.fill()
+            cr.set_source_rgba(*c["bg"], BG_ALPHA)
+            cr.rectangle(4, 4, w - 8, h - 8); cr.fill()
         else:
             p.round(0.5, 0.5, w - 1, h - 1, 10)
-            p.rgb(c["bg"])
+            cr.set_source_rgba(*c["bg"], BG_ALPHA)
             cr.fill_preserve()
             p.rgb(c["line"])
             cr.set_line_width(1)
             cr.stroke()
 
         x0, x1 = PAD, w - PAD
-        y = 12
-        p.text(x0, y, "Клавиши", c["acc_l"], size=12, bold=True)
-        y += 22
+        y = 14
+        p.text(x0, y, "Клавиши", c["acc_l"], size=FONT_SZ, bold=True)
+        y += 28
 
         # поиск
-        p.rect(x0, y, x1 - x0, 20, c["field"])
+        p.rect(x0, y, x1 - x0, 26, c["field"])
         if self.mode == "search":
-            p.text(x0 + 4, y + 3, self.buf + "▏", c["text"], maxw=x1 - x0 - 8)
+            p.text(x0 + 6, y + 4, self.buf + "▏", c["text"], size=FONT_SZ, maxw=x1 - x0 - 12)
         elif self.buf:
-            p.text(x0 + 4, y + 3, self.buf, c["text"], maxw=x1 - x0 - 8)
+            p.text(x0 + 6, y + 4, self.buf, c["text"], size=FONT_SZ, maxw=x1 - x0 - 12)
         else:
-            p.text(x0 + 4, y + 3, "Поиск…  /", c["faint"], maxw=x1 - x0 - 8)
-        y += 26
+            p.text(x0 + 6, y + 4, "Поиск…  /", c["faint"], size=FONT_SZ, maxw=x1 - x0 - 12)
+        y += 32
 
         rows = self.rows()
         if not rows:
-            p.text(x0, y, "Ничего не найдено.", c["faint"])
-            self.draw_footer(p, x0, x1, h - 20, w)
+            p.text(x0, y, "Ничего не найдено.", c["faint"], size=FONT_SZ)
+            self.draw_footer(p, x0, x1, h - 24, w)
             return
 
-        avail = h - y - 28
+        avail = h - y - 32
         max_vis = avail // ROW_H
         sel = max(0, min(self.sel, len(rows) - 1))
         self.sel = sel
@@ -226,21 +329,25 @@ class View:
         cr.rectangle(x0 - 2, y, x1 - x0 + 4, avail)
         cr.clip()
 
-        key_w = 160
+        key_w = 240
         for i in range(off, min(off + max_vis + 1, len(rows))):
             ry = y + (i - off) * ROW_H
             if ry > y + avail:
                 break
             is_sel = i == sel
             row = rows[i]
+            txt_y = ry + (ROW_H - FONT_SZ) // 2
             if row[0] == "head":
                 p.rect(x0, ry + ROW_H - 1, x1 - x0, 1, c["line_soft"])
-                p.text(x0 + 2, ry + 5, row[1], c["acc_l"], bold=True)
+                icon_txt = row[2] if len(row) > 2 else ""
+                if icon_txt:
+                    p.text(x0 + 2, txt_y, icon_txt, c["dim"], size=FONT_SZ)
+                p.text(x0 + (22 if icon_txt else 2), txt_y, row[1], c["acc_l"], size=FONT_SZ, bold=True)
             else:
                 if is_sel:
                     p.rect(x0 - 2, ry, x1 - x0 + 4, ROW_H, c["sel"])
-                p.text(x0 + 8, ry + 4, row[1], c["acc_l"] if is_sel else c["dim"], maxw=key_w - 12)
-                p.text(x0 + key_w, ry + 4, row[2], c["text"] if is_sel else c["dim"], maxw=x1 - x0 - key_w - 4)
+                p.text(x0 + 8, txt_y, row[1], c["acc_l"] if is_sel else c["dim"], size=FONT_SZ, maxw=key_w - 12)
+                p.text(x0 + key_w, txt_y, row[2], c["text"] if is_sel else c["dim"], size=FONT_SZ, maxw=x1 - x0 - key_w - 4)
 
         cr.restore()
 
@@ -249,18 +356,18 @@ class View:
             bar_y = y + (avail - bar_h) * off / max(1, len(rows) - max_vis)
             p.rect(x1 - 2, bar_y, 2, bar_h, c["faint"])
 
-        self.draw_footer(p, x0, x1, h - 20, w)
+        self.draw_footer(p, x0, x1, h - 24, w)
 
     def draw_footer(self, p, x0, x1, y, w):
         c = self.c
         p.rect(x0, y - 4, x1 - x0, 1, c["line_soft"])
         badge = "SEARCH" if self.mode == "search" else "NORMAL"
-        bw = p.text_w(badge) + 10
-        p.rect(x0, y, bw, 16, c["field_l"])
-        p.text(x0 + 5, y + 1, badge, c["acc_l"])
+        bw = p.text_w(badge, FONT_SZ) + 12
+        p.rect(x0, y, bw, 20, c["field_l"])
+        p.text(x0 + 6, y + 2, badge, c["acc_l"], size=FONT_SZ)
         hint = "j/k ↕ · g/G начало/конец · / поиск · q закрыть" if self.mode == "normal" \
-            else "Enter — открыть · jj/Ctrl+E — навигация · Esc"
-        p.text(x0 + bw + 8, y + 1, hint, c["faint"], maxw=x1 - x0 - bw - 10)
+            else "Enter открыть · jj навигация · Esc"
+        p.text(x0 + bw + 8, y + 2, hint, c["faint"], size=FONT_SZ, maxw=x1 - x0 - bw - 10)
 
 
 class SheetWindow(Gtk.ApplicationWindow):
@@ -268,13 +375,16 @@ class SheetWindow(Gtk.ApplicationWindow):
         super().__init__(application=app, title="Keybinds")
         self.view = View()
         self.set_decorated(False)
-        self.set_default_size(W, H_MIN)
-        self.set_resizable(False)
         self.set_app_paintable(True)
         vis = self.get_screen().get_rgba_visual()
         if vis:
             self.set_visual(vis)
+        GtkLayerShell.init_for_window(self)
+        GtkLayerShell.set_namespace(self, NAMESPACE)
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.EXCLUSIVE)
         self.area = Gtk.DrawingArea()
+        self.area.set_size_request(W, H_MIN)
         self.area.connect("draw", self.on_draw)
         self.area.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.SCROLL_MASK)
         self.area.connect("scroll-event", self.on_scroll)
@@ -303,8 +413,16 @@ class SheetWindow(Gtk.ApplicationWindow):
         kc = ev.hardware_keycode
         ctrl = bool(ev.state & Gdk.ModifierType.CONTROL_MASK)
         shift = bool(ev.state & Gdk.ModifierType.SHIFT_MASK)
+        mod = bool(ev.state & Gdk.ModifierType.MOD4_MASK)
         ch = KEYS.get(kc, "")
         name = Gdk.keyval_name(ev.keyval) or ""
+
+        if mod and ch == "z":
+            self.close()
+            return True
+        if ctrl and ch == "q":
+            self.close()
+            return True
 
         if ctrl and ch == "e":
             v.mode = "normal" if v.mode == "search" else "search"
@@ -354,7 +472,7 @@ class SheetWindow(Gtk.ApplicationWindow):
     def key_normal(self, ch, name, shift):
         v = self.view
         rows = v.rows()
-        if name == "Escape" or ch == "q":
+        if name == "Escape" or ch == "q" or name == "BackSpace":
             self.close()
         elif ch == "j":
             v.sel = min(len(rows) - 1, v.sel + 1)
@@ -379,7 +497,7 @@ class App(Gtk.Application):
 
     def do_activate(self):
         if self.win is not None:
-            self.win.present()
+            self.win.close()
             return
         self.win = SheetWindow(self)
         self.win.connect("destroy", lambda *_: setattr(self, "win", None))

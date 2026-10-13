@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""rem — напоминания hub.  rem текст | ls [список] | done N | snooze N 30м | del N | edit N текст | lists | import-twin"""
+import os, sys
+sys.path.insert(0, os.path.expanduser("~/.local/share/hub"))
+import hublib as H
+c = H.connect()
+a = sys.argv[1:]
+if not a or a[0] in ("-h", "--help"):
+    print(__doc__); sys.exit(0)
+cmd, rest = a[0], a[1:]
+def num():
+    try: return int(rest[0].lstrip("#"))
+    except (IndexError, ValueError): sys.exit("нужен номер пункта")
+if cmd in ("ls", "l"):
+    its = H.items(c, rest[0] if rest else None, "open", "task")
+    last = None
+    for i in its:
+        if i["list"] != last and not rest:
+            print("\n— %s —" % i["list"]); last = i["list"]
+        print(H.fmt_item(i))
+elif cmd == "lists":
+    for l in H.lists(c): print("%s — %d" % (l["name"], l["open"]))
+elif cmd in ("done", "d"): print("ok" if H.done(c, num()) else "не найден")
+elif cmd in ("snooze", "s"):
+    s = H.parse_duration(rest[1]) if len(rest) > 1 else 3600
+    print("ok" if s and H.snooze(c, num(), s) else "не вышло")
+elif cmd in ("del", "rm"): print("ok" if H.drop(c, num()) else "не найден")
+elif cmd == "edit":
+    clean, due, _ = H.parse_when(" ".join(rest[1:]))
+    print("ok" if H.edit(c, num(), clean, due if due else "keep") else "не найден")
+elif cmd == "import-twin": print("перенесено:", H.import_twin(c))
+else:
+    iid, due = H.add_smart(c, " ".join(a))
+    print(H.fmt_item(H.get_item(c, iid)))

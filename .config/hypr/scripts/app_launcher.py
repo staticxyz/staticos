@@ -14,15 +14,22 @@ sys.path.insert(0, os.path.expanduser("~/.local/share/hub"))
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
+gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gdk, Gio, GLib, Gtk, Pango, PangoCairo
+gi.require_version("GtkLayerShell", "0.1")
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, GtkLayerShell, Pango, PangoCairo
 import cairo
 
+NAMESPACE = "jarvis-launcher"
+
 APP_ID = "com.jarvis.launcher"
-W, H_MIN = 420, 500
-ROW_H = 24
-PAD = 16
-HEADER_H = 38
+W, H_MIN = 560, 640
+ROW_H = 34
+MAX_ROWS = 12                  # строк в окне, дальше — прокрутка
+OM_PAD, OM_INPUT, OM_GAP, OM_BORDER = 18, 40, 8, 2   # вид Omarchy
+PAD = 20
+HEADER_H = 42
+FONT_SZ = 16
 
 KEYS = {}
 for _row, _start in (("1234567890-=", 10), ("qwertyuiop[]", 24), ("asdfghjkl;'", 38),
@@ -154,7 +161,7 @@ class Painter:
 
     def text(self, x, y, text, color, size=12, align="l", maxw=0, bold=False):
         lay = PangoCairo.create_layout(self.cr)
-        fd = Pango.FontDescription("PxPlus HP 100LX 6x8 %dpx" % size)
+        fd = Pango.FontDescription("JetBrainsMono Nerd Font %dpx" % size)
         if bold:
             fd.set_weight(Pango.Weight.BOLD)
         lay.set_font_description(fd)
@@ -174,9 +181,36 @@ class Painter:
 
     def text_w(self, text, size=12):
         lay = PangoCairo.create_layout(self.cr)
-        lay.set_font_description(Pango.FontDescription("PxPlus HP 100LX 6x8 %dpx" % size))
+        lay.set_font_description(Pango.FontDescription("JetBrainsMono Nerd Font %dpx" % size))
         lay.set_text(text, -1)
         return lay.get_pixel_size()[0]
+
+    def icon(self, x, y, size, pixbuf):
+        if pixbuf is None:
+            return
+        if pixbuf.get_width() != size or pixbuf.get_height() != size:
+            pixbuf = pixbuf.scale_simple(size, size, GdkPixbuf.InterpType.BILINEAR)
+        Gdk.cairo_set_source_pixbuf(self.cr, pixbuf, x, y)
+        self.cr.paint()
+
+
+_icon_cache = {}
+
+def get_icon(gicon, size=16):
+    if gicon is None:
+        return None
+    key = str(gicon)
+    if key in _icon_cache:
+        return _icon_cache[key]
+    theme = Gtk.IconTheme.get_default()
+    try:
+        info = theme.lookup_by_gicon(gicon, size, Gtk.IconLookupFlags.FORCE_SIZE)
+        pb = info.load_icon() if info else None
+    except Exception:
+        pb = None
+    _icon_cache[key] = pb
+    return pb
+
 
 # ── данные и рисование ───────────────────────────────────────────────────────
 
@@ -192,6 +226,8 @@ class View:
         self.cat_idx = -1               # -1 = список категорий
         self.pending_jj = False
         self.pending_t = 0
+        self.home = (0, 0)              # позиция в списке разделов до входа в раздел
+        self.cat_pos = {}               # позиция внутри каждого раздела
 
     def rows(self):
         if self.cat_idx == -1:
@@ -213,58 +249,52 @@ class View:
             return "Приложения"
         return self.cats[self.cat_idx][0]
 
+    def visible(self):
+        return max(1, min(MAX_ROWS, len(self.rows())))
+
+    def height(self):
+        """Окно по содержимому, как у Omarchy (walker): поле + строки, без пустоты."""
+        return 2 * OM_PAD + OM_INPUT + OM_GAP + self.visible() * ROW_H
+
     def draw(self, cr, w, h):
+        """Вид Omarchy (13.10.2026, просьба: «привести внешний вид под Omarchy»):
+        квадратное окно, рамка 2 px акцентом, плотный фон; сверху поле, в пустом —
+        название раздела («Приложения…»); список без подложек — выбранное только цветом
+        акцента. Ни заголовка, ни счётчиков, ни подвала; режим — бледно справа в поле."""
         c = self.c
         p = Painter(cr, c)
-        if c["frame"] == "skeet":
-            p.rect(0, 0, w, h, c["line3"])
-            p.rect(2, 2, w - 4, h - 4, c["line"])
-            p.rect(4, 4, w - 8, h - 8, c["bg"])
-            x0, x1, y0 = PAD, w - PAD, 4
-        else:
-            p.round(0.5, 0.5, w - 1, h - 1, 10)
-            p.rgb(c["bg"])
-            cr.fill_preserve()
-            p.rgb(c["line"])
-            cr.set_line_width(1)
-            cr.stroke()
-            x0, x1, y0 = PAD, w - PAD, 4
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(*c["bg"], 0.96)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        p.rgb(c["acc"])
+        cr.set_line_width(OM_BORDER)
+        cr.rectangle(OM_BORDER / 2, OM_BORDER / 2, w - OM_BORDER, h - OM_BORDER)
+        cr.stroke()
+        x0, x1 = OM_PAD, w - OM_PAD
 
-        # заголовок
-        y = y0 + 8
-        title = self.title()
-        if self.cat_idx >= 0:
-            p.text(x0, y, "← " + title, c["acc_l"], size=12, bold=True)
+        # поле ввода
+        y = OM_PAD
+        ty = y + (OM_INPUT - FONT_SZ) // 2
+        badge = "ВВОД" if self.mode == "search" else "/ поиск"
+        bw = p.text(x1 - 4, ty, badge, c["faint"], size=FONT_SZ, align="r")
+        maxw = x1 - x0 - bw - 24
+        if self.mode == "search" or self.buf:
+            cur = "▏" if self.mode == "search" else ""
+            p.text(x0 + 4, ty, self.buf + cur, c["text"], size=FONT_SZ, maxw=maxw)
         else:
-            p.text(x0, y, title, c["acc_l"], size=12, bold=True)
-
-        # строка поиска
-        y += 22
-        p.rect(x0, y, x1 - x0, 20, c["field"])
-        if c["frame"] == "skeet":
-            p.rect(x0, y, x1 - x0, 1, c["line"])
-            p.rect(x0, y + 19, x1 - x0, 1, c["line"])
-        if self.mode == "search":
-            p.text(x0 + 4, y + 3, self.buf + "▏", c["text"], maxw=x1 - x0 - 8)
-        elif self.buf:
-            p.text(x0 + 4, y + 3, self.buf, c["text"], maxw=x1 - x0 - 8)
-        else:
-            p.text(x0 + 4, y + 3, "Поиск…  /", c["faint"], maxw=x1 - x0 - 8)
+            p.text(x0 + 4, ty, self.title() + "…", c["faint"], size=FONT_SZ, maxw=maxw)
+        p.rect(x0, y + OM_INPUT - 1, x1 - x0, 1, c["line_soft"])
 
         # список
-        y += 26
+        y += OM_INPUT + OM_GAP
         rows = self.rows()
         if not rows:
-            p.text(x0, y, "Ничего не найдено.", c["faint"])
-            # подвал
-            self.draw_footer(p, x0, x1, h - 20, w)
+            p.text(x0 + 4, y + (ROW_H - FONT_SZ) // 2, "Ничего не найдено", c["faint"], size=FONT_SZ)
             return
-
-        avail = h - y - 28
-        max_vis = avail // ROW_H
+        max_vis = self.visible()
         sel = max(0, min(self.sel, len(rows) - 1))
         self.sel = sel
-
         off = self.scroll
         if sel < off:
             off = sel
@@ -273,51 +303,53 @@ class View:
         off = max(0, min(off, len(rows) - max_vis))
         self.scroll = off
 
-        cr.save()
-        cr.rectangle(x0 - 2, y, x1 - x0 + 4, avail)
-        cr.clip()
-
-        for i in range(off, min(off + max_vis + 1, len(rows))):
+        ico_sz = 20
+        for i in range(off, min(off + max_vis, len(rows))):
             ry = y + (i - off) * ROW_H
-            if ry > y + avail:
-                break
             is_sel = i == sel
-            if is_sel:
-                p.rect(x0 - 2, ry, x1 - x0 + 4, ROW_H, c["sel"])
             row = rows[i]
+            txt_x = x0 + 4 + ico_sz + 14
+            txt_y = ry + (ROW_H - FONT_SZ) // 2
+            ico_y = ry + (ROW_H - ico_sz) // 2
+            col = c["acc_l"] if is_sel else c["text"]
             if row[0] == "cat":
                 _, name, apps = row
-                p.text(x0 + 4, ry + 5, "▸ " + name, c["acc_l"] if is_sel else c["text"])
-                p.text(x1 - 4, ry + 5, str(len(apps)), c["faint"], align="r")
+                pb = get_icon(apps[0].get_icon(), ico_sz) if apps else None
+                label = name
             else:
                 a = row[1]
-                name = a.get_display_name() or "?"
-                p.text(x0 + 4, ry + 5, name, c["text"] if is_sel else c["dim"])
+                pb = get_icon(a.get_icon(), ico_sz)
+                label = a.get_display_name() or "?"
+            if pb:
+                if not is_sel:
+                    cr.push_group()
+                    p.icon(x0 + 4, ico_y, ico_sz, pb)
+                    cr.pop_group_to_source()
+                    cr.paint_with_alpha(0.8)
+                else:
+                    p.icon(x0 + 4, ico_y, ico_sz, pb)
+            p.text(txt_x, txt_y, label, col, size=FONT_SZ, maxw=x1 - txt_x - 10)
 
-        cr.restore()
-
-        # полоска скролла
-        if len(rows) > max_vis:
+        if len(rows) > max_vis:                      # тонкая полоса прокрутки у рамки
+            avail = max_vis * ROW_H
             bar_h = max(12, avail * max_vis / len(rows))
             bar_y = y + (avail - bar_h) * off / max(1, len(rows) - max_vis)
-            p.rect(x1 - 2, bar_y, 2, bar_h, c["faint"])
+            p.rect(w - OM_BORDER - 4, bar_y, 2, bar_h, c["faint"])
 
-        self.draw_footer(p, x0, x1, h - 20, w)
+    def enter(self, idx):
+        """Войти в раздел: запомнить, где стоял выбор в списке разделов."""
+        self.home = (self.sel, self.scroll)
+        self.cat_idx = idx
+        self.sel, self.scroll = self.cat_pos.get(idx, (0, 0))
 
-    def draw_footer(self, p, x0, x1, y, w):
-        c = self.c
-        p.rect(x0, y - 4, x1 - x0, 1, c["line_soft"])
-        badge = "SEARCH" if self.mode == "search" else "NORMAL"
-        bw = p.text_w(badge) + 10
-        p.rect(x0, y, bw, 16, c["field_l"])
-        p.text(x0 + 5, y + 1, badge, c["acc_l"])
-        if self.mode == "search":
-            hint = "Enter — открыть · jj/Ctrl+E — навигация · Esc — закрыть"
-        elif self.cat_idx >= 0:
-            hint = "j/k ↕ · h назад · Enter/l открыть · / поиск"
-        else:
-            hint = "j/k ↕ · l/Enter войти · h/q закрыть · / поиск"
-        p.text(x0 + bw + 8, y + 1, hint, c["faint"], maxw=x1 - x0 - bw - 10)
+    def back(self):
+        """Назад к разделам — на тот, из которого вышли (13.10.2026: раньше — в начало)."""
+        self.cat_pos[self.cat_idx] = (self.sel, self.scroll)
+        idx = self.cat_idx
+        self.cat_idx, self.buf = -1, ""
+        names = [n for n, _ in self.cats]
+        self.sel = idx if 0 <= idx < len(names) else self.home[0]
+        self.scroll = self.home[1]
 
 # ── окно ─────────────────────────────────────────────────────────────────────
 
@@ -326,12 +358,18 @@ class LauncherWindow(Gtk.ApplicationWindow):
         super().__init__(application=app, title="Launcher")
         self.view = View()
         self.set_decorated(False)
-        self.set_default_size(W, H_MIN)
-        self.set_resizable(False)
         self.set_app_paintable(True)
         vis = self.get_screen().get_rgba_visual()
         if vis:
             self.set_visual(vis)
+        GtkLayerShell.init_for_window(self)
+        GtkLayerShell.set_namespace(self, NAMESPACE)
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.EXCLUSIVE)
+        GtkLayerShell.set_exclusive_zone(self, -1)
+        for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
+                     GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+            GtkLayerShell.set_anchor(self, edge, True)
         self.area = Gtk.DrawingArea()
         self.area.connect("draw", self.on_draw)
         self.area.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.SCROLL_MASK)
@@ -339,14 +377,27 @@ class LauncherWindow(Gtk.ApplicationWindow):
         self.area.connect("scroll-event", self.on_scroll)
         self.add(self.area)
         self.connect("key-press-event", self.on_key)
-        self.connect("focus-out-event", lambda *_: self.close())
 
     def redraw(self):
         self.area.queue_draw()
 
+    def _panel_rect(self, w, h):
+        ph = self.view.height()
+        px = (w - W) // 2
+        py = max(0, (h - H_MIN) // 2)     # верх на месте, окно растёт вниз — не прыгает
+        return px, py, W, ph
+
     def on_draw(self, _w, cr):
         w, h = self.get_allocated_width(), self.get_allocated_height()
-        self.view.draw(cr, w, h)
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        px, py, pw, ph = self._panel_rect(w, h)
+        cr.save()
+        cr.translate(px, py)
+        self.view.draw(cr, pw, ph)
+        cr.restore()
 
     def on_scroll(self, _w, ev):
         v = self.view
@@ -369,8 +420,7 @@ class LauncherWindow(Gtk.ApplicationWindow):
             return
         row = rows[v.sel]
         if row[0] == "cat":
-            v.cat_idx = next(i for i, (n, _) in enumerate(v.cats) if n == row[1])
-            v.sel, v.scroll = 0, 0
+            v.enter(next(i for i, (n, _) in enumerate(v.cats) if n == row[1]))
             self.redraw()
         else:
             a = row[1]
@@ -387,8 +437,16 @@ class LauncherWindow(Gtk.ApplicationWindow):
         v = self.view
         kc = ev.hardware_keycode
         ctrl = bool(ev.state & Gdk.ModifierType.CONTROL_MASK)
+        mod = bool(ev.state & Gdk.ModifierType.MOD4_MASK)
         ch = KEYS.get(kc, "")
         name = Gdk.keyval_name(ev.keyval) or ""
+
+        if mod and ch == "x":
+            self.close()
+            return True
+        if ctrl and ch == "q":
+            self.close()
+            return True
 
         # Ctrl+E — переключение режима
         if ctrl and ch == "e":
@@ -444,6 +502,11 @@ class LauncherWindow(Gtk.ApplicationWindow):
         rows = v.rows()
         if name == "Escape" or ch == "q":
             self.close()
+        elif name == "BackSpace":
+            if v.cat_idx >= 0:
+                v.back()
+            else:
+                self.close()
         elif ch == "j":
             v.sel = min(len(rows) - 1, v.sel + 1)
         elif ch == "k":
@@ -454,8 +517,7 @@ class LauncherWindow(Gtk.ApplicationWindow):
             self.activate_current()
         elif ch == "h":
             if v.cat_idx >= 0:
-                v.cat_idx = -1
-                v.sel, v.scroll, v.buf = 0, 0, ""
+                v.back()
             else:
                 self.close()
         elif ch == "/":
@@ -468,7 +530,7 @@ class App(Gtk.Application):
 
     def do_activate(self):
         if self.win is not None:
-            self.win.present()
+            self.win.close()
             return
         self.win = LauncherWindow(self)
         self.win.connect("destroy", lambda *_: setattr(self, "win", None))
@@ -480,9 +542,9 @@ def shot(path, style=None, cat=-1, sel=0, mode="normal", buf=""):
     if style:
         v.style, v.c = style, colors(style)
     v.cat_idx, v.sel, v.mode, v.buf = cat, sel, mode, buf
-    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, W, H_MIN)
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, W, v.height())
     cr = cairo.Context(surf)
-    v.draw(cr, W, H_MIN)
+    v.draw(cr, W, v.height())
     surf.write_to_png(path)
 
 def check():

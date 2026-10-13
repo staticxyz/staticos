@@ -138,6 +138,14 @@ def devices():
 
 
 class BluetoothPopup(Gtk.Window):
+    def _exit(self):
+        # Сперва плашка уезжает в бар (popup_theme.animate_close, 13.10.2026).
+        try:
+            popup_theme.animate_close(getattr(self, "revealer", None), lambda: sys.exit(0))
+        except Exception:
+            sys.exit(0)
+        return True
+
     def __init__(self):
         super().__init__(title="Bluetooth")
         self.busy = False          # идёт действие с устройством
@@ -159,7 +167,7 @@ class BluetoothPopup(Gtk.Window):
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         self.bg = Gtk.EventBox()
-        self.bg.connect("button-press-event", lambda w, e: sys.exit(0))
+        self.bg.connect("button-press-event", lambda w, e: self._exit())
         self.add(self.bg)
 
         self.align = Gtk.Box()
@@ -170,6 +178,7 @@ class BluetoothPopup(Gtk.Window):
         self.popup_event = Gtk.EventBox()
         self.popup_event.connect("button-press-event", lambda w, e: True)
         self.align.add(self.popup_event)
+        self.revealer = popup_theme.animate_open(self, self.align, self.popup_event)
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         vbox.get_style_context().add_class("popup-box")
@@ -239,7 +248,7 @@ class BluetoothPopup(Gtk.Window):
             if self.expanded:
                 self.collapse()
                 return True
-            sys.exit(0)
+            return self._exit()
         return False
 
     def set_status(self, text, error=False):

@@ -1,10 +1,54 @@
-/* Вид «во всю ширину»: бар от края до края и вплотную к верху экрана —
-   без боковых рамок и скруглений (отступы 0 — edge.jsonc). Снизу тонкая
-   линия акцента отделяет бар от окон; фон тот же, что у «парящего». */
+/* Вид «во всю ширину, компактный»: от края до края, вплотную к верху, 26 px.
+   Линия акцента снизу — как у «Во всю ширину» (13.10.2026, просьба: «почему в компакт.
+   режимах линия исчезает?»; 12.09 её отсюда убирали). Рисуется inset-тенью, а не
+   border: border прибавил бы окну бара 1 px, и приклеенные попапы разошлись бы с краем.
+   Без линии — edge-compact.css.bak-line. */
 window#waybar {
     background-color: alpha(@bar-bg, 0.88);
     border: none;
-    border-bottom: 1px solid alpha(@primary, 0.45);
     border-radius: 0;
+    box-shadow: inset 0 -1px 0 alpha(@primary, 0.45);
     color: @foreground;
 }
+
+/* Содержимое — КАК В ОБЫЧНОМ ВИДЕ (13.10.2026, просьба: «всё должно ровно отображаться,
+   на одном уровне, сохраняя качество обычного вида»). Раньше здесь шрифт ужимался до
+   11 px, значки — до 12–13: пиксельный PxPlus вне 8/16 px мылится («Бессонница»
+   читалась как «Беоооонница»), а значки и подписи разного кегля вставали на разной
+   высоте. Теперь кегли не трогаются вовсе, ужаты только поля сверху и снизу — бар
+   ниже за счёт воздуха, а не за счёт размера. Прежний вид — *.bak-align. */
+window#waybar .modules-left,
+window#waybar .modules-center,
+window#waybar .modules-right {
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+window#waybar #custom-launcher,
+window#waybar #workspaces button {
+    margin-top: 1px;
+    margin-bottom: 1px;
+}
+
+window#waybar #custom-mpris,
+window#waybar #custom-clock,
+window#waybar #custom-pomo,
+window#waybar #custom-battery,
+window#waybar #group-system,
+window#waybar #cpu,
+window#waybar #memory,
+window#waybar #temperature,
+window#waybar #network,
+window#waybar #pulseaudio,
+window#waybar #bluetooth,
+window#waybar #language {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+/* compact-pills: таблетки столов и «Пуска» — ниже за счёт полей, значки те же 17/16 px.
+   В обычном виде у кнопки стола поля 5 px сверху и снизу (style-niri.css), из-за них бар
+   не мог стать ниже 30 px. */
+window#waybar #workspaces button { padding-top: 2px; padding-bottom: 2px; }
+window#waybar #workspaces button.active { padding-top: 2px; padding-bottom: 2px; }
+window#waybar #custom-launcher { padding-top: 0; padding-bottom: 0; }

@@ -15,6 +15,8 @@ argv и стартует сторожем; поэтому всё нужное п
     calendar    calendar.exe    месяц сеткой, сегодня выделено
     timer       timer.exe       таймер (или секундомер) крупными цифрами, со звонком
     screentime  screentime.exe  экранное время сегодня: всего и первые программы
+    appmem      ram.exe         программы по памяти (PSS) — вживую, как Super+Alt+X
+    appcpu      cpu.exe         программы по процессору — вживую
     miku        miku.exe        пиксельная Мику с «Пуска», в гамме обоев
     fire        fire.exe        огонь из Doom (PSX) в цветах обоев
     life        life.exe        «Жизнь» Конвея
@@ -32,6 +34,7 @@ import time
 
 HOME = os.path.expanduser("~")
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def register(ns):
@@ -234,7 +237,7 @@ def register(ns):
                 bar(cr, x, ry + px + max(2, (rh - px - bh) / 3), w, bh, frac, max(3, px // 2))
             if net:
                 # Кегль и место «↑» — по самой длинной строке («↓ 1023 KB/s»), а не по
-                # текущей: иначе цифры то крупнее, то мельче (06.10.2026, пользователь).
+                # текущей: иначе цифры то крупнее, то мельче (06.10.2026).
                 (dn, up), _n = net
                 col = 2 + 9 + 2
                 npx = fit_px(col * 2 - 2, w, rh * 0.62, top=px)
@@ -323,7 +326,7 @@ def register(ns):
         """Что играет: один долгий `playerctl -a -F` сообщает о смене трека и паузе у всех
         плееров, ход между событиями досчитывается по часам.
 
-        Кого показывать (05.10.2026, Просьба: «через какое-то время начинает показывать, что
+        Кого показывать (05.10.2026: «через какое-то время начинает показывать, что
         играет что-то в браузере, а не в плеере Яндекс Музыки… приоритет — Yandex Music,
         YouTube Music, Spotify»). Раньше виджет слушал один «текущий» плеер playerctl, и
         любая вкладка браузера, сообщившая о себе, перебивала музыку. Теперь состояние
@@ -465,7 +468,7 @@ def register(ns):
                 paused_at = prev.get("paused_at") if not playing and not prev.get("playing", True) \
                     else (time.monotonic() if not playing else None)
                 # Длина трека: часть событий playerctl приходит без mpris:length — у того же
-                # трека прежняя длина не теряется (06.10.2026, Просьба: «время в плеере иногда
+                # трека прежняя длина не теряется (06.10.2026: «время в плеере иногда
                 # пропадает само, появляется снова, когда ставлю на паузу»)
                 length = num(f[5])
                 if not length and prev.get("title") == f[2]:
@@ -494,7 +497,7 @@ def register(ns):
                         del alive[k]
                 except (OSError, subprocess.SubprocessError):
                     pass
-            # Правила показа (06.10.2026, пользователь): играющее — всегда, музыка раньше видео.
+            # Правила показа (06.10.2026): играющее — всегда, музыка раньше видео.
             # Ничего не играет: музыка на паузе держится 5 минут, видео в браузере — 2,5
             # (потом показывается музыка), дальше «Nothing playing». Крестик в плеере верхнего
             # бара (player_popup.py) убирает плеер сразу — метка DISMISS.
@@ -535,7 +538,7 @@ def register(ns):
                 self.st = {k: p[k] for k in ("playing", "title", "artist", "len", "pos")}
                 self.at = p["at"]
                 if p["art"] != self.cover_url:
-                    # Прежняя обложка остаётся, пока не загрузится новая (06.10.2026, пользователь:
+                    # Прежняя обложка остаётся, пока не загрузится новая (06.10.2026:
                     # «при переключении треков виджет трясётся»): сброс в None убирал место под
                     # обложку — текст прыгал влево и через миг обратно. Нет обложки у нового
                     # трека — убрать старую через 2 с.
@@ -724,7 +727,7 @@ def register(ns):
                 self.btns[("prev", "toggle", "next")[i]] = (bx + i * step - 6 * k, yy - gap,
                                                             step, 7 * k + 2 * gap)
             # время «1:23 / 3:45» справа в ряду кнопок — мелко и приглушённо, чтобы сливалось
-            # с окружением (05.10.2026, пользователь); нет места рядом с кнопками — не рисуется
+            # с окружением (05.10.2026); нет места рядом с кнопками — не рисуется
             if st["len"] > 0:
                 tpx2 = 16 if k == 2 else 8
                 msg = "%s / %s" % (self.mmss(pos), self.mmss(st["len"]))
@@ -734,7 +737,7 @@ def register(ns):
 
     # ── nowplaying.exe ──────────────────────────────────────────────────────
     class PlayerMini(Player):
-        """Плеер в одну строку (Просьба: «виджет с плеером, минималистичный»): значок
+        """Плеер в одну строку (просьба: «виджет с плеером, минималистичный»): значок
         играет/пауза, «название — исполнитель», время и тонкая линия хода под ними."""
 
         def on_click(self, x, y, button=1):
@@ -794,7 +797,7 @@ def register(ns):
         По истечении — звук, уведомление и мигающие нули. Отсчёт переживает перезапуск:
         хранится время конца (на паузе — остаток), а не «сколько прошло».
 
-        Звук (08.10.2026, Просьба: «верни родной звук, продолжительный, и не заканчиваться,
+        Звук (08.10.2026: «верни родной звук, продолжительный, и не заканчиваться,
         пока я не уберу уведомление, не закрою таймер или не включу его заново»): свой
         alarm-clock-elapsed (не из набора звуков интерфейса — там XP-шный tada), по кругу,
         пока не закрыли уведомление, не закрыли виджет, не запустили заново (REPLAY,
@@ -803,6 +806,18 @@ def register(ns):
         clickable = True
         ALARM = "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"
         ALARM_VOLUME = 0.3                    # прежняя громкость его родного звонка
+        # Громкость звонка — ползунок в Настройках → Applications → «Таймер»
+        # (13.10.2026): 0–100 в state/timer-volume, по кубической шкале микшера,
+        # как ui_sound. Нет файла — прежние 0.3 (≈ 67 на ползунке).
+        VOL_FILE = os.path.expanduser("~/.config/hypr/state/timer-volume")
+
+        @classmethod
+        def alarm_volume(cls):
+            try:
+                pct = max(0, min(100, int(open(cls.VOL_FILE).read().strip())))
+            except (OSError, ValueError):
+                return cls.ALARM_VOLUME
+            return round((pct / 100) ** 3, 4)
 
         def setup(self):
             self.menu = False                 # показаны ли кнопки REPLAY / NEW
@@ -946,13 +961,14 @@ def register(ns):
             props = ('{ application.name = "Таймер" node.description = "Таймер" '
                      'media.name = "Таймер" application.icon-name = "alarm-clock" '
                      'state.restore-props = false }')
-            while not ev.is_set():
+            deadline = time.monotonic() + self.ALARM_MAX      # 09.10.2026: не звенеть вечно
+            while not ev.is_set() and time.monotonic() < deadline:
                 if self.mgr.game or not os.path.exists(self.ALARM):
                     ev.wait(2)
                     continue
                 try:
                     p = subprocess.Popen(["timeout", "15", "pw-play", "-P", props,
-                                          "--volume", str(self.ALARM_VOLUME), self.ALARM],
+                                          "--volume", str(self.alarm_volume()), self.ALARM],
                                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                          stderr=subprocess.DEVNULL, start_new_session=True)
                 except OSError:
@@ -1105,7 +1121,7 @@ def register(ns):
     # ── screentime.exe ──────────────────────────────────────────────────────
     class ScreenTime(Widget, SecondTicker):
         """Экранное время сегодня: всего и первые программы. Раз в минуту спрашивает
-        screentime.py --text (тот же отчёт, что и в терминале)."""
+        screentime.py --text (тот же отчёт, что читает Пятница)."""
 
         def setup(self):
             self.total, self.rows = "", []
@@ -1149,10 +1165,7 @@ def register(ns):
         def paint(self, cr, x, y, w, h):
             # кегль — по ширине (чтобы влезли «название … время»), строк — сколько войдёт
             # по высоте: выше виджет — длиннее список
-            longest = max([len(n) + 2 + len(d) for n, d, _p in self.rows[:8]] + [14])
-            px = fit_px(min(longest, 26), w, 32, top=24)
-            while px > 8 and (h - px * 1.5) / (px + 8) < min(4, max(1, len(self.rows))):
-                px = [s for s in (8, 10, 12, 14, 16, 20, 24) if s < px][-1]
+            px = list_px(w, h)
             rh = px + max(6, px // 2 + 3)
             n = max(0, min(len(self.rows), int((h - px * 1.5) // rh)))
             text(cr, "TODAY", x, y, px, T["accent"])
@@ -1162,6 +1175,144 @@ def register(ns):
                 lw, _ = text(cr, dur, 0, ry, px, T["fg"], 0.7, right=x + w)
                 text(cr, name, x, ry, px, T["fg"], width=w - lw - adv(px))
                 bar(cr, x, ry + px + 2, w, max(2, px // 5), pct / 100, max(3, px // 2))
+
+    def list_px(w, h):
+        """Кегль списков screentime/ram/cpu.exe — только от размера окна (13.10.2026, просьба: «масштаб не должен меняться так странно, он должен быть предсказуемым»). Раньше кегль
+        считался от длины самых длинных имён и числа строк — а они меняются каждые 2 с, и
+        виджет «дышал». Теперь: строка в 22 знака по ширине (имя ~15 + значение; кегль
+        как на понравившемся снимке cpu.exe 255×170 — 14), не меньше 4 строк по высоте;
+        длинное имя обрезается, а кегль стоит, пока не тронут размер окна."""
+        px = fit_px(22, w, 32, top=24)
+        while px > 8 and (h - px * 1.5) / (px + max(6, px // 2 + 3)) < 4:
+            px = [s for s in (8, 10, 12, 14, 16, 20, 24) if s < px][-1]
+        return px
+
+    # ── ram.exe / cpu.exe ───────────────────────────────────────────────────
+    # 13.10.2026, просьба: «виджет… список приложений по потреблению оперативной памяти»,
+    # и такой же по процессору, «в реальном времени, как screentime.exe». Группы и
+    # названия — appmem.label_of (те же, что в Super+Alt+X и jtop), память — PSS.
+    # Один общий опрос на оба виджета: /proc раз в 2 с в отдельном потоке, PSS —
+    # раз в 6 с (дорогой), и только пока хоть один из них на виду и не идёт игра.
+    AT = {"groups": [], "t": 0.0, "busy": False, "subs": set(), "snap": None,
+          "used": 0, "total": 0, "cpu": 0.0}
+
+    def at_snapshot():
+        if AT["snap"] is None:
+            import importlib.machinery
+            A = importlib.machinery.SourceFileLoader(
+                "appmem", os.path.join(HOME, ".local/bin/appmem")).load_module()
+
+            class Snap:
+                def __init__(self):
+                    self.prev, self.prev_t, self.pss, self.n = {}, 0.0, {}, 0
+
+                def take(self):
+                    procs = A.scan()
+                    now = time.monotonic()
+                    dt = max(now - self.prev_t, 0.1) if self.prev_t else None
+                    fresh = self.n % 3 == 0
+                    self.n += 1
+                    ncpu = os.cpu_count() or 1
+                    g = {}
+                    for pid, p in procs.items():
+                        old = self.prev.get(pid)
+                        cpu = ((p["cpu"] - old["cpu"]) / dt * 100 / ncpu) if (dt and old) else 0.0
+                        if fresh or pid not in self.pss:
+                            self.pss[pid] = A.pss_kb(pid)[0]
+                        p["cwd"] = ""
+                        lab = A.label_of(p, procs)
+                        r = g.setdefault(lab, [lab, 0, 0.0])
+                        r[1] += self.pss[pid]
+                        r[2] += cpu
+                    self.pss = {k: v for k, v in self.pss.items() if k in procs}
+                    try:
+                        z = int(open("/sys/block/zram0/mm_stat").read().split()[2]) // 1024
+                    except (OSError, ValueError, IndexError):
+                        z = 0
+                    if z:
+                        g["zram"] = ["zram", z, 0.0]
+                    self.prev, self.prev_t = procs, now
+                    return list(g.values()), dt is not None
+
+            AT["snap"] = Snap()
+        return AT["snap"]
+
+    def at_fetch():
+        try:
+            groups, ready = at_snapshot().take()
+            mi = dict(l.split(":", 1) for l in open("/proc/meminfo"))
+            tot = int(mi["MemTotal"].split()[0])
+            used = tot - int(mi["MemAvailable"].split()[0])
+        except Exception as e:
+            print("ram/cpu.exe:", e, file=sys.stderr)
+            groups, ready, tot, used = [], False, 0, 0
+        GLib.idle_add(at_got, groups, ready, tot, used)
+
+    def at_got(groups, ready, tot, used):
+        AT["busy"] = False
+        AT["groups"], AT["total"], AT["used"] = groups, tot, used
+        if ready:
+            AT["cpu"] = sum(r[2] for r in groups)
+            AT["cpu_ready"] = True
+        for w in list(AT["subs"]):
+            w.area.queue_draw()
+        return False
+
+    def at_human(kb):
+        g = kb / 1048576
+        return ("%.1fG" % g) if g >= 1 else ("%dM" % (kb // 1024))
+
+    class AppTop(Widget, SecondTicker):
+        """Программы по памяти (appmem) или по процессору (appcpu), первые сколько влезет."""
+
+        def setup(self):
+            self.n = 1
+            AT["subs"].add(self)
+            self.start_seconds()
+            self.poll()
+
+        def cleanup(self):
+            self.stop_seconds()
+            AT["subs"].discard(self)
+
+        def poll(self):
+            now = time.monotonic()
+            if AT["busy"] or now - AT["t"] < 1.8:
+                return
+            AT["busy"], AT["t"] = True, now
+            threading.Thread(target=at_fetch, daemon=True).start()
+
+        def second(self):
+            self.n += 1
+            if self.n % 2 == 0 and self.on_screen() and not self.mgr.game:
+                self.poll()
+            return False
+
+        def paint(self, cr, x, y, w, h):
+            mem = self.spec.get("type") == "appmem"
+            key = 1 if mem else 2
+            rows = sorted(AT["groups"], key=lambda r: -r[key])
+            if mem:
+                head, total = "RAM", ("%s/%s" % (at_human(AT["used"]), at_human(AT["total"]))
+                                      if AT["total"] else "…")
+                # полоска — доля занятого (как у screentime.exe — доля всего времени)
+                used = sum(r[1] for r in rows) or 1
+                vals = [(r[0], at_human(r[1]), r[1] / used) for r in rows]
+            else:
+                ok = AT.get("cpu_ready")
+                head, total = "CPU", ("%d%%" % round(AT["cpu"]) if ok else "…")
+                busy = AT["cpu"] or 1
+                vals = [(r[0], "%.1f%%" % r[2], r[2] / busy) for r in rows if r[2] >= 0.05] if ok else []
+            px = list_px(w, h)
+            rh = px + max(6, px // 2 + 3)
+            n = max(0, min(len(vals), int((h - px * 1.5) // rh)))
+            text(cr, head, x, y, px, T["accent"])
+            text(cr, total, 0, y, px, T["fg"], right=x + w)
+            for i, (name, val, frac) in enumerate(vals[:n]):
+                ry = y + px * 1.5 + i * rh
+                lw, _ = text(cr, val, 0, ry, px, T["fg"], 0.7, right=x + w)
+                text(cr, name, x, ry, px, T["fg"], width=w - lw - adv(px))
+                bar(cr, x, ry + px + 2, w, max(2, px // 5), frac, max(3, px // 2))
 
     # ── miku.exe ────────────────────────────────────────────────────────────
     class Miku(Widget):
@@ -1419,10 +1570,10 @@ def register(ns):
 
     class Weather(Widget, SecondTicker):
         """Погода с wttr.in (без ключа). Город — opts.city; не задан — служба определяет
-        его по IP (с VPN будет чужой город — тогда задать: set ИМЯ city=Berlin).
+        его по IP (с VPN будет чужой город — тогда задать: set ИМЯ city=Almaty).
         Обновление раз в полчаса; нет сети — показывается последнее сохранённое.
 
-        Живой фон по погоде (06.10.2026, Просьба: «хотелось бы, чтобы он реагировал на погодные
+        Живой фон по погоде (06.10.2026: «хотелось бы, чтобы он реагировал на погодные
         условия»): пиксели цвета акцента под данными — дождь косыми каплями, снег хлопьями,
         гроза — дождь со вспышками, облака и туман плывут, ясно — мерцающие блики днём и
         звёзды ночью (по восходу/закату из прогноза). Кадры: осадки ~8 в секунду, прочее ~3;
@@ -1751,4 +1902,5 @@ def register(ns):
     ns["CLASSES"].update({"sysmon": SysMon, "banner": Banner, "player": Player,
                           "playermini": PlayerMini, "timer": Timer,
                           "calendar": Calendar, "screentime": ScreenTime,
+                          "appmem": AppTop, "appcpu": AppTop,
                           "miku": Miku, "fire": Fire, "life": Life})

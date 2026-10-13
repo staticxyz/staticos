@@ -19,7 +19,7 @@ T−5 проверка (окно с фразой на всех монитора�
     wake_alarm.py stop [--force]    — остановить пробный звонок; серию — только с --force
     wake_alarm.py series            — состояние последней серии
     wake_alarm.py test-series [К] [--dry] — серия ускоренно: К секунд на «минуту» (12)
-    wake_alarm.py tg-code ТЕКСТ     — ответ на пример из Telegram (0 принят, 1 нет, 2 не ждём)
+    wake_alarm.py tg-code ТЕКСТ     — зовёт мост бота: ответ на пример (0 принят, 1 нет, 2 не ждём)
     wake_alarm.py sound [t3|classic] — звук звонка (t3 — 520 Гц сериями по три)
     wake_alarm.py woke [ЧЧ:ММ] [ДАТА] — записать подъём вручную («-» — стереть)
     wake_alarm.py watch [ДАТА] 07:00-21:00 [МИН] — Сторож: день без сна, проверки каждые МИН (45)
@@ -42,6 +42,14 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import session_env  # noqa: E402
+
+# служба стартует при входе раньше, чем niri отдаёт systemd свои переменные: 12.10.2026
+# окно проверки упало без экрана, такт встал, и Сторож молчал до ночи
+session_env.fill()
 
 HOME = os.path.expanduser("~")
 STATE = os.path.join(HOME, ".config/hypr/state/wake-alarm.json")
@@ -66,14 +74,14 @@ RING_MAX = 30 * 60       # звонит не дольше получаса
 RAMP = (0.35, 1.0, 120)  # громкость динамиков: от, до, за сколько секунд
 
 DEFAULT_STATE = {
-    "enabled": False,          # включается командой «wake_alarm.py on» или в Discipline
-    "default": "07:00",
-    "plan": {},
+    "enabled": True,
+    "default": "09:00",
+    "plan": {"2026-10-06": "11:00", "2026-10-07": "10:00", "2026-10-08": "09:00"},
     "skip": [],
     # ежедневный Сторож (09.10.2026): каждый день с from до to проверки «не спите?» каждые
     # every минут — от дневного сна. От будильника не зависит; в день со звонком начинается
     # после утренней серии. watch_skip — дни, где её выключили только на день
-    "watch_daily": {"enabled": False, "from": "06:00", "to": "21:00", "every": 45},
+    "watch_daily": {"enabled": True, "from": "06:00", "to": "21:00", "every": 45},
     "watch_skip": [],
 }
 
@@ -189,6 +197,45 @@ def watch_log_line(r):
     return "%s  %s%s (%s)%s" % (r["at"][:16], WLOG_NAMES.get(r["action"], r["action"]),
                                " " + dt.date.fromisoformat(day).strftime("%d.%m") if day else "",
                                via, " — " + r["reason"] if r.get("reason") else "")
+
+
+# 13.10.2026, просьба: «в будильнике показывать, от скольки до скольки работает сторож, и
+# только если он работоспособен». 12.10 Сторож молчал 11 ч: служба висела «activating»
+# (окно упало без WAYLAND_DISPLAY), таймер новых проверок не запускал. Отсюда признаки.
+HEALTH_STALE = 3 * 3600      # серия идёт, а журнал и series.json молчат дольше — зависла
+
+
+def watch_health():
+    """(True, "") — Сторож может сработать; (False, "почему") — нет."""
+    try:
+        out = subprocess.run(["systemctl", "--user", "show", "wake-alarm.timer", "wake-alarm.service",
+                              "-p", "Id,ActiveState,UnitFileState,Result"],
+                             capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False, "systemd молчит"
+    u = {}
+    for block in out.strip().split("\n\n"):
+        kv = dict(x.split("=", 1) for x in block.splitlines() if "=" in x)
+        u[kv.get("Id", "")] = kv
+    t, sv = u.get("wake-alarm.timer", {}), u.get("wake-alarm.service", {})
+    if t.get("ActiveState") != "active":
+        return False, "таймер стоит"
+    if t.get("UnitFileState") not in ("enabled", "static", "linked"):
+        return False, "нет автозапуска"
+    if sv.get("ActiveState") == "failed":
+        return False, "служба упала"
+    if sv.get("ActiveState") in ("activating", "active"):
+        if not series_pid_alive():
+            return False, "служба зависла"
+        last = 0
+        for f in (SERIES, SLOG):
+            try:
+                last = max(last, os.path.getmtime(f))
+            except OSError:
+                pass
+        if time.time() - last > HEALTH_STALE:
+            return False, "молчит %d ч" % ((time.time() - last) // 3600)
+    return True, ""
 
 
 def watch_busy(d=None):
@@ -480,7 +527,7 @@ def run_window(r, record=False):
 
 
 # ── серия проверок «не спите?» ────────────────────────────────────────────────
-# 08.10.2026, Просьба: «могу встать, выключить будильник и спать дальше». Теперь утро —
+# 08.10.2026, просьба: «могу встать, выключить будильник и спать дальше». Теперь утро —
 # серия шагов. Шаг = проверка (окно во весь экран + код в Telegram одновременно) и, если
 # её не подтвердили до срока, — громкий звонок:
 #   T−5 мин  проверка (5 мин)  → T      звонок
@@ -498,10 +545,7 @@ def run_window(r, record=False):
 SERIES = os.path.join(HOME, ".local/state/jarvis-wake/series.json")
 SLOCK = os.path.join(HOME, ".local/state/jarvis-wake/series.lock")
 VIA = os.path.join(HOME, ".local/state/jarvis-wake/via.json")    # {дата: "pc" | "tg"}
-# Telegram (необязательно): ~/.config/wake-alarm/env — TOKEN=… и OWNER=… (id чата).
-# REPLY=1 — ваш бот передаёт ответы сюда (wake_alarm.py tg-code ТЕКСТ); без него
-# сообщения только приходят, а подтверждать нужно на ПК.
-TG_CONF = os.path.join(HOME, ".config/wake-alarm")
+TG_CONF = os.path.join(HOME, ".config/wake-alarm")   # env: TOKEN=…, OWNER=… (id чата)
 SLOG = os.path.join(HOME, ".local/state/jarvis-wake/series.log")
 # журнал выключений и включений Сторожа (09.10.2026): строка JSON на событие — причину
 # выключения можно посмотреть в любой день (watch log, Настройки → Config)
@@ -528,29 +572,39 @@ INPUT = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getui
 
 
 def last_input(now=None):
-    """Время последнего нажатия/движения мыши или None, если неизвестно (тогда не пропускать)."""
+    """Время последнего нажатия/движения мыши или None, если неизвестно (тогда не пропускать).
+    Видео в фокусе = не простой (09.10.2026: «я могу длинный видос смотреть»)."""
     now = now or time.time()
     if subprocess.run(["pgrep", "-fx", "hypridle"], stdout=subprocess.DEVNULL).returncode:
-        return None                      # основной hypridle не работает — файл мог устареть
+        return None
     try:
         state, ts = open(INPUT).read().split()[:2]
         ts = float(ts)
     except (OSError, ValueError):
         return None
-    return ts - 60 if state == "idle" else now
+    if state == "idle":
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            from idle_guard import video_in_focus
+            if video_in_focus():
+                return now
+        except Exception:
+            pass
+        return ts - 60
+    return now
 
 # Фразы: 25–35 знаков, строчные, без знаков препинания и «ё». Русские, английские и
 # смешанные — раскладку иногда надо переключить посреди фразы (это и будит).
 PHRASES = [
     "я встал и сейчас иду умываться",
-    "доброе утро я уже не сплю",
+    "доброе утро джарвис я уже не сплю",
     "открываю шторы и пью стакан воды",
     "сегодня хороший день чтобы начать",
     "встаю с кровати и иду на кухню",
     "сон закончился пора за работу",
     "я проснулся и голова уже думает",
     "умыться холодной водой и на свет",
-    "good morning i am awake and ready",
+    "good morning jarvis i am awake now",
     "time to get up and drink some water",
     "i am out of bed and ready to move",
     "open the window and breathe deeply",
@@ -819,7 +873,7 @@ def advance(d, now):
     return ev
 
 
-# — Telegram: сообщения шлёт сам будильник (Bot API), ответ с кодом передаёт ваш бот —
+# — Telegram: сообщения шлёт сам будильник (Bot API), ответ с кодом ловит мост бота —
 
 def tg_env():
     env = {}
@@ -834,8 +888,9 @@ def tg_env():
 
 
 def tg_receivable():
-    """Принимает ли бот ответы: REPLY=1 в env — его обработчик зовёт tg-code."""
-    return tg_env().get("REPLY") == "1"
+    """Ответ кодом ловит бот, который зовёт `wake_alarm.py tg-code ТЕКСТ`. Его нет
+    (в ~/.config/wake-alarm нет файла receiver) — подтверждать можно только на ПК."""
+    return os.path.exists(os.path.join(TG_CONF, "receiver")) and bool(tg_env().get("TOKEN"))
 
 
 def tg_call(method, **params):
@@ -890,7 +945,7 @@ def check_text(d, st, can_reply):
         body = "Решите пример и пришлите ответ:\n\n%s = ?\n\nДо %s, иначе зазвонит. Или наберите фразу на ПК." % (
             st.get("task") or spaced(st["code"]), hmf(d, st["due"]))
     else:
-        body = ("Подтвердите на ПК до %s."
+        body = ("Подтвердите на ПК до %s — бот сейчас не принимает ответы."
                 % hmf(d, st["due"]))
     return ("ТЕСТ · " if d.get("test") else "") + head + "\n" + body
 
@@ -1070,7 +1125,7 @@ class SeriesRun:
             sub = ("подтвердите, что не спите: звонок в %s не прозвучит" % hmf(d, st["due"])
                    if st["n"] == 0 or kind else "подтвердите, что не спите: повтор в %s не прозвучит" % st["hm"])
         tg = ("или ответом на пример в Telegram" if self.can_reply else
-              "подтвердить можно только здесь")
+              "Telegram сейчас не принимает ответ (бот не принимает ответы) — только здесь")
         last = st is d["steps"][-1]
         tail = ("потом звонок" if not ring else
                 "звонок сдастся сам" if last else "до следующей проверки")
@@ -1124,10 +1179,14 @@ class SeriesRun:
             self.ring_start(cur)
         # окно
         if self.window:
-            if cur and cur["state"] in ("check", "ring"):
-                self.ov.show(self.ui_state(d, cur))
-            elif self.ov.wins:
-                self.ov.hide()
+            try:
+                if cur and cur["state"] in ("check", "ring"):
+                    self.ov.show(self.ui_state(d, cur))
+                elif self.ov.wins:
+                    self.ov.hide()
+            except Exception as e:      # без окна серия идёт дальше: звук и Telegram
+                slog("окно не открылось, дальше без него: %r" % e)
+                self.window = False
         if d is None or d.get("done"):
             self.stop_ev.set()
         return not self.stop_ev.is_set()
@@ -1151,8 +1210,11 @@ class SeriesRun:
                 self.ov = wake_overlay.Overlay(self.on_typed)
 
                 def tick():
-                    if self.step():
-                        return True
+                    try:
+                        if self.step():
+                            return True
+                    except Exception as e:      # иначе такт молча снимается, а Gtk.main висит
+                        slog("такт упал: %r" % e)
                     Gtk.main_quit()
                     return False
                 if tick():

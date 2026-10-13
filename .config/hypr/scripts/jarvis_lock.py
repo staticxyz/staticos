@@ -40,7 +40,7 @@
 круглый аватар, имя, поле пароля с приветствием, раскладка, Caps Lock, заряд и
 сеть в верхних углах. Форма — на MSI (DP-4), если он есть, иначе на мониторе с
 фокусом; на остальных — витрина: крупные часы и дата. Шрифт пиксельный
-(PxPlus HP 100LX 6x8 Jarvis, только 16/24/32/… px), значки — Nerd Font Propo,
+(JetBrainsMono Nerd Font, только 16/24/32/… px), значки — Nerd Font Propo,
 цвета — popup_theme.palette().
 
 КНОПКИ ПИТАНИЯ снизу по центру: Выход, Сон, Перезагрузка, Выключение.
@@ -64,6 +64,7 @@ import functools
 import io
 import json
 import locale
+import math
 import os
 import pwd
 import shlex
@@ -81,9 +82,27 @@ DRY_RUN = "--dry-run" in sys.argv
 EXIT_OK, EXIT_NOLOCK, EXIT_RUNNING, EXIT_LOST, EXIT_CRASH = 0, 2, 3, 4, 5
 
 PAM_SERVICE = "hyprlock"            # /etc/pam.d/hyprlock — читаем, не меняем
-PIXEL = "PxPlus HP 100LX 6x8 Jarvis"
+def _pixel_font():
+    """Пиксельный вид системы (pixel_look.py) — PxPlus, обычный — JetBrainsMono (13.10.2026, просьба: «после выбора режима Пиксельный всё должно стать пиксельным, без исключения»).
+    Раньше имя стояло строкой, и общая замена шрифта оставила здесь JetBrainsMono."""
+    try:
+        with open(os.path.join(HOME, ".config/hypr/state/pixel-look.json"), encoding="utf-8") as f:
+            if json.load(f).get("mode") == "pixel":
+                return "PxPlus HP 100LX 6x8 Jarvis"
+    except (OSError, ValueError):
+        pass
+    return "JetBrainsMono Nerd Font"
+
+
+PIXEL = _pixel_font()
+# В пиксельном виде и формы ступенчатые: поля, кнопки, аватар, точки пароля (13.10.2026).
+PIXEL_LOOK = PIXEL.startswith("PxPlus")
+PIXEL_ICONS = os.path.join(HOME, ".local/share/icons/Jarvis-Pixel/32x32")
 ICONS = "JetBrainsMono Nerd Font Propo"
-MIXED = PIXEL + ", " + ICONS         # Pango берёт недостающие глифы из второго
+# Pango берёт недостающие глифы из следующих. JarvisBattery — батарейка со знаком заряда
+# внутри, как в баре (U+E210…/E220…, build_battery_font.py); стоит раньше Nerd Font, у
+# которого на тех же кодах свои значки.
+MIXED = PIXEL + ", JarvisBattery, " + ICONS
 FORM_MONITOR = ("Microstep", "MAG 255XF")   # как FORM_MONITOR в lock_style.py
 AVATAR = os.path.join(HOME, ".cache/avatar.png")
 GREETING_FILE = os.path.join(HOME, ".cache/hyprlock-greeting.conf")
@@ -98,6 +117,8 @@ ACTIONS = [
     ("reboot", "Перезагрузка", "\U000f0709", True),
     ("shutdown", "Выключение", "\U000f0425", True),
 ]
+ACTION_ICONS = {"logout": "system-log-out", "suspend": "moon",
+                "reboot": "system-reboot", "shutdown": "system-shutdown"}   # Jarvis-Pixel
 BTN_D = 64                           # диаметр кнопки, px
 BTN_STEP = 88                        # шаг между центрами
 BTN_FROM_BOTTOM = 100                # центр кнопок от нижнего края
@@ -450,7 +471,13 @@ def show(cr, lay, x, y, anchor="center", shadow=False):
     return lg.width
 
 
-SPEEDO = "\U000f04c5"          # спидометр Savage Mode — первым в строке заряда (lock_battery.sh)
+def savage_on():
+    """Savage Mode (savage_battery.py): systemd-inhibit «24/7 mode» из /tmp/savage_mode.pid."""
+    try:
+        pid = open("/tmp/savage_mode.pid").read().strip()
+        return b"24/7 mode" in open("/proc/%s/cmdline" % pid, "rb").read()
+    except (OSError, ValueError):
+        return False
 
 
 def vivid_hex(pal):
@@ -465,16 +492,17 @@ def vivid_hex(pal):
 
 
 def show_battery(cr, text, right, y, pal, awake):
-    """Заряд в правом углу. Включено «Не отключать экран» — спидометр светится, как
-    в баре (02.10.2026: «в экран блокировки такое же, чтобы было понятно»).
+    """Заряд в правом углу — та же батарейка, что в баре. Savage Mode или «Не отключать
+    экран» — батарейка светится, как в баре (02.10.2026: «в экран блокировки такое
+    же, чтобы было понятно»; с 13.10 в баре светится батарея, спидометра больше нет).
     Размытия у cairo нет, свечение — значок, отпечатанный кольцами вокруг себя."""
     import math
     lay = layout(cr, text, MIXED, 16)
     _ink, lg = lay.get_pixel_extents()
     tx, ty = round(right - lg.width), round(y - lg.height / 2)
-    glow = awake and text.startswith(SPEEDO)
+    glow = bool(awake and text)
     if glow:
-        g = layout(cr, SPEEDO, MIXED, 16)
+        g = layout(cr, text[0], MIXED, 16)
         r_, g_, b_, _a = rgba(vivid_hex(pal))
         for rad, alpha in ((7, 0.03), (5, 0.045), (3.2, 0.06)):   # слабее — значок должен читаться
             cr.set_source_rgba(r_, g_, b_, alpha)
@@ -508,6 +536,105 @@ def rounded(cr, x, y, w, h, r):
     cr.arc(x + r, y + h - r, r, 1.5708, 3.1416)
     cr.arc(x + r, y + r, r, 3.1416, 4.7124)
     cr.close_path()
+
+
+def stepped(cr, x, y, w, h, r, u=4):
+    """Скругление лесенкой с шагом u px — пиксельный двойник rounded() (и круга при
+    w = h = 2r). Ряды считаются от верха и зеркалятся вниз — фигура симметрична, остаток
+    высоты уходит в средний ряд. Обход: правый край сверху вниз, левый снизу вверх."""
+    x, y, w, h = round(x), round(y), round(w), round(h)
+    r = min(r, h / 2, w / 2)
+    def inset(yc):
+        dy = max(0.0, (y + r) - yc)
+        i = r - math.sqrt(max(0.0, r * r - dy * dy))
+        return int(round(i / u)) * u
+    top = [(y + j * u, y + (j + 1) * u, inset(y + j * u + u / 2)) for j in range(h // u // 2)]
+    mid = top[-1][1] if top else y
+    rows = top + [(mid, y + h - (mid - y), inset(mid))] + \
+        [(y + h - (b - y), y + h - (t - y), i) for t, b, i in reversed(top)]
+    cr.new_sub_path()
+    for y0, y1, i in rows:
+        if y1 > y0:
+            cr.line_to(x + w - i, y0)
+            cr.line_to(x + w - i, y1)
+    for y0, y1, i in reversed(rows):
+        if y1 > y0:
+            cr.line_to(x + i, y1)
+            cr.line_to(x + i, y0)
+    cr.close_path()
+
+
+def ring(cr, cx, cy, r, lw):
+    """Обводка круга радиуса r толщиной lw — внутрь (лесенкой в пиксельном виде)."""
+    if PIXEL_LOOK:
+        cr.save()
+        disc(cr, cx, cy, r)
+        cr.clip_preserve()
+        cr.set_line_width(2 * lw)
+        cr.stroke()
+        cr.restore()
+    else:
+        cr.new_path()
+        cr.arc(cx, cy, r - lw / 2, 0, 6.2832)
+        cr.set_line_width(lw)
+        cr.stroke()
+
+
+def pill(cr, x, y, w, h, r):
+    (stepped if PIXEL_LOOK else rounded)(cr, x, y, w, h, r)
+
+
+def disc(cr, cx, cy, r, u=4):
+    if PIXEL_LOOK:
+        stepped(cr, cx - r, cy - r, 2 * r, 2 * r, r, u)
+    else:
+        cr.arc(cx, cy, r, 0, 6.2832)
+
+
+_pixel_icon_cache = {}
+# «Сон» в Jarvis-Pixel — кружок с минусом (читается как «въезд запрещён»); месяц нарисован
+# здесь, 14x14, выводится x2 — толщина линии как у значков темы 32 px.
+MOON = """
+....####......
+..####........
+.####.........
+.###..........
+###...........
+###...........
+###...........
+###...........
+###..........#
+####........##
+.####......###
+.############.
+..##########..
+....######....
+""".split()
+
+
+def _bitmap_surface(rows, k=2):
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, len(rows[0]) * k, len(rows) * k)
+    c = cairo.Context(surf)
+    for y, row in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch == "#":
+                c.rectangle(x * k, y * k, k, k)
+    c.set_source_rgba(1, 1, 1, 1)
+    c.fill()
+    return surf
+
+
+def pixel_icon(name):
+    """Значок Jarvis-Pixel 32 px как маска (одноцветный, красим палитрой)."""
+    if name == "moon":
+        name in _pixel_icon_cache or _pixel_icon_cache.update(moon=_bitmap_surface(MOON))
+    if name not in _pixel_icon_cache:
+        try:
+            _pixel_icon_cache[name] = cairo.ImageSurface.create_from_png(
+                os.path.join(PIXEL_ICONS, "actions", name + ".png"))
+        except (OSError, cairo.Error):
+            _pixel_icon_cache[name] = None
+    return _pixel_icon_cache[name]
 
 
 def pil_to_surface(im):
@@ -721,26 +848,38 @@ class LockWindow(Gtk.Window):
         show(cr, layout(cr, a.date, PIXEL, 32), cx, cy - 140, shadow=True)
 
         # Аватар — круг 130 px с рамкой акцента, точно по центру (как в hyprlock)
+        cr.save()                            # лесенка — без сглаживания, текст не затронут
+        if PIXEL_LOOK:
+            cr.set_antialias(cairo.ANTIALIAS_NONE)
         if a.avatar is not None:
-            r = 65
+            r = 64 if PIXEL_LOOK else 65
             cr.new_path()
             cr.save()
-            cr.arc(cx, cy, r, 0, 6.2832)
+            disc(cr, cx, cy, r, 2)
             cr.clip()
             Gdk.cairo_set_source_pixbuf(cr, a.avatar, cx - r, cy - r)
             cr.paint()
             cr.restore()
-            cr.arc(cx, cy, r - 1.5, 0, 6.2832)
-            cr.set_line_width(3)
-            cr.set_source_rgba(*rgba(pal["primary"]))
-            cr.stroke()
+            if PIXEL_LOOK:                  # рамка 3 px внутрь: обводка 6 px по клипу
+                cr.save()
+                disc(cr, cx, cy, r, 2)
+                cr.clip_preserve()
+                cr.set_line_width(6)
+                cr.set_source_rgba(*rgba(pal["primary"]))
+                cr.stroke()
+                cr.restore()
+            else:
+                cr.arc(cx, cy, r - 1.5, 0, 6.2832)
+                cr.set_line_width(3)
+                cr.set_source_rgba(*rgba(pal["primary"]))
+                cr.stroke()
 
         field_bg = rgba(pal["surface_container"], 0.70)
         # Поле пользователя
         fw, fh = (288, 34) if FIT else (320, 40)
         fx, ix = cx - fw / 2, cx - fw / 2 + 24      # ix — центр значка в поле
         uy = cy + 100
-        rounded(cr, fx, uy - fh / 2, fw, fh, fh / 2)
+        pill(cr, fx, uy - fh / 2, fw, fh, fh / 2)
         cr.set_source_rgba(*field_bg)
         cr.fill()
         self.field_icon(cr, a.icon_user, "\U000f0004", ix, uy)
@@ -758,7 +897,7 @@ class LockWindow(Gtk.Window):
             ring = rgba(pal["tertiary"])
         else:
             ring = rgba(pal["primary"], 0.6)
-        rounded(cr, fx, py - fh / 2, fw, fh, fh / 2)
+        pill(cr, fx, py - fh / 2, fw, fh, fh / 2)
         cr.set_source_rgba(*field_bg)
         cr.fill_preserve()
         cr.set_line_width(2)
@@ -776,7 +915,10 @@ class LockWindow(Gtk.Window):
             cr.set_source_rgba(*rgba(pal["on_surface"]))
             for i in range(n):
                 cr.new_path()
-                cr.arc(x + i * (d + gap), py, d / 2, 0, 6.2832)
+                if PIXEL_LOOK:
+                    cr.rectangle(round(x + i * (d + gap) - d / 2), round(py - d / 2), d, d)
+                else:
+                    cr.arc(x + i * (d + gap), py, d / 2, 0, 6.2832)
                 cr.fill()
         elif a.failed:
             cr.set_source_rgba(*rgba(pal["error"]))
@@ -809,6 +951,7 @@ class LockWindow(Gtk.Window):
             show(cr, layout(cr, a.net, MIXED, 16), 36, 40, anchor="left")
         if a.battery:
             show_battery(cr, a.battery, w - 36, 40, pal, getattr(a, "awake", False))
+        cr.restore()                         # сглаживание обратно (cr.save() у аватара)
 
         self.draw_buttons(cr, w, h)
 
@@ -824,54 +967,57 @@ class LockWindow(Gtk.Window):
     def draw_buttons(self, cr, w, h):
         pal, a = self.app.pal, self.app
         r = BTN_D / 2
-        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        cr.save()                     # сглаживание выключается для лесенки — вернуть
+        if PIXEL_LOOK:
+            cr.set_antialias(cairo.ANTIALIAS_NONE)
         for i, (cx, cy) in enumerate(self.buttons()):
             icon = ACTIONS[i][2]
             cr.new_path()      # каждая кнопка — с чистого пути, без хвоста от соседней
             if a.pending == i:
                 left = a.remaining()
                 err = pal["error"]
-                cr.arc(cx, cy, r, 0, 6.2832)
+                disc(cr, cx, cy, r)
                 cr.set_source_rgba(*rgba(err, 0.16))
                 cr.fill()
-                cr.set_line_width(4)
-                cr.arc(cx, cy, r - 2, 0, 6.2832)
                 cr.set_source_rgba(*rgba(err, 0.25))
-                cr.stroke()
+                ring(cr, cx, cy, r, 4)
                 frac = max(0.0, min(1.0, left / COUNTDOWN))
-                if frac > 0:
-                    cr.new_path()
-                    cr.arc(cx, cy, r - 2, -1.5708, -1.5708 + frac * 6.2832)
+                if frac > 0:          # отсчёт — та же обводка, отрезанная клином
+                    cr.save()
+                    cr.move_to(cx, cy)
+                    cr.arc(cx, cy, r + 8, -1.5708, -1.5708 + frac * 6.2832)
+                    cr.close_path()
+                    cr.clip()
                     cr.set_source_rgba(*rgba(err))
-                    cr.stroke()
+                    ring(cr, cx, cy, r, 4)
+                    cr.restore()
                 cr.set_source_rgba(*rgba(err))
                 show_ink_centered(cr, layout(cr, str(max(1, int(left + 0.999))), PIXEL, 32), cx, cy)
                 continue
             hover = self.hover == i
             if hover:
                 # Наведение: подложка акцента, толстая обводка и мягкий ореол
-                cr.arc(cx, cy, r + 5, 0, 6.2832)
-                cr.set_line_width(4)
                 cr.set_source_rgba(*rgba(pal["primary"], 0.28))
-                cr.stroke()
-                cr.arc(cx, cy, r, 0, 6.2832)
+                ring(cr, cx, cy, r + 7, 4)
+                disc(cr, cx, cy, r)
                 cr.set_source_rgba(*rgba(pal["primary"], 0.22))
                 cr.fill()
-                cr.arc(cx, cy, r - 1.5, 0, 6.2832)
-                cr.set_line_width(3)
                 cr.set_source_rgba(*rgba(pal["primary"]))
-                cr.stroke()
+                ring(cr, cx, cy, r, 3)
                 cr.set_source_rgba(*rgba(pal["primary"]))
             else:
-                cr.arc(cx, cy, r, 0, 6.2832)
+                disc(cr, cx, cy, r)
                 cr.set_source_rgba(0, 0, 0, 0.20)
                 cr.fill()
-                cr.arc(cx, cy, r - 1, 0, 6.2832)
-                cr.set_line_width(2)
                 cr.set_source_rgba(*rgba(pal["secondary"], 0.53))
-                cr.stroke()
+                ring(cr, cx, cy, r, 2)
                 cr.set_source_rgba(*rgba(pal["secondary"]))
-            show_ink_centered(cr, layout(cr, icon, ICONS, 26), cx, cy)
+            pic = pixel_icon(ACTION_ICONS[ACTIONS[i][0]]) if PIXEL_LOOK else None
+            if pic is not None:       # значок Jarvis-Pixel 32 px, 1:1 — без мыла
+                cr.mask_surface(pic, round(cx - pic.get_width() / 2), round(cy - pic.get_height() / 2))
+            else:
+                show_ink_centered(cr, layout(cr, icon, ICONS, 26), cx, cy)
+        cr.restore()
 
         # Подсказка под кнопками: отсчёт — или имя кнопки под указателем
         hy = h - BTN_FROM_BOTTOM + BTN_D / 2 + 28
@@ -929,6 +1075,10 @@ class Locker:
     @staticmethod
     def load_avatar():
         try:
+            # Картинка всегда гладкая (13.10.2026, просьба: «убери с аватара пиксельность»);
+            # в пиксельном виде — только рамка лесенкой с мелким шагом.
+            if PIXEL_LOOK:
+                return GdkPixbuf.Pixbuf.new_from_file_at_scale(AVATAR, 128, 128, False)
             return GdkPixbuf.Pixbuf.new_from_file_at_scale(AVATAR, 130, 130, False)
         except GLib.Error:
             return None
@@ -1010,10 +1160,11 @@ class Locker:
         def work():
             bat = run_text([os.path.join(HERE, "lock_battery.sh")])
             net = run_text([os.path.join(HERE, "lock_net.sh")])
-            try:                       # «Не отключать экран» — значок режима будет светиться
+            try:                       # Savage / «Не отключать экран» — батарейка светится
                 awake = open(os.path.join(HOME, ".config/hypr/state/screen-awake")).read().strip() == "on"
             except OSError:
                 awake = False
+            awake = awake or savage_on()
             GLib.idle_add(self.set_corners, bat, net, awake)
         threading.Thread(target=work, daemon=True).start()
         return True

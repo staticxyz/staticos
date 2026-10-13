@@ -294,8 +294,8 @@ gi.require_version("PangoCairo", "1.0")
 gi.require_version("GtkLayerShell", "0.1")
 from gi.repository import Gdk, GLib, Gtk, GtkLayerShell, Pango, PangoCairo  # noqa: E402
 
-FONT = "PxPlus HP 100LX 6x8 Jarvis"
-# Проба Cozette (07.10.2026, Просьба: «попробуй clipboard.exe на Cozette, не понравится — откатим»).
+FONT = "JetBrainsMono Nerd Font"
+# Проба Cozette (07.10.2026, просьба: «попробуй clipboard.exe на Cozette, не понравится — откатим»).
 # Включено, пока есть файл state/clipboard-font со словом cozette; откат — удалить файл.
 try:
     COZETTE = open(os.path.expanduser("~/.config/hypr/state/clipboard-font")).read().strip() == "cozette"
@@ -410,7 +410,7 @@ def set_geometry(style):
         LX, LW = X0, CW
         LIST_H = FOOT_Y - 6 - LIST_Y
     IMG_ROW = TH + 8                    # 07.10.2026: картинка + одна строка сведений
-    # 07.10.2026, Просьба: «сделай компактнее» — запись текста в одну строку: текст слева,
+    # 07.10.2026, просьба: «сделай компактнее» — запись текста в одну строку: текст слева,
     # размер справа (было: 1–2 строки текста + строка «Текст · 106 Б»)
     TXT_ROW = TXT_ROW_S = 2 * pad + PX + 4
 
@@ -728,14 +728,26 @@ class Entry:
             return IMG_ROW
         return TXT_ROW if len(self.preview) > (LW - BAR - 4 - 34 - STAR) // ADV else TXT_ROW_S
 
+    def when(self):
+        """Когда скопировано: из журнала cliphist-store по sha; у избранного без записи
+        в журнале — когда положили в избранное."""
+        ts = TIMES.get(self.sha) if self.sha else None
+        if not ts and self.rec and self.rec.get("added"):
+            try:
+                ts = time.mktime(time.strptime(self.rec["added"], "%Y-%m-%dT%H:%M:%S"))
+            except ValueError:
+                ts = None
+        return fmt_when(ts)
+
     def meta_line(self, short=False):
-        if short and self.kind != "image":      # строка списка: только размер и строки
+        if short and self.kind != "image":      # строка списка: время, размер, строки
             parts = [fmt_size(self.size)] if self.size is not None else []
             if self.lines and self.lines > 1:
                 parts.append("%d стр." % self.lines)
-            return " · ".join(parts)
+            w = self.when()
+            return " · ".join(([w] if w else []) + parts)
         if self.kind == "image":
-            return " · ".join(p for p in ("%d×%d" % (self.w, self.h) if self.w else "",
+            return " · ".join(p for p in (self.when(), "%d×%d" % (self.w, self.h) if self.w else "",
                                           fmt_size(self.size), self.fmt.upper()) if p)
         parts = ["Текст"]
         if self.size is not None:
@@ -743,6 +755,51 @@ class Entry:
         if self.lines and self.lines > 1:
             parts.append("%d %s" % (self.lines, plural(self.lines, "строка", "строки", "строк")))
         return " · ".join(parts)
+
+
+# ── время копирования (13.10.2026) ──────────────────────────────────────────
+# Пишет ~/.local/bin/cliphist-store: «sha256 unixtime» на каждое копирование. Последняя
+# строка побеждает (повторно скопированное поднимается наверх с новым временем).
+TIMES = {}
+TIMES_KEEP = 3000          # больше строк в журнале — при открытии оставить последние
+
+
+def times_load():
+    path = os.path.join(STORE, "times.log")
+    try:
+        with open(path, encoding="ascii", errors="replace") as f:
+            lines = f.readlines()
+    except OSError:
+        return {}
+    d = {}
+    for ln in lines:
+        sha, _, ts = ln.strip().partition(" ")
+        if len(sha) == 64 and ts.isdigit():
+            d[sha] = int(ts)
+    if len(lines) > TIMES_KEEP * 2:
+        try:
+            with open(path + ".tmp", "w") as f:
+                f.writelines(lines[-TIMES_KEEP:])
+            os.replace(path + ".tmp", path)
+        except OSError:
+            pass
+    return d
+
+
+def fmt_when(ts):
+    """Сегодня «14:05», вчера «вчера 14:05», раньше «11.10 14:05», другой год «11.10.25»."""
+    if not ts:
+        return ""
+    t, now = time.localtime(ts), time.localtime()
+    day = lambda x: time.mktime((x.tm_year, x.tm_mon, x.tm_mday, 0, 0, 0, 0, 0, -1))
+    d = round((day(now) - day(t)) / 86400)
+    if d == 0:
+        return time.strftime("%H:%M", t)
+    if d == 1:
+        return time.strftime("вчера %H:%M", t)
+    if t.tm_year == now.tm_year:
+        return time.strftime("%d.%m %H:%M", t)
+    return time.strftime("%d.%m.%y", t)
 
 
 def parse_history(out):
@@ -943,6 +1000,11 @@ class App:
         self.warm_id = 0
         self.full_pass = False
         self.view = None                # запись, открытая целиком (просмотр), или None
+        # Отмена (13.10.2026, просьба: «u — отменить, как Ctrl+Z; Ctrl+R — вернуть»).
+        # Удалённое из истории до закрытия окна только спрятано: pending {cid: запись},
+        # из cliphist уходит пачкой в commit() (закрытие/выход). undo/redo — стеки
+        # операций: ["del", [записи]], ["fav+", sha, data, запись], ["fav-", rec, data, thumb, i].
+        self.pending, self.undo_ops, self.redo_ops = {}, [], []
         self.vdata = None
         self.vscroll = 0
         self.hiding = False             # окно отдаёт клавиатуру перед тем, как спрятаться
@@ -971,6 +1033,10 @@ class App:
         self.gen += 1
         self.meta = self.load_meta()
         self.meta_dirty = False
+        TIMES.clear()
+        TIMES.update(times_load())
+        self.commit()                                 # на всякий случай: прошлый показ не дописал
+        self.undo_ops, self.redo_ops = [], []
         self.hist = parse_history(read_list(spawn_list()) if listing is None else listing)
         ids = {e.cid for e in self.hist}
         for k in [k for k in self.meta if k not in ids]:      # записи ушли из истории
@@ -1003,6 +1069,8 @@ class App:
         self.view = self.vdata = None
         self.hide_win()
         self.drop_catchers()
+        self.commit()
+        self.undo_ops, self.redo_ops = [], []
         self.save_meta()
         self.hist, self.fav_entries, self.rows = [], [], []
         if len(self.surfs) > 240:                    # миниатюры держим к следующему открытию,
@@ -1076,6 +1144,7 @@ class App:
         пониже пропускает — «читатель» остаётся висеть, и roundtrip ждёт его вечно.
         Поэтому: сигналы — с обычным приоритетом, выход — из idle (в этом обороте
         проверены все источники) и мимо gdk_flush вовсе."""
+        self.commit()
         self.save_meta()
         remove_pidfile()
         for t in self.sounds:                        # дать доиграть уже начатому щелчку
@@ -1440,7 +1509,8 @@ class App:
     def reload(self):
         if self.shown:
             cur_tab, q = self.tab, self.query
-            self.hist = parse_history(read_list(spawn_list()))
+            self.hist = [e for e in parse_history(read_list(spawn_list()))
+                         if e.cid not in self.pending]
             self.apply_meta()
             self.tab, self.query = cur_tab, q
             self.refilter(keep=True)
@@ -1465,16 +1535,35 @@ class App:
         if any(r["sha"] == sha for r in self.favs):
             self.unfav(sha)
             return
+        if self.fav_put(data, e, sha):
+            self.push(["fav+", sha, data, e])
+            self.say("В избранном · u — отменить")
+
+    def fav_put(self, data, e, sha):
         try:
             rec = fav_add(self.favs, data, e, sha)
         except OSError as err:
             self.say("Не записалось: %s" % err.strerror)
-            return
+            return False
         self.fav_entries.insert(0, fav_entry(rec))
-        self.say("В избранном")
+        if self.tab == FAVS:
+            self.refilter(keep=True)
         self.win.area.queue_draw()
+        return True
 
-    def unfav(self, sha):
+    def unfav(self, sha, record=True):
+        if record:                                    # запомнить файл и миниатюру — для u
+            for i, rec in enumerate(self.favs):
+                if rec.get("sha") != sha:
+                    continue
+                def blob(rel):
+                    try:
+                        with open(os.path.join(STORE, rel), "rb") as f:
+                            return f.read()
+                    except (OSError, TypeError):
+                        return None
+                self.push(["fav-", dict(rec), blob(rec.get("file")), blob(rec.get("thumb")), i])
+                break
         try:
             fav_remove(self.favs, sha)
         except OSError as err:
@@ -1482,7 +1571,7 @@ class App:
             return
         self.fav_entries = [x for x in self.fav_entries if x.sha != sha]
         self.surfs = {k: v for k, v in self.surfs.items() if not k[0].startswith(STORE)}
-        self.say("Убрано из избранного")
+        self.say("Убрано из избранного" + (" · u — вернуть" if record else ""))
         if self.tab == FAVS:
             self.refilter(keep=True)
         self.win.area.queue_draw()
@@ -1505,17 +1594,121 @@ class App:
         if self.is_fav(e):
             self.say("В избранном — сначала снимите F")
             return False
-        run([CLIPHIST, "delete"], (e.cid + "\t" + e.preview + "\n").encode())
-        try:
-            os.remove(os.path.join(THUMBS, e.cid + ".png"))
-        except OSError:
-            pass
+        self.pending[e.cid] = e                      # из cliphist — в commit()
         self.hist.remove(e)
-        self.meta.pop(e.cid, None)
-        self.meta_dirty = True
+        self.push(["del", [e]])
         self.refilter(keep=True)
+        self.say("Удалено · u — вернуть")
         self.win.area.queue_draw()
         return True
+
+    # ── снимок окна (13.10.2026) ───────────────────────────────────────────
+    def snap(self):
+        """s — снимок окна, которое было в фокусе под буфером, прямо в историю.
+
+        Окно буфера — слой (layer-shell), фокус окна niri под ним не отнимает, поэтому
+        screenshot-window без --id снимает именно его, и только его: слои в снимок окна
+        не попадают. niri кладёт PNG в буфер, cliphist-store (wl-paste --watch) пишет
+        в историю, через полсекунды список перечитывается и снимок встаёт сверху."""
+        try:
+            w = json.loads(run(["niri", "msg", "-j", "focused-window"], timeout=2) or b"null")
+        except ValueError:
+            w = None
+        if not w:
+            self.say("Нет окна в фокусе — снимать нечего")
+            return
+        run(["niri", "msg", "action", "screenshot-window", "--id", str(w["id"]), "-d", "false"], timeout=3)
+        self.say("Снимок: %s" % (w.get("title") or w.get("app_id") or "окно")[:40])
+
+        def done():
+            self.reload()
+            if self.tab != FAVS and self.rows:
+                self.sel, self.scroll = 0, 0
+                self.win.area.queue_draw()
+            return False
+        GLib.timeout_add(700, done)
+
+    # ── отмена и возврат (13.10.2026) ──────────────────────────────────────
+    def push(self, op):
+        self.undo_ops.append(op)
+        del self.undo_ops[:-50]
+        self.redo_ops = []
+
+    def commit(self):
+        """Удалённое за показ — из cliphist насовсем: одним вызовом, строками «id\tподпись»."""
+        if not self.pending:
+            return
+        gone = list(self.pending.values())
+        self.pending = {}
+        run([CLIPHIST, "delete"], "".join(e.cid + "\t" + e.preview + "\n" for e in gone).encode())
+        for e in gone:
+            try:
+                os.remove(os.path.join(THUMBS, e.cid + ".png"))
+            except OSError:
+                pass
+            if self.meta.pop(e.cid, None) is not None:
+                self.meta_dirty = True
+
+    def restore_hist(self, entries):
+        for e in entries:
+            if self.pending.pop(e.cid, None) is not None and e not in self.hist:
+                self.hist.append(e)
+        self.hist.sort(key=lambda x: -int(x.cid) if x.cid.isdigit() else 0)
+
+    def fav_back(self, rec, data, thumb, i):
+        """Вернуть снятое избранное: файл, миниатюру и строку на прежнее место."""
+        try:
+            for rel, blob in ((rec.get("file"), data), (rec.get("thumb"), thumb)):
+                if rel and blob is not None:
+                    os.makedirs(os.path.dirname(os.path.join(STORE, rel)), exist_ok=True)
+                    with open(os.path.join(STORE, rel), "wb") as f:
+                        f.write(blob)
+            self.favs.insert(min(i, len(self.favs)), rec)
+            fav_save(self.favs)
+        except OSError as err:
+            self.say("Не записалось: %s" % err.strerror)
+            return False
+        self.fav_entries = [fav_entry(r) for r in self.favs]
+        return True
+
+    def undo(self, redo=False):
+        src, dst = (self.redo_ops, self.undo_ops) if redo else (self.undo_ops, self.redo_ops)
+        if not src:
+            self.say("Возвращать нечего" if redo else "Отменять нечего")
+            return
+        op = src.pop()
+        kind = op[0]
+        if kind == "del":
+            if redo:
+                for e in op[1]:
+                    if e in self.hist:
+                        self.hist.remove(e)
+                        self.pending[e.cid] = e
+                msg = "Снова удалено"
+            else:
+                self.restore_hist(op[1])
+                msg = "Возвращено: %d %s" % (len(op[1]), plural(len(op[1]), "запись", "записи", "записей"))
+        elif kind == "fav+":
+            _k, sha, data, e = op
+            if redo:
+                self.fav_put(data, e, sha)
+                msg = "Снова в избранном"
+            else:
+                self.unfav(sha, record=False)
+                msg = "Звезда снята"
+        else:                                         # "fav-"
+            _k, rec, data, thumb, i = op
+            if redo:
+                self.unfav(rec["sha"], record=False)
+                msg = "Снова убрано из избранного"
+            elif data is None or not self.fav_back(rec, data, thumb, i):
+                msg = "Файл избранного не сохранился — не вернуть"
+            else:
+                msg = "Избранное возвращено"
+        dst.append(op)
+        self.refilter(keep=True)
+        self.say(msg)
+        self.win.area.queue_draw()
 
     def view_delete(self):
         """Удалить открытую в просмотре запись и вернуться к списку (05.10.2026).
@@ -1535,18 +1728,17 @@ class App:
 
     def wipe(self):
         """Очистить всю историю cliphist. Избранное лежит отдельно и остаётся."""
-        run([CLIPHIST, "wipe"])
-        self.gen += 1                                # фоновым потокам больше нечего считать
-        self.prune_thumbs(set())
-        self.hist, self.meta, self.meta_dirty = [], {}, False
-        self.surfs = {k: v for k, v in self.surfs.items() if k[0].startswith(STORE)}
-        try:
-            os.remove(os.path.join(CACHE, "meta.json"))
-        except OSError:
-            pass
+        # 13.10.2026: мягко, как удаление — до закрытия окна u возвращает всё. Скопированное
+        # уже при открытом окне не трогается (его в self.hist нет до reload).
+        gone = list(self.hist)
+        for e in gone:
+            self.pending[e.cid] = e
+        self.hist = []
+        if gone:
+            self.push(["del", gone])
         self.confirm = None
         self.refilter()
-        self.say("История очищена")
+        self.say("История очищена · u — вернуть")
 
     def ask_wipe(self):
         if self.hist:
@@ -1612,6 +1804,12 @@ class App:
         else:
             self.j_at = 0
         if not self.insert and not ctrl and not alt and self.normal_key(k, code, shift):
+            return True
+        if ctrl and (code == 52 or (code == 29 and not self.insert)):
+            self.undo(redo=shift or code == 29)            # Ctrl+Z — отменить, Ctrl+Shift+Z / Ctrl+Y — вернуть
+            return True
+        if ctrl and code == 27 and not self.insert:        # Ctrl+R — вернуть (как в vim)
+            self.undo(redo=True)
             return True
         if not self.insert and ctrl and code in (40, 30):  # Ctrl+D / Ctrl+U — полстраницы
             self.page(1 if code == 40 else -1, half=True)
@@ -1702,6 +1900,10 @@ class App:
             self.delete()
         elif code == 41:                                   # f — в избранное / из избранного
             self.toggle_fav()
+        elif code == 30:                                   # u — отменить (13.10.2026)
+            self.undo()
+        elif code == 39:                                   # s — снимок окна под буфером
+            self.snap()
         elif code == 24:                                   # q — закрыть окно, как в vim
             self.close("q")
             return True
@@ -1850,6 +2052,14 @@ class App:
                                                plural(n_lines, "строка", "строки", "строк"))
             v["cap_short"] = "%s · %d %s" % (fmt_size(len(data)), n_lines,
                                             plural(n_lines, "строка", "строки", "строк"))
+        if not e.sha:                                  # время ищется по sha содержимого
+            import hashlib
+            e.sha = hashlib.sha256(data).hexdigest()
+        when = e.when()
+        if when:                                       # «вчера 14:05 · Текст · 3 КБ · …»
+            for k in ("cap", "cap_short"):
+                if v.get(k):
+                    v[k] = when + " · " + v[k]
         self.vdata = v
         self.win.area.queue_draw()
 
@@ -2617,7 +2827,7 @@ class App:
                           else ("-- ПОИСК -- · Esc — выйти" if self.insert
                                 else "Enter — посмотреть · ПКМ — в буфер · f — избранное"
                                 if (self.current() is not None and self.current().kind == "image")
-                                else "f — избранное · Ctrl+E — режим"))
+                                else "f — избранное · u — отмена · s — снимок окна"))
         hw = lay.get_pixel_size()[0]
         if hw > CW and self.view is not None:          # 16 px шрифт: полная строка шире окна (05.10.2026)
             lay = self.layout(cr, "Enter — копия · Del — удалить · Esc — назад")

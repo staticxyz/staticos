@@ -58,7 +58,7 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, GtkLayerShell, Pango  # noqa: E402
 
 POLL_MS = 1000
-COVER = 76          # обложка — квадрат со скруглёнными углами, как в «райсах» (30.09.2026):
+COVER = 58          # обложка — квадрат со скруглёнными углами, как в «райсах» (30.09.2026):
                     # превью видео 16:9 обрезается по центру в квадрат, а не сжимается в полоску
 COVER_RADIUS = 10
 _card_seq = [0]     # номер карточки — для её собственного CSS (фон из обложки)
@@ -175,7 +175,7 @@ def window_pid_for(player):
 def player_rows():
     """Все плееры для попапа, в порядке бара: играющий первым, потом свежее окно."""
     # Остановленные (крестик на карточке шлёт stop) в попап не попадают.
-    # Blanket — тоже (07.10.2026, Просьба: «добавить в плеер, если запущу Blanket… только один»):
+    # Blanket — тоже (07.10.2026: «добавить в плеер, если запущу Blanket… только один»):
     # у него один плеер MPRIS на все звуки, так что карточка одна.
     rows = [r for r in mpris_common.players(include_ignored=True) if r["status"] != "Stopped"]
     order = {"Playing": 0, "Paused": 1}
@@ -185,7 +185,7 @@ def player_rows():
 class PlayerCard(Gtk.Box):
     """Карточка одного плеера: обложка, название, перемотка, кнопки.
 
-    17.09.2026 (Просьба: «включаю и музыку, и видос в браузере — может показать
+    17.09.2026 (просьба: «включаю и музыку, и видос в браузере — может показать
     оба?»): попап раньше знал один плеер; теперь по карточке на каждый, у каждой
     своё состояние и свои кнопки.
     """
@@ -220,18 +220,16 @@ class PlayerCard(Gtk.Box):
         self.lbl_title = Gtk.Label(xalign=0)
         self.lbl_title.get_style_context().add_class("title")
         self.lbl_title.set_ellipsize(Pango.EllipsizeMode.END)
-        self.lbl_title.set_max_width_chars(16)
+        self.lbl_title.set_max_width_chars(14)
         self.lbl_artist = Gtk.Label(xalign=0)
         self.lbl_artist.get_style_context().add_class("artist")
         self.lbl_artist.set_ellipsize(Pango.EllipsizeMode.END)
-        self.lbl_artist.set_max_width_chars(16)
+        self.lbl_artist.set_max_width_chars(14)
         # Ширина подписей фиксирована в знаках, а не по тексту: иначе короткое
         # название давало узкую карточку, а через секунду приходило настоящее
         # и окно уезжало вбок на пару десятков пикселей (21.09.2026).
-        # 18, а не 24 (23.09.2026): с широким пиксельным шрифтом 24 знака
-        # раздували карточку, справа от названия оставалась пустота.
-        self.lbl_artist.set_width_chars(16)
-        self.lbl_title.set_width_chars(16)
+        self.lbl_artist.set_width_chars(14)
+        self.lbl_title.set_width_chars(14)
         self.actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         btn_open = Gtk.Button(label=ICON_OPEN + " Источник")   # короче: плеер был слишком широким (29.09.2026)
         btn_open.get_style_context().add_class("open")
@@ -258,7 +256,7 @@ class PlayerCard(Gtk.Box):
         info.pack_start(self.lbl_artist, False, False, 0)
         info.pack_start(self.actions, False, False, 4)
         top.pack_start(info, True, True, 0)
-        # Крестик — остановить плеер и убрать карточку (17.09.2026, пользователь:
+        # Крестик — остановить плеер и убрать карточку (17.09.2026:
         # «маленькие крестики, чтобы закрывать если что»).
         btn_close = Gtk.Button(label=ICON_CLOSE)
         btn_close.get_style_context().add_class("close")
@@ -273,7 +271,7 @@ class PlayerCard(Gtk.Box):
         self.scale.set_draw_value(False)
         self.scale.connect("change-value", self.on_seek)
         # Время — по краям полосы в одну строку, а не отдельной строкой под ней:
-        # карточка ниже на строку (30.09.2026, Просьба: «ужать сверху и снизу»).
+        # карточка ниже на строку (30.09.2026: «ужать сверху и снизу»).
         times = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.lbl_pos = Gtk.Label(xalign=0)
         self.lbl_len = Gtk.Label(xalign=1)
@@ -547,10 +545,9 @@ class PlayerPopup(Gtk.Window):
                на 10–14 px буквы мылились, и плеер выглядел не пиксельным (29.09.2026).
                Иконки кнопок приходят из Nerd Font запасным шрифтом, их размеры прежние. */
             font-family: 'PxPlus HP 100LX 6x8 Jarvis', 'JetBrainsMono NF', sans-serif;
-            border-radius: 14px; padding: 6px;
+            border-radius: """ + ("10px" if popup_theme.IS_COMPACT else "14px") + """; padding: """ + ("4px" if popup_theme.IS_COMPACT else "6px") + """;
         }
-        /* Карточка трека: фон — размытая обложка (задаётся из кода, свой класс cardN). */
-        .card { border-radius: 11px; padding: 8px 12px 6px 12px; }
+        .card { border-radius: """ + ("8px" if popup_theme.IS_COMPACT else "11px") + """; padding: """ + ("6px 8px 4px 8px" if popup_theme.IS_COMPACT else "8px 12px 6px 12px") + """; }
         label.title { font-size: 16px; font-weight: normal; color: #ffffff; }
         label.artist { font-size: 16px; font-weight: normal; color: alpha(#ffffff, 0.62); }
         /* Время — 12 px: 16 было крупно, 8 — мелко (30.09.2026). У PxPlus чётко
@@ -604,7 +601,7 @@ class PlayerPopup(Gtk.Window):
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         self.bg = Gtk.EventBox()
-        self.bg.connect("button-press-event", lambda w, e: sys.exit(0))
+        self.bg.connect("button-press-event", lambda w, e: self._exit())
         self.add(self.bg)
         self.align = Gtk.Box()
         self.bg.add(self.align)
@@ -616,12 +613,12 @@ class PlayerPopup(Gtk.Window):
                                        pill_width=self.bar_pill_width())
         self.popup_event = Gtk.EventBox()
         self.popup_event.connect("button-press-event", lambda w, e: True)
-        self.align.add(self.popup_event)
 
         self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.vbox.get_style_context().add_class("popup-box")
         self.vbox.set_size_request(280, -1)
         self.popup_event.add(self.vbox)
+        self.revealer = popup_theme.animate_open(self, self.align, self.popup_event)
         self.connect("key-press-event", self.on_key)
 
         self.cards = []
@@ -629,6 +626,10 @@ class PlayerPopup(Gtk.Window):
         self.dismissed = set()
         self.rebuild()
         GLib.timeout_add(POLL_MS, self.refresh)
+
+    def _exit(self):
+        popup_theme.animate_close(self.revealer, lambda: sys.exit(0))
+        return True
 
     def rebuild(self):
         """Собрать карточки заново: по одной на плеер, между ними линия."""
@@ -674,7 +675,7 @@ class PlayerPopup(Gtk.Window):
         if event.keyval == Gdk.KEY_space and self.cards:
             self.cards[0].on_play()
             return True
-        sys.exit(0)
+        self._exit()
 
 
 if __name__ == "__main__":

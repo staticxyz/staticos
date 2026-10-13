@@ -577,38 +577,3 @@ def word_stats(c):
     r = c.execute("SELECT count(*) n, sum(next_review<=?) due, sum(box>=5) known FROM words",
                   (now(),)).fetchone()
     return {"total": r["n"] or 0, "due": r["due"] or 0, "known": r["known"] or 0}
-
-
-# ───────────────────────────── перенос из twin-claude ─────────────────────────────
-
-def import_twin(c, path=None):
-    """reminders.json двойника → пункты. Возвращает сколько перенесено; повторно не дублирует."""
-    path = path or os.path.join(HOME, ".config/twin-claude/reminders.json")
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return 0
-    if isinstance(data, dict):
-        data = data.get("items") or data.get("reminders") or list(data.values())
-    n = 0
-    for r in data if isinstance(data, list) else []:
-        if not isinstance(r, dict):
-            continue
-        text = r.get("text") or r.get("message") or r.get("msg") or ""
-        due = r.get("at") or r.get("due") or r.get("ts") or r.get("time")
-        if isinstance(due, str):
-            try:
-                due = int(dt.datetime.fromisoformat(due).timestamp())
-            except ValueError:
-                due = None
-        if not text or r.get("done") or r.get("sent"):
-            continue
-        if c.execute("SELECT 1 FROM items WHERE source='twin'").fetchone():
-            continue
-        lines = [re.sub(r"^\s*\d+[.)]\s*", "", l).strip() for l in text.splitlines() if l.strip()]
-        for l in lines:                       # numbered list → пункты списка «Двойник», без срока
-            add_item(c, l, "Двойник", None, "", "twin")
-            n += 1
-        c.execute("INSERT OR IGNORE INTO meta(k,v) VALUES('twin_due_note', ?)", (str(due),))
-    return n

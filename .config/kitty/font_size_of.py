@@ -1,4 +1,4 @@
-# 24.09.2026. Отдаёт кегль шрифта OS-окна kitty — для dashboard save
+# Джарвис, 24.09.2026. Отдаёт кегль шрифта OS-окна kitty — для dashboard save
 # (запомнить масштаб, выставленный Ctrl+Shift+−/+). Вызов:
 #   kitty @ --to unix:/tmp/kitty-PID kitten font_size_of.py /tmp/файл
 # Кегль пишется в файл и возвращается строкой.

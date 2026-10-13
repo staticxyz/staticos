@@ -47,7 +47,7 @@ REOPEN_GUARD_S = 0.6
 MODE_FILE = os.path.expanduser("~/.config/hypr/state/settings-mode")
 VIVID = os.path.expanduser("~/.cache/matugen/vivid.txt")
 
-FONT = "'PxPlus HP 100LX 6x8 Jarvis', 'JetBrainsMono NF', monospace"
+FONT = "'JetBrainsMono Nerd Font', 'JetBrainsMono NF', monospace"
 MONTHS = ("января", "февраля", "марта", "апреля", "мая", "июня",
           "июля", "августа", "сентября", "октября", "ноября", "декабря")
 DAYS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
@@ -259,7 +259,7 @@ def app_title(e):
     return {"org.telegram.desktop": "Telegram", "notify-send": "Система"}.get(app, app) or "Уведомление"
 
 
-# Значки (04.10.2026, Просьба: «немного иконок, а не просто сухой текст»).
+# Значки (04.10.2026, просьба: «немного иконок, а не просто сухой текст»).
 # Имя программы в уведомлении → значок темы, если своего значка она не прислала.
 APP_ICONS = {"telegram desktop": "org.telegram.desktop", "telegram": "org.telegram.desktop",
              "niri": "accessories-screenshot", "network management": "network-wired",
@@ -315,7 +315,7 @@ def thumb(path, w=44, h=32):
 
 
 class XPCalendar(Gtk.Window):
-    """Панель как в Windows: уведомления сверху, календарь снизу (04.10.2026, Просьба: «сделай полноценную плашку, туда ещё уведомления, как в Windows, в стиле XP»).
+    """Панель как в Windows: уведомления сверху, календарь снизу (04.10.2026, просьба: «сделай полноценную плашку, туда ещё уведомления, как в Windows, в стиле XP»).
     Уведомления — журнал notif_log.py: у swaync по D-Bus текста нет, только число."""
 
     def __init__(self):
@@ -458,7 +458,7 @@ class XPCalendar(Gtk.Window):
         return True
 
     def fill_notifs(self):
-        """Группы по приложению, как в Windows (04.10.2026, Просьба: «сделай разбивку,
+        """Группы по приложению, как в Windows (04.10.2026, просьба: «сделай разбивку,
         группировать их как-то»): шапка — имя, число, крестик всей группы; группы по
         свежести; в группе видно GROUP_SHOWN, остальные — по кнопке «ещё N»."""
         try:
