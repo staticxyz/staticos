@@ -4716,18 +4716,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
                      "Один вид для всей системы: Настройки, буфер обмена, Recorder, меню «Пуск» "
                      "и виджеты. Обычный — в духе Windows XP, Skeet — меню gamesense, Beta — "
                      "новый плоский вид. Цвета — из обоев.")
-        if os.path.exists(SYSSTYLE):
-            self.section(v, "Виджеты на обоях", "\U000f05af")
-            wc = self.card(v)
-            for o in [l.split("\t") for l in run("python3", BLUR, "outputs").splitlines() if "\t" in l]:
-                name, label = o[0], o[1]
-                curw = run("python3", SYSSTYLE, "widgets", name)
-                self.row(wc, label[:1].upper() + label[1:],
-                         self.segments([("system", "Как стиль"), ("classic", "Без рамок")],
-                                       curw if curw in ("system", "classic") else "system",
-                                       lambda k, n=name: run_serial(["python3", SYSSTYLE, "widgets", n, k])),
-                         "Виджеты на этом мониторе: в стиле системы или плашкой без заголовка.",
-                         default="system")
         self.watch_section(v)
         self.section(v, "Окно Настроек", "\U000f0493")
         c = self.card(v)
@@ -5355,7 +5343,18 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     return int(run("python3", dw, "style", key))
                 except ValueError:
                     return default
-            # Вид виджетов по мониторам — в Config → «Стили окон» (03.10.2026).
+            # Рамки виджетов по мониторам (13.10.2026, просьба: «добавь в раздел, где остальные
+            # виджеты»; раньше отдельной группой в Config → «Стили окон»). system_style.py widgets.
+            if os.path.exists(SYSSTYLE):
+                for o in [l.split("\t") for l in run("python3", BLUR, "outputs").splitlines() if "\t" in l]:
+                    name, label = o[0], o[1]
+                    curw = run("python3", SYSSTYLE, "widgets", name)
+                    self.row(c, "Рамки: " + label,
+                             self.segments([("system", "Как стиль"), ("classic", "Без рамок")],
+                                           curw if curw in ("system", "classic") else "system",
+                                           lambda k, n=name: run_serial(["python3", SYSSTYLE, "widgets", n, k])),
+                             "Виджеты на этом мониторе: в стиле системы или плашкой без заголовка.",
+                             default="system", icon="\U000f05af")
             self.row(c, "Прозрачный фон виджетов",
                      self.pill(run("python3", dw, "style", "transparent") == "on",
                                lambda on: dw_style("transparent", "on" if on else "off")),

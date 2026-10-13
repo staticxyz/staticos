@@ -90,6 +90,8 @@ fi
 has_text || { cat >/dev/null; exit 0; }
 text=$(cat)
 [ -z "$text" ] && exit 0
+# Экранированную кириллицу (\u0432…, GTK3 text/plain) дальше не разносим (13.10.2026).
+grep -qP '\\u0[4-9a-f][0-9a-f]{2}' <<<"$text" && ! grep -qP '[^\x00-\x7F]' <<<"$text" && exit 0
 mapfile -t displays < <(game_displays; sat_display)
 [ ${#displays[@]} -gt 0 ] && push "$text" "${displays[@]}"
 exit 0

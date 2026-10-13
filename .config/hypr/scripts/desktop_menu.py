@@ -782,11 +782,18 @@ def run(dry_run=False):
         print("desktop_menu: выключено (%s)" % FLAG, flush=True)
         return 0
     lock = open(LOCK, "a+")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        print("desktop_menu: уже запущен (pid %s)" % running_pid(), file=sys.stderr)
-        return 0
+    # Замок занят — подождать до 10 с (13.10.2026): icon_theme.py и прочие перезапускают
+    # меню «TERM + сразу новый»; если старый процесс выходил дольше их ожидания, новый
+    # видел занятый замок и уходил, а старый следом умирал — меню не оставалось вовсе.
+    for i in range(51):
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            if i == 50:
+                print("desktop_menu: уже запущен (pid %s)" % running_pid(), file=sys.stderr)
+                return 0
+            time.sleep(0.2)
     lock.seek(0)
     lock.truncate()
     lock.write(str(os.getpid()))

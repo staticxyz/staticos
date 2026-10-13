@@ -33,6 +33,11 @@ if [ "$(stat -c %s "$tmp")" -gt "$MAX" ]; then exit 0; fi
 if head -c 6 "$tmp" | grep -qP '^\\u[0-9a-f]{4}'; then
   exit 0
 fi
+# 13.10.2026: и в середине («@\u0410\u043f…» прошло мимо проверки начала) — коды
+# не-латиницы при полном отсутствии настоящих не-ASCII символов.
+if grep -qP '\\u0[4-9a-f][0-9a-f]{2}' "$tmp" && ! grep -qP '[^\x00-\x7F]' "$tmp"; then
+  exit 0
+fi
 cliphist store < "$tmp" || exit $?
 # Время копирования (13.10.2026, просьба: «дата и время копирования» в Clipboard.exe):
 # cliphist его не хранит, поэтому журнал «sha256 время» — clipboard_win.py сверяет по sha

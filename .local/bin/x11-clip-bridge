@@ -15,6 +15,9 @@ while :; do
     # то же, что уже в Wayland (satellite успел сам или это эхо из Wayland) — не трогаем
     timeout 1 wl-paste -n -t text >"$tmp/w" 2>/dev/null
     cmp -s "$tmp/x" "$tmp/w" && continue
+    # Кириллица кодами \u0432\u044b… без единой настоящей не-ASCII буквы — это
+    # GTK3-выдача text/plain, а не новый текст (13.10.2026) — в буфер не кладём.
+    grep -qP '\\u0[4-9a-f][0-9a-f]{2}' "$tmp/x" && ! grep -qP '[^\x00-\x7F]' "$tmp/x" && continue
     flags=()
     niri msg -j focused-window 2>/dev/null | grep -q '"app_id":"Tor Browser"' && flags=(--sensitive)
     wl-copy "${flags[@]}" <"$tmp/x"
