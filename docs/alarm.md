@@ -4,7 +4,7 @@
 
 An alarm clock that makes sure you are actually up, not just tapping "snooze" in your sleep.
 It does not stop when you press a button: it stops when you **type a phrase** on the
-computer (or answer a small math question in Telegram, if you set that up), and it checks on
+computer (answering a small math question in Telegram, if you set that up, only snoozes it), and it checks on
 you a few more times afterwards.
 
 Both the alarm and the Watchman are **off** after installation.
@@ -43,9 +43,20 @@ Say the alarm is set to **07:00**.
 | 07:28 → 07:30 | Last ring. It keeps going for up to 30 minutes. |
 
 **Two confirmations in a row end the morning.** Confirm at 06:55 and again at 07:08 and the
-alarm never makes a sound.
+alarm never makes a sound. If you only get to the computer at the third ring or later, one
+is enough.
 
-A ring stops only when you type its phrase (or answer the Telegram question). The phrase
+**Only confirmations on the computer count.** A Telegram answer silences the current ring but
+does not end the series: repeats keep coming every 10 minutes, past the third one, until the
+phrase is typed on the computer (21:00 at the latest). Otherwise you could answer from bed
+and go back to sleep.
+
+**Already at the computer** — no series. If there was a key press or mouse movement in the
+last 45 minutes (or a video is playing in the focused window) at alarm time, the alarm stays
+quiet and counts you as up.
+
+A ring stops only when you type its phrase (or answer the Telegram question — until the next
+repeat). The phrase
 changes every time, so you cannot learn one by heart. Phrases are short sentences in Russian
 and English, sometimes mixed, so you may have to switch the keyboard layout halfway — that
 helps you wake up.
@@ -58,7 +69,8 @@ If the computer was asleep at alarm time and wakes up within 30 minutes, it stil
 With the wake-up hook installed it does not have to: see [Sleep and waking up](#sleep-and-waking-up).
 
 While a morning series is running, today's alarm cannot be changed or turned off — not in
-Discipline, not from the terminal. Plan the evening before.
+Discipline, not from the terminal. Plan the evening before. Only the bot's emergency command
+(if you set it up) stops a running series — it turns off the alarm and the Watchman for the day.
 
 ---
 
@@ -97,13 +109,17 @@ you reach your goal, then let the default take over.
 
 ## Watchman
 
-The Watchman is for days when you must not fall asleep during the day. From **06:00 to
-21:00** it asks "are you awake?" about every 45 minutes — the same phrase window and, if
-you do not answer, the same ring.
+The Watchman is for days when you must not fall asleep during the day. On a day with an
+alarm, **from the alarm time to 21:00**, it asks "are you awake?" about every 45 minutes —
+the same phrase window and, if you do not answer, the same ring. No alarm that day (off or
+skipped) — no Watchman. The start follows the alarm; the end is always 21:00.
 
-It stays quiet while you use the computer: a check comes only after 30 minutes without any
-key press or mouse movement, and never more often than every 45 minutes. On a day with an
-alarm, it starts after the morning series is over.
+It stays quiet while you use the computer: a check comes only after 45 minutes without any
+key press or mouse movement (a video in the focused window counts as use), and never more
+often than every 45 minutes. During the morning series it is silent and starts after it.
+
+A Telegram answer only snoozes it: another check in 10 minutes, silence means a ring, and so
+on until you type the phrase on the computer. After that it is back to every 45 minutes.
 
 **Turning it on:** Settings (**Super+/**) → **Config** → **Сторож**, or
 
@@ -142,12 +158,12 @@ wake-alarm watch                              # list
 
 A sleeping laptop cannot ring. So the laptop **wakes itself up**: before every sleep — idle,
 power menu, closed lid — a small root hook sets the hardware clock (RTC) to wake the machine
-**30 minutes before** the first check of the morning or the start of the Watchman.
+**30 minutes before** the first check of the morning. No alarm — nothing to wake up for.
 
 | When | Idle sleep |
 |---|---|
 | a check or a ring is less than 40 minutes away | no |
-| the Watchman is on duty (06:00–21:00) | no — it has to be awake for the checks |
+| the Watchman is on duty (alarm time to 21:00) | no — it has to be awake for the checks |
 | the Watchman is off for today | yes, any time of day |
 | night | yes |
 
@@ -193,6 +209,9 @@ wake-alarm tg-code "85"      # exit code: 0 accepted, 1 wrong, 2 nothing to answ
 
 Once such a handler is running, add `REPLY=1` to the same file. Without it, messages tell
 you to confirm on the computer.
+
+A Telegram answer is only a **10-minute snooze**: morning repeats and Watchman checks keep
+coming until the phrase is typed on the computer.
 
 ---
 

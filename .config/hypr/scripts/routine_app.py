@@ -456,9 +456,12 @@ def watch_label():
     ok, why = _HEALTH[1]
     if not ok:
         return "Сторож: " + why, "bad"
-    w = wa.watch_for(wa.load(), dt.date.today())
+    s = wa.load()
+    w = wa.watch_for(s, dt.date.today())
     if not w:
-        return "Сторож сегодня выключен", None
+        if dt.date.today().isoformat() in s.get("watch_skip", []):
+            return "Сторож сегодня выключен", None
+        return "Сторож сегодня не нужен: будильника нет", None
     return "Сторож %s–%s" % (w["from"], w["to"]), "on"
 
 

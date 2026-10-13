@@ -25,7 +25,7 @@ T−5 проверка (окно с фразой на всех монитора�
     wake_alarm.py woke [ЧЧ:ММ] [ДАТА] — записать подъём вручную («-» — стереть)
     wake_alarm.py watch [ДАТА] 07:00-21:00 [МИН] — Сторож: день без сна, проверки каждые МИН (45)
     wake_alarm.py watch off [ДАТА] [--force] | watch — снять Сторожа / список
-    wake_alarm.py watch daily [on | off --reason ТЕКСТ] — ежедневный Сторож 06:00–21:00
+    wake_alarm.py watch daily [on | off --reason ТЕКСТ] — ежедневный Сторож: от звонка будильника до 21:00
     wake_alarm.py watch skip [ДАТА] --reason ТЕКСТ | watch skip off [ДАТА] — без Сторожа на день
     wake_alarm.py watch log [N]     — журнал выключений Сторожа (кто, когда, почему)
     wake_alarm.py emergency off --reason ТЕКСТ | emergency on — аварийно (бот): будильник + Сторож на день
@@ -82,9 +82,9 @@ DEFAULT_STATE = {
     "default": "09:00",
     "plan": {"2026-10-06": "11:00", "2026-10-07": "10:00", "2026-10-08": "09:00"},
     "skip": [],
-    # ежедневный Сторож (09.10.2026): каждый день с from до to проверки «не спите?» каждые
-    # every минут — от дневного сна. От будильника не зависит; в день со звонком начинается
-    # после утренней серии. watch_skip — дни, где её выключили только на день
+    # ежедневный Сторож (09.10.2026): проверки «не спите?» каждые every минут до to — от
+    # дневного сна. С 14.10 начинается со звонком (после утренней серии), нет звонка в этот
+    # день — нет и Сторожа; from не используется. watch_skip — дни, где его выключили на день
     "watch_daily": {"enabled": True, "from": "06:00", "to": "21:00", "every": 45},
     "watch_skip": [],
 }
@@ -339,14 +339,23 @@ def wake_sources():
 def watch_for(s, day):
     """Сторож на этот день: {from, to, every, daily} или None.
     Сторож на дату (watch ДАТА …) заменяет утренний звонок и держится выключателем будильника;
-    ежедневная — сама по себе и начинается после утренней серии."""
+    ежедневный — только в день со звонком: с времени звонка (после утренней серии) до to."""
     w = s.get("watch", {}).get(day.isoformat())
     if w:
         return dict(w, daily=False) if s["enabled"] else None
     w = s.get("watch_daily") or {}
     if not w.get("enabled") or day.isoformat() in s.get("watch_skip", []):
         return None
-    return {"from": w.get("from", "06:00"), "to": w.get("to", "21:00"),
+    # 14.10.2026, просьба: «время начала сторожа зависит от будильника, а время окончания нет;
+    # если будильника нет — сторож тоже не активируется». Поставил звонок позже — значит,
+    # можно поспать; не встал после повторов — дальше до вечера будит Сторож.
+    t = alarm_on(s, day)
+    if t is None:
+        return None
+    to = w.get("to", "21:00")
+    if t.strftime("%H:%M") >= to:
+        return None
+    return {"from": t.strftime("%H:%M"), "to": to,
             "every": int(w.get("every", WATCH_EVERY)), "daily": True}
 
 
@@ -748,13 +757,22 @@ LAST_RING = 30   # минут звонит последний повтор
 # подтверждений — контрольная проверка через CTRL минут после первого. Тихая (окно + пример
 # в Telegram) CTRL_WIN минут, не ответил — громкий звонок до CTRL_RING минут.
 CTRL = 50
+# 14.10.2026, просьба: «подтверждения с телефона не считаются — иначе лёжа подтвержу и дальше
+# сплю». Ответ в Telegram лишь глушит текущий шаг: через TG_SNOOZE минут снова проверка
+# (утро, контрольная, Сторож), и так пока не наберёте фразу на ПК. Утренние повторы идут и
+# после REPEATS — до подтверждения с ПК (не дольше конца дня Сторожа, cap серии).
+TG_SNOOZE = 10
 CTRL_WIN = 5
 CTRL_RING = 30
 WATCH_EVERY = 45  # Сторож: проверка каждые N минут (день, когда спать нельзя)
 # 09.10.2026: пока пользователь за компьютером, Сторож молчит. Проверка приходит, только когда
 # WATCH_IDLE минут не было ни клавиш, ни мыши; следующая — не раньше чем через WATCH_EVERY.
 # Последний ввод пишет основной hypridle (listener 60 с) в INPUT: «idle ts» / «active ts».
-WATCH_IDLE = 30
+# 14.10.2026, просьба: «если активность есть — никакие алерты не присылать; нет активности
+# больше 45 минут — активируются все». Тот же порог: утренний звонок не начинается, если вы
+# за ПК (засчитывается подъём), контрольная проверка снимается. Видео в фокусе — активность,
+# звонок в Telegram — нет (он не ввод и не видео: idle_guard.VIDEO_APPS).
+WATCH_IDLE = 45
 INPUT = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()), "jarvis-input")
 
 
@@ -777,8 +795,34 @@ def last_input(now=None):
                 return now
         except Exception:
             pass
-        return ts - 60
+        li = ts - 60
+        sl = last_sleep()
+        # после сна hypridle мог заново отсчитать минуту простоя: «ввод» в момент пробуждения
+        # (часы будят за полчаса до звонка) — не ввод, последний настоящий был до сна
+        if sl and sl[0] - 60 <= li <= sl[1] + 90:
+            li = min(li, sl[0])
+        return li
     return now
+
+
+def last_sleep():
+    """(уснул, проснулся) epoch последнего сна — по журналу хука jarvis-rtc-wake, или None."""
+    try:
+        out = subprocess.run(["journalctl", "-t", "jarvis-rtc-wake", "-n", "2", "-o", "json",
+                              "--no-pager", "-q"], capture_output=True, text=True, timeout=5).stdout
+        ev = [json.loads(x) for x in out.splitlines() if x.strip()]
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if len(ev) < 2 or ev[-1].get("MESSAGE") != "проснулся" or ev[-2].get("MESSAGE") == "проснулся":
+        return None
+    return tuple(int(e["__REALTIME_TIMESTAMP"]) / 1e6 for e in ev[-2:])
+
+
+def awake_at_pc(now=None):
+    """Вы за ПК: ввод (или видео в фокусе) за последние WATCH_IDLE минут."""
+    now = now or time.time()
+    li = last_input(now)
+    return li is not None and now - li < WATCH_IDLE * 60
 
 # Фразы: 25–35 знаков, строчные, без знаков препинания и «ё». Русские, английские и
 # смешанные — раскладку иногда надо переключить посреди фразы (это и будит).
@@ -884,9 +928,17 @@ def series_build(t, test=False, k=60):
     for st in steps:                     # ноутбук спал / включён поздно — прошедшие шаги не в счёт
         if st["until"] <= now:
             st["state"] = "off"
+    cap = T + 60 * k if test else 0
+    if not test:
+        try:
+            to = (load().get("watch_daily") or {}).get("to", "21:00")
+            cap = dt.datetime.combine(t.date(), dt.time(*map(int, to.split(":")))).timestamp()
+        except (ValueError, TypeError):
+            pass
+        cap = max(cap, T + 3 * 3600)      # звонок поздно вечером — повторы ещё три часа
     return {"date": t.date().isoformat(), "t": t.strftime("%H:%M"), "test": test, "k": k,
             "steps": steps, "streak": 0, "done": False, "result": None, "pid": os.getpid(),
-            "started": now}
+            "started": now, "cap": cap}
 
 
 def cur_step(d):
@@ -950,23 +1002,32 @@ def confirm(d, via, now=None):
         return None
     was_ring = st["state"] == "ring"
     st.update(state="ok", via=via, at=now, rang=was_ring)
-    d["streak"] = d.get("streak", 0) + 1
+    pc = via == "pc"
+    if pc:
+        d["streak"] = d.get("streak", 0) + 1
     if not d.get("test") and not d.get("watch"):
         try:
-            if not d.get("first"):
+            if pc and not d.get("first_pc"):          # подъём — когда дошли до ПК
                 woke_set(dt.date.fromisoformat(d["date"]), time.strftime("%H:%M", time.localtime(now)))
-            if via == "pc" or not d.get("first"):
-                via_set(d["date"], via)
+                via_set(d["date"], "pc")
+            elif not pc and not d.get("first"):
+                via_set(d["date"], "tg")
         except OSError:
             pass
     d.setdefault("first", now)
+    if pc:
+        d.setdefault("first_pc", now)
     kind = st.get("kind")
-    if kind == "watch":
+    if not pc:
+        tg_snooze(d, st, now)                 # с телефона — только отсрочка
+        if kind == "watch" and cur_step(d) is None:
+            finish(d, "ok")
+    elif kind == "watch":
         if cur_step(d) is None:
             finish(d, "ok")
     elif kind == "ctrl":
         finish(d, "ok")
-    elif d["streak"] >= NEED or st is d["steps"][-1]:
+    elif d["streak"] >= NEED or st["n"] >= REPEATS:
         add_control(d, now)
     slog("шаг %d подтверждён (%s)%s" % (st["n"], via, " — серия окончена" if d["done"] else ""))
     return st
@@ -978,7 +1039,7 @@ def add_control(d, now):
     for st in d["steps"]:
         if st["state"] == "wait":
             st["state"] = "off"
-    check = max(d.get("first", now) + CTRL * k, now + 10 * k)
+    check = max(d.get("first_pc", d.get("first", now)) + CTRL * k, now + 10 * k)
     due = check + CTRL_WIN * k
     task, code = math_task()
     d["steps"].append({"n": len(d["steps"]), "kind": "ctrl", "check": check, "due": due,
@@ -986,6 +1047,45 @@ def add_control(d, now):
                        "hm": time.strftime("%H:%M:%S" if d.get("test") else "%H:%M", time.localtime(due)),
                        "task": task, "code": code,
                        "phrase": pick_phrase([d["steps"][-1]["phrase"]]), "state": "wait"})
+
+
+def add_repeat(d, due):
+    """Ещё один утренний повтор (звонок в due) — пока утро не подтверждено с ПК."""
+    k = d.get("k", 60)
+    task, code = math_task()
+    st = {"n": len(d["steps"]), "check": due - WIN * k, "due": due, "until": due + (GAP - WIN) * k,
+          "hm": time.strftime("%H:%M:%S" if d.get("test") else "%H:%M", time.localtime(due)),
+          "task": task, "code": code, "phrase": pick_phrase([d["steps"][-1]["phrase"]]),
+          "state": "wait", "extra": True}
+    d["steps"].append(st)
+    return st
+
+
+def tg_snooze(d, st, now):
+    """Шаг подтверждён с телефона: через TG_SNOOZE минут — снова проверка того же рода."""
+    k = d.get("k", 60)
+    kind = st.get("kind")
+    if kind is None:                          # утро: следующий повтор уже стоит, иначе — добавить
+        if not any(s2["state"] == "wait" for s2 in d["steps"]) and now + GAP * k < d.get("cap", 0):
+            add_repeat(d, now + GAP * k)
+        return
+    check = now + TG_SNOOZE * k
+    if kind == "watch" and check >= d.get("end", float("inf")):
+        return                                # Сторож на сегодня кончается
+    due = check + CTRL_WIN * k
+    task, code = math_task()
+    new = {"kind": kind, "check": check, "due": due, "until": due + CTRL_RING * k,
+           "hm": time.strftime("%H:%M:%S" if d.get("test") else "%H:%M",
+                               time.localtime(check if kind == "watch" else due)),
+           "task": task, "code": code, "phrase": pick_phrase([st["phrase"]]), "state": "wait",
+           "retry": True}
+    i = st["n"] + 1
+    for s2 in d["steps"][i:]:                 # проверки Сторожа в окне отсрочки не нужны
+        if s2["state"] == "wait" and s2["check"] < new["until"]:
+            s2.update(state="off", skip="retry")
+    d["steps"].insert(i, new)
+    for n, s2 in enumerate(d["steps"]):
+        s2["n"] = n
 
 
 def watch_build(day, t0, t1, every, test=False, k=60):
@@ -1023,13 +1123,18 @@ def advance(d, now):
     ev = []
     for _ in range(len(d["steps"]) + 1):
         st = cur_step(d)
+        if (st is None and not d["done"] and not d.get("watch") and not d.get("first_pc")
+                and now + WIN * d.get("k", 60) < d.get("cap", 0)):
+            st = add_repeat(d, now + WIN * d.get("k", 60))   # утро не подтверждено с ПК — ещё повтор
         if st is None:
             if not d["done"]:
-                ok = any(s["state"] == "ok" for s in d["steps"])
+                ok = any(s["state"] == "ok" and (d.get("watch") or s.get("via") != "tg")
+                         for s in d["steps"])
                 finish(d, "ok" if ok else "fail")
                 ev.append(("done", None))
             break
-        if st.get("kind") == "watch" and st["state"] == "wait" and now >= st["check"]:
+        if (st.get("kind") == "watch" and st["state"] == "wait" and now >= st["check"]
+                and not st.get("retry")):             # отсрочку с телефона не откладывать
             k = d.get("k", 60)
             li = last_input(now)
             if li is not None and now - li < WATCH_IDLE * k:      # за компьютером — отложить
@@ -1044,6 +1149,11 @@ def advance(d, now):
                     if s2["state"] == "wait" and s2["check"] < new + d.get("every", WATCH_EVERY) * k:
                         s2.update(state="off", skip="active")
                 break
+        if (st.get("kind") == "ctrl" and st["state"] == "wait" and now >= st["check"]
+                and not st.get("retry") and not d.get("test") and awake_at_pc(now)):
+            st.update(state="off", skip="active")       # за ПК — уже не уснули
+            slog("контрольная проверка снята: вы за ПК")
+            continue
         if st["state"] == "wait" and now >= st["check"]:
             st["state"] = "check"
             ev.append(("check", st))
@@ -1121,6 +1231,8 @@ def step_label(d, st):
         return "Сторож, проверка %d из %d" % (st["n"] + 1, len(d["steps"]))
     if st["n"] == 0:
         return "звонок в %s" % st["hm"]
+    if st["n"] > REPEATS:
+        return "повтор %d (%s)" % (st["n"], st["hm"])
     return "повтор %d из %d (%s)" % (st["n"], REPEATS, st["hm"])
 
 
@@ -1136,11 +1248,14 @@ def check_text(d, st, can_reply):
         head = "Сэр, вы точно ведь встали, да? Подтвердите повторное отключение — %s." % step_label(d, st)
     elif st["n"] == 2:
         head = "Сэр, ещё одна проверка — %s. Не спите?" % step_label(d, st)
-    else:
+    elif st["n"] == 3:
         head = "Сэр, третья проверка — %s." % step_label(d, st)
+    else:
+        head = "Сэр, утро ещё не подтверждено с ПК — %s." % step_label(d, st)
     if can_reply:
-        body = "Решите пример и пришлите ответ:\n\n%s = ?\n\nДо %s, иначе зазвонит. Или наберите фразу на ПК." % (
-            st.get("task") or spaced(st["code"]), hmf(d, st["due"]))
+        body = ("Решите пример и пришлите ответ:\n\n%s = ?\n\nДо %s, иначе зазвонит. Ответ здесь — "
+                "только отсрочка на %d минут; закончить можно фразой на ПК.") % (
+            st.get("task") or spaced(st["code"]), hmf(d, st["due"]), TG_SNOOZE)
     else:
         body = ("Подтвердите на ПК до %s — бот сейчас не принимает ответы."
                 % hmf(d, st["due"]))
@@ -1162,17 +1277,19 @@ def done_text(d):
         act = sum(1 for s in d["steps"] if s.get("skip") == "active")
         return "Сторож закончил, сэр: подтверждено %d, проспано %d, пропущено (были за ПК) %d." % (ok, miss, act)
     ctrl = [s for s in d["steps"] if s.get("kind") == "ctrl"]
-    if d.get("result") == "ok" and ctrl and ctrl[0]["state"] == "fail":
+    first = d.get("first_pc") or d.get("first")
+    if d.get("result") == "ok" and ctrl and ctrl[-1]["state"] == "fail":
         return ("Встали в %s, но контрольную проверку проспали, сэр. %s" % (
-            hmf(d, d["first"]) if d.get("first") else "?",
+            hmf(d, first) if first else "?",
             "" if d.get("test") else next_alarm_text())).strip()
     if d.get("result") == "ok":
-        first = d.get("first")
         return ("Утро засчитано, сэр: проверки окончены, встали в %s. %s" % (
             hmf(d, first) if first else "?",
             "" if d.get("test") else next_alarm_text())).strip()
     if d.get("result") == "stopped":
         return "Серия остановлена вручную."
+    if d.get("first"):
+        return "Утро не засчитано, сэр: подтверждали только с телефона, до ПК так и не дошли."
     return "Утро не засчитано, сэр: ни одна проверка не подтверждена."
 
 
@@ -1193,12 +1310,12 @@ def tg_code(text):
         confirm(d, "tg")
         series_save(d)
     pre = "ТЕСТ · " if d.get("test") else ""
-    what = "Звонок выключен" if was == "ring" else "Принято, сэр. %s снят" % (
-        "Звонок" if st["n"] == 0 else "Повтор %d" % st["n"])
+    what = "Звонок выключен" if was == "ring" else "Принято, сэр"
     if d["done"]:
         return 0, pre + "%s. %s" % (what, done_text(d))
     nxt = cur_step(d)
-    return 0, pre + "%s. Следующая проверка — в %s." % (what, hmf(d, nxt["check"]))
+    return 0, pre + ("%s — но с телефона это только отсрочка. Следующая проверка — в %s; "
+                     "закончить можно фразой на ПК." % (what, hmf(d, nxt["check"])))
 
 
 # — сама серия: окно, звонок, сообщения —
@@ -1307,8 +1424,9 @@ class SeriesRun:
         elif st["n"] == 0:
             head = "ПРОВЕРКА ПЕРЕД БУДИЛЬНИКОМ" if not ring else "БУДИЛЬНИК · %s" % st["hm"]
         else:
-            head = ("ПРОВЕРКА · ПОВТОР %d ИЗ %d" % (st["n"], REPEATS) if not ring
-                    else "ПОВТОР %d ИЗ %d · %s" % (st["n"], REPEATS, st["hm"]))
+            of = "" if st["n"] > REPEATS else " ИЗ %d" % REPEATS
+            head = ("ПРОВЕРКА · ПОВТОР %d%s" % (st["n"], of) if not ring
+                    else "ПОВТОР %d%s · %s" % (st["n"], of, st["hm"]))
         if d.get("test"):
             head = "ТЕСТ · " + head
         if ring and kind:
@@ -1321,7 +1439,7 @@ class SeriesRun:
             title = "Не спите, сэр? Наберите фразу."
             sub = ("подтвердите, что не спите: звонок в %s не прозвучит" % hmf(d, st["due"])
                    if st["n"] == 0 or kind else "подтвердите, что не спите: повтор в %s не прозвучит" % st["hm"])
-        tg = ("или ответом на пример в Telegram" if self.can_reply else
+        tg = ("ответ в Telegram — только отсрочка на %d минут" % TG_SNOOZE if self.can_reply else
               "Telegram сейчас не принимает ответ (бот не принимает ответы) — только здесь")
         last = st is d["steps"][-1]
         tail = ("потом звонок" if not ring else
@@ -1479,6 +1597,12 @@ def cmd_check():
         if day.isoformat() not in s["plan"]:
             s["plan"][day.isoformat()] = t.strftime("%H:%M")
             save(s)
+        if awake_at_pc(now):          # вы за ПК — не спите, звонить незачем; подъём засчитан
+            if not woke_load().get(day.isoformat()):
+                woke_set(day, time.strftime("%H:%M"))
+                via_set(day.isoformat(), "pc")
+            slog("звонок %s %s: вы за ПК — без проверок" % (day.isoformat(), t.strftime("%H:%M")))
+            return
         run_series(series_build(t))
         return
     w = watch_for(s, today)
@@ -1515,7 +1639,7 @@ def series_locked_day(day, argv):
     if "--force" in argv or not series_locks(d) or (day and day.isoformat() != d["date"]):
         return False
     print("Идёт %s — этот день сейчас менять нельзя, сэр. "
-          "Подтвердите фразой на ПК или ответом на пример в Telegram."
+          "Закончить её можно только фразой на ПК (ответ в Telegram — лишь отсрочка)."
           % ("проверка Сторожа" if d.get("watch") else "утренняя проверка (%s)" % d["t"]))
     return True
 
@@ -1674,9 +1798,9 @@ def main(argv):
         wd = s["watch_daily"]
         if args and args[0] == "daily":
             if len(args) == 1:
-                print("ежедневный Сторож: %s, %s–%s, каждые %s мин" % (
+                print("ежедневный Сторож: %s, от будильника до %s, каждые %s мин" % (
                     "включён" if wd.get("enabled") else "ВЫКЛЮЧЕН",
-                    wd["from"], wd["to"], wd.get("every", WATCH_EVERY)))
+                    wd["to"], wd.get("every", WATCH_EVERY)))
                 return 0
             if args[1] == "on":
                 if not wd.get("enabled"):
@@ -1708,7 +1832,8 @@ def main(argv):
                     return 2
                 wd.update({"from": check_hm(a), "to": check_hm(b), "every": every})
                 save(s)
-                print("ежедневный Сторож: %s–%s, каждые %d мин" % (wd["from"], wd["to"], every))
+                print("ежедневный Сторож: от будильника до %s, каждые %d мин (начало — время звонка)"
+                      % (wd["to"], every))
                 return 0
             print("watch daily [on | off --reason ТЕКСТ | 06:00-21:00 [МИН]]")
             return 2
@@ -1748,8 +1873,8 @@ def main(argv):
                 print("выключений Сторожа не было")
             return 0
         if not args:
-            print("ежедневный Сторож: %s, %s–%s, каждые %s мин" % (
-                "включён" if wd.get("enabled") else "выключен", wd["from"], wd["to"],
+            print("ежедневный Сторож: %s, от будильника до %s, каждые %s мин" % (
+                "включён" if wd.get("enabled") else "выключен", wd["to"],
                 wd.get("every", WATCH_EVERY)))
             if s.get("watch_skip"):
                 print("без Сторожа:", ", ".join(sorted(s["watch_skip"])))
