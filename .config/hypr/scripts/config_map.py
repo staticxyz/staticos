@@ -60,8 +60,8 @@ AREAS = [
         bar_window_title.py browser_status.py bongo_cat.py cava_bar.py mpris_common.py
         mpris_status.py mpris_focus privacy_status.py rec_status.sh ribbon_map.py
         sensor_colors.py start_button.py taskbar.py top_bar.py panels.py waybar_clock.py
-        wb_hub.py wb_persist.py wb_share ws_labels.py ws_order.py lyrics_bar.py
-        savage_battery.py build_bar_icons.py build_battery_font.py build_bongo_font.py
+        wb_hub.py wb_persist.py wb_share ws_labels.py ws_order.py lyrics_bar.py bar_volume.py bar_volume.sh
+        savage_battery.py battery_mini.py build_bar_icons.py build_battery_font.py build_bongo_font.py
         build_wave_font.py build_wolf_font.py build_zen_font.py build_start_font.py
         build_taskbar_font.py bar_watch niri_bar.py waybar_niri.py barfix"""),
     ("Плашки бара", "▤", """
@@ -97,7 +97,7 @@ AREAS = [
         screensaver.py power_menu.py wake_alarm.py wake_overlay.py screen_gamma.py
         night_mode.py alt-f4 vt_guard dpms screenon wake-alarm"""),
     ("Настройки и справка", "⚙", """
-        settings_app.py niri_state.py niri_compositor.py keybinds_sheet.py smart_search.py exe_frame.py app_list.py
+        settings_app.py niri_state.py niri_compositor.py keybinds_sheet.py smart_search.py exe_frame.py close_cap.py app_list.py
         config_map.py skeet_icons/ settings-open slashkey applist"""),
     ("Окна и столы niri", "▣", """
         alt_tab.py alt_tab.sh ribbon_center.py mouse_focus.py mouse_wait_release.py
@@ -131,7 +131,7 @@ AREAS = [
         clipboard_menu.py clipboard_win.py freeze_lib.sh
         freeze_screen.py pin_shot.py ocr_copy.sh pxocr.py term_text.py
         screenshot_annotate.sh rec_area.sh rec_frame.py rec_menu.py rec_nobg.py
-        rec_style.py replay_saved.sh launcher.py app_launcher.py launcher_term.sh screentime.py
+        rec_style.py replay_saved.sh launcher.py app_launcher.py launcher_term.sh webapp screentime.py
         screentime_daemon.py clipboard-toggle cliphist-store xclip x-clip-pull
         x11-clip-bridge x11-clip-events wtype replay picker appmem jtop rembg"""),
     ("Discipline и hub", "⏱", """
@@ -149,6 +149,8 @@ OTHER = ("Прочее", "?")
 # Описания файлов без шапки (сверено с кодом 13.10.2026).
 DESC = {
     "savage_battery.py": "Батарея в баре и переключатель Savage Mode (щелчок по батарее).",
+    "pixel_look.py": "Вид системы: пиксельный, обычный или Minimalistic (капсула) — один переключатель на всё",
+    "battery_mini.py": "Батарейка-капсула (картинка) в баре вида Minimalistic, без цифр.",
     "mic_popup.py": "Плашка «Уровень микрофона» — ПКМ по микрофону в баре.",
     "volume_popup.py": "Плашка громкости и источников — ПКМ по громкости в баре.",
     "skeet_icons/": "Значки вида Skeet для Настроек (в публичный репозиторий не идут).",
@@ -173,6 +175,7 @@ DESC = {
     "staticos-doctor": "Есть ли у staticOS всё нужное (ничего не меняет)",
     "rec_status.sh": "Красная точка в баре, пока идёт запись Recorder",
     "kbd_colors.py": "Подсветка Razer BlackWidow V3 в гамме обоев",
+    "bar_volume.sh": "Щелчки и колёсико звука в баре: на динамики или микрофон — что показано",
     "wb_share": "Общий исполнитель модулей бара: команда идёт одна на оба монитора (через wb_hub.py)",
     "hub-open": "Открыть окно hub (одно на всех); hub-open dict — словарь",
     "fontprofile": "Профили файлов под шрифт системы: сохранить оригинал перед правкой под Cozette и вернуть",
@@ -215,6 +218,7 @@ CONFIGS = [
     ("~/.config/niri/cfg/misc.kdl", "Окна и столы niri", "Прочие настройки niri"),
     ("~/.config/niri/cfg/blur.kdl", "Окна и столы niri", "Размытие фона"),
     ("~/.config/niri/cfg/waybar-blur.kdl", "Верхний бар", "Размытие под баром — пишет top_bar.py"),
+    ("~/.config/niri/cfg/look.kdl", "Стиль системы и шрифты", "Вид Minimalistic: без размытия под капсулой, тонкая белая рамка окон — пишет pixel_look.py"),
     ("~/.config/niri/cfg/window-fx.kdl", "Окна и столы niri", "Эффект окон — пишет window_fx.py"),
     ("~/.config/niri/cfg/ws-layout.kdl", "Окна и столы niri", "Раскладка по столам — пишет ws_layout.py"),
     ("~/.config/niri/cfg/rec-binds.kdl", "Инструменты: калькулятор, буфер, снимки, запись", "Клавиши на время записи — пишет rec_area.sh"),

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Вид системы: пиксельный или обычный — один переключатель на всё (13.10.2026).
 
-    pixel_look.py get            pixel | normal | mixed
-    pixel_look.py set pixel|normal
+    pixel_look.py get            pixel | normal | minimal | mixed
+    pixel_look.py set pixel|normal|minimal
     pixel_look.py check          по строке на часть: имя, сейчас, нужно; rc 1 — не всё встало
 
 Просьба: «переключатель должен менять все, а то в прошлый раз где то осталось где то не
@@ -19,6 +19,13 @@
 (шрифт выбирается в его настройках чатов), заставка (рисунок PxPlus), Spotify/spicetify (не
 установлен; тема Jarvis держит PxPlus). Discord, Steam и mpv подхватят шрифт после перезапуска. pixel_mode.py держится выключенным: его
 подмена поверх шрифта системы дала бы двойную замену.
+
+Minimalistic (13.10.2026, Просьба: «верхний бар — маленькая парящая капсула: столы, время,
+Wi-Fi, батарея; углы окон скруглены, слева и справа отступ; остальное как в Гладком»):
+части — как в normal, плюс капсула бара (waybar_niri.py читает mode из pixel-look.json),
+отступ от краёв MINI_EDGE и скругление MINI_RADIUS через niri_compositor.py/window_rounding.py
+(прежние значения — в before_minimal, ставятся обратно при выходе) и cfg/look.kdl без
+размытия под прозрачным баром. Потребители проверяют mode == "pixel", для них minimal — обычный.
 """
 import json
 import os
@@ -162,7 +169,7 @@ BAR_CSS = os.path.expanduser("~/.config/waybar/looks/pixel-font.css")
 CRISP_CONF = os.path.expanduser("~/.config/fontconfig/conf.d/64-pxplus-crisp.conf")
 BAR_FONT = PX
 BAR_TEXT = ("#custom-clock", "#cpu", "#memory", "#temperature", "#network", "#bluetooth",
-            "#language", "#custom-language", "#pulseaudio", "#custom-battery", "#custom-pomo",
+            "#language", "#custom-language", "#pulseaudio", "#custom-volume", "#custom-battery", "#custom-pomo",
             "#custom-mpris", "#custom-window-title", "#custom-privacy", "#custom-rec",
             "#custom-taskbar", "#mpris", "#window", "#clock")
 CRISP_XML = """<?xml version="1.0"?>
@@ -221,6 +228,76 @@ def crisp_conf(mode):
             os.remove(CRISP_CONF)
         except FileNotFoundError:
             pass
+
+
+NIRI_LOOK = os.path.expanduser("~/.config/niri/cfg/look.kdl")
+MINI_EDGE, MINI_RADIUS = 20, 22       # по образцу пользователя (13.10, Image #17): скругление ~22
+LOOK_OFF = "// pixel_look.py: вид не Minimalistic — ничего\n"
+LOOK_MINI = """// pixel_look.py: вид Minimalistic — бар прозрачный, видна только капсула, размытие под ним
+// дало бы мутную полосу во всю ширину. Не править: пишется при смене вида.
+layer-rule {
+    match namespace=r#"^waybar$"#
+    background-effect {
+        blur false
+    }
+}
+// Рамка окон — тонкая и нейтральная, без акцента (как в образце). Перекрывает matugen:
+// этот файл подключён после layout.kdl.
+layout {
+    border {
+        on
+        width 3
+        active-color "#ffffffb3"
+        inactive-color "#ffffff66"
+    }
+}
+"""
+
+
+def look_kdl(mode):
+    want = LOOK_MINI if mode == "minimal" else LOOK_OFF
+    if read(NIRI_LOOK) != want.strip():
+        write_atomic(NIRI_LOOK, want)
+        subprocess.run(["niri", "msg", "action", "load-config-file"], capture_output=True)
+
+
+def win_get():
+    try:
+        edge = json.loads(subprocess.run(["python3", os.path.join(HERE, "niri_compositor.py"), "get"],
+                                         capture_output=True, text=True).stdout)["edge"]
+    except (ValueError, KeyError):
+        edge = None
+    r = subprocess.run(["python3", os.path.join(HERE, "window_rounding.py"), "get"],
+                       capture_output=True, text=True).stdout.strip()
+    return {"edge": edge, "rounding": int(r) if r.isdigit() else None}
+
+
+def win_set(edge, rounding):
+    if edge is not None:
+        py("niri_compositor.py", "set", "edge", str(edge))
+    if rounding is not None:
+        py("window_rounding.py", "set", str(rounding))
+
+
+def minimal_windows(st, mode):
+    """Отступы и скругление окон: в minimal — свои, при выходе — те, что были до него."""
+    if mode == "minimal":
+        if "before_minimal" not in st:
+            st["before_minimal"] = win_get()
+        win_set(MINI_EDGE, MINI_RADIUS)
+    elif "before_minimal" in st:
+        b = st.pop("before_minimal")
+        win_set(b.get("edge"), b.get("rounding"))
+
+
+def minimal_check():
+    """Строки check() для Minimalistic: (имя, сейчас, нужно)."""
+    bar = read(os.path.expanduser("~/.config/waybar/config-niri.jsonc"))
+    w = win_get()
+    return [("Бар-капсула", "да" if "niri/workspaces#mini" in bar else "нет", "да"),
+            ("Без размытия бара", "да" if read(NIRI_LOOK) == LOOK_MINI.strip() else "нет", "да"),
+            ("Отступ от краёв", str(w["edge"]), str(MINI_EDGE)),
+            ("Скругление окон", str(w["rounding"]), str(MINI_RADIUS))]
 
 
 def load():
@@ -311,6 +388,10 @@ def check(mode=None):
         ok = cur[n] == want[n]
         bad += not ok
         print("%s\t%s\t%s%s" % (n, cur[n], want[n], "" if ok else "\t← не встало"))
+    if mode == "minimal":
+        for n, now, need in minimal_check():
+            bad += now != need
+            print("%s\t%s\t%s%s" % (n, now, need, "" if now == need else "\t← не встало"))
     if os.path.exists(PIXEL_MODE_CONF):
         print("pixel_mode\ton\toff\t← не встало")
         bad += 1
@@ -334,6 +415,8 @@ def set_mode(mode):
                 s(want[n])
             except Exception as e:          # noqa: BLE001 — таймаут, нет программы и т.п.
                 print("%s: ошибка — %s" % (n, e), file=sys.stderr)
+    minimal_windows(st, mode)
+    look_kdl(mode)
     st["mode"] = mode
     save(st)
     crisp_conf(mode)
@@ -344,7 +427,8 @@ def set_mode(mode):
 
 def main(a):
     if a == ["get"]:
-        print(mode_of(current()))
+        m = mode_of(current())
+        print("minimal" if m == "normal" and load().get("mode") == "minimal" else m)
         return 0
     if a == ["check"]:
         return check()
@@ -352,7 +436,7 @@ def main(a):
         bar_css()
         crisp_conf(load().get("mode", "normal"))
         return 0
-    if len(a) == 2 and a[0] == "set" and a[1] in ("pixel", "normal"):
+    if len(a) == 2 and a[0] == "set" and a[1] in ("pixel", "normal", "minimal"):
         return set_mode(a[1])
     print(__doc__)
     return 2

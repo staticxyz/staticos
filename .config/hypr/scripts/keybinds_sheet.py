@@ -314,13 +314,11 @@ class View:
         y = 14
         p.text(x0, y, "Клавиши", c["acc_l"], size=FONT_SZ, bold=True)
         # Крестик в углу (13.10.2026, Просьба: «в меню Super+Z тоже добавь кнопку закрыть»)
-        import exe_frame
-        s = 24
-        self.close_rect = (x1 - s, y - 4, s, s)
-        hov = self.hover_close
-        exe_frame.close_box(cr, x1 - s, y - 4, s, c["err"] if hov else c["field"],
-                            c["err"] if hov else c["line"], c["bg"] if hov else c["dim"],
-                            round_=c["frame"] != "skeet")
+        import close_cap                   # общий крестик системы (как у буфера обмена)
+        s = close_cap.size(self.style)
+        cy = y + (FONT_SZ + 6 - s) // 2
+        self.close_rect = (x1 - s, cy, s, s)
+        close_cap.draw(cr, self.style, close_cap.colors(self.style), x1 - s, cy, self.hover_close)
         y += 28
 
         # поиск

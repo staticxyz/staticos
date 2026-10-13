@@ -41,6 +41,7 @@ window#waybar #memory,
 window#waybar #temperature,
 window#waybar #network,
 window#waybar #pulseaudio,
+window#waybar #custom-volume,
 window#waybar #bluetooth,
 window#waybar #language {
     margin-top: 0;

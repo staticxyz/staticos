@@ -1969,6 +1969,13 @@ class XPBar(Gtk.Window):
                 return False
             GLib.timeout_add(40, slide_in)
         else:
+            # Панель уходит — уходит и её «Пуск» (13.10.2026, просьба: открыл Super+S
+            # панель, Super — «Пуск», снова Super+S — панель спряталась, а меню
+            # осталось, и Super его уже не закрывал: super_tap шлёт сигнал только
+            # видимой панели).
+            m = MENUS.get(self.connector)
+            if m is not None and m.get_visible():
+                m.quit()
             # уезжает вниз с анимацией; окно прячет on_revealed, когда она закончится
             GtkLayerShell.set_exclusive_zone(self, 0)
             self.rev.set_transition_duration(180)

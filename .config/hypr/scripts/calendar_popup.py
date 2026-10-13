@@ -40,8 +40,9 @@ ROW_H = 20
 # на деле растягивала до 376 подсказка внизу одной строкой; теперь она
 # переносится, и ширина снова от сетки. Пропорция — шире, чем выше: при 272
 # календарь казался сдавленным. Высота прежняя, 229.
-BOX_W = 280
-BOX_H = 185
+# 13.10.2026: шрифт 11–12 → 16 px (читаемость) — коробка 280×185 → 300×222.
+BOX_W = 300
+BOX_H = 222
 
 # Переключатель: второй запуск гасит первый и уходит.
 #
@@ -182,19 +183,23 @@ class CalendarPopup(Gtk.Window):
         }
         /* Шапка: месяц акцентом и крупнее, год приглушённым рядом — так
            взгляд цепляется за месяц, а год не спорит с ним за внимание. */
+        /* 13.10.2026 (Просьба: «более читаемой, как в waybar'е»): все надписи — 16 px, а
+           подсказка — 8 px. Системный шрифт пиксельный (PxPlus 6x8) и чёткий только на
+           8/16/24 px; на прежних 11–12 px клетки шрифта ложились на пиксели неровно,
+           цифры мазались. 16 px — тот же кегль, что у часов и столов в баре. */
         label.cal-month {
-            color: %(accent)s; font-size: 12px; font-weight: bold;
+            color: %(accent)s; font-size: 16px; font-weight: bold;
             font-family: 'JetBrainsMono Nerd Font', monospace;
         }
         label.cal-year {
-            color: %(dim)s; font-size: 12px; font-weight: normal;
+            color: %(dim)s; font-size: 16px; font-weight: normal;
             font-family: 'JetBrainsMono Nerd Font', monospace;
         }
         button.cal-arrow {
             background: none; border: none; box-shadow: none;
             color: %(dim)s; padding: 0; min-width: 16px; min-height: 16px;
             border-radius: 999px;
-            font-family: 'JetBrainsMono Nerd Font', monospace; font-size: 11px;
+            font-family: 'JetBrainsMono Nerd Font', monospace; font-size: 16px;
         }
         /* Красим и саму кнопку, и её надпись: цвет с button на вложенный
            label GTK не наследует, и без второй строки стрелка при наводке
@@ -216,15 +221,15 @@ class CalendarPopup(Gtk.Window):
            она читалась хуже самих чисел, хотя должна вести взгляд по
            колонкам. */
         label.cal-wd {
-            color: %(fg)s; font-size: 11px; font-weight: 900;
+            color: %(fg)s; font-size: 16px; font-weight: 900;
             font-family: 'JetBrainsMono Nerd Font', monospace;
             padding-bottom: 1px;
         }
         label.cal-wd-off { color: %(wknd)s; }
         label.cal-day {
-            color: %(fg)s; font-size: 11px;
+            color: %(fg)s; font-size: 16px;
             font-family: 'JetBrainsMono Nerd Font', monospace;
-            padding: 0; min-width: 28px; min-height: 16px;
+            padding: 0; min-width: 34px; min-height: 22px;
         }
         /* Выходные — третичной ролью. Пробовал основным акцентом, чтобы не
            выбиваться из гаммы, но он почти совпадает с цветом обычного
@@ -244,11 +249,11 @@ class CalendarPopup(Gtk.Window):
             font-weight: bold; border-radius: 999px;
             /* Одинаковые ширина и высота при нулевом поле — иначе подложка
                растягивалась в овал. */
-            padding: 0; min-width: 28px; min-height: 16px;
+            padding: 0; min-width: 34px; min-height: 22px;
         }
         separator.cal-rule { background-color: %(line)s; margin: 1px 0 2px 0; }
         label.cal-hint {
-            color: %(pad)s; font-size: 9px; font-weight: normal;
+            color: %(pad)s; font-size: 8px; font-weight: normal;
             font-family: 'JetBrainsMono Nerd Font', monospace;
         }
         """ % {
@@ -365,7 +370,7 @@ class CalendarPopup(Gtk.Window):
         # была шире всей сетки — с широким пиксельным шрифтом ~340 px — и
         # именно она, а не BOX_W, задавала ширину окна. Ширина теперь от сетки.
         self.hint.set_line_wrap(True)
-        self.hint.set_max_width_chars(34)
+        self.hint.set_max_width_chars(48)          # 8 px шрифт: 48 знаков ≈ ширина сетки
         self.hint.set_justify(Gtk.Justification.CENTER)
         self.hint.set_margin_top(4)
         box.add(self.hint)
@@ -498,7 +503,7 @@ class CalendarPopup(Gtk.Window):
                         ctx.add_class("cal-off")
                 self.grid.attach(lab, col, row, 1, 1)
 
-        self.hint.set_text("колесо — месяц · 0 — сегодня · клавиша — закрыть")
+        self.hint.set_text("колесо, ←→ — месяц · 0 — сегодня")
         self.grid.show_all()
 
     def on_scroll(self, _w, event):

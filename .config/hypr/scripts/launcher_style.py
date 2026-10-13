@@ -75,10 +75,10 @@ prompt {{ str: ""; }}
 entry {{ placeholder: "поиск…"; }}
 textbox-ltitle {{ expand: true; content: "{title}"; vertical-align: 0.5; background-color: transparent; }}
 /* Крестик в заголовке, как у Recorder (13.10.2026, Просьба: «В Super+space меню rofi тоже,
-   кнопку закрыть»). Значок — PNG того же крестика (exe_frame.recorder_close), щелчок = Esc. */
+   кнопку закрыть»). Значок — PNG общего крестика (close_cap.py, как у буфера обмена), щелчок = Esc. */
 ltitlebar {{ orientation: horizontal; expand: false; spacing: 8px;
             children: [ "textbox-ltitle", "icon-lclose" ]; }}
-icon-lclose {{ expand: false; filename: "{close}"; size: 22px; vertical-align: 0.5;
+icon-lclose {{ expand: false; filename: "{close}"; size: {csize}px; vertical-align: 0.5;
               action: "kb-cancel"; cursor: pointer; background-color: transparent; }}
 textbox-lhint {{ expand: false; content: "{hint}"; horizontal-align: 1; }}
 """
@@ -146,16 +146,11 @@ textbox-lhint {{ text-color: {dim}; }}
 """
 
 
-def close_png(style, size=22):
-    """PNG крестика Recorder для заголовка; рисуется заново при каждой сборке темы."""
-    import cairo
-    import exe_frame
-    path = os.path.join(CACHE, "launcher-close-%s.png" % style)
-    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
-    exe_frame.recorder_close(cairo.Context(surf), style, size)
-    surf.write_to_png(path + ".tmp")
-    os.replace(path + ".tmp", path)
-    return path
+def close_png(style):
+    """PNG общего крестика системы (close_cap.py) для заголовка; рисуется заново при
+    каждой сборке темы."""
+    import close_cap
+    return close_cap.png(style, os.path.join(CACHE, "launcher-close-%s.png" % style))
 
 
 def build(style):
@@ -175,7 +170,7 @@ def build(style):
     os.makedirs(CACHE, exist_ok=True)
     close = close_png(style)
     text = COMMON.format(title=TITLE, style=style, base=BASE, font=FONT, hint=HINT,
-                         lsp=lsp, epad=epad, close=close) + body.format(**c)
+                         lsp=lsp, epad=epad, close=close, csize=__import__("close_cap").size(style)) + body.format(**c)
     path = os.path.join(CACHE, "launcher-%s.rasi" % style)
     with open(path + ".tmp", "w") as f:
         f.write(text)

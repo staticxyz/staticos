@@ -525,8 +525,9 @@ class App:
     def cap_zone(self):
         G = self.G
         _x, py, w, _h = self.panel_rect()
-        s = G["TB"] - 8
-        return w - G["BORDER"] - 4 - s, py + G["TOP"] + 4, s, s
+        import close_cap                   # размер и место — как у буфера обмена
+        x, y, s = close_cap.zone(self.style, w - G["BORDER"], py + G["TOP"], G["TB"])
+        return x, y, s, s
 
     def zone_at(self, x, y):
         """'close', 'title', номер строки, None (внутри окна, мимо строк) или 'out'."""
@@ -759,40 +760,11 @@ class App:
 
     # ── рамки трёх стилей ──────────────────────────────────────────────────
     def close_btn(self, cr):
-        C, st = self.C, self.style
-        x, y, w, h = self.cap_zone()
+        """Крестик — общий для всей системы (close_cap.py, образец — буфер обмена)."""
+        import close_cap
+        x, y, _w, _h = self.cap_zone()
         y -= self.panel_rect()[1]
-        hov = self.hover_cap
-        if st == "skeet":
-            g = cairo.LinearGradient(0, y, 0, y + h)
-            g.add_color_stop_rgb(0, *C["field_l"])
-            g.add_color_stop_rgb(1, *C["field"])
-            cr.set_source(g)
-            cr.rectangle(x, y, w, h)
-            cr.fill()
-            self.rect_line(cr, x, y, w, h, C["line3"])
-            self.rect_line(cr, x + 1, y + 1, w - 2, h - 2, C["gline"])
-            ink = C["err"] if hov else C["dim"]
-        elif st == "beta":
-            self.rect_fill(cr, x, y, w, h, C["err"] if hov else C["field"])
-            self.rect_line(cr, x, y, w, h, C["line_strong"])
-            ink = C["bg"] if hov else C["text"]
-        else:
-            er = C["error"]
-            top = tuple(0.5 * er[i] + 0.5 * C["st_hover"][i] for i in range(3))
-            bot = tuple(0.55 * er[i] * 0.6 + 0.45 * C["st_bot"][i] for i in range(3))
-            if hov:
-                top = mix(top, (1, 1, 1), 0.18)
-            g = cairo.LinearGradient(0, y, 0, y + h)
-            g.add_color_stop_rgb(0, *top)
-            g.add_color_stop_rgb(1, *bot)
-            cr.set_source(g)
-            cr.rectangle(x, y, w, h)
-            cr.fill()
-            self.rect_line(cr, x, y, w, h, C["st_hi"])
-            ink = C["on_surface"]
-        cr.set_source_rgb(*ink)
-        draw_bitmap(cr, X_BMP, x + (w - 14) // 2, y + (h - 14) // 2, 2)
+        close_cap.draw(cr, self.style, self.C, x, y, self.hover_cap)
 
     def frame_default(self, cr, W, H):
         """Окно XP, как буфер обмена: рамка 3 px, полоса заголовка с градиентом «Пуска»."""

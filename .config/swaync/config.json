@@ -48,13 +48,13 @@
   "notification-visibility": {},
   "widgets": [
     "inhibitors",
-    "title",
+    "menubar",
     "dnd",
     "notifications"
   ],
   "widget-config": {
     "notifications": {
-      "vexpand": false
+      "vexpand": true
     },
     "inhibitors": {
       "text": "Inhibitors",
@@ -90,6 +90,30 @@
           "update-command": "sh -c '[[ $(nmcli radio wifi) == \"enabled\" ]] && echo true || echo false'"
         }
       ]
+    },
+    "menubar": {
+      "buttons#cc-name": {
+        "position": "left",
+        "actions": [
+          {
+            "label": "Notifications",
+            "command": ""
+          }
+        ]
+      },
+      "buttons#cc-head": {
+        "position": "right",
+        "actions": [
+          {
+            "label": "Clear All",
+            "command": "swaync-client -C"
+          },
+          {
+            "label": "",
+            "command": "swaync-client -cp"
+          }
+        ]
+      }
     }
   },
   "notification-window-preferred-output": "DP-4",

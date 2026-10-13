@@ -172,6 +172,13 @@
 .notification-row.critical .notification-background .notification {
     border-left: 3px solid var(--error-color);
 }
+
+/* Вторая прокрутка у края центра (13.10.2026, Просьба: «2 прокрутки»). swaync даёт
+   и внешней рамке, и списку внутри ровно control-center-height (480), а рамка
+   внешней ещё отнимает свои 1–2 px с каждой стороны → список не влезал на 2–4 px,
+   и внешняя рамка заводила свою полосу. min-height здесь — без рамки и полей,
+   так что внутри всегда 480. Держать равным control-center-height в config.json. */
+.control-center { min-height: 480px; }
 /* NOCTALIA-LOOK-BEGIN */
 /* Вид уведомлений «как в Noctalia» (30.09.2026, пользователь прислал её снимок).
    Включается/выключается `notif-look on|off` или в Настройки → Уведомления:
@@ -391,7 +398,7 @@
 .notification-row .notification-background .notification .notification-default-action { padding-top: 11px; }
 .notification-row .notification-background .notification.critical .notification-default-action { padding-top: 1px; }   /* у срочных (таймер) полоски нет — и места под неё не нужно (13.10) */
 .notification-row .notification-background .notification .notification-action > button, .notification-row .notification-background .notification .notification-default-action + * button,
-.notification-row .notification-background .notification .notification-action, .widget-title > button, .notification-row .notification-background .notification .inline-reply .inline-reply-button,
+.notification-row .notification-background .notification .notification-action, .widget-title > button, .widget-menubar .cc-head button:first-child, .notification-row .notification-background .notification .inline-reply .inline-reply-button,
 .notification-row .notification-background .notification .inline-reply .inline-reply-entry, .control-center .notification-action > button {
     border-radius: 0;
     border: 1px solid #40424b;
@@ -400,7 +407,7 @@
     box-shadow: none;
     color: #d4d4d9;
 }
-.notification-row .notification-background .notification .notification-action > button:hover, .widget-title > button:hover,
+.notification-row .notification-background .notification .notification-action > button:hover, .widget-title > button:hover, .widget-menubar .cc-head button:first-child:hover,
 .control-center .notification-action > button:hover {
     background-color: #3e5292;
     border-color: #89a2f6;
@@ -453,4 +460,16 @@
 /* Внешний край центра уведомлений — акцентом (13.10.2026, просьба: «рамку, чтобы
    была видна, где заканчивается»): тёмные слои на тёмных обоях сливались. */
 .control-center { border: 2px solid #6888f3; }
+/* Шапка центра: надпись · Clear All · крестик (notif_style.py head_css) */
+.widget-menubar > .menu-button-bar > .start, .widget-menubar > .menu-button-bar > .end { margin: 0; }
+.widget-menubar .cc-name button, .widget-menubar .cc-name button:hover {
+    background: none; border: none; box-shadow: none; padding: 0; margin: 0;
+    min-height: 0; font-size: 16px; color: var(--text-color);
+}
+.widget-menubar .cc-head button:first-child { font-size: 12px; padding: 2px 10px; min-height: 22px; margin: 0 6px 0 0; }
+.widget-menubar .cc-head button:last-child, .widget-menubar .cc-head button:last-child:hover {
+    background: none;   /* значок крестика ставит notif_style.py (картинка в ~/.cache) */
+    border: none; box-shadow: none; border-radius: 0;
+    min-width: 14px; min-height: 14px; padding: 0; margin: 0;
+}
 /* PIXEL-LOOK-END */

@@ -914,6 +914,18 @@ class LanPopup(Gtk.Window):
             for w, pad in ws:
                 self.details.pack_start(w, False, False, pad)
         vbox.pack_start(self.details, False, False, 0)
+        # Ширина плашки — одна и та же свёрнутой и раскрытой (13.10.2026, Просьба: «когда
+        # раскрываю Подробнее, вся плашка двигается… как будто размер заново
+        # устанавливается»). Было: «100 Мбит/с» в цепочке просил место целиком, плашка
+        # раздавалась 344 → 396 px и заново вставала по центру. Сокращаемые подписи
+        # (…) больше не просят ширину сверх отведённой — берут сколько дадут.
+        def narrow(w):
+            if isinstance(w, Gtk.Label):
+                if w.get_ellipsize() != Pango.EllipsizeMode.NONE and w.get_max_width_chars() < 0:
+                    w.set_max_width_chars(1)
+            elif isinstance(w, Gtk.Container):
+                w.foreach(narrow)
+        narrow(vbox)
         try:
             with open(DETAILS_FILE) as f:
                 on = f.read().strip() == "on"

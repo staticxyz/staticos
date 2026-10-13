@@ -73,12 +73,13 @@ tells you what each file does and what starts it, without opening anything.
 - **Screenshots, OCR and recording.** Annotate, pin a screenshot on top, copy text off the screen,
   record GIFs, videos and Telegram stickers.
 - **Own clipboard, Alt+Tab, lock screen and screensaver**, all keyboard-driven with vim keys.
-- **Pixel or regular look** in one switch: fonts, bar, notifications, menus, mixers and even
-  Discord follow it. **Super+Z** shows every shortcut, grouped and searchable.
+- **Pixel, regular or Minimalistic look** in one switch: fonts, bar, notifications, menus, mixers
+  and even Discord follow it. Minimalistic is a centered capsule bar with thin borders and popups under it. **Super+Z** shows every shortcut, grouped and searchable.
 - **Config map** — `Super+Shift+Z`. Which file does what and what starts it, with a search
   that understands synonyms, typos and the wrong keyboard layout. [See above ↑](#config-map--supershiftz)
 - **`Super+X` menu** in the spirit of Omarchy: apps by category, screenshots and toggles,
-  install / remove / update packages through fzf, system and power.
+  install / remove / update packages through fzf, system and power. Any site as its own
+  window — `webapp add Name URL`.
 - **Hub** — reminders, lists, timers and a spaced-repetition dictionary with no AI involved,
   its own SQLite database, a Discipline-styled window (`Super+M`) and an optional Telegram bot
   that reaches you when you're away from the computer. [How it works →](docs/hub.md)

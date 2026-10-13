@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Веб-приложения — сайт отдельным окном со своим значком, как «Install › Web App» у Omarchy
+(13.10.2026, из отложенных задач пользователя).
+
+    webapp add ИМЯ URL [URL_ЗНАЧКА]   создать ярлык (появится в лаунчере, Super+X, rofi)
+    webapp rm ИМЯ                     убрать ярлык и значок
+    webapp ls                         список: имя, адрес
+    webapp open URL                   открыть адрес окном приложения (так зовут ярлыки)
+
+Окно рисует Helium (Chromium) с --app=URL: без вкладок и адресной строки. Zen так не
+умеет (у Firefox нет режима приложения). Значок — URL_ЗНАЧКА или favicon сайта
+(DuckDuckGo), сохраняется в ~/.local/share/icons/webapps/; не скачался — общий web-browser.
+Ярлыки — ~/.local/share/applications/webapp-*.desktop, помечены X-Jarvis-WebApp=true:
+rm и ls трогают только их.
+"""
+import io
+import os
+import re
+import subprocess
+import sys
+import urllib.parse
+import urllib.request
+
+APPS = os.path.expanduser("~/.local/share/applications")
+ICONS = os.path.expanduser("~/.local/share/icons/webapps")
+BROWSER = "helium-browser"
+MARK = "X-Jarvis-WebApp=true"
+
+
+def slug(name):
+    s = re.sub(r"[^a-z0-9а-яё]+", "-", name.lower()).strip("-")
+    return s or "app"
+
+
+def path_of(name):
+    return os.path.join(APPS, "webapp-%s.desktop" % slug(name))
+
+
+def fetch_icon(url, icon_url, out):
+    host = urllib.parse.urlparse(url).hostname or ""
+    srcs = [icon_url] if icon_url else []
+    srcs += ["https://icons.duckduckgo.com/ip3/%s.ico" % host]
+    for src in srcs:
+        try:
+            req = urllib.request.Request(src, headers={"User-Agent": "Mozilla/5.0"})
+            data = urllib.request.urlopen(req, timeout=15).read()
+            from PIL import Image
+            im = Image.open(io.BytesIO(data))
+            if getattr(im, "n_frames", 1) > 1 or src.endswith(".ico"):   # из .ico — самый крупный кадр
+                sizes = getattr(im, "ico", None) and im.ico.sizes()
+                if sizes:
+                    im.size = max(sizes)
+            im = im.convert("RGBA")
+            if im.width < 128:
+                im = im.resize((128, 128), Image.NEAREST if im.width <= 32 else Image.LANCZOS)
+            os.makedirs(ICONS, exist_ok=True)
+            im.save(out, "PNG")
+            return out
+        except Exception as e:              # noqa: BLE001 — сеть, не картинка
+            print("значок %s: %s" % (src, e), file=sys.stderr)
+    return "web-browser"
+
+
+def add(name, url, icon_url=""):
+    if not re.match(r"^https?://", url):
+        url = "https://" + url
+    icon = fetch_icon(url, icon_url, os.path.join(ICONS, slug(name) + ".png"))
+    os.makedirs(APPS, exist_ok=True)
+    with open(path_of(name), "w", encoding="utf-8") as f:
+        f.write("[Desktop Entry]\nVersion=1.0\nType=Application\nName=%s\nComment=Веб-приложение: %s\n"
+                "Exec=%s open %s\nIcon=%s\nTerminal=false\nStartupNotify=true\nCategories=Network;\n%s\n"
+                % (name, url, os.path.abspath(__file__), url, icon, MARK))
+    subprocess.run(["update-desktop-database", APPS], capture_output=True)
+    print("добавлено: %s → %s (%s)" % (name, url, path_of(name)))
+    return 0
+
+
+def entries():
+    out = []
+    for fn in sorted(os.listdir(APPS)) if os.path.isdir(APPS) else []:
+        p = os.path.join(APPS, fn)
+        if fn.startswith("webapp-") and fn.endswith(".desktop"):
+            t = open(p, encoding="utf-8").read()
+            if MARK in t:
+                g = lambda k: (re.search(r"^%s=(.*)$" % k, t, re.M) or [None, ""])[1]
+                out.append((g("Name"), g("Exec").split(" open ", 1)[-1], p, g("Icon")))
+    return out
+
+
+def rm(name):
+    for n, _u, p, icon in entries():
+        if n == name or os.path.basename(p) == os.path.basename(path_of(name)):
+            os.remove(p)
+            if icon.startswith(ICONS) and os.path.exists(icon):
+                os.remove(icon)
+            subprocess.run(["update-desktop-database", APPS], capture_output=True)
+            print("убрано: " + n)
+            return 0
+    print("нет такого веб-приложения: " + name, file=sys.stderr)
+    return 1
+
+
+def main(a):
+    if len(a) in (3, 4) and a[0] == "add":
+        return add(*a[1:])
+    if len(a) == 2 and a[0] == "rm":
+        return rm(a[1])
+    if a == ["ls"]:
+        for n, u, _p, _i in entries():
+            print("%s\t%s" % (n, u))
+        return 0
+    if len(a) == 2 and a[0] == "open":
+        subprocess.Popen([BROWSER, "--app=" + a[1]], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return 0
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

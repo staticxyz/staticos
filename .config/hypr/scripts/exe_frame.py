@@ -114,38 +114,8 @@ def in_cap(app, x, y):
     return cx <= x < cx + cw and cy <= y < cy + ch
 
 
-def close_box(cr, x, y, s, bg, line, ink, round_=False):
-    """Отдельный крестик для окон не на rec_menu (Super+Z, Super+C): квадрат s×s,
-    крестик X_BMP по центру. Цвета задаёт окно: обычный и при наведении."""
-    if round_:
-        import math
-        r = 4
-        cr.new_sub_path()
-        cr.arc(x + s - r, y + r, r, -math.pi / 2, 0)
-        cr.arc(x + s - r, y + s - r, r, 0, math.pi / 2)
-        cr.arc(x + r, y + s - r, r, math.pi / 2, math.pi)
-        cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
-        cr.close_path()
-    else:
-        cr.rectangle(x, y, s, s)
-    cr.set_source_rgb(*bg)
-    cr.fill_preserve()
-    cr.set_source_rgb(*line)
-    cr.set_line_width(1)
-    cr.stroke()
-    cr.set_source_rgb(*ink)
-    R.draw_bitmap(cr, R.X_BMP, x + (s - 14) // 2, y + (s - 14) // 2, 2)
-
-
-def recorder_close(cr, style, s, hover=False):
-    """Крестик ровно как у Recorder (rec_menu.App.close_btn) в квадрате s×s от (0,0) —
-    для окон на GTK-виджетах (Super+C): рисуется в своей DrawingArea."""
-    class _Shim:
-        pass
-    o = _Shim()
-    o.style, o.C, o.hover_cap = style, R.style_colors(style), hover
-    o.cap_zone = lambda: (0, 0, s, s)
-    o.panel_rect = lambda: (0, 0, s, s)
-    o.rect_line = lambda *a, **k: R.App.rect_line(o, *a, **k)
-    o.rect_fill = lambda *a, **k: R.App.rect_fill(o, *a, **k)
-    R.App.close_btn(o, cr)
+def recorder_close(cr, style, s=None, hover=False):
+    """Крестик для окон на GTK-виджетах (Super+C) — общий, close_cap.py; рисуется в
+    своей DrawingArea от (0,0)."""
+    import close_cap
+    close_cap.draw(cr, style, close_cap.colors(style), 0, 0, hover)

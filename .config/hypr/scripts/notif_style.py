@@ -18,7 +18,7 @@
 (notif-look), иначе его правила перебили бы наши; notif-look on|off зовёт sync после себя.
 Перечитывается только CSS (swaync-client -rs) — история центра уведомлений цела.
 Зовут: pixel_look.py (часть «Уведомления»), system_style.py set, theme_changer.sh.
-Откат: notif_style.py set normal (блок удаляется).
+Откат: notif_style.py set normal (в блоке остаётся только шапка с крестиком, head_css).
 """
 import json
 import os
@@ -30,6 +30,7 @@ sys.path.insert(0, HERE)
 ST = os.path.expanduser("~/.config/hypr/state")
 MODE = os.path.join(ST, "notif-look")
 CSS = os.path.expanduser("~/.config/swaync/style.css")
+CACHE = os.path.expanduser("~/.cache/jarvis")
 B, E = "/* PIXEL-LOOK-BEGIN */", "/* PIXEL-LOOK-END */"
 FONT = "PxPlus HP 100LX 6x8 Jarvis"
 
@@ -38,6 +39,7 @@ NOTI = ROW + " .notification"
 FLOAT = ".floating-notifications"
 FIRST = FLOAT + " *:first-child > .notification-row:not(:hover) .notification-background .notification"
 OLDER = FLOAT + " *:not(:first-child) > .notification-row .notification-background .notification"
+HEAD = ".widget-menubar .cc-head"      # шапка центра: «Clear All» и крестик (config.json)
 TIMEOUTS = {"normal": 9, "low": 5}     # = config.json swaync (см. память notif-look)
 
 
@@ -115,7 +117,7 @@ def css(st):
 %(noti)s .notification-default-action { padding-top: %(tp)dpx; }
 %(noti)s.critical .notification-default-action { padding-top: 1px; }   /* у срочных (таймер) полоски нет — и места под неё не нужно (13.10) */
 %(noti)s .notification-action > button, %(noti)s .notification-default-action + * button,
-%(noti)s .notification-action, .widget-title > button, %(noti)s .inline-reply .inline-reply-button,
+%(noti)s .notification-action, .widget-title > button, %(head)s button:first-child, %(noti)s .inline-reply .inline-reply-button,
 %(noti)s .inline-reply .inline-reply-entry, .control-center .notification-action > button {
     border-radius: 0;
     border: 1px solid %(line1)s;
@@ -124,7 +126,7 @@ def css(st):
     box-shadow: none;
     color: %(text)s;
 }
-%(noti)s .notification-action > button:hover, .widget-title > button:hover,
+%(noti)s .notification-action > button:hover, .widget-title > button:hover, %(head)s button:first-child:hover,
 .control-center .notification-action > button:hover {
     background-color: %(acc_d)s;
     border-color: %(acc_l)s;
@@ -165,7 +167,7 @@ def css(st):
     background-size: %(older_size)s;
     animation: none;
 }
-""" % dict(c, st=st, font=FONT, row=ROW, noti=NOTI, tp=top_pad, float=FLOAT, first=FIRST, older=OLDER,
+""" % dict(c, st=st, font=FONT, row=ROW, noti=NOTI, head=HEAD, tp=top_pad, float=FLOAT, first=FIRST, older=OLDER,
            imgs=J(imgs), pos=J(pos), full=J(full), empty=J(empty),
            tn=TIMEOUTS["normal"], tl=TIMEOUTS["low"],
            older_img=extra[0] if extra else "none", older_size=extra[2] if extra else "auto"))
@@ -207,10 +209,55 @@ def css(st):
     return "".join(o)
 
 
+def close_pngs(st):
+    """PNG общего крестика системы (close_cap.py) — обычный и под мышью. В имени —
+    отпечаток картинки: GTK держит картинку по адресу, а цвета меняются с обоями."""
+    import hashlib
+    import close_cap
+    out = []
+    for hov in (False, True):
+        tmp = os.path.join(CACHE, "notif-close.tmp.png")
+        close_cap.png(st, tmp, hov)
+        h = hashlib.md5(open(tmp, "rb").read()).hexdigest()[:8]
+        path = os.path.join(CACHE, "notif-close-%s-%s%s.png" % (st, "h" if hov else "n", h))
+        os.replace(tmp, path)
+        out.append(path)
+    for f in os.listdir(CACHE):                     # старые отпечатки
+        if f.startswith("notif-close-") and os.path.join(CACHE, f) not in out:
+            try:
+                os.remove(os.path.join(CACHE, f))
+            except OSError:
+                pass
+    return out
+
+
+def head_css(st):
+    """Шапка центра уведомлений (13.10.2026, Просьба: «В плашке Уведомлений тоже добавь
+    кнопку закрыть»). Виджет title крестика не умеет, поэтому шапка — menubar из
+    config.json: слева надпись (кнопка без вида), справа «Clear All» и крестик —
+    тот же, что у буфера обмена и всех окон (close_cap.py). Пишется в обоих видах."""
+    import close_cap
+    n, h = close_pngs(st)
+    s = close_cap.size(st)
+    return """/* Шапка центра: надпись · Clear All · крестик (notif_style.py head_css) */
+.widget-menubar > .menu-button-bar > .start, .widget-menubar > .menu-button-bar > .end { margin: 0; }
+.widget-menubar .cc-name button, .widget-menubar .cc-name button:hover {
+    background: none; border: none; box-shadow: none; padding: 0; margin: 0;
+    min-height: 0; font-size: 16px; color: var(--text-color);
+}
+%(head)s button:first-child { font-size: 12px; padding: 2px 10px; min-height: 22px; margin: 0 6px 0 0; }
+%(head)s button:last-child, %(head)s button:last-child:hover {
+    background: url("file://%(n)s") center / %(s)dpx %(s)dpx no-repeat;
+    border: none; box-shadow: none; border-radius: 0;
+    min-width: %(s)dpx; min-height: %(s)dpx; padding: 0; margin: 0;
+}
+%(head)s button:last-child:hover { background-image: url("file://%(h)s"); }
+""" % dict(head=HEAD, n=n, h=h, s=s)
+
+
 def block(mode, st):
-    if mode != "pixel":
-        return ""
-    return "%s\n%s%s\n" % (B, css(st), E)
+    body = (css(st) if mode == "pixel" else "") + head_css(st)
+    return "%s\n%s%s\n" % (B, body, E)
 
 
 def split(text):

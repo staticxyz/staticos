@@ -148,6 +148,15 @@ window-rule {
     open-floating true
 }
 
+// Свой календарь (ПКМ по часам в баре, calendar_app.py) — плавающий и компактный
+// (13.10.2026: открывался плиткой — правило было только у GNOME Calendar).
+window-rule {
+    match app-id=r#"^dev\.static\.calendar$"#
+    open-floating true
+    default-column-width { fixed 600; }
+    default-window-height { fixed 560; }
+}
+
 // Часы
 window-rule {
     match app-id=r#"^org\.gnome\.clocks$"#

@@ -1913,8 +1913,9 @@ class Widget(Gtk.Window):
         # dy — сдвиг от панелей «Всегда» (Manager.push_layout); место в spec не меняется
         GtkLayerShell.set_margin(self, GtkLayerShell.Edge.TOP, y + getattr(self, "dy", 0))
         sh = self.shadow()                 # тень — за пределами самого виджета: слой на неё шире
-        self.area.set_size_request(int(s["w"]) + sh, int(s["h"]) + sh)
-        self.resize(int(s["w"]) + sh, int(s["h"]) + sh)
+        h = int(s["h"]) - getattr(self, "dh", 0)   # dh — подрезка снизу нижней панелью (push_layout)
+        self.area.set_size_request(int(s["w"]) + sh, h + sh)
+        self.resize(int(s["w"]) + sh, h + sh)
         self.queue_resize()
         self.area.queue_draw()
 
@@ -1936,7 +1937,7 @@ class Widget(Gtk.Window):
         """Размер самого виджета — без полосы под тень."""
         a = self.area.get_allocation()
         sh = self.shadow()
-        return (a.width - sh, a.height - sh) if a.width > 1 + sh else (int(self.spec["w"]), int(self.spec["h"]))
+        return (a.width - sh, a.height - sh) if a.width > 1 + sh else (int(self.spec["w"]), int(self.spec["h"]) - getattr(self, "dh", 0))
 
     def inner(self):
         w, h = self.size()
@@ -4038,13 +4039,15 @@ class Manager:
 
     def push_layout(self):
         """Посчитать сдвиг dy видимых виджетов от панелей «Всегда» и переставить тех,
-        у кого он изменился."""
+        у кого он изменился. Нижняя панель (13.10.2026, Просьба: «не двигала виджеты, а
+        уменьшала их размер снизу») — подрезает высоту (dh), верх виджета стоит на месте;
+        двигает, только если после подрезки осталось бы меньше MIN_H."""
         zones = {} if self.edit else self.panel_zones()
         G = self.PANEL_GAP
-        new = {}
+        new, cut = {}, {}
         by_out = {}
         for w in self.widgets:
-            new[id(w)] = 0
+            new[id(w)], cut[id(w)] = 0, 0
             if not w.cloaked and not w.away:
                 by_out.setdefault(w.spec.get("output"), []).append(w)
         for out, ws in by_out.items():
@@ -4085,7 +4088,11 @@ class Manager:
                 done = []
                 for w in order:
                     a = r[id(w)]
-                    # то же снизу: зазор до нижнего края экрана сохраняется над панелью
+                    # то же снизу: зазор до нижнего края экрана сохраняется над панелью —
+                    # низ виджета поднимается на высоту панели, а верх остаётся на месте
+                    if ey[id(w)] + a[3] > lim and a[3] - bot >= MIN_H:
+                        cut[id(w)] = bot
+                        continue
                     y = ey[id(w)] - bot if ey[id(w)] + a[3] > lim else ey[id(w)]
                     for _ in range(len(order)):
                         moved = False
@@ -4102,8 +4109,8 @@ class Manager:
             for w in ws:
                 new[id(w)] = ey[id(w)] - r[id(w)][1]
         for w in self.widgets:
-            if getattr(w, "dy", 0) != new[id(w)]:
-                w.dy = new[id(w)]
+            if getattr(w, "dy", 0) != new[id(w)] or getattr(w, "dh", 0) != cut[id(w)]:
+                w.dy, w.dh = new[id(w)], cut[id(w)]
                 w.place()
 
     def monitors(self):

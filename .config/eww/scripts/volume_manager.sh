@@ -69,7 +69,13 @@ target() {
 
 case "$1" in
     trigger_hit)
-        target sink
+        # Shift зажат, пока курсор коснулся края, — микшер микрофона (13.10.2026).
+        # Состояние Shift — у ядра (shift_held.py, EVIOCGKEY): фокуса клавиатуры у полоски нет.
+        if python3 "$HOME/.config/eww/scripts/shift_held.py"; then
+            target source
+        else
+            target sink
+        fi
         show_and_timeout
         ;;
     cancel)

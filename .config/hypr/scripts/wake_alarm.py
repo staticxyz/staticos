@@ -15,6 +15,7 @@ T−5 проверка (окно с фразой на всех монитора�
     wake_alarm.py default 09:00     — время для дней без своей строки в плане
     wake_alarm.py skip [ДАТА]       — не звонить в этот день
     wake_alarm.py on | off          — включить / выключить совсем
+                 [--reason ТЕКСТ --via tg] — с записью в журнал (аварийно из Telegram: /alarm)
     wake_alarm.py test [СЕКУНДЫ]    — пробный звонок (по умолчанию 10 с)
     wake_alarm.py stop [--force]    — остановить пробный звонок; серию — только с --force
     wake_alarm.py series            — состояние последней серии
@@ -27,6 +28,7 @@ T−5 проверка (окно с фразой на всех монитора�
     wake_alarm.py watch daily [on | off --reason ТЕКСТ] — ежедневный Сторож 06:00–21:00
     wake_alarm.py watch skip [ДАТА] --reason ТЕКСТ | watch skip off [ДАТА] — без Сторожа на день
     wake_alarm.py watch log [N]     — журнал выключений Сторожа (кто, когда, почему)
+    wake_alarm.py emergency off --reason ТЕКСТ | emergency on — аварийно (бот): будильник + Сторож на день
     wake_alarm.py check             — зовёт таймер wake-alarm.timer раз в минуту
 """
 import contextlib
@@ -187,7 +189,10 @@ def watch_log_read(n=50):
 
 
 WLOG_NAMES = {"daily-off": "выключил Сторожа", "daily-on": "включил Сторожа",
-              "skip": "без Сторожа на день", "skip-off": "вернул Сторожа на день"}
+              "skip": "без Сторожа на день", "skip-off": "вернул Сторожа на день",
+              "alarm-off": "выключил будильник", "alarm-on": "включил будильник",
+              "emergency-off": "АВАРИЙНО выключил будильник и Сторожа на день",
+              "emergency-on": "включил будильник и Сторожа после аварийного"}
 
 
 def watch_log_line(r):
@@ -1385,7 +1390,50 @@ def main(argv):
             return 1
         s["enabled"] = cmd == "on"
         save(s)
+        # 13.10.2026: аварийное выключение из Telegram (/alarm) — в журнал, как Сторож
+        if "--reason" in argv or "--via" in argv:
+            opt = lambda k: argv[argv.index(k) + 1] if k in argv and argv.index(k) + 1 < len(argv) else ""
+            watch_log("alarm-" + cmd, opt("--reason"), opt("--via") or "cli")
         cmd_status()
+    elif cmd == "emergency":
+        # 13.10.2026, Просьба: «аварийное выключение через бота должно выключать и Сторожа на
+        # этот день. Если я его выключаю — значит, я не дома». Поэтому — и во время серии:
+        # будильник выключается до /alarm on, Сторож снимается на сегодня, идущая серия
+        # (проверка, звонок) останавливается. Без причины не выполняется.
+        sub = argv[2] if len(argv) > 2 else ""
+        opt = lambda k: argv[argv.index(k) + 1] if k in argv and argv.index(k) + 1 < len(argv) else ""
+        reason, via = opt("--reason").strip(), opt("--via") or "cli"
+        today = dt.date.today().isoformat()
+        if sub == "off":
+            if len(reason) < 3:
+                print("Без причины не выключаю, сэр: --reason «почему»")
+                return 2
+            s["enabled"] = False
+            sk = s.setdefault("watch_skip", [])
+            if today not in sk:
+                sk.append(today)
+            save(s)
+            watch_log("emergency-off", reason, via, today)
+            with series_lock():
+                d = series_load()
+                if d and not d.get("done") and not d.get("test") and d["date"] == today:
+                    finish(d, "stopped")
+                    series_save(d)
+                    slog("серия остановлена аварийно (%s): %s" % (via, reason))
+                    print("идущая серия остановлена")   # процесс серии увидит done и закроется
+            print("будильник ВЫКЛЮЧЕН до включения, Сторож снят на сегодня")
+        elif sub == "on":
+            s["enabled"] = True
+            if today in s.get("watch_skip", []):
+                s["watch_skip"].remove(today)
+            save(s)
+            watch_log("emergency-on", reason, via, today)
+            print("будильник включён, Сторож сегодня снова на посту")
+        else:
+            print("emergency off --reason ТЕКСТ [--via tg] | emergency on [--via tg]")
+            return 2
+        cmd_status()
+        return 0
     elif cmd == "test":
         ring(int(argv[2]) if len(argv) > 2 else 10,
              window="--no-window" not in argv)

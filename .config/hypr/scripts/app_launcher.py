@@ -211,8 +211,8 @@ def get_icon(gicon=None, size=24, name=None):
 # 13.10.2026, Просьба: «категорию Удалить… Обновить… О системе… Система… Установить…
 # Настройки… Действие… Справка» — по меню «Go…» Omarchy (bin/omarchy-menu, v3.1):
 # Learn → Справка, Trigger → Действия, Setup → Настройки, Install/Remove/Update →
-# Установить/Удалить/Обновить, About → О системе, System → Система. «Оформление»
-# (Style) не просили — его нет. Узел: {"name", "icon", "kids": [...]} — подменю;
+# Установить/Удалить/Обновить, About → О системе, System → Система. Вечером 13.10 —
+# «Оформление» (Style: обои, стиль, вид, значки, заставка) и каталог в «Установить». Узел: {"name", "icon", "kids": [...]} — подменю;
 # {"name", "icon", "run": команда sh, "keys": подсказка справа, "state": команда,
 # которая печатает состояние} — действие; {"app": Gio.AppInfo} — программа.
 # Терминальные пункты (fzf со списком пакетов, fastfetch) — launcher_term.sh.
@@ -245,11 +245,119 @@ def sub(name, icon, kids):
     return {"name": name, "icon": icon, "kids": kids}
 
 
+# ── «Установить»: подборка по разделам, как у Omarchy (Пользователь 13.10: «Делай») ─────
+# (название, пакет, из AUR, команда — если стоит не пакетом, а своим файлом в PATH).
+# Уже установленное — бледное с ✓, Enter на нём ничего не делает. Имена проверены
+# 13.10.2026 по pacman -Sl и AUR. Веб-приложения — отложены (список пользователя).
+CATALOG = [
+    ("Браузер", ("web-browser", "internet-web-browser"), [
+        ("Firefox", "firefox", False, None), ("LibreWolf", "librewolf", False, None),
+        ("Zen", "zen-browser-bin", True, "zen-browser"), ("Helium", "helium-browser-bin", True, None),
+        ("Chromium", "chromium", False, None), ("Brave", "brave-bin", True, None),
+        ("Vivaldi", "vivaldi", False, None)]),
+    ("Редактор", ("accessories-text-editor",), [
+        ("Neovim", "neovim", False, None), ("Helix", "helix", False, None), ("Zed", "zed", False, None),
+        ("VS Code", "visual-studio-code-bin", True, None), ("Code - OSS", "code", False, None),
+        ("Cursor", "cursor-bin", True, None), ("Sublime Text", "sublime-text-4", True, None),
+        ("Obsidian", "obsidian", False, None), ("Mousepad", "mousepad", False, None)]),
+    ("Терминал", ("utilities-terminal",), [
+        ("Kitty", "kitty", False, None), ("Alacritty", "alacritty", False, None),
+        ("Ghostty", "ghostty", False, None), ("Foot", "foot", False, None), ("WezTerm", "wezterm", False, None)]),
+    ("ИИ", ("applications-science", "preferences-system"), [
+        ("Ollama", "ollama", False, None), ("Ollama + CUDA", "ollama-cuda", False, None),
+        ("LM Studio", "lmstudio-bin", True, None), ("OpenCode", "opencode-bin", True, "opencode"),
+        ("aichat", "aichat", False, None)]),
+    ("Игры", ("applications-games",), [
+        ("Steam", "steam", False, None), ("Lutris", "lutris", False, None),
+        ("Heroic (Epic, GOG)", "heroic-games-launcher-bin", True, None),
+        ("Prism Launcher (Minecraft)", "prismlauncher", False, None), ("RetroArch", "retroarch", False, None),
+        ("GameMode", "gamemode", False, None), ("MangoHud", "mangohud", False, None)]),
+    ("Разработка", ("applications-development",), [
+        ("Java (OpenJDK)", "jdk-openjdk", False, None),
+        ("IntelliJ IDEA Community", "intellij-idea-community-edition", False, None),
+        ("Docker", "docker", False, None), ("Docker Compose", "docker-compose", False, None),
+        ("Node.js", "nodejs", False, None), ("Go", "go", False, None), ("Rust", "rust", False, None),
+        ("GitHub CLI", "github-cli", False, None), ("lazygit", "lazygit", False, None),
+        ("DBeaver", "dbeaver", False, None), ("Postman", "postman-bin", True, None)]),
+    ("Связь", ("internet-chat", "applications-internet"), [
+        ("Telegram", "telegram-desktop", False, None), ("Discord", "discord", False, None),
+        ("Vesktop (Discord)", "vesktop-bin", True, None), ("Signal", "signal-desktop", False, None),
+        ("Zoom", "zoom", True, None), ("ZapZap (WhatsApp)", "zapzap", True, None)]),
+    ("Медиа", ("applications-multimedia",), [
+        ("mpv", "mpv", False, None), ("VLC", "vlc", False, None), ("OBS Studio", "obs-studio", False, None),
+        ("Spotify", "spotify-launcher", False, None), ("GIMP", "gimp", False, None),
+        ("Krita", "krita", False, None), ("Inkscape", "inkscape", False, None),
+        ("Kdenlive", "kdenlive", False, None), ("Audacity", "audacity", False, None)]),
+    ("Офис", ("applications-office",), [
+        ("LibreOffice", "libreoffice-fresh", False, None), ("OnlyOffice", "onlyoffice-bin", True, None),
+        ("Okular (PDF)", "okular", False, None), ("Zathura (PDF)", "zathura", False, None),
+        ("KeePassXC", "keepassxc", False, None)]),
+    ("Утилиты", ("applications-utilities", "applications-accessories"), [
+        ("btop", "btop", False, None), ("fastfetch", "fastfetch", False, None), ("yazi", "yazi", False, None),
+        ("LocalSend", "localsend", True, None), ("qBittorrent", "qbittorrent", False, None),
+        ("Ventoy", "ventoy-bin", True, None)]),
+]
+
+
+# Значки каталога (13.10.2026, Просьба: «не хватает иконок, особенно у неустановленных»).
+# По имени пакета значок в теме находится не всегда (zen-browser-bin, neovim, lmstudio-bin…),
+# тогда строка получала общий «пакет». Здесь — имена из Papirus/Jarvis-Pixel, проверенные
+# lookup_icon; у кого своего значка в теме нет — похожий по смыслу.
+CATALOG_ICONS = {
+    "zen-browser-bin": ("zen-browser", "app.zen_browser.zen"), "helium-browser-bin": ("helium",),
+    "brave-bin": ("brave-browser",), "neovim": ("nvim",), "helix": ("helix",), "zed": ("zed", "dev.zed.Zed"),
+    "visual-studio-code-bin": ("visual-studio-code", "code"), "code": ("code-oss", "code"),
+    "cursor-bin": ("cursor",), "sublime-text-4": ("sublime-text", "sublime_text"),
+    "ghostty": ("com.mitchellh.ghostty",), "wezterm": ("org.wezfurlong.wezterm",), "alacritty": ("Alacritty",),
+    "ollama": ("applications-science",), "ollama-cuda": ("applications-science",),
+    "lmstudio-bin": ("applications-science",), "opencode-bin": ("utilities-terminal",),
+    "aichat": ("utilities-terminal",),
+    "heroic-games-launcher-bin": ("heroic",), "prismlauncher": ("org.prismlauncher.PrismLauncher",),
+    "gamemode": ("input-gaming",), "mangohud": ("utilities-system-monitor",),
+    "jdk-openjdk": ("java",), "intellij-idea-community-edition": ("idea", "intellij-idea-ce"),
+    "docker": ("docker-desktop",), "docker-compose": ("docker-desktop",), "nodejs": ("node",),
+    "github-cli": ("github",), "lazygit": ("git",), "postman-bin": ("postman",),
+    "telegram-desktop": ("org.telegram.desktop", "telegram"), "vesktop-bin": ("vesktop",),
+    "zapzap": ("com.rtosta.zapzap", "whatsapp"), "obs-studio": ("com.obsproject.Studio", "obs"),
+    "spotify-launcher": ("spotify",), "libreoffice-fresh": ("libreoffice-startcenter",),
+    "onlyoffice-bin": ("onlyoffice-desktopeditors",), "fastfetch": ("hwinfo",),
+    "localsend": ("localsend",), "ventoy-bin": ("ventoy",),
+}
+
+
+def installed_pkgs():
+    """Имена установленных пакетов прямо из базы pacman (без запуска pacman: ~1 мс)."""
+    try:
+        return {d.rsplit("-", 2)[0] for d in os.listdir("/var/lib/pacman/local") if d.count("-") >= 2}
+    except OSError:
+        return set()
+
+
+def catalog_subs():
+    have = installed_pkgs()
+    out = []
+    for cat, icon, items in CATALOG:
+        kids = []
+        for name, pkg, aur, cmd in items:
+            if pkg in have or (cmd and shutil.which(cmd)):
+                kids.append({"name": name, "icon": CATALOG_ICONS.get(pkg, ()) + (pkg, name.lower(), "package-x-generic"), "run": None,
+                             "keys": "✓", "done": True})
+            else:
+                kids.append(act(name, CATALOG_ICONS.get(pkg, ()) + (pkg, name.lower(), "package-x-generic"),
+                                _term("install-pkg " + shlex.quote(pkg), "Установить " + name),
+                                pkg + (" · AUR" if aur else "")))
+        kids.sort(key=lambda k: bool(k.get("done")))   # чего нет — сверху
+        out.append(sub(cat, icon, kids))
+    return out
+
+
 def menu_tree(cats):
     apps = sub("Приложения", ("applications-all", "start-here"),
                [{"name": n, "icon": GROUP_ICON.get(n), "group": True, "kids": [{"app": a} for a in lst]}
                 for n, lst in cats])
     toggle = lambda get, on, off: "if %s; then %s; else %s; fi" % (get, off, on)
+    on_off = lambda get: get + " && echo вкл || echo выкл"
+    on_if = lambda get: get + " && echo ✓"
     return sub("Меню", None, [
         apps,
         sub("Справка", ("help-contents", "system-help"), [
@@ -301,6 +409,36 @@ def menu_tree(cats):
             act("Напоминания", ("alarm-clock", "x-office-calendar"),
                 os.path.expanduser("~/.local/bin/hub-open") + " --toggle", "Super+M"),
         ]),
+        sub("Оформление", ("preferences-desktop-theme", "applications-graphics"), [
+            act("Обои", ("preferences-desktop-wallpaper",), _py("wallpaper_picker.py"), "Super+W"),
+            sub("Стиль системы", ("preferences-desktop-theme",), [
+                act(n.capitalize(), ("preferences-desktop-theme",), _py("system_style.py", "set", n),
+                    state=on_if(_py("system_style.py", "get") + " | grep -qx " + n))
+                for n in ("default", "skeet", "beta")]),
+            act("Пиксельный вид", ("applications-graphics",),
+                toggle(_py("pixel_look.py", "get") + " | grep -qx pixel",
+                       _py("pixel_look.py", "set", "pixel"), _py("pixel_look.py", "set", "normal")),
+                state=on_off(_py("pixel_look.py", "get") + " | grep -qx pixel")),
+            act("Пиксельные обои", ("preferences-desktop-wallpaper",), _py("wallpaper_pixel.py", "toggle"),
+                state=on_off(_py("wallpaper_pixel.py", "get") + " | grep -qx on")),
+            sub("Значки", ("preferences-desktop-icons", "applications-graphics"), [
+                act("Пиксельные", ("applications-graphics",), _py("icon_theme.py", "set", "pixel"),
+                    state=on_if(_py("icon_theme.py", "get") + " | grep -qx pixel")),
+                act("Пиксельные везде", ("applications-graphics",), _py("icon_theme.py", "set", "pixel-all"),
+                    state=on_if(_py("icon_theme.py", "get") + " | grep -qx pixel-all")),
+                act("Papirus", ("applications-graphics",), _py("icon_theme.py", "set", "papirus"),
+                    state=on_if(_py("icon_theme.py", "get") + " | grep -qx papirus")),
+            ]),
+            act("Заставка — показать", ("screensaver",), _py("screensaver.py")),
+            act("Заставка по бездействию", ("screensaver",),
+                toggle(_py("screensaver.py", "get") + " | grep -q ^on",
+                       _py("screensaver.py", "on"), _py("screensaver.py", "off")),
+                state=on_off(_py("screensaver.py", "get") + " | grep -q ^on")),
+            act("Шрифт и оформление", ("font-x-generic",), os.path.join(NIRI_SCRIPTS, "settings-open") + " fonts",
+                "Настройки"),
+            act("Эффекты и экран блокировки", ("preferences-desktop-effects", "preferences-system"),
+                os.path.join(NIRI_SCRIPTS, "settings-open") + " visuals", "Настройки"),
+        ]),
         sub("Настройки", ("preferences-system",), [
             act("Настройки staticOS", ("preferences-system",), os.path.join(NIRI_SCRIPTS, "settings-open"),
                 "Super+/"),
@@ -321,15 +459,18 @@ def menu_tree(cats):
             act("Пакет", ("package-x-generic",), _term("install", "Установить пакет")),
             act("Пакет из AUR", ("package-x-generic",), _term("aur", "Установить из AUR")),
             act("Шрифт", ("font-x-generic",), _term("font", "Установить шрифт")),
-        ]),
-        sub("Удалить", ("edit-delete", "user-trash"), [
+            act("Веб-приложение", ("web-browser", "applications-internet"), _term("webapp-add", "Веб-приложение")),
+        ] + catalog_subs()),
+        fill("remove", sub("Удалить", ("edit-delete", "user-trash"), [
             act("Пакет", ("package-x-generic",), _term("remove", "Удалить пакет")),
             act("Пакет из AUR", ("package-x-generic",), _term("remove-aur", "Удалить пакет AUR")),
+            act("Веб-приложение", ("web-browser", "applications-internet"), _term("webapp-rm", "Убрать веб-приложение")),
             act("Ненужные зависимости", ("edit-clear-all", "user-trash"), _term("orphans", "Ненужные зависимости")),
             act("Старый кэш пакетов", ("user-trash",), _term("cache", "Кэш пакетов")),
-        ]),
+        ])),
         sub("Обновить", ("system-software-update", "update-manager"), [
             act("Систему (пакеты и AUR)", ("system-software-update",), _term("update", "Обновление системы")),
+            fill("updates", sub("Приложения", ("system-software-update", "update-manager"), [])),
             act("Только пакеты pacman", ("package-x-generic",), _term("update-repo", "Обновление pacman")),
             sub("Перезапустить", ("view-refresh",), [
                 act("Верхний бар", ("preferences-desktop",), os.path.expanduser("~/.local/bin/barfix")),
@@ -340,7 +481,9 @@ def menu_tree(cats):
             act("Пароль", ("dialog-password",), _term("passwd", "Смена пароля")),
             act("Часовой пояс", ("preferences-system-time",), _term("timezone", "Часовой пояс")),
         ]),
-        act("О системе", ("computer", "help-about"), _term("about", "О системе")),
+        fill("about", sub("О системе", ("computer", "help-about"), [
+            act("Подробно в терминале (fastfetch)", ("utilities-terminal",), _term("about", "О системе")),
+        ])),
         sub("Система", ("system-shutdown",), [
             act("Блокировка", ("system-lock-screen",), os.path.join(NIRI_SCRIPTS, "shell-do") + " lock", "Super+O"),
             act("Заставка", ("screensaver",), _py("screensaver.py")),
@@ -350,6 +493,216 @@ def menu_tree(cats):
             act("Выключение", ("system-shutdown",), _py("power_menu.py", "--only", "shutdown")),
         ]),
     ])
+
+
+def fill(kind, node):
+    """Подменю, которое собирается при входе (fill_node): его строки — свежие данные,
+    постоянные пункты («Пакет», «Кэш»…) — после них. В поиск попадают только постоянные."""
+    node["fill"], node["base"] = kind, list(node["kids"])
+    return node
+
+
+def info(name, value, icon=None):
+    """Строка-сведение: подпись слева, значение справа; Enter копирует значение."""
+    return {"name": name, "info": value, "icon": icon}
+
+
+# ── «О системе»: всё в меню (Пользователь 13.10: не терминал с fastfetch) ─────────
+def _gib(b):
+    return ("%.1f" % (b / 2 ** 30)).replace(".", ",")
+
+
+def _uptime(ms):
+    m = int(ms // 60000)
+    d, h, m = m // 1440, m // 60 % 24, m % 60
+    return " ".join(x for x in ("%d д" % d if d else "", "%d ч" % h if h else "", "%d мин" % m) if x)
+
+
+def about_rows():
+    import json
+    import pwd
+    try:
+        out = subprocess.run(["fastfetch", "--format", "json", "-s",
+                              "OS:Host:Kernel:Uptime:Packages:Display:WM:CPU:GPU:Memory:Swap:Disk:Battery:LocalIp"],
+                             capture_output=True, text=True, timeout=5).stdout
+        F = {x["type"]: x.get("result") for x in json.loads(out) if x.get("result") is not None}
+    except Exception:
+        F = {}
+    rows = []
+
+    def add(name, value, icon):
+        if value:
+            rows.append(info(name, value, icon))
+    o = F.get("OS") or {}
+    add("Система", o.get("prettyName") or o.get("name"), ("distributor-logo-archlinux", "computer"))
+    h = F.get("Host") or {}
+    add("Компьютер", " ".join(x for x in (h.get("vendor"), h.get("name")) if x), ("computer",))
+    k = F.get("Kernel") or {}
+    add("Ядро", k.get("release"), ("application-x-firmware", "system-run"))
+    u = F.get("Uptime") or {}
+    add("Работает", _uptime(u["uptime"]) if u.get("uptime") else "", ("preferences-system-time",))
+    p = F.get("Packages") or {}
+    add("Пакеты", ", ".join("%d %s" % (v, n) for n, v in p.items()
+                            if n != "all" and isinstance(v, int) and v), ("package-x-generic",))
+    try:
+        sh = os.path.basename(pwd.getpwuid(os.getuid()).pw_shell)
+    except Exception:
+        sh = os.path.basename(os.environ.get("SHELL", ""))
+    add("Оболочка", sh, ("utilities-terminal",))
+    w = F.get("WM") or {}
+    add("Окружение", " ".join(x for x in (w.get("prettyName"), w.get("version")) if x)
+        + (", %s" % w["protocolName"] if w.get("protocolName") else ""), ("preferences-desktop",))
+    for i, d in enumerate(F.get("Display") or []):
+        o_ = d.get("output") or {}
+        add("Экран" + (" %d" % (i + 1) if len(F["Display"]) > 1 else ""),
+            "%s %d×%d, %d Гц" % (d.get("name") or "", o_.get("width", 0), o_.get("height", 0),
+                                 round(o_.get("refreshRate") or 0)), ("video-display",))
+    c = F.get("CPU") or {}
+    if c.get("cpu"):
+        name = re.sub(r"\d+th Gen |Intel |AMD |CPU|@.*", "", re.sub(r"\(R\)|\(TM\)", "", c["cpu"])).strip()
+        add("Процессор", "%s, %s потоков" % (name, (c.get("cores") or {}).get("logical", "?")), ("cpu", "computer"))
+    for g in F.get("GPU") or []:
+        add("Видеокарта", g.get("name"), ("video-display",))
+        add("Драйвер", re.sub(r"\s*\(.*?\)", "", g.get("driver") or ""), ("application-x-firmware", "system-run"))
+    m = F.get("Memory") or {}
+    if m.get("total"):
+        add("Память", "%s из %s ГиБ" % (_gib(m["used"]), _gib(m["total"])), ("memory", "media-memory"))
+    sw = F.get("Swap") or []
+    if sw:
+        add("Подкачка", "%s из %s ГиБ" % (_gib(sum(x["used"] for x in sw)), _gib(sum(x["total"] for x in sw))),
+            ("media-memory", "drive-harddisk"))
+    for d in F.get("Disk") or []:
+        b = d.get("bytes") or {}
+        if b.get("total"):
+            add("Диск " + d.get("mountpoint", ""), "%s из %s ГиБ, %s" % (_gib(b["used"]), _gib(b["total"]),
+                                                                       d.get("filesystem", "")),
+                ("drive-harddisk",))
+    for b in F.get("Battery") or []:
+        st = " ".join(b.get("status") or [])
+        add("Батарея", "%d%%%s" % (b.get("capacity", 0), ", от сети" if "AC" in st else ""),
+            ("battery", "battery-full"))
+    for n in F.get("LocalIp") or []:
+        if n.get("ipv4"):
+            add("Адрес в сети", "%s (%s)" % (n["ipv4"].split("/")[0], n.get("name", "")), ("network-wired",))
+    if not rows:
+        rows.append(info("fastfetch не ответил", "", ("dialog-warning",)))
+    return rows
+
+
+# ── программы ↔ пакеты: «Удалить» и «Обновить › Приложения» ─────────────────
+def app_owners(cats):
+    """[(программа, источник, пакет)]: источник — pacman / aur / flatpak. Свои .desktop
+    без пакета (скрипты staticOS) сюда не попадают — удалять там нечего."""
+    apps = [a for _n, lst in cats for a in lst if a.get_filename()]
+    files = {}
+    for a in apps:
+        f = a.get_filename()
+        if f.startswith(os.path.expanduser("~/.local/share/applications/")):
+            sys_f = "/usr/share/applications/" + os.path.basename(f)    # своя копия пакетного
+            if os.path.exists(sys_f):
+                f = sys_f
+        files[a.get_filename()] = f
+    try:
+        r = subprocess.run(["pacman", "-Qo"] + sorted(set(files.values())),
+                           capture_output=True, text=True, timeout=10).stdout
+        own = dict(re.findall(r"^(\S+) is owned by (\S+) ", r, re.M))
+        aur = set(subprocess.run(["pacman", "-Qqm"], capture_output=True, text=True,
+                                 timeout=10).stdout.split())
+    except Exception:
+        own, aur = {}, set()
+    out = []
+    for a in apps:
+        f = files[a.get_filename()]
+        if f in own:
+            out.append((a, "aur" if own[f] in aur else "pacman", own[f]))
+        elif "/flatpak/exports/" in f:
+            out.append((a, "flatpak", os.path.basename(f)[:-len(".desktop")]))
+    return sorted(out, key=lambda x: (x[0].get_display_name() or "").casefold())
+
+
+def remove_rows(cats):
+    rows = []
+    for a, src, pkg in app_owners(cats):
+        cmd = "remove-flatpak" if src == "flatpak" else "remove-pkg"
+        rows.append({"app_rm": a, "name": a.get_display_name() or pkg,
+                     "run": _term("%s %s" % (cmd, shlex.quote(pkg)), "Удалить: " + (a.get_display_name() or pkg)),
+                     "keys": pkg + (" · AUR" if src == "aur" else " · flatpak" if src == "flatpak" else "")})
+    return rows
+
+
+UPD_CACHE = os.path.expanduser("~/.cache/jarvis/updates.json")
+
+
+def check_updates():
+    """{"t", "repo": [[пакет, было, станет]], "aur": [...]} — checkupdates не трогает
+    базу pacman (своя копия во временной папке), yay -Qua — только запрос к AUR."""
+    import json
+    import time
+
+    def parse(cmd):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=90).stdout
+        except Exception:
+            return None
+        return [list(x) for x in re.findall(r"^(\S+) (\S+) -> (\S+)", r, re.M)]
+    repo = parse(["checkupdates"])
+    aur = parse(["yay", "-Qua"]) if shutil.which("yay") else []
+    d = {"t": time.time(), "repo": repo or [], "aur": aur or [], "ok": repo is not None}
+    try:
+        os.makedirs(os.path.dirname(UPD_CACHE), exist_ok=True)
+        with open(UPD_CACHE + ".tmp", "w") as f:
+            json.dump(d, f)
+        os.replace(UPD_CACHE + ".tmp", UPD_CACHE)
+    except OSError:
+        pass
+    return d
+
+
+def cached_updates():
+    import json
+    try:
+        return json.load(open(UPD_CACHE))
+    except Exception:
+        return None
+
+
+def update_rows(cats, d, loading):
+    """Программы, у которых есть новая версия. Пакет из репозитория отдельно не обновить:
+    у Arch это «частичное обновление», после него ломаются библиотеки, — Enter обновляет
+    всю систему. Пакет AUR — по одному (yay -S)."""
+    import time
+    rows = []
+    if loading:
+        rows.append(info("Проверяю обновления…", "", ("view-refresh",)))
+    if d is None:
+        return rows
+    new = {p: (o, n, "repo") for p, o, n in d["repo"]}
+    new.update({p: (o, n, "aur") for p, o, n in d["aur"]})
+    total = len(new)
+    if not loading:
+        age = int((time.time() - d["t"]) // 60)
+        rows.append(info("Проверено", "только что" if age < 1 else "%d мин назад" % age, ("view-refresh",)))
+    if total:
+        rows.append(act("Обновить всё (%d пакетов)" % total, ("system-software-update",),
+                        _term("update", "Обновление системы")))
+    seen = set()
+    for a, src, pkg in app_owners(cats):
+        if pkg not in new or (pkg, a.get_display_name()) in seen:
+            continue
+        seen.add((pkg, a.get_display_name()))
+        o, n, kind = new[pkg]
+        ver = "%s → %s" % (o, n) if len(o) + len(n) < 20 else "→ " + n
+        run = (_term("update-aur " + shlex.quote(pkg), "Обновить " + pkg) if kind == "aur"
+               else _term("update", "Обновление системы"))
+        rows.append({"app_rm": a, "name": a.get_display_name() or pkg, "run": run,
+                     "keys": ver + (" · AUR" if kind == "aur" else "")})
+    if not loading and not total and d.get("ok"):
+        rows.append(info("Всё свежее", "обновлений нет", ("emblem-ok", "object-select")))
+    elif not loading and not d.get("ok"):
+        rows.append(info("Не удалось проверить", "нет сети?", ("dialog-warning",)))
+    elif total and len(rows) == 2:
+        rows.append(info("Программ среди них нет", "только библиотеки и службы", ("package-x-generic",)))
+    return rows
 
 
 def leaves(node, path=()):
@@ -368,8 +721,8 @@ def node_label(k):
 
 
 def node_icon(k, size):
-    if "app" in k:
-        return get_icon(k["app"].get_icon(), size)
+    if "app" in k or "app_rm" in k:
+        return get_icon((k.get("app") or k["app_rm"]).get_icon(), size)
     names = k.get("icon") or ()
     for n in (names,) if isinstance(names, str) else names:
         pb = get_icon(name=n, size=size)
@@ -594,6 +947,8 @@ def make_view(test=False, style=None):
             elif st == "default":
                 self.rect_fill(cr, x, ry, w, rh, C["row"], 0.045)
             fg = C["sel_text"] if on else C["text"]
+            if len(r) > 1 and isinstance(r[1], dict) and r[1].get("done") and not on:
+                fg = C["dim"]                           # уже установлено — бледно
             ty = ry + (rh - self.LH) // 2 + 1
             isz = ICON
             iy = ry + (rh - isz) // 2
@@ -612,6 +967,15 @@ def make_view(test=False, style=None):
             if pb is not None:
                 Gdk.cairo_set_source_pixbuf(cr, pb, x + 14, iy)
                 cr.paint_with_alpha(1.0 if on else 0.85)
+            if "info" in k:                           # сведение: подпись сверху тускло, значение под ней
+                lx, lw = x + 14 + isz + 12, w - 14 - isz - 12 - 14
+                if not k["info"]:
+                    self.text(cr, label, lx, ty, fg if on else C["dim"], lw)
+                    return
+                y0 = ry + (rh - 2 * self.LH) // 2 + 1
+                self.text(cr, label, lx, y0, C["sel_text"] if on else C["dim"], lw)
+                self.text(cr, k["info"], lx, y0 + self.LH, fg, lw)
+                return
             right = 0
             if "kids" in k:                           # подменю: число (у разделов программ) и стрелка
                 count = str(len(k["kids"])) if k.get("group") else ""
@@ -630,7 +994,7 @@ def make_view(test=False, style=None):
                 if hint and 14 + isz + 12 + lw_ + 24 + hw + 14 > w:  # не влезает — название важнее
                     hint = None
                 if hint:
-                    hot = hint == "вкл"
+                    hot = hint in ("вкл", "✓") and not k.get("done")
                     self.text(cr, hint, x + w - 14 - hw, ty,
                               C["sel_text"] if on else (self.acc if hot else C["dim"]))
                     right = hw + 16
@@ -648,19 +1012,65 @@ def make_view(test=False, style=None):
         def enter(self, idx):
             self.pos[tuple(self.path)] = (self.sel, self.scroll)
             self.path.append(idx)
+            if self.node().get("fill"):
+                self.fill_node(self.node())
             self.sel, self.scroll = self.pos.get(tuple(self.path), (1, 0))   # 1 — первая строка, не «Назад»
+            self.sel = min(self.sel, len(self.rows()) - 1)
             self.load_states()
 
+        def fill_node(self, node):
+            """Свежие строки подменю «О системе» / «Удалить» / «Обновить › Приложения»."""
+            kind = node["fill"]
+            if kind == "about":
+                node["kids"] = about_rows() + node["base"]
+            elif kind == "remove":
+                node["kids"] = remove_rows(self.cats) + node["base"]
+            elif kind == "updates":
+                d = cached_updates()
+                node["kids"] = update_rows(self.cats, d, loading=not self.test) + node["base"]
+                if not self.test:
+                    import threading
+
+                    def work():
+                        r = check_updates()
+                        GLib.idle_add(done, r)
+
+                    def done(r):
+                        node["kids"] = update_rows(self.cats, r, loading=False) + node["base"]
+                        self._rows_key = None
+                        n = len(self.rows())
+                        self.sel = max(0, min(self.sel, n - 1))
+                        self.redraw()
+                        return False
+                    threading.Thread(target=work, daemon=True).start()
+            self._rows_key = None
+
         def load_states(self):
-            """Состояние переключателей подменю («вкл»/«выкл») — при входе в него."""
-            for k in self.node()["kids"]:
-                if k.get("state") and not self.test:
-                    try:
-                        out = subprocess.run(k["state"], shell=True, capture_output=True,
-                                             text=True, timeout=2).stdout.strip()
-                    except Exception:
-                        out = ""
+            """Состояние переключателей подменю («вкл»/«выкл») — при входе в него. В фоне и
+            параллельно (13.10.2026, Просьба: «Оформление открывается дольше остальных» —
+            pixel_look.py get опрашивает 13 частей вида, ~0,4 с, а все пять шли по очереди):
+            подменю рисуется сразу, подписи дописываются, когда ответят. Прошлые значения
+            видны до ответа."""
+            ks = [k for k in self.node()["kids"] if k.get("state")]
+            if not ks or self.test:
+                return
+            import threading
+
+            def one(k):
+                try:
+                    out = subprocess.run(k["state"], shell=True, capture_output=True,
+                                         text=True, timeout=2).stdout.strip()
+                except Exception:
+                    out = ""
+                GLib.idle_add(got, k, out)
+
+            def got(k, out):
+                if self.states.get(id(k)) != out:
                     self.states[id(k)] = out
+                    self.redraw()
+                return False
+            for k in ks:
+                threading.Thread(target=one, args=(k,), daemon=True).start()
 
         def back(self):
             if self.buf:
@@ -686,9 +1096,19 @@ def make_view(test=False, style=None):
                 self.enter(next(i for i, k in enumerate(self.node()["kids"]) if k is r[1]))
             elif "app" in r[1]:
                 self.launch(r[1]["app"])
-            else:
+            elif "info" in r[1]:
+                self.copy(r[1])
+            elif r[1].get("run"):
                 self.run(r[1]["run"])
             self.redraw()
+
+        def copy(self, k):
+            """Enter на сведении — значение в буфер, меню остаётся открытым."""
+            if self.test or not k["info"]:
+                return
+            subprocess.Popen(["sh", "-c", "printf %s \"$1\" | wl-copy && notify-send -a staticOS "
+                              "\"Скопировано: $2\" \"$1\"", "sh", k["info"], k["name"]],
+                             start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         def run(self, cmd):
             if self.test:
@@ -716,7 +1136,10 @@ def make_view(test=False, style=None):
         def move(self, d, to=None):
             n = len(self.rows())
             if n:
-                self.sel = max(0, min(n - 1, to if to is not None else self.sel + d))
+                if to is None and abs(d) == 1:        # j/k — по кругу (Пользователь 13.10); полстраницы — до края
+                    self.sel = (self.sel + d) % n
+                else:
+                    self.sel = max(0, min(n - 1, to if to is not None else self.sel + d))
             self.redraw()
 
         # ── мышь ───────────────────────────────────────────────────────────
@@ -847,7 +1270,7 @@ def check():
     assert "staticOS" in names, "нет staticOS"
     total = sum(len(a) for _, a in v.cats)
     top = [k["name"] for k in v.root["kids"]]
-    acts = [k for k, _p in v.all if "run" in k]
+    acts = [k for k, _p in v.all if k.get("run")]
     bad = []                                          # первое слово команды должно существовать
     for k in acts:
         words = [w for w in shlex.split(k["run"]) if not re.match(r"^\w+=", w)]

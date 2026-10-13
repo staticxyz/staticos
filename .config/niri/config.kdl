@@ -34,6 +34,7 @@ include "cfg/misc.kdl"
 include "cfg/window-rules.kdl"
 include "cfg/layer-rules.kdl"
 include "cfg/waybar-blur.kdl"    // размытие под баром — пишет top_bar.py
+include "cfg/look.kdl"           // вид Minimalistic: без размытия под баром — пишет pixel_look.py
 include "cfg/animations.kdl"
 include "cfg/window-fx.kdl"   // эффект открытия/закрытия окон, пишет window_fx.py
 include "cfg/binds.kdl"

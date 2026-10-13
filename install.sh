@@ -62,7 +62,7 @@ PKG_REPO=(
     # terminal tools and widgets
     cava termdown fastfetch btop libqalculate jq fzf pacman-contrib
     # fonts and icons
-    ttf-jetbrains-mono-nerd papirus-icon-theme
+    ttf-jetbrains-mono-nerd inter-font papirus-icon-theme
     # build tools used by the installer
     git stow gcc libx11 libxfixes potrace librsvg
 )

@@ -454,8 +454,19 @@
             "transition-duration": 300,
             "transition-left-to-right": false
         },
-        // микрофон из выдвижного убран (13.10.2026, просьба: «уберём скрытые элементы»)
-        "modules": ["pulseaudio"]
+        // микрофон из выдвижного убран (13.10.2026, Просьба: «уберём скрытые элементы»)
+        // свой модуль вместо pulseaudio: СКМ — звук ⇄ микрофон (13.10.2026, bar_volume.py)
+        "modules": ["custom/volume"]
+    },
+
+    "custom/volume": {
+        "exec": "$HOME/.config/hypr/scripts/wb_share volume python3 $HOME/.config/hypr/scripts/bar_volume.py",
+        "return-type": "json",
+        "on-click": "$HOME/.config/hypr/scripts/bar_volume.sh mute",
+        "on-click-middle": "$HOME/.config/hypr/scripts/bar_volume.sh mode",
+        "on-click-right": "$HOME/.config/hypr/scripts/bar_volume.sh popup",
+        "on-scroll-up": "$HOME/.config/hypr/scripts/bar_volume.sh up",
+        "on-scroll-down": "$HOME/.config/hypr/scripts/bar_volume.sh down"
     },
 
     "pulseaudio": {

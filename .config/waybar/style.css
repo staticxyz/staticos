@@ -243,6 +243,7 @@ tooltip label {
 #language,
 #custom-language,
 #pulseaudio,
+#custom-volume,
 #custom-battery {
     background: transparent;
     color: @foreground;
@@ -258,7 +259,8 @@ tooltip label {
     margin: 4px 3px;
 }
 
-#pulseaudio.microphone {
+#pulseaudio.microphone,
+#custom-volume.mic {
     color: @primary;
 }
 

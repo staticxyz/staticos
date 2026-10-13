@@ -225,7 +225,9 @@ class BatteryPopup(Gtk.Window):
                окон под ней. */
             border: 3px solid %(primary)s;
             border-radius: 14px;
-            padding: 8px 10px 8px 10px;
+            /* 13.10.2026 (Пользователь): «по бокам вообще нет места, надо чуть-чуть
+               добавить» — бока 10 → 14 px, как у плашки «Сеть». */
+            padding: 8px 14px 8px 14px;
             /* 14.09.2026: тёмный контур 1px снаружи рамки, как у всех попапов.
                Размытую тень убрали: край окна обрезал её в серую полосу. */
             margin: 2px;
@@ -317,8 +319,9 @@ class BatteryPopup(Gtk.Window):
         """
         sep = Gtk.Box()
         sep.get_style_context().add_class("rule")
-        sep.set_margin_top(5)
-        sep.set_margin_bottom(5)
+        # 13.10.2026: компактнее, как «Сеть» (было 5/5, строки 5/5 — плашка 431 px).
+        sep.set_margin_top(3)
+        sep.set_margin_bottom(3)
         sep.set_margin_start(6)
         sep.set_margin_end(6)
         return sep
@@ -346,8 +349,8 @@ class BatteryPopup(Gtk.Window):
         inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         # Воздух между строками: раньше его держала высокая кнопка-таблетка, а
         # тумблер ниже — без этих полей панель снова слипается (12.09.2026).
-        inner.set_margin_top(5)
-        inner.set_margin_bottom(5)
+        inner.set_margin_top(3)
+        inner.set_margin_bottom(3)
         ico = Gtk.Label(label=icon, xalign=0)
         ico.get_style_context().add_class("icon")
         name = Gtk.Label(label=text, xalign=0)

@@ -115,8 +115,10 @@ def fire(c, it):
     c.execute("UPDATE items SET fired_pc=? WHERE id=?", (t, it["id"]))
     log("fire", it["id"], it["text"], "pc" if here else "телефон")
     if here:
+        # critical — висит, пока не нажмёшь (у swaync timeout-critical 0). 13.10.2026: просьба
+        # Пользователя, у normal таймаут 9 с, и напоминание пропадало само, как у таймеров — нет.
         notify("Таймер" if it["kind"] == "timer" else "Напоминание", it["text"], it["id"],
-               critical=it["kind"] == "timer", timer=it["kind"] == "timer")
+               critical=True, timer=it["kind"] == "timer")
         if it["kind"] == "timer":
             ring(it["id"])
     elif T.token():

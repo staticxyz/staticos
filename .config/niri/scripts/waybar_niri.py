@@ -246,7 +246,7 @@ STYLE_COZETTE = """
 }
 #custom-clock { padding-left: 5px; padding-right: 7px; }
 #cpu, #memory, #temperature, #custom-mpris, #custom-lyrics { padding-left: 7px; padding-right: 7px; }
-#network, #bluetooth, #language, #custom-language, #pulseaudio, #custom-battery,
+#network, #bluetooth, #language, #custom-language, #pulseaudio, #custom-volume, #custom-battery,
 #network.eth { padding-left: 5px; padding-right: 5px; }
 #group-system { padding-left: 3px; padding-right: 3px; }
 #custom-pomo, #custom-pomo.idle { padding-left: 5px; padding-right: 7px; }
@@ -258,6 +258,144 @@ window#waybar #workspaces button.empty:not(.focused):not(#niri-workspace-\U000f0
 """
 
 
+# Вид системы «Minimalistic» (13.10.2026, Просьба: «верхний бар в виде маленькой капсулы, где
+# только рабочие столы, время, уровень вайфая и батарея… в виде островка с отступом сверху и
+# снизу»; образец — тёмная таблетка по центру). Включает pixel_look.py set minimal. Бар
+# остаётся во всю ширину (layer-shell), но прозрачный: видна только средняя группа — она и
+# есть капсула. Размытие под баром в этом виде снимает niri/cfg/look.kdl, иначе была бы
+# видна размытая полоса. Остальное в этом виде — как в «Гладком».
+MINI_HEIGHT, MINI_TOP = 35, 10       # по образцу: капсула 35 px, сверху 10
+MINI_MODULES = """"niri/workspaces#mini": {
+        // Столы точками: активный — вытянутая таблетка (waybar_niri.py, вид Minimalistic)
+        "all-outputs": false,
+        "format": "{icon}",
+        "format-icons": {"default": ""}
+    },
+    "clock#mini": {
+        "format": "{:%H:%M}",
+        "interval": 5,
+        "tooltip": false,
+        "on-click": "python3 $HOME/.config/hypr/scripts/waybar_clock.py popup"
+    },
+    "network#mini": {
+        // Только уровень сигнала Wi-Fi столбиками (0–3); провод — свой значок
+        "interface": "wlp0s20f3",
+        "format-wifi": "{icon}",
+        "format-icons": ["󰢿", "󰢼", "󰢽", "󰢾", "󰢾"],   // столбики сигнала, как в образце
+        "format-ethernet": "󰈀",
+        "format-disconnected": "󰤯",
+        "format-disabled": "󰤮",
+        "tooltip-format": "Сеть: {essid}, сигнал {signalStrength}%",
+        "on-click": "python3 $HOME/.config/hypr/scripts/wifi_net_popup.py",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/wifi_popup.py"
+    },
+    "image#battery-mini": {
+        // Батарейка капсулой без цифр (картинка, battery_mini.py); цифры — в подсказке
+        "exec": "python3 $HOME/.config/hypr/scripts/battery_mini.py",
+        "interval": 15,
+        "size": 28,
+        "on-click": "python3 $HOME/.config/hypr/scripts/battery_popup.py",
+        "on-click-right": "python3 $HOME/.config/hypr/scripts/savage_battery.py --toggle"
+    },
+    """
+STYLE_MINIMAL = """
+/* ── Вид системы Minimalistic (waybar_niri.py, STYLE_MINIMAL) ─────────────────────────
+   Бар прозрачный, капсула — средняя группа. Правила с window#waybar и в конце файла,
+   поэтому перебивают вид бара (looks/current.css) и скругление (rounding.css).
+   .mode-default — чтобы перебить и плотность фона из top_bar.py (looks/hover-opacity.css):
+   без него за капсулой оставалась полоса alpha(@bar-bg, 0.80) во всю ширину (13.10.2026).
+   13.10.2026 вечер, по образцу пользователя (Image #17): чёрная капсула во всю высоту, столы —
+   вертикальные точки, время шрифтом Inter (~/.local/share/fonts/Inter), Wi-Fi — столбики,
+   батарея — картинка battery_mini.py. */
+window#waybar, window#waybar.mode-default,
+window#waybar.tb-always.mode-default, window#waybar.tb-hover.mode-default {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+}
+window#waybar .modules-left, window#waybar .modules-right { background: transparent; }
+window#waybar .modules-center {
+    background-color: #000000;
+    border-radius: 18px;
+    padding: 0 16px;
+    box-shadow: none;
+    border: none;
+}
+window#waybar .modules-center > widget > * {
+    background: transparent;
+    box-shadow: none;
+    border: none;
+    margin: 0;
+}
+window#waybar #workspaces.mini button,
+window#waybar #workspaces.mini button.active,
+window#waybar #workspaces.mini button.active:not(.focused) {
+    min-width: 7px;
+    min-height: 11px;
+    padding: 0;
+    margin: 12px 2px;
+    border-radius: 4px;
+    background-color: alpha(@primary, 0.22);
+    box-shadow: none;
+    border: none;
+}
+window#waybar #workspaces.mini button.active {
+    min-width: 9px;
+    min-height: 14px;
+    margin: 10px 2px;
+    border-radius: 5px;
+    background-color: @primary;
+}
+window#waybar #workspaces.mini button.active:not(.focused) { background-color: alpha(@primary, 0.55); }
+window#waybar #workspaces.mini button:hover { background-color: alpha(@primary, 0.6); }
+window#waybar #workspaces.mini button label { font-size: 1px; min-width: 0; padding: 0; }
+window#waybar #workspaces.mini { margin-right: 14px; }
+window#waybar #clock.mini {
+    font-family: "Inter", sans-serif;
+    font-weight: 500;
+    font-size: 15px;
+    font-feature-settings: "tnum";
+    color: @foreground;
+    padding: 0 14px 0 4px;
+}
+window#waybar #network.mini {
+    font-family: "JetBrainsMono Nerd Font", sans-serif;
+    font-weight: normal;
+    font-size: 13px;
+    color: @primary;
+    padding: 0 7px 0 4px;
+}
+window#waybar #network.mini.disconnected, window#waybar #network.mini.disabled { color: alpha(@primary, 0.35); }
+window#waybar #image.battery-mini { padding: 0 0 0 2px; }
+"""
+
+
+def minimal_on():
+    try:
+        with open(os.path.expanduser("~/.config/hypr/state/pixel-look.json"), encoding="utf-8") as f:
+            return json.load(f).get("mode") == "minimal"
+    except (OSError, ValueError):
+        return False
+
+
+def minimal_bar(s):
+    """Конфиг под капсулу: слева и справа пусто, в середине столы, время, Wi-Fi, батарея."""
+    s = re.sub(r'"modules-left"\s*:\s*\[[^\]]*\]', '"modules-left": []', s, count=1)
+    s = re.sub(r'"modules-right"\s*:\s*\[[^\]]*\]', '"modules-right": []', s, count=1)
+    s = re.sub(r'"modules-center"\s*:\s*\[[^\]]*\]', '"modules-center": ["niri/workspaces#mini", '
+               '"clock#mini", "network#mini", "image#battery-mini"]', s, count=1)
+    m = re.search(r'^(\s*)"include"\s*:.*,\s*$', s, re.M)
+    if m:
+        ins = ['"position": "top"', '"height": %d' % MINI_HEIGHT, '"margin-left": 0', '"margin-right": 0',
+               '"margin-top": %d' % MINI_TOP, '"margin-bottom": 0']
+        s = s[:m.end()] + "\n" + "\n".join(m.group(1) + i + "," for i in ins) + s[m.end():]
+    m = re.search(r'"custom/ribbon"\s*:', s)
+    if m:
+        s = s[:m.start()] + MINI_MODULES + s[m.start():]
+    return s
+
+
 def build_style():
     try:
         base = open(STYLE_SRC, encoding="utf-8").read()
@@ -267,6 +405,8 @@ def build_style():
         f.write(base + "\n" + STYLE_EXTRA)
         if os.path.exists(COZETTE_RULE) and os.path.exists(FIT_FLAG):
             f.write(STYLE_COZETTE)
+        if minimal_on():
+            f.write(STYLE_MINIMAL)
 
 
 def niri_gaps(default=16):
@@ -438,7 +578,7 @@ def main():
     # упоминания в списках модулей
     s = s.replace('"hyprland/workspaces"', '"niri/workspaces"')
     s = s.replace('"hyprland/language"', '"custom/language"')
-    s = fix_margins(s)
+    s = minimal_bar(s) if minimal_on() else fix_margins(s)
     head = "// СОБРАНО АВТОМАТИЧЕСКИ из config.jsonc скриптом ~/.config/niri/scripts/waybar_niri.py.\n" \
            "// Не править: при следующем входе в niri файл будет перезаписан.\n"
     with open(DST, "w", encoding="utf-8") as f:

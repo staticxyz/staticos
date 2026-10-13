@@ -266,12 +266,15 @@ def kitty_opacity():
 
 
 def window_rects(mon, W, H):
-    """[(x, y, w, h, app_id)] окон активного стола монитора — по раскладке niri.
+    """([варианты [(x, y, w, h, app_id)]], высота бара) — окна активного стола монитора.
 
-    Своих координат у окон ленты niri не отдаёт (tile_pos_in_workspace_view пуст),
-    поэтому раскладку повторяем: колонки слева направо, сфокусированная по центру
-    (center-focused-column "always"). Вертикаль: стопка колонки прижата к низу рабочей зоны,
-    сверху остаётся бар. Возвращает и высоту бара (сколько сверху не занято).
+    Своих координат у окон ленты niri не отдаёт (tile_pos_in_workspace_view пуст), и сдвиг
+    ленты (куда она прокручена) тоже не сообщает. Порядок и ширины колонок известны, поэтому
+    раскладку повторяем с точностью до одного числа — сдвига. С 13.10 center-focused-column
+    "never": niri двигает ленту ровно настолько, чтобы колонка в фокусе влезла, значит, сдвиг —
+    один из немногих: какая-то колонка прижата к левому или правому краю (или по центру).
+    Варианты отдаём все, первый — «по центру»; какой верный, решает Shot.prepare по снимку.
+    Вертикаль: стопка колонки прижата к низу рабочей зоны, сверху остаётся бар.
     """
     gaps, edge = layout_edges()
     wss = niri_json("workspaces") or []
@@ -290,21 +293,30 @@ def window_rects(mon, W, H):
                 floats.append((p[0], p[1], tw, th, w.get("app_id") or ""))
             continue
         cols.setdefault(pos[0], []).append((pos[1], tw, th, w))
-    rects = []
-    if cols:
-        order = sorted(cols)
-        widths = {c: max(t[1] for t in cols[c]) for c in order}
-        focus = ws.get("active_window_id")
-        fc = next((c for c in order for t in cols[c] if t[3]["id"] == focus), order[0])
-        i = order.index(fc)
-        # center-focused-column "always": сфокусированная колонка всегда по центру
-        # (проверено по снимку 13.10: пара половин Telegram тоже стоит от центра)
-        x0 = 0 if widths[fc] >= W else (W - widths[fc]) / 2
-        xs = {fc: x0}
-        for k in range(i + 1, len(order)):
-            xs[order[k]] = xs[order[k - 1]] + widths[order[k - 1]] + gaps
-        for k in range(i - 1, -1, -1):
-            xs[order[k]] = xs[order[k + 1]] - widths[order[k]] - gaps
+    if not cols:
+        return [floats], bar
+    order = sorted(cols)
+    widths = {c: max(t[1] for t in cols[c]) for c in order}
+    focus = ws.get("active_window_id")
+    fc = next((c for c in order for t in cols[c] if t[3]["id"] == focus), order[0])
+    rel, x = {}, 0.0                                   # колонки на ленте, от первой
+    for c in order:
+        rel[c] = x
+        x += widths[c] + gaps
+    left, right = edge.get("left", gaps), W - edge.get("right", gaps)
+    offs = [(W - widths[fc]) / 2 - rel[fc] if widths[fc] < W else -rel[fc]]   # по центру
+    for c in order:
+        offs += [left - rel[c], right - widths[c] - rel[c]]
+    fx0 = lambda o: rel[fc] + o
+    seen, cands = set(), []
+    for o in offs:
+        # колонка в фокусе видна целиком (если вообще влезает)
+        if widths[fc] < W and (fx0(o) < -1 or fx0(o) + widths[fc] > W + 1):
+            continue
+        if round(o) in seen:
+            continue
+        seen.add(round(o))
+        rects = []
         for c in order:
             stack = sorted(cols[c], key=lambda t: t[0])
             total = sum(t[2] for t in stack) + gaps * (len(stack) - 1)
@@ -315,9 +327,32 @@ def window_rects(mon, W, H):
                 b = y - edge.get("top", 0)
                 bar = b if bar is None else min(bar, b)
             for _, tw, th, w in stack:
-                rects.append((xs[c], y, tw, th, w.get("app_id") or ""))
+                rects.append((rel[c] + o, y, tw, th, w.get("app_id") or ""))
                 y += th + gaps
-    return rects + floats, bar
+        cands.append(rects + floats)
+    return cands or [floats], bar
+
+
+def pick_layout(cands, shot, s):
+    """Вариант раскладки, лучше всех совпавший со снимком: на предсказанных левых и правых
+    краях колонок на снимке должен быть резкий перепад (рамка окна, край окна об обои).
+    Сравнивать «где видны обои» нельзя: у Telegram фон чата — те же обои (13.10)."""
+    if len(cands) < 2:
+        return cands[0]
+    gx = np.abs(np.diff(shot, axis=1)).max(-1)               # перепад по горизонтали
+    h, w = gx.shape
+    best, best_score = cands[0], 0.0
+    for rects in cands:
+        edges = []
+        for x, y, rw, rh, _app in rects:
+            y0, y1 = max(0, int(y * s)), min(h, int((y + rh) * s))
+            for e in (int(x * s), int((x + rw) * s)):
+                if 3 < e < w - 3 and y1 > y0:
+                    edges.append(gx[y0:y1, e - 3:e + 2].max(1).mean())
+        score = sum(edges) / len(edges) if edges else 0.0
+        if score > best_score * 1.15:                        # центр — пока другой не лучше заметно
+            best, best_score = rects, score
+    return best
 
 
 def widget_rects(mon):
@@ -350,7 +385,8 @@ class Desk:
         self.old_wall = None
         self.sigma = blur_for(name)
         # раскладку снимаем сразу, вместе со снимком: через секунду она уже другая
-        self.wins, self.bar = window_rects(name, w, h)
+        self.layouts, self.bar = window_rects(name, w, h)
+        self.wins = self.layouts[0]
         self.widgets = widget_rects(name)
 
     def prepare(self, shown_path):
@@ -369,6 +405,7 @@ class Desk:
         bar = self.bar if self.bar is not None else 26
         mask[:max(0, int(round(bar * s))), :] = 0
         op = kitty_opacity()
+        self.wins = pick_layout(self.layouts, self.shot, s)
         for x, y, w, h, app in self.wins:
             x0, y0 = max(0, int(x * s)), max(0, int(y * s))
             x1, y1 = min(self.w, int((x + w) * s)), min(self.h, int((y + h) * s))

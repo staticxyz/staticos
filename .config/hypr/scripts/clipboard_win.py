@@ -2490,7 +2490,10 @@ class App:
     def caps(self, cr):
         self.button(cr, self.zone_pin(), on=self.pinned, kind="pin", bmp=PIN_BMP,
                     hover=self.hover == "pin")
-        self.button(cr, self.zone_close(), kind="close", bmp=X_BMP, hover=self.hover == "close")
+        import close_cap                  # общий крестик системы — этот же рисуют все окна
+        x, y, _w, _h = self.zone_close()
+        close_cap.draw(cr, self.style, T if self.style == "default" else self.C, x, y,
+                       self.hover == "close")
 
     # ── рамки и заголовки трёх стилей ──────────────────────────────────────
     def title_bar(self, cr, x, y, w, title):

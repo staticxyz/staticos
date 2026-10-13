@@ -44,6 +44,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import socket
 import subprocess
 import sys
@@ -1103,18 +1104,25 @@ class View:
         n_up = sum(1 for x in it if x["pkg"] and self.d.ups.get(x["pkg"]["name"]))
         sort_txt = "sort: %s" % self.sort
         up_txt = ("  ↑ %d" % n_up) if (self.d.ups and (n_up or self.only_ups)) else ""
-        self.group(p, x0, top, x1 - x0, bottom - top, title, sort_txt + up_txt)
-        # подписи справа на рамке — кнопки: «sort» листает сортировку, «↑ N» — только обновления
+        all_txt = "update all   " if self.d.ups else ""    # всё разом (yay -Syu), 13.10.2026
+        self.group(p, x0, top, x1 - x0, bottom - top, title, all_txt + sort_txt + up_txt)
+        # подписи справа на рамке — кнопки: «update all» — всё разом, «sort» листает сортировку,
+        # «↑ N» — только обновления
         end = x1 - x0 - 14 + x0
         uw = p.text_w(up_txt) if up_txt else 0
         sw = p.text_w(sort_txt)
+        aw = p.text_w(all_txt)
         if self.hover == ("hdr", "sort"):
             p.text(end - uw, top - 7, sort_txt, c["acc_l"], align="r")
         if up_txt and (self.hover == ("hdr", "ups") or self.only_ups):
             p.text(end, top - 7, up_txt, c["acc_l"], align="r")
+        if all_txt and self.hover == ("hdr", "upall"):
+            p.text(end - uw - sw - aw, top - 7, all_txt.strip(), c["acc_l"])
         self.hits.append(((end - uw - sw - 4, top - 9, sw + 6, 18), ("hdr", "sort")))
         if up_txt:
             self.hits.append(((end - uw + 8, top - 9, uw - 6, 18), ("hdr", "ups")))
+        if all_txt:
+            self.hits.append(((end - uw - sw - aw - 4, top - 9, p.text_w(all_txt.strip()) + 8, 18), ("hdr", "upall")))
         n = self.list_rows()
         sel = self.sel[self.tab]
         sc = self.scroll[self.tab]
@@ -1456,7 +1464,7 @@ class View:
     HELP = (("j k  ↓ ↑", "move"), ("gg  G  Ctrl+D/U", "top · bottom · half page"),
             ("H L  Tab  gt gT  1–4", "tabs"), ("/", "search (Enter, jj, оо, Ctrl+E — done)"),
             ("l  Enter  ·  h", "to versions · back"), ("Enter on a version", "roll back / install it"),
-            ("o", "open the app"), ("u", "update only this app"), ("r", "reinstall"),
+            ("o", "open the app"), ("u", "update (repo app → whole system)"), ("r", "reinstall"),
             ("D  dd", "uninstall (asks first)"), ("p", "hold: -Syu won't touch it"),
             ("A", "older versions from Arch archive"), ("s  a  U", "sort · all packages · only updates"),
             ("R", "check for updates now"), ("y", "copy name / system info"), ("q  Esc", "close"))
@@ -1496,9 +1504,23 @@ def plan_cleanup(it):
             "do": ("clean", it), "danger": bool(it.get("warn"))}
 
 
+def plural(n):
+    """Окончание к «пакет»: 1 пакет, 3 пакета, 79 пакетов."""
+    return "" if n % 10 == 1 and n % 100 != 11 else "а" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "ов"
+
+
 def plan(view, action, item, version_row=None):
     """Что сделать и как спросить «точно?»: dict для окна подтверждения или None."""
     d = view.d
+    if action == "update-all":
+        if not d.ups:
+            return None
+        cmd = "yay -Syu" if shutil.which("yay") else "sudo pacman -Syu"
+        return {"title": "Update everything?", "yes": "Update all", "cmd": cmd,
+                "lines": ["Все обновления разом: %d пакет%s, репозитории и AUR — как «Обновить всё» в Super+X."
+                          % (len(d.ups), plural(len(d.ups))),
+                          "В терминале покажет список и спросит [Y/n]."],
+                "do": ("term", "Обновление системы", cmd)}
     pk, app = item["pkg"], item["app"]
     name = pk["name"] if pk else None
     q = shlex.quote(name) if name else ""
@@ -1536,14 +1558,22 @@ def plan(view, action, item, version_row=None):
         new = d.ups.get(name)
         if not new:
             return None
-        cmd = ("yay -S %s" if aur else "sudo pacman -Sy --needed %s") % q
-        lines = ["%s → %s, только эта программа (без полного -Syu)." % (pk["version"], new)]
-        if not aur:
-            lines += ["Это частичное обновление: Arch официально поддерживает только полное.",
-                      "Если программе нужны новые библиотеки, pacman подтянет их сам;",
-                      "если что-то другое после этого сломается — сделайте полное sudo pacman -Syu."]
-        return {"title": "Update %s?" % item["name"], "yes": "Update", "cmd": cmd, "lines": lines,
-                "do": ("term", "Обновление " + name, cmd)}
+        if aur:
+            cmd = "yay -S %s" % q
+            return {"title": "Update %s?" % item["name"], "yes": "Update", "cmd": cmd,
+                    "lines": ["%s → %s, только эта программа (из AUR — можно по одной)." % (pk["version"], new)],
+                    "do": ("term", "Обновление " + name, cmd)}
+        # 13.10.2026, просьба: программу из репозитория — вместе со всей системой. По одной
+        # (-Sy ПАКЕТ) — частичное обновление: Arch его не поддерживает, ломаются библиотеки.
+        n = sum(1 for k in d.ups if k in d.pkgs and not d.pkgs[k]["foreign"])
+        cmd = "sudo pacman -Syu"
+        return {"title": "Update system for %s?" % item["name"], "yes": "Update all", "cmd": cmd,
+                "lines": ["%s %s → %s." % (name, pk["version"], new),
+                          "Программа из репозитория Arch обновляется только вместе со всей системой: "
+                          "по одной ломаются общие библиотеки.",
+                          "Обновится всё из репозиториев (%d пакет%s). AUR не трогается — "
+                          "его программы кнопкой Update по одной." % (n, plural(n))],
+                "do": ("term", "Обновление системы", cmd)}
     if action == "hold":
         on = name not in d.held
         cmd = "sudo python3 %s --hold %s %s" % (shlex.quote(os.path.abspath(__file__)), "add" if on else "del", q)
@@ -1736,6 +1766,8 @@ class AppListWindow(Gtk.ApplicationWindow):
                 self.cycle_sort()
             elif kind == "hdr" and val == "ups":
                 self.toggle_ups()
+            elif kind == "hdr" and val == "upall":
+                self.do("update-all")
             elif kind == "ver":
                 if v.focus == "versions" and v.vsel == val:
                     self.do("version")
@@ -1802,6 +1834,13 @@ class AppListWindow(Gtk.ApplicationWindow):
     # ── действия ──
     def do(self, action):
         v = self.view
+        if action == "update-all":               # «update all» на рамке списка
+            cf = plan(v, action, None)
+            if cf is None:
+                v.flash("обновлений нет — проверить: R")
+            else:
+                v.confirm, v.typed, v.mode = cf, "", "confirm"
+            return
         if v.tab == "system":
             return
         item = v.current()

@@ -7,6 +7,8 @@ import json
 import mimetypes
 import os
 import socket
+import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -266,7 +268,47 @@ HELP_TEXT = (
     "без аргумента — кнопки. Пример: /pc vol 40\n"
     "/away on|off — охрана: клавиши, мышь, окна, блокировка, пароли. Пример: /away on\n"
     "/away photo — снимок с камеры · /away rec [сек] — видео · "
-    "/away mic [сек] — микрофон · /away listen [сек] — длинная запись\n")
+    "/away mic [сек] — микрофон · /away listen [сек] — длинная запись\n"
+    "/alarm — будильник и Сторож · /alarm off ПРИЧИНА — аварийно (меня нет дома): будильник "
+    "выключен до /alarm on, Сторож снят на сегодня, идущий звонок остановлен · /alarm on — вернуть\n")
+
+
+# 13.10.2026, Просьба: «аварийно добавить команду боту на выключение будильника (и на вкл)…
+# должен выключать и Сторожа на этот день. Если я его выключаю — значит, я не дома».
+WAKE = os.path.expanduser("~/.config/hypr/scripts/wake_alarm.py")
+
+
+def alarm_command(arg):
+    a = arg.split(None, 1)
+    sub = a[0].lower() if a else ""
+    if sub in ("off", "выкл"):
+        reason = a[1].strip() if len(a) > 1 else ""
+        if len(reason) < 3:
+            return ("Нужна причина, сэр: /alarm off ПРИЧИНА\nНапример: /alarm off ночую у родителей.\n"
+                    "Выключит будильник до /alarm on и Сторожа на сегодня, остановит идущий звонок.")
+        argv = ["emergency", "off", "--reason", reason, "--via", "tg"]
+    elif sub in ("on", "вкл"):
+        argv = ["emergency", "on", "--via", "tg"]
+    elif sub in ("", "status"):
+        argv = ["status"]
+    else:
+        return "/alarm — состояние · /alarm off ПРИЧИНА — аварийно выключить · /alarm on — включить"
+    try:
+        r = subprocess.run([sys.executable, WAKE] + argv, capture_output=True, text=True, timeout=30)
+        out = (r.stdout + r.stderr).strip()
+    except Exception as e:
+        return "Не вышло, сэр: %s" % e
+    if r.returncode:
+        return "Не вышло, сэр:\n" + out
+    lines = out.splitlines()
+    if sub in ("off", "выкл"):
+        head = "Будильник выключен, Сторож снят на сегодня, сэр. Вернуть — /alarm on."
+    elif sub in ("on", "вкл"):
+        head = "Будильник включён, Сторож сегодня снова на посту, сэр."
+    else:
+        head = "Будильник, сэр:"
+    keep = [l for l in lines if l.startswith(("идущая", "будильник:", "ближайший"))] if sub else lines[:4]
+    return head + ("\n" + "\n".join(keep) if keep else "")
 
 
 def _get_guard():
@@ -481,6 +523,8 @@ def command(c, cmd, arg, bot=None, chat=None):
         return quiz_next(c, n)
     if cmd == "pc":
         return pc_command(c, arg)
+    if cmd == "alarm":
+        return alarm_command(arg), None
     if cmd == "away":
         a = arg.lower().split()
         sub = a[0] if a else ""

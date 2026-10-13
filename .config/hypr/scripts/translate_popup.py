@@ -202,8 +202,10 @@ class Popup(Gtk.Window):
         res.set_no_show_all(True)              # пока нечего показывать
         self.add(self.panel)
 
-    def close_button(self, size=22):
+    def close_button(self):
+        import close_cap
         import exe_frame
+        size = close_cap.size(self.style)
         box = Gtk.EventBox()
         box.set_valign(Gtk.Align.CENTER)
         area = Gtk.DrawingArea()
@@ -216,7 +218,7 @@ class Popup(Gtk.Window):
         def set_hover(on):
             hover[0] = on
             area.queue_draw()
-        area.connect("draw", lambda _a, cr: exe_frame.recorder_close(cr, self.style, size, hover[0]))
+        area.connect("draw", lambda _a, cr: exe_frame.recorder_close(cr, self.style, hover=hover[0]))
         box.connect("enter-notify-event", lambda *_: set_hover(True))
         box.connect("leave-notify-event", lambda *_: set_hover(False))
         box.connect("button-release-event", lambda _b, ev: ev.button == 1 and self.close())

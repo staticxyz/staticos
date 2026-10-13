@@ -153,8 +153,63 @@ ATTACHED_FILE = os.path.expanduser("~/.config/hypr/state/popup-attached")
 EAR = 14                 # радиус вогнутого угла, px
 
 
+def minimal():
+    """Вид системы Minimalistic (pixel_look.py set minimal): бар — капсула посередине."""
+    try:
+        import json
+        with open(os.path.expanduser("~/.config/hypr/state/pixel-look.json")) as f:
+            return json.load(f).get("mode") == "minimal"
+    except (OSError, ValueError):
+        return False
+
+
 def attached():
-    return os.path.exists(ATTACHED_FILE) and bar_position() != "bottom"
+    # В Minimalistic бара во всю ширину нет — клеиться не к чему: плашки отдельные
+    # карточки под капсулой (13.10.2026, Просьба: «и плашки нужно пофиксить»).
+    return os.path.exists(ATTACHED_FILE) and bar_position() != "bottom" and not minimal()
+
+
+def _minimal_monitor(align):
+    """Слой плашки — на монитор под указателем (капсула есть на каждом мониторе)."""
+    if not on_niri() or pointer_monitor() is None:
+        return
+    from gi.repository import Gtk
+    top = align.get_toplevel()
+    if isinstance(top, Gtk.Window):
+        try:
+            import gi
+            gi.require_version("GtkLayerShell", "0.1")
+            from gi.repository import GtkLayerShell
+            GtkLayerShell.set_monitor(top, pointer_monitor())
+        except Exception:
+            pass
+
+
+def minimal_center(align, gap=8):
+    """Minimalistic: карточка по центру под капсулой, вид — MINIMAL_CSS (и для плашек со
+    своим CSS: календарь .cal-box)."""
+    from gi.repository import Gtk, Gdk
+    align.set_valign(Gtk.Align.START)
+    align.set_halign(Gtk.Align.CENTER)
+    align.set_margin_top(gap)
+    align.set_margin_start(0)
+    align.set_margin_end(0)
+    align._jarvis_minimal = True
+    prov = Gtk.CssProvider()
+    prov.load_from_data(MINIMAL_CSS.replace(".popup-box {", ".popup-box, .cal-box {").encode())
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), prov,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+
+
+# Плашки в виде Minimalistic — как капсула бара: чёрные, тонкая рамка, крупное скругление.
+MINIMAL_CSS = """
+.popup-box {
+    background-color: #000000;
+    border: 1px solid alpha(#ffffff, 0.10);
+    border-radius: 18px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+"""
 
 
 def bottom_overlap():
@@ -316,7 +371,15 @@ def add_ears(align, bottom=False):
     отступы под вогнутые углы и рисовать фигуру (draw_attached). Слой попапа
     заходит на пиксель под бар (exclusive zone −1, отступ = высота бара − 1):
     так нижняя линия бара над попапом закрыта, и стыка не видно.
-    Возвращает True, если режим включён."""
+    Возвращает True, если режим включён.
+
+    Вид Minimalistic (13.10.2026, Просьба: «они открываются не в том месте»): бар — капсула
+    посередине, поэтому плашка бара встаёт по центру под ней отдельной карточкой. Сюда
+    приходят все плашки бара (place_under_cursor, календарь, батарея), так что место и вид
+    ставятся здесь одним разом; place_side после этого сам ставит свою сторону."""
+    if minimal() and not bottom:
+        minimal_center(align)
+        return False
     if not attached():
         return False
     from gi.repository import Gtk
@@ -417,7 +480,10 @@ def css(extra="", scale=True, **over):
     out = BASE_CSS + extra
     if scale:
         out = scale_css(out)
-    return (out % p).encode()
+    out = out % p
+    if minimal():
+        out += MINIMAL_CSS
+    return out.encode()
 
 
 def on_niri():
@@ -659,7 +725,128 @@ GROUP_ANCHOR = {"bluetooth_popup.py": ("left", 65),
 
 # Попапы, чьё место надёжнее взять по пилюле бара, чем по курсору:
 # (номер пилюли в снимке бара, отступ середины попапа от её левого края, px).
-PILL_PICK = {"lan_popup.py": (-3, 36)}
+# lan_popup.py отсюда убран 13.10.2026: пилюль в баре больше нет (вид edge), его место —
+# по значку, см. ICON_PICK.
+PILL_PICK = {}
+
+# Попапы, которые встают ровно под своим значком в баре (13.10.2026, Просьба: «плашка
+# иногда открывается по-разному. Нужно, чтобы всегда открывалась прямо под иконкой в
+# баре. Не левее, не правее, всегда»). Курсору здесь не верим: проба niri узнаёт, где
+# мышь, через ~0,3 с после щелчка, и если рука уже повела мышь, x уезжал на 130–180 px
+# (журнал: 1437 и 1490 при значке на 1622). Значок ищется на снимке полосы бара: столбцы
+# с «чернилами» (заметно отличны от фона) собираются в кучки, кучка сверяется с
+# запомненной маской значка (ICON_DIR/<имя>.json, цвет не важен — только форма).
+#   имя попапа → (маски значка, сосед: искать справа от значка этого попапа, если своей
+#                 маски нет, — Wi-Fi меняет вид: подключён / нет сети / выключен)
+ICON_PICK = {"lan_popup.py": ("lan", None),
+             "wifi_net_popup.py": ("wifi", "lan")}
+ICON_DIR = os.path.expanduser("~/.local/share/jarvis/bar-icons")
+
+
+def bar_ink(mon, bar_h=None):
+    """Снимок полосы бара монитора mon → (маска чернил строки×столбцы, кучки [(a, b)])."""
+    import subprocess
+    import tempfile
+    import numpy as np
+    from PIL import Image
+    bar_h = bar_h or bar_height()
+    geo = mon.get_geometry()
+    top = geo.y + bar_edge() if bar_position() != "bottom" else geo.y + geo.height - bar_h
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        path = f.name
+    try:
+        subprocess.run(["grim", "-g", "%d,%d %dx%d" % (geo.x, top, geo.width, bar_h), path],
+                       capture_output=True, timeout=2)
+        im = np.array(Image.open(path).convert("RGB")).astype(int)
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    im = im[3:bar_h - 3]                          # без полосок-отметок у краёв бара
+    bg = np.median(im, axis=1, keepdims=True)     # фон — свой у каждой строки
+    ink = np.abs(im - bg).max(axis=2) > 48
+    cols = np.where(ink.any(axis=0))[0]
+    runs = []
+    for v in cols:
+        if runs and v - runs[-1][1] <= 3:
+            runs[-1][1] = int(v)
+        else:
+            runs.append([int(v), int(v)])
+    return ink, [tuple(r) for r in runs]
+
+
+def _crop(ink, a, b):
+    m = ink[:, a:b + 1]
+    rows = [i for i in range(m.shape[0]) if m[i].any()]
+    return m[rows[0]:rows[-1] + 1] if rows else m
+
+
+def _same(m, t):
+    """Похожа ли маска кучки на запомненную маску значка (IoU ≥ 0,75)."""
+    import numpy as np
+    if abs(m.shape[0] - len(t)) > 1 or abs(m.shape[1] - len(t[0])) > 1:
+        return False
+    tm = np.array([[c == "#" for c in row] for row in t])
+    h, w = min(m.shape[0], tm.shape[0]), min(m.shape[1], tm.shape[1])
+    a, b = m[:h, :w], tm[:h, :w]
+    union = (a | b).sum()
+    return union > 0 and (a & b).sum() / union >= 0.75
+
+
+def icon_masks(name):
+    try:
+        return json.load(open(os.path.join(ICON_DIR, name + ".json")))
+    except (OSError, ValueError):
+        return []
+
+
+def learn_icon(name, mask):
+    """Запомнить ещё один вид значка (до 4: у Wi-Fi их три)."""
+    t = ["".join("#" if c else "." for c in row) for row in mask]
+    have = icon_masks(name)
+    if any(_same(mask, h) for h in have):
+        return
+    os.makedirs(ICON_DIR, exist_ok=True)
+    with open(os.path.join(ICON_DIR, name + ".json.tmp"), "w") as f:
+        json.dump((have + [t])[-4:], f)
+    os.replace(os.path.join(ICON_DIR, name + ".json.tmp"), os.path.join(ICON_DIR, name + ".json"))
+
+
+def icon_center(mon, popup, hint=None):
+    """Середина значка попапа popup в баре монитора mon (x внутри монитора) или None.
+
+    hint — x курсора, если известен: из нескольких одинаковых значков берётся ближний.
+    """
+    name, after = ICON_PICK[popup]
+    try:
+        ink, runs = bar_ink(mon)
+    except Exception:
+        return None
+
+    def find(nm):
+        hits = [(a, b) for a, b in runs if b - a <= 40
+                and any(_same(_crop(ink, a, b), t) for t in icon_masks(nm))]
+        if hint is not None and hits:
+            hits.sort(key=lambda r: abs((r[0] + r[1]) / 2 - hint))
+        return hits[0] if hits else None
+    hit = find(name)
+    if not hit and after:
+        # Своей маски нет (новый вид значка) — следующая кучка справа от соседа; её вид
+        # запоминается, в следующий раз найдётся сразу.
+        prev = find(after)
+        nxt = [r for r in runs if prev and r[0] > prev[1]]
+        if nxt and nxt[0][1] - nxt[0][0] <= 30:
+            hit = nxt[0]
+            learn_icon(name, _crop(ink, *hit))
+    if not hit and hint is not None:
+        # Маски нет совсем (первый запуск) — кучка, в которую попал курсор, если она
+        # размером со значок. Запоминается только такая — с текстом не спутать.
+        inside = [r for r in runs if r[0] - 2 <= hint <= r[1] + 2 and 8 <= r[1] - r[0] <= 24]
+        if inside:
+            hit = inside[0]
+            learn_icon(name, _crop(ink, *hit))
+    return (hit[0] + hit[1] + 1) / 2 if hit else None
 
 
 def place_under_cursor(align, gap=6, edge=20, snap_to_pill=False, pill_width=None):
@@ -686,6 +873,9 @@ def place_under_cursor(align, gap=6, edge=20, snap_to_pill=False, pill_width=Non
         align.set_valign(Gtk.Align.START)
         if not attached_now:
             align.set_margin_top(gap)
+    if getattr(align, "_jarvis_minimal", False):     # Minimalistic: по центру под капсулой
+        _minimal_monitor(align)
+        return
     cur = cursor_local_x()
     placed_by_pill = False
     # Слой — на монитор под указателем. Нужно для niri (см. pointer_spot); в
@@ -749,6 +939,14 @@ def place_under_cursor(align, gap=6, edge=20, snap_to_pill=False, pill_width=Non
         if len(runs) >= abs(idx) and 120 <= runs[idx][1] - runs[idx][0] <= 900:
             cur = (runs[idx][0] + off, mon.get_geometry().width)
             placed_by_pill = True
+    if ICON_PICK.get(key.split(":")[0]) and bar_position() != "bottom":
+        from gi.repository import Gdk
+        mon = pointer_monitor() or Gdk.Display.get_default().get_monitor(0)
+        real = cursor_local_x()
+        ic = icon_center(mon, key.split(":")[0], real[0] if real else None)
+        if ic is not None:
+            cur = (ic, mon.get_geometry().width)
+            placed_by_pill = "значок"
     if not cur:
         align.set_halign(Gtk.Align.END)
         align.set_margin_end(edge)
@@ -835,7 +1033,7 @@ def place_under_cursor(align, gap=6, edge=20, snap_to_pill=False, pill_width=Non
     except OSError:
         pass
 
-    src = "пилюля" if placed_by_pill else "курсор" if cursor_local_x() else "память"
+    src = placed_by_pill if isinstance(placed_by_pill, str) else "пилюля" if placed_by_pill else "курсор" if cursor_local_x() else "память"
 
     def on_alloc(widget, alloc):
         left = int(x - alloc.width / 2)
