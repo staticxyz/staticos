@@ -1170,7 +1170,42 @@ def advance(d, now):
     return ev
 
 
-# — Telegram: сообщения шлёт сам будильник (Bot API), ответ с кодом ловит мост бота —
+# — Telegram: сообщения шлёт сам будильник (Bot API), ответ с кодом ловит бот —
+# 14.10.2026, просьба: «хаб основной, первый запасной». Основной — бот hub: шлём его
+# токеном, ответ кодом ловит hubd. Запасной — свой бот из ~/.config/wake-alarm (env):
+# если служба hub не работает или до Telegram не достучался.
+HUB_CONF = os.path.join(HOME, ".config/hub")
+
+
+def hub_env():
+    env = {}
+    try:
+        for line in open(os.path.join(HUB_CONF, "env"), encoding="utf-8"):
+            k, _, v = line.strip().partition("=")
+            if k == "TOKEN":
+                env["TOKEN"] = v.strip().strip("'\"")
+        o = json.load(open(os.path.join(HUB_CONF, "config.json"))).get("owner")
+        o = o[0] if isinstance(o, (list, tuple)) and o else o
+        if o:
+            env["OWNER"] = str(o)
+    except (OSError, ValueError):
+        pass
+    return env if env.get("TOKEN") and env.get("OWNER") else {}
+
+
+def hub_alive():
+    return subprocess.run(["systemctl", "--user", "is-active", "--quiet", "hub"]).returncode == 0
+
+
+def tg_bot_env(bot):
+    return hub_env() if bot == "hub" else tg_env()
+
+
+def tg_route():
+    """Каким ботом писать: hub, если служба жива и настроена, иначе свой (own)."""
+    if hub_alive() and hub_env():
+        return "hub"
+    return "own"
 
 def tg_env():
     env = {}
@@ -1185,13 +1220,30 @@ def tg_env():
 
 
 def tg_receivable():
-    """Ответ кодом ловит бот, который зовёт `wake_alarm.py tg-code ТЕКСТ`. Его нет
-    (в ~/.config/wake-alarm нет файла receiver) — подтверждать можно только на ПК."""
+    """Ответ кодом ловит hubd (служба hub) или свой бот, который зовёт
+    `wake_alarm.py tg-code ТЕКСТ` (файл receiver в ~/.config/wake-alarm). Нет ни того,
+    ни другого — подтверждать можно только на ПК."""
+    if tg_route() == "hub":
+        return True
     return os.path.exists(os.path.join(TG_CONF, "receiver")) and bool(tg_env().get("TOKEN"))
 
 
-def tg_call(method, **params):
-    e = tg_env()
+def tg_call(method, bot=None, **params):
+    """(результат, бот). bot=None — основной путь (tg_route), не дошло через хаб —
+    повтор запасным ботом; для правки сообщения bot — тот, кто его отправил."""
+    if bot is None:
+        bot = tg_route()
+        res = tg_call_one(method, bot, dict(params))
+        if res is None and bot == "hub":
+            slog("telegram %s: хаб не доставил — запасной бот" % method)
+            bot = "own"
+            res = tg_call_one(method, bot, dict(params))
+        return res, bot
+    return tg_call_one(method, bot, params), bot
+
+
+def tg_call_one(method, bot, params):
+    e = tg_bot_env(bot)
     if not e.get("TOKEN") or not e.get("OWNER"):
         return None
     params.setdefault("chat_id", e["OWNER"])
@@ -1212,7 +1264,7 @@ def tg_call(method, **params):
                 res = json.load(r)
             return res.get("result") if res.get("ok") else None
         except Exception as ex:
-            slog("telegram %s%s: %r" % (method, "" if port is None else " (Tor :%d)" % port, ex))
+            slog("telegram %s %s%s: %r" % (bot, method, "" if port is None else " (Tor :%d)" % port, ex))
     return None
 
 
@@ -1342,12 +1394,14 @@ class SeriesRun:
         if not d:
             return
         st = d["steps"][n]
+        if st["state"] not in ("check", "ring"):
+            return                       # шаг уже прошёл — запоздалая проверка не нужна
         text = check_text(d, st, self.can_reply)
-        r = tg_call("sendMessage", text=text, disable_web_page_preview="true")
+        r, bot = tg_call("sendMessage", text=text, disable_web_page_preview="true")
         if r:
             with series_lock():
                 d = series_load()
-                d["steps"][n]["msg"], d["steps"][n]["msg_text"] = r["message_id"], text
+                d["steps"][n].update(msg=r["message_id"], msg_text=text, msg_bot=bot)
                 series_save(d)
 
     def tg_note(self, n, note):
@@ -1359,7 +1413,7 @@ class SeriesRun:
                 return
             st = d["steps"][n]
             if st.get("msg"):
-                tg_call("editMessageText", message_id=st["msg"],
+                tg_call("editMessageText", st.get("msg_bot", "own"), message_id=st["msg"],
                         text=(st.get("msg_text") or "")[:3900] + "\n\n" + note)
                 return
             time.sleep(1)

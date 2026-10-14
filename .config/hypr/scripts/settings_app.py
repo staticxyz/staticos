@@ -203,6 +203,7 @@ PIXEL = os.path.join(HERE, "wallpaper_pixel.py")
 CLIPBOARD = os.path.join(HERE, "clipboard_win.py")
 REC_AREA = os.path.join(HERE, "rec_area.sh")
 SYSSTYLE = os.path.join(HERE, "system_style.py")    # единый стиль системы (04.10.2026)
+CONFIG_MAP = os.path.join(HERE, "config_map.py")     # карта конфигов (Config → «Открыть», 14.10.2026)
 STYLE_LOOKS = [("default", "XP"), ("skeet", "Skeet"), ("beta", "Beta")]
 
 
@@ -353,6 +354,9 @@ TREE = [
     ("apps", "\U000f003b", "Applications", True, []),
     ("visuals", "\U000f08b5", "Visuals", True, []),
     ("misc", "\U000f01d8", "Misc", True, []),
+    # Binds (14.10.2026, Просьба: «раздел для настроек биндов… чтобы каждый
+    # пользователь мог настроить свои бинды. По умолчанию мои») — binds_edit.py.
+    ("binds", "\U000f030c", "Binds", True, []),
     ("config", "\U000f0493", "Config", True, []),
 ]
 # Страницы по порядку меню; пункт-родитель каждой; название каждой.
@@ -375,7 +379,9 @@ PAGE_ALIASES = {"look": "waybar", "bar-shape": "waybar", "bar-geometry": "waybar
                 "windows": "compositor", "visuals-windows": "compositor", "niri": "compositor",
                 "shots": "misc", "screen": "visuals",
                 # 13.10.2026: Fonts → Design (и курсор там же), Cursors → Compositor
-                "cursor": "fonts", "design": "fonts"}
+                "cursor": "fonts", "design": "fonts",
+                # 14.10.2026: свои клавиши
+                "keys": "binds", "keybinds": "binds", "hotkeys": "binds"}
 # Какие пункты раскрыты — помнится между запусками.
 NAV_STATE = os.path.expanduser("~/.cache/jarvis/settings_nav.json")
 SECTION_ICON_DEFAULT = "\U000f08bb"
@@ -907,7 +913,7 @@ BETA_GROUP_STARTS = {"apps", "misc"}
 SK_ICON_DIR = os.path.join(HERE, "skeet_icons")
 SK_ICONS = {"waybar": "waybar", "fonts": "skins", "compositor": "aim", "notify": "notify",
             "xp": "xp", "power": "power", "apps": "rage", "visuals": "visuals",
-            "misc": "misc", "config": "players"}
+            "misc": "misc", "binds": "binds", "config": "players"}
 SK_RAIL_W = 76             # колонка вкладок
 SK_TAB_H = 52              # высота вкладки (10 вкладок, значок ~40 px)
 SK_FRAME = 6               # слои рамки окна: 1 + 3 + 1 + 1
@@ -995,7 +1001,7 @@ DEFAULTS = {
         "Уведомление при смене трека": True,         # track_notify.py: нет флага -off
         "Вид как в Noctalia": False,                 # notif-look: без вставки в style.css — off
         "Подсказка раскладки": "normal",             # state/layout-osd-look: нет файла — normal
-        "Громкость уведомлений": 100,                # ui_sound.py get_notify_volume()
+        "Громкость таймера": 67,                     # ui_sound.py TIMER_DEFAULT (state/timer-volume)
         "Звуки включены": True,                   # ui_sound.py: нет флага ui-sound-off
         "Набор звуков": "xp",                        # ui_sound.py get_pack()
         "Громкость звуков": 75,                      # ui_sound.py VOLUME_DEFAULT
@@ -1004,7 +1010,8 @@ DEFAULTS = {
         "«Не беспокоить» во время записи": True,   # auto_dnd.py: нет флага -off
     },
     "compositor": {
-        "Шрифт и значки": "normal",                     # pixel_look.py: обычный
+        # «Шрифт и значки» (pixel_look.py) с 14.10.2026 на странице Config — в сброс не
+        # входит, как и «Стиль окон»
         "Скругление окон": 4,                       # window_rounding.py DEFAULT
         "Центрировать окно в фокусе": False,         # ribbon_center.py DEFAULT = "fit"
         "Фокус следует за мышью": False,      # mouse_focus.py DEFAULT = "detached"
@@ -1443,7 +1450,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             "waybar": self.page_waybar, "fonts": self.page_fonts,
             "compositor": self.page_compositor, "apps": self.page_apps,
             "visuals": self.page_screen, "misc": self.page_misc,
-            "config": self.page_config,
+            "binds": self.page_binds, "config": self.page_config,
         }
         self.ensure_page(self.start_page)
 
@@ -1903,6 +1910,27 @@ class SettingsWindow(Gtk.ApplicationWindow):
         menu menuitem label { font-size: 16px; }
         menu menuitem:hover { background-color: %(primary)s; color: %(on_primary)s; }
         menu menuitem:hover label { color: %(on_primary)s; }
+
+        /* Binds: окошко «нажмите сочетание» (поповер) — рамка как у окна стиля:
+           сам поповер прозрачный, рисует коробка внутри (класс стиля на ней) */
+        popover.binds-pop {
+            background: none; background-color: transparent; border: none;
+            box-shadow: none; border-radius: 0; padding: 0; margin: 0;
+        }
+        box.binds-box {
+            background-color: %(surface_container)s; border: 1px solid %(line_strong)s;
+            border-radius: 6px; padding: 10px;
+        }
+        label.binds-hint { font-size: 12px; color: %(on_surface_variant)s; }
+        label.binds-shown { font-size: 16px; color: %(primary)s; }
+        label.binds-err { font-size: 12px; color: %(error)s; }
+        entry.binds-entry {
+            background-color: %(surface)s; background-image: none; box-shadow: none;
+            border: 1px solid %(line_strong)s; border-radius: 4px; padding: 2px 6px;
+            min-height: 0; color: %(on_surface)s; caret-color: %(primary)s;
+        }
+        entry.binds-entry:focus { border-color: %(primary)s; }
+        entry.binds-entry selection { background-color: %(primary)s; color: %(on_primary)s; }
         """ % dict(p, **self.title_colors(),
                    rail=popup_theme.rgba(p["surface_container"], 0.45),
                    card_bg=popup_theme.rgba(p["surface_container"], 0.55),
@@ -2390,6 +2418,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
             background-color: %(lighter)s; border: 1px solid %(ink2)s; border-radius: 0;
         }
         .xpskin entry.search-entry { color: %(ink)s; caret-color: %(ink)s; }
+        .xpskin.binds-box { border: 1px solid %(ink2)s; border-radius: 0; }
+        .xpskin label.binds-hint { color: %(ink2)s; }
+        .xpskin label.binds-shown { color: %(ink)s; }
+        .xpskin entry.binds-entry {
+            background-color: %(lighter)s; border: 1px solid %(ink2)s; border-radius: 0;
+            color: %(ink)s; caret-color: %(ink)s;
+        }
+        .xpskin entry.binds-entry selection { background-color: %(sel)s; color: %(text)s; }
         .xpskin label.search-icon, .xpskin label.search-clear { color: %(ink2)s; }
 
         /* группы: закруглённая плашка-заголовок и светлое тело */
@@ -2584,6 +2620,16 @@ class SettingsWindow(Gtk.ApplicationWindow):
         .beta .search.focus { border-color: %(acc)s; }
         .beta entry.search-entry { color: %(text)s; caret-color: %(acc_text)s; }
         .beta entry.search-entry selection { background-color: %(acc)s; color: %(on_acc)s; }
+        .beta.binds-box { border: 1px solid %(line_strong)s; border-radius: 0; }
+        .beta label.binds-hint { color: %(dim)s; }
+        .beta label.binds-shown { color: %(acc_text)s; }
+        .beta label.binds-err { color: %(err)s; }
+        .beta entry.binds-entry {
+            background-color: %(field)s; border: 1px solid %(line_strong)s; border-radius: 0;
+            color: %(text)s; caret-color: %(acc_text)s;
+        }
+        .beta entry.binds-entry:focus { border-color: %(acc)s; }
+        .beta entry.binds-entry selection { background-color: %(acc)s; color: %(on_acc)s; }
         .beta label.search-icon, .beta label.search-clear { color: %(dim)s; }
         .beta button.user-card {
             background-image: none; background-color: transparent; box-shadow: none;
@@ -2863,6 +2909,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         pos = "0 %dpx, 0 %dpx%s" % (SK_FRAME, SK_FRAME + 1, ", 0 0" if dots else "")
         c.update(bg_img=bg_img, sizes=sizes, repeats=repeats, pos=pos,
                  frame=SK_FRAME, top=SK_FRAME + 2, tab_h=SK_TAB_H,
+                 bp_top=SK_FRAME + 10, bp_side=SK_FRAME + 8,
                  scroll=_mix("#414141", c["acc"], 0.06))
         return ("""
         .skeet {
@@ -2945,6 +2992,20 @@ class SettingsWindow(Gtk.ApplicationWindow):
         .skeet entry.search-entry { padding: 2px 0; color: %(text)s; caret-color: %(acc)s; }
         .skeet entry.search-entry selection { background-color: %(acc_d)s; color: %(text)s; }
         .skeet label.search-icon, .skeet label.search-clear { font-size: 12px; color: %(text_dim)s; }
+        .skeet.binds-box {
+            border: none; border-radius: 0;
+            padding: %(bp_top)spx %(bp_side)spx %(bp_side)spx %(bp_side)spx;
+        }
+        .skeet label.binds-hint { color: %(text_dim)s; }
+        .skeet label.binds-shown { font-size: 12px; color: %(acc_l)s; }
+        .skeet label.binds-err { color: %(err)s; }
+        .skeet entry.binds-entry {
+            background-color: %(field)s; background-image: none; border: 1px solid %(line3)s;
+            border-radius: 0; box-shadow: inset 0 0 0 1px %(gline)s; padding: 2px 4px;
+            color: %(text)s; caret-color: %(acc)s;
+        }
+        .skeet entry.binds-entry:focus { border-color: %(acc_d)s; }
+        .skeet entry.binds-entry selection { background-color: %(acc_d)s; color: %(text)s; }
 
         /* групповые блоки: заголовок в верхней рамке, рамка двойная */
         .skeet frame.skeet-group > border {
@@ -4448,11 +4509,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "Действует на следующее открытие панели.")
 
     # Niri: всё про окна (01.10.2026 — было Visuals → «Окна»)
-    def timer_sound_card(self, v):
-        """Громкость звонка виджета «Таймер» (13.10.2026). Читает его сам виджет
-        (desktop_widgets_extra: alarm_volume) перед каждым повтором звонка."""
-        self.section(v, "Таймер", "\U000f051b")
-        c = self.card(v)
+    def timer_volume_row(self, c):
+        """Ползунок «Громкость таймера»: state/timer-volume 0–100 (кубическая шкала, нет
+        файла — 67 ≈ прежние 0.3). Читают перед каждым звонком: desktop_widgets_extra
+        (alarm_volume), hubd (timer_amp), ~/.local/bin/timer. Сдвиг — сразу проба."""
         path = os.path.join(os.path.expanduser("~/.config/hypr/state"), "timer-volume")
         try:
             cur = int(run("cat", path) or 67)
@@ -4466,23 +4526,16 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 os.replace(path + ".tmp", path)
             except OSError:
                 pass
-        chip, sc = self.slider(0, 100, 1, cur, put, suffix="%")
-        self.row(c, "Громкость звонка", chip,
-                 "Звук, которым виджет «Таймер» звенит, когда время вышло. Шкала как у "
-                 "микшера; 0 — без звука (уведомление останется). Действует и на уже "
-                 "звенящий таймер со следующего повтора.",
-                 below=sc)
-
-        def probe():
-            try:
-                pct = int(open(path).read().strip())
-            except (OSError, ValueError):
-                pct = 67
-            subprocess.Popen(["timeout", "8", "pw-play", "--volume", "%.4f" % ((pct / 100) ** 3),
+            subprocess.Popen(["timeout", "4", "pw-play", "--volume", "%.4f" % ((val / 100) ** 3),
                               "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"],
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=True)
-        self.row(c, "Послушать", self.go_button("Звонок", probe))
+        chip, sc = self.slider(0, 100, 5, cur, put, suffix="%")
+        self.row(c, "Громкость таймера", chip,
+                 "Звонок, когда время вышло: виджет «Таймер», таймеры напоминаний, команда "
+                 "timer. Шкала как у микшера; 0 — без звука (уведомление останется). Звук "
+                 "уведомлений — по «Громкости звуков» ниже.",
+                 below=sc, icon="\U000f051b")
 
     def obsidian_card(self, v):
         """Прозрачность Obsidian (была в «Окнах»)."""
@@ -4530,13 +4583,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "ленту к себе. Щелчок по окну фокус переводит всегда.")
         # «Затемнять фоновые окна» и «Сила затемнения» убраны 01.10.2026: это
         # dim_inactive Hyprland, под niri они были погашены и не работали.
-        # Эффект открытия/закрытия окон (02.10.2026): window_fx.py get|set pixel|off.
-        wf = os.path.join(HERE, "window_fx.py")
-        self.row(c, "Анимация окон", self.segments(
-            [("pixel", "Пиксели"), ("off", "Выкл")],
-            (lambda x: x if x in ("pixel", "off") else "off")(run("python3", wf, "get")),
-            lambda k: subprocess.run(["python3", wf, "set", k], capture_output=True)),
-                 "Окна появляются и исчезают, рассыпаясь на пиксели.", icon="\U000f05af")
 
     def mouse_cards(self, v):
         """Мышь и запись: «встряхни мышь» и авто-DND при записи экрана."""
@@ -4560,25 +4606,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def page_compositor(self):
         scroll, v = self.page("Compositor", "Окна, отступы, рамка, размытие и анимации niri. "
                               "Применяется сразу.")
-        # Вид системы (13.10.2026): pixel_look.py — шрифты системы/Obsidian/Zen, «Пуск» обеих
-        # панелей, значки, подсказка раскладки разом; после применения сам проверяет каждую
-        # часть. «Смешанный» — ни одна кнопка не отмечена.
-        pl = os.path.join(HERE, "pixel_look.py")
-        self.section(v, "Вид системы", "\U000f03d8")
-        c = self.card(v)
-        self.row(c, "Шрифт и значки", self.segments(
-            [("normal", "Гладкие"), ("pixel", "Пиксельные"), ("minimal", "Minimalistic")],
-            run("python3", pl, "get"),
-            lambda k: run_serial(["python3", pl, "set", k])),
-                 "Меняет всё разом: шрифт системы, Obsidian и Zen, «Пуск» в баре и нижней "
-                 "панели, значки (пиксельные везде), подсказку раскладки, микшеры громкости и курсор. Обычный — "
-                 "каким он был до переключения. Не трогает kitty, обои и Telegram (его "
-                 "шрифт — в настройках чатов). Бар, панель и виджеты перезапустятся сами "
-                 "(секунд 15), открытые программы и эти Настройки — после перезапуска. "
-                 "Minimalistic — как Гладкие, но бар — парящая капсула (столы, время, Wi-Fi, "
-                 "батарея), у окон скруглённые углы и отступ 20 px от краёв; прежние "
-                 "отступ и скругление вернутся при выходе из него.",
-                 icon="\U000f03d8")
         self.window_cards(v)
         try:
             cur = json.loads(run("python3", NIRI_COMPOSITOR, "get"))
@@ -4609,6 +4636,19 @@ class SettingsWindow(Gtk.ApplicationWindow):
         slide(c, "Толщина рамки", "border", 0, 12, 1, 5,
               "Цветная рамка окна с фокусом, цвет — из обоев. 0 — рамки нет. Обои "
               "сменятся — толщина останется.", suffix=" px")
+
+        # Анимации — своей группой (14.10.2026): «Анимация окон» ушла сюда из «Окон»,
+        # «Скорость анимаций» — из «Раскладки». После переноса «Вида системы» в Config
+        # колонки skeet не сходились и под «Столами» оставалась пустота.
+        self.section(v, "Анимации", "\U000f05af")
+        c = self.card(v)
+        # Эффект открытия/закрытия окон (02.10.2026): window_fx.py get|set pixel|off.
+        wf = os.path.join(HERE, "window_fx.py")
+        self.row(c, "Анимация окон", self.segments(
+            [("pixel", "Пиксели"), ("off", "Выкл")],
+            (lambda x: x if x in ("pixel", "off") else "off")(run("python3", wf, "get")),
+            lambda k: subprocess.run(["python3", wf, "set", k], capture_output=True)),
+                 "Окна появляются и исчезают, рассыпаясь на пиксели.", icon="\U000f05af")
         slide(c, "Скорость анимаций", "slowdown", 0.25, 3, 0.05, 1.0,
               "Множитель длительности всех анимаций niri: 1 — как настроено, меньше — "
               "быстрее, больше — медленнее.", suffix="×", digits=2)
@@ -4654,6 +4694,234 @@ class SettingsWindow(Gtk.ApplicationWindow):
         return scroll
 
     # Config: вид самих Настроек
+    # ── Binds (14.10.2026) ───────────────────────────────────────────────
+    # Свои сочетания клавиш: щелчок по сочетанию → нажать новое → «Сохранить». Пишет
+    # binds_edit.py (только имя клавиши в строке binds.kdl, проверка niri validate до
+    # записи); «по умолчанию» — binds.default.kdl, бинды из дотфайлов. Пока ждём нажатие,
+    # клавиатура захвачена (Gdk.Seat.grab → keyboard-shortcuts-inhibit): иначе niri сам
+    # выполнил бы занятое сочетание, и окно его не увидело бы. Mod+Escape niri не отдаёт.
+    def page_binds(self):
+        import binds_edit as be
+        from keybinds_sheet import pretty_key
+        scroll, v = self.page("Binds", "Свои сочетания клавиш niri.")
+        self._binds = dict(be=be, pretty=pretty_key, rows={})
+        self.section(v, "Клавиши", "\U000f030c",
+                     "Щёлкните по сочетанию и нажмите новое. По умолчанию — сочетания "
+                     "из дотфайлов staticOS (binds.default.kdl).")
+        c = self.card(v)
+        status = Gtk.Label(xalign=0)
+        status.set_line_wrap(True)
+        status.get_style_context().add_class("dim-label")
+        status.set_no_show_all(True)                 # пусто — места не занимает
+        self._binds["status"] = status
+        self.row(c, "Вернуть все по умолчанию",
+                 self.go_button("Сбросить", self.binds_reset_all),
+                 "Все свои сочетания — обратно к умолчанию. Бинды, добавленные позже, "
+                 "не трогаются.", below=status, icon="\U000f0450")
+        self.row(c, "Файл binds.kdl", self.go_button("Открыть", self.binds_open_file),
+                 "~/.config/niri/cfg/binds.kdl — там же подписи и действия; niri "
+                 "перечитывает его сам.", icon="\U000f0214")
+        groups = {}
+        for b in be.load():
+            title, cat = be.describe(b)
+            groups.setdefault(cat, []).append((title, b))
+        order = ["Терминал", "Браузеры", "Программы", "Hub", "Фокус", "Снимки и запись",
+                 "Звук, яркость, медиа", "Настройки и вид", "Окна и столы", "Система"]
+        icons = {"Терминал": "\U000f018d", "Браузеры": "\U000f059f", "Программы": "\U000f003b",
+                 "Hub": "\U000f0279", "Фокус": "\U000f13ab", "Снимки и запись": "\U000f0100",
+                 "Звук, яркость, медиа": "\U000f057e", "Настройки и вид": "\U000f0493",
+                 "Окна и столы": "\U000f05b0", "Система": "\U000f0425"}
+        for cat in order + sorted(k for k in groups if k not in order):
+            if cat not in groups:
+                continue
+            self.section(v, cat, icons.get(cat, "\U000f030c"))
+            c = self.card(v)
+            for title, b in groups[cat]:
+                btn = Gtk.Button()
+                btn.get_style_context().add_class("fontpick")
+                btn.set_valign(Gtk.Align.CENTER)
+                rec = dict(b=b, btn=btn, title=title)
+                self._binds["rows"][b["line"]] = rec
+                self.binds_show(rec)
+                btn.connect("clicked", lambda _b, r=rec: self.binds_edit_open(r))
+                btn.search_words = "%s %s" % (b["key"], pretty_key(b["key"]))
+                btn.est_width = len(pretty_key(b["key"])) * 8 + 16
+                self.row(c, title, btn, "%s — %s" % (pretty_key(b["key"]), b["action"]),
+                         icon="\U000f030c")
+        return scroll
+
+    def binds_show(self, rec):
+        """Подпись кнопки: сочетание; своё (не как по умолчанию) — с точкой."""
+        b, pk = rec["b"], self._binds["pretty"]
+        own = b["default"] and b["default"] != b["key"]
+        rec["btn"].set_label(("• " if own else "") + pk(b["key"]))
+        rec["btn"].set_tooltip_text("По умолчанию: %s" % pk(b["default"]) if own else
+                                    ("Своё сочетание (в умолчании этого бинда нет)"
+                                     if not b["default"] else "Как по умолчанию"))
+
+    def binds_say(self, text):
+        st = self._binds.get("status")
+        if st is not None:
+            st.set_text(text)
+            st.set_visible(bool(text))
+            if text:
+                st.get_parent().show()
+
+    def binds_reload(self):
+        """Перечитать binds.kdl и обновить кнопки (строки файла не сдвигаются)."""
+        for b in self._binds["be"].load():
+            rec = self._binds["rows"].get(b["line"])
+            if rec is not None:
+                rec["b"] = b
+                self.binds_show(rec)
+
+    def binds_reset_all(self):
+        ok, msg, n = self._binds["be"].reset("all")
+        self.binds_reload()
+        self.binds_say(msg if not ok else ("Возвращено по умолчанию: %d" % n if n
+                                            else "Все сочетания и так по умолчанию"))
+
+    def binds_open_file(self):
+        try:
+            from config_map import editor_cmd
+            cmd = editor_cmd(self._binds["be"].BINDS)
+        except Exception:
+            cmd = ["xdg-open", self._binds["be"].BINDS]
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+
+    def binds_edit_open(self, rec):
+        """Поповер у кнопки: «нажмите сочетание», поле для ввода руками, кнопки."""
+        be, pk = self._binds["be"], self._binds["pretty"]
+        b = rec["b"]
+        pop = Gtk.Popover.new(rec["btn"])
+        pop.set_position(Gtk.PositionType.BOTTOM)
+        pop.get_style_context().add_class("binds-pop")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        # 14.10.2026: поповер был в теме GTK (скругления, синее выделение) — теперь
+        # рамку рисует коробка с классом стиля окна: .skeet/.beta/.xpskin как у окна
+        bx = box.get_style_context()
+        bx.add_class("binds-box")
+        for cls in ("skeet", "beta", "xpskin"):
+            if self.outer.get_style_context().has_class(cls):
+                bx.add_class(cls)
+        head = Gtk.Label(label=rec["title"], xalign=0)
+        head.get_style_context().add_class("row-title")
+        hint = Gtk.Label(label="Нажмите сочетание · Esc — отмена", xalign=0)
+        hint.get_style_context().add_class("binds-hint")
+        hint.set_line_wrap(True)
+        hint.set_max_width_chars(40)
+        shown = Gtk.Label(label=pk(b["key"]), xalign=0)
+        shown.get_style_context().add_class("binds-shown")
+        entry = Gtk.Entry()
+        entry.get_style_context().add_class("binds-entry")
+        entry.set_text(b["key"])
+        entry.set_width_chars(24)
+        entry.set_tooltip_text("Или впишите руками: Mod+Shift+E, Ctrl+Alt+Left, XF86AudioMute")
+        err = Gtk.Label(xalign=0)
+        err.get_style_context().add_class("binds-err")
+        err.set_line_wrap(True)
+        err.set_max_width_chars(36)
+        btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        save = Gtk.Button(label="Сохранить")
+        dflt = Gtk.Button(label="По умолчанию")
+        cancel = Gtk.Button(label="Отмена")
+        for x in (save, dflt, cancel):
+            x.get_style_context().add_class("fontpick")
+            btns.pack_start(x, False, False, 0)
+        dflt.set_sensitive(bool(b["default"]) and b["default"] != b["key"])
+        for w in (head, hint, shown, entry, err, btns):
+            box.pack_start(w, False, False, 0)
+        pop.add(box)
+        rec["pop"] = pop                             # для проверки вне экрана
+        st = dict(grab=None)
+
+        def ungrab():
+            if st["grab"] is not None:
+                st["grab"].ungrab()
+                st["grab"] = None
+
+        def grab():
+            # захват клавиатуры = запрет системных сочетаний для окна (GTK на Wayland
+            # просит keyboard-shortcuts-inhibit); не дали — остаётся ввод руками
+            seat = Gdk.Display.get_default().get_default_seat()
+            gw = self.get_window()
+            if seat is None or gw is None:
+                return
+            if seat.grab(gw, Gdk.SeatCapabilities.KEYBOARD, False, None, None,
+                         None, None) == Gdk.GrabStatus.SUCCESS:
+                st["grab"] = seat
+
+        def done(new=None):
+            ungrab()
+            pop.popdown()
+
+        def apply(key):
+            ok, msg = be.set_key(b["key"], key)
+            if ok:
+                self.binds_reload()
+                self.binds_say("")
+                done()
+            else:
+                err.set_text(msg)
+
+        def on_key(_w, ev):
+            if entry.has_focus():
+                if ev.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+                    apply(entry.get_text())
+                    return True
+                if ev.keyval == Gdk.KEY_Escape:
+                    done()
+                    return True
+                return False
+            km = Gdk.Keymap.get_for_display(Gdk.Display.get_default())
+            ok_, kv, *_r = km.translate_keyboard_state(ev.hardware_keycode, 0, 0)
+            name = Gdk.keyval_name(kv if ok_ else ev.keyval) or ""
+            mods = []
+            stt = ev.get_state()
+            if stt & (Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.MOD4_MASK):
+                mods.append("Mod")
+            if stt & Gdk.ModifierType.CONTROL_MASK:
+                mods.append("Ctrl")
+            if stt & Gdk.ModifierType.MOD1_MASK:
+                mods.append("Alt")
+            if stt & Gdk.ModifierType.SHIFT_MASK:
+                mods.append("Shift")
+            if name == "Escape" and not mods:
+                done()
+                return True
+            if re.match(r"(Shift|Control|Alt|Super|Meta|Hyper|ISO_Level\d)_", name):
+                shown.set_text(pk("+".join(mods + ["…"])) if mods else "…")
+                return True
+            key = be.tidy("+".join(mods + [name]))
+            if key:
+                shown.set_text(pk(key))
+                entry.set_text(key)
+                other = be.conflict(be.load(), key, b["line"])
+                err.set_text("Занято: %s" % be.describe(other)[0] if other else "")
+            return True
+
+        def pressed_dflt():
+            ok, msg, _n = be.reset(b["key"])
+            if ok:
+                self.binds_reload()
+                done()
+            else:
+                err.set_text(msg)
+
+        pop.connect("key-press-event", on_key)
+        save.connect("clicked", lambda _x: apply(entry.get_text()))
+        dflt.connect("clicked", lambda _x: pressed_dflt())
+        cancel.connect("clicked", lambda _x: done())
+        # в поле щёлкнули — пишем руками, сочетания окну больше не нужны
+        entry.connect("focus-in-event", lambda *_a: (ungrab(), False)[1])
+        pop.connect("closed", lambda _p: (ungrab(), pop.destroy()))
+        box.show_all()
+        err.set_text("")
+        pop.popup()
+        save.grab_focus()
+        grab()
+
     def page_config(self):
         scroll, v = self.page("Config", "Вид окна Настроек.")
         if self.look == "beta":
@@ -4716,7 +4984,39 @@ class SettingsWindow(Gtk.ApplicationWindow):
                      "Один вид для всей системы: Настройки, буфер обмена, Recorder, меню «Пуск» "
                      "и виджеты. Обычный — в духе Windows XP, Skeet — меню gamesense, Beta — "
                      "новый плоский вид. Цвета — из обоев.")
+        # Вид системы (13.10.2026; с 14.10.2026 здесь, а не в Compositor — просьба: «Вид
+        # системы перемести на страницу Config»): pixel_look.py — шрифты системы/Obsidian/Zen, «Пуск» обеих
+        # панелей, значки, подсказка раскладки разом; после применения сам проверяет каждую
+        # часть. «Смешанный» — ни одна кнопка не отмечена.
+        pl = os.path.join(HERE, "pixel_look.py")
+        # Строка — в той же группе «Стиль системы», что и «Стиль окон»: отдельной группой
+        # колонки skeet не сходились и в «Окне Настроек» снизу оставалась пустота
+        # (14.10.2026, «не должны создаваться пустые пространства»).
+        self.row(c, "Шрифт и значки", self.segments(
+            [("normal", "Гладкие"), ("pixel", "Пиксельные"), ("minimal", "Minimalistic")],
+            run("python3", pl, "get"),
+            lambda k: run_serial(["python3", pl, "set", k])),
+                 "Вид системы — меняет всё разом: шрифт системы, Obsidian и Zen, «Пуск» в баре и нижней "
+                 "панели, значки (пиксельные везде), подсказку раскладки, микшеры громкости и курсор. Обычный — "
+                 "каким он был до переключения. Не трогает kitty, обои и Telegram (его "
+                 "шрифт — в настройках чатов). Бар, панель и виджеты перезапустятся сами "
+                 "(секунд 15), открытые программы и эти Настройки — после перезапуска. "
+                 "Minimalistic — как Гладкие, но бар — парящая капсула (столы, время, Wi-Fi, "
+                 "батарея), у окон скруглённые углы и отступ 20 px от краёв; прежние "
+                 "отступ и скругление вернутся при выходе из него.",
+                 icon="\U000f03d8")
         self.watch_section(v)
+        # Карта конфигов (14.10.2026, Просьба: «в разделе Config добавь кнопку, чтобы можно
+        # было открыть Карту конфигов») — config_map.py, то же окно, что Super+Shift+Z.
+        self.section(v, "Карта конфигов", "\U000f034d")
+        c = self.card(v)
+        # подпись строки не повторяет заголовок раздела (14.10.2026, «убери дубли»);
+        # «Где что лежит» → «Конфиг меню» (14.10.2026, просьба: кнопка — чтобы открыть конфиги)
+        self.row(c, "Конфиг меню", self.go_button("Открыть", lambda: subprocess.Popen(
+                     ["python3", CONFIG_MAP], stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)),
+                 "Где лежат настройки staticOS: конфиги niri, программ, свои скрипты и "
+                 "команды. Super+Shift+Z.", icon="\U000f034d")
         self.section(v, "Окно Настроек", "\U000f0493")
         c = self.card(v)
         # Резидент (раунд 8): состояние — файл RESIDENT_OFF, читается при закрытии окна.
@@ -5158,7 +5458,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "сделать). Включается и выключается сразу, без перезапуска браузера.")
         # Steam (13.10.2026, просьба: «убери SpaceTheme из Steam. Добавь в Настройки
         # переключатель на странице Applications»). steam_space.py on|off|get.
-        self.timer_sound_card(v)
         self.section(v, "Steam", "\U000f04d3")
         c = self.card(v)
         self.row(c, "Тема SpaceTheme",
@@ -5838,24 +6137,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # выключатель погашен.
         us = os.path.join(HERE, "ui_sound.py")
         have = os.path.exists(us)
-        # Громкость звука уведомления (04.10.2026, пользователь): свой звук «пришло
-        # уведомление» из Звуков интерфейса — доля от их громкости. Звуки самих
-        # программ (Telegram) здесь не регулируются. Сдвиг — сразу проба.
-        if have:
-            def notify_vol(val):
-                subprocess.run(["python3", us, "notify-volume", "%d" % val], capture_output=True)
-                subprocess.Popen(["python3", us, "test", "notify"], stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL)
-            try:
-                nvol = int(run("python3", us, "notify-volume"))
-            except ValueError:
-                nvol = 100
-            chip, sc = self.slider(0, 100, 5, nvol, notify_vol, suffix="%")
-            self.row(c, "Громкость уведомлений", chip,
-                     "Своя громкость звука «пришло уведомление» — не зависит от громкости звуков интерфейса. "
-                     "Звуки самих программ (Telegram) — в их настройках.",
-                     below=sc, icon="\U000f009a")
-        # Своя группа (04.10.2026, просьба: «набор звуков и уведомления — отдели»)
+        # Громкость таймера (14.10.2026, Просьба: «громкость уведомлений объединим с
+        # громкостью системы… а вместо неё — громкость таймера»). Звук уведомления теперь
+        # по «Громкости звуков» ниже; здесь — звонок всех таймеров (state/timer-volume):
+        # виджет timer.exe, таймеры hub, команда timer. Был в Applications → «Таймер».
+        self.timer_volume_row(c)
+        # Своя группа (04.10.2026, Просьба: «набор звуков и уведомления — отдели»)
         self.section(v, "Звуки интерфейса", "\U000f057e")
         c = self.card(v)
         sp = self.pill(have and run("python3", us, "status") == "on",
@@ -5893,7 +6180,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 uvol = 75
             chip, sc = self.slider(0, 100, 5, uvol, us_vol, suffix="%")
             self.row(c, "Громкость звуков", chip,
-                     "Своя громкость звуков интерфейса — доля от общей громкости системы.",
+                     "Громкость звуков интерфейса и звука «пришло уведомление» — доля от общей громкости системы.",
                      below=sc, icon="\U000f057e")
             # Группы событий (02.10.2026): каждая выключается отдельно — ui_sound.py cat.
             # Включение группы сразу играет её образец.
@@ -5932,7 +6219,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.section(v, "Система", "\U000f06d6")
         c = self.card(v)
         # «Пиксельный шрифт» (pixel_mode.py) убран 13.10.2026: менял только шрифт оболочки —
-        # весь вид переключает «Вид системы» на странице Compositor (pixel_look.py).
+        # весь вид переключает «Вид системы» на странице Config (pixel_look.py).
         self.row(c, "Шрифт системы", self.font_combo("system"),
                  "Бар, попапы, лаунчер, экран блокировки, Настройки и программы. Бар "
                  "перезапускается сразу, открытые программы — после перезапуска. "

@@ -45,7 +45,12 @@
       "run-on": "action"
     }
   },
-  "notification-visibility": {},
+  "notification-visibility": {
+    "hub-log": {
+      "state": "muted",
+      "app-name": "^hub-log$"
+    }
+  },
   "widgets": [
     "inhibitors",
     "menubar",

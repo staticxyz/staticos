@@ -30,6 +30,24 @@ QUIET = 300          # тишина, после которой касание с
 SUMMARY = 60         # сводки во время активности
 EV = struct.Struct("@llHHi")
 
+# После пробуждения ядро шлёт KEY_WAKEUP (143) — 14.10.2026 охрана приняла его за человека
+# («⚠ Кто-то трогает ПК», key_143). Эти коды не считаем, а первые секунды после сна ввод
+# вообще не учитываем: сон виден по росту разницы CLOCK_BOOTTIME − CLOCK_MONOTONIC.
+NOT_HUMAN = {142, 143}   # KEY_SLEEP, KEY_WAKEUP
+RESUME_MUTE = 10
+_mute_until = 0.0
+
+
+def resumed():
+    """hubd: система только что проснулась."""
+    global _mute_until
+    _mute_until = time.monotonic() + RESUME_MUTE
+
+
+def _sleep_offset():
+    return time.clock_gettime(time.CLOCK_BOOTTIME) - time.monotonic()
+
+
 # evdev типы
 EV_KEY = 1
 EV_REL = 2
@@ -134,16 +152,27 @@ class Guard:
                 continue
         if not fds:
             self.say("⚠ Режим охраны: нет доступа к устройствам ввода, клавиатуру и мышь не вижу.")
+        global _mute_until
+        off = _sleep_offset()
         try:
             while not self.stop.is_set() and fds:
                 r, _, _ = select.select(list(fds), [], [], 1.0)
+                o = _sleep_offset()
+                if o - off > 2:                  # между итерациями был сон
+                    _mute_until = time.monotonic() + RESUME_MUTE
+                off = o
+                mute = time.monotonic() < _mute_until
                 for fd in r:
                     try:
                         data = os.read(fd, EV.size * 64)
                     except OSError:
                         continue
+                    if mute:
+                        continue
                     for i in range(0, len(data) - EV.size + 1, EV.size):
                         _sec, _usec, typ, code, value = EV.unpack_from(data, i)
+                        if typ == EV_KEY and code in NOT_HUMAN:
+                            continue
                         if typ == EV_KEY and value == 1:
                             name = KEY_NAMES.get(code, "key_%d" % code)
                             with self.lock:

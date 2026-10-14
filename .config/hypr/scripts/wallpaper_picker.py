@@ -39,6 +39,8 @@ sys.path.insert(0, HERE)
 import popup_theme  # noqa: E402
 
 popup_theme.single_instance(__file__)
+from menu_one import close_others  # noqa: E402  другое меню открыто — закрыть (14.10.2026)
+close_others(__file__)
 # Снимки мониторов — первым делом: grim работает, пока грузятся GTK и numpy (13.10.2026,
 # «Super+W открывается медленно»: так до окна ~0,15 с вместо ~0,45).
 import wp_grab  # noqa: E402

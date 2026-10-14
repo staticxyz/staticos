@@ -149,12 +149,13 @@ class Bot:
 
 # ───────────────────────────── кнопки ─────────────────────────────
 
-def item_buttons(iid):
-    return [[{"text": "✓ Сделано", "callback_data": "d:%d" % iid},
+def item_buttons(iid, rep=False):
+    """rep — повторяющееся (14.10.2026): «Отметить» (срок → следующий раз) и «Закрыть цикл»."""
+    return [[{"text": "✓ Отметить" if rep else "✓ Сделано", "callback_data": "d:%d" % iid},
              {"text": "⏰ +1ч", "callback_data": "s:%d:3600" % iid},
              {"text": "🌙 Завтра", "callback_data": "s:%d:tom" % iid}],
             [{"text": "+10 мин", "callback_data": "s:%d:600" % iid},
-             {"text": "✗ Удалить", "callback_data": "x:%d" % iid}]]
+             {"text": "■ Закрыть цикл" if rep else "✗ Удалить", "callback_data": "x:%d" % iid}]]
 
 
 def timer_presets():
@@ -210,14 +211,14 @@ def render(it):
     if it["status"] == "done":
         return "✓ Сделано: %s" % t, None
     if it["status"] == "dropped":
-        return "✗ Удалено: %s" % t, None
+        return ("■ Цикл закрыт: %s" if it["repeat"] else "✗ Удалено: %s") % t, None
     if it["due"] is None:
         return "Записано в «%s» без срока: %s" % (it["list"], t), [[
             {"text": "✓ Сделано", "callback_data": "d:%d" % it["id"]},
             {"text": "✗ Удалить", "callback_data": "x:%d" % it["id"]}]]
     if over:
-        return "🔔 Пришло: %s\n(было на %s)" % (t, H.fmt_when(it["due"])), item_buttons(it["id"])
-    return "⏳ Ждёт: %s — %s" % (t, H.fmt_when(it["due"])), item_buttons(it["id"])
+        return "🔔 Пришло: %s\n(было на %s)" % (t, H.fmt_when(it["due"])), item_buttons(it["id"], bool(it["repeat"]))
+    return "⏳ Ждёт: %s — %s" % (t, H.fmt_when(it["due"])), item_buttons(it["id"], bool(it["repeat"]))
 
 
 def track(c, iid, chat, mid):
@@ -276,6 +277,26 @@ HELP_TEXT = (
 # 13.10.2026, Просьба: «аварийно добавить команду боту на выключение будильника (и на вкл)…
 # должен выключать и Сторожа на этот день. Если я его выключаю — значит, я не дома».
 WAKE = os.path.expanduser("~/.config/hypr/scripts/wake_alarm.py")
+
+
+# 14.10.2026, Просьба: «хаб основной, первый запасной» — проверки будильника и Сторожа
+# приходят от этого бота, и ответ на пример ловится здесь. Сверяет сам будильник
+# (wake_alarm.py tg-code): 0 — принят, 1 — не тот, 2 — проверки нет (сообщение обычное).
+# Кодом считается только ответ из цифр и знаков примера — «напомни через 15 минут» не он.
+WAKE_CODE_CHARS = set("0123456789 =+-−×xх*·:.,")
+
+
+def wake_code(text):
+    t = text.strip()
+    if not t or not any(ch.isdigit() for ch in t) or not set(t.lower()) <= WAKE_CODE_CHARS:
+        return None
+    try:
+        r = subprocess.run([sys.executable, WAKE, "tg-code", t], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode in (0, 1) and r.stdout.strip():
+        return r.stdout.strip()
+    return None
 
 
 def alarm_command(arg):
@@ -625,7 +646,11 @@ def handle_callback(c, bot, chat, mid, cb_id, data):
         track(c, int(rest.split(":")[0]), chat, mid)     # осиротевшее сообщение снова под присмотром
     if k == "d":
         H.done(c, int(rest), "tg")
-        bot.answer(cb_id, "Готово")
+        it = H.get_item(c, int(rest))
+        if it is not None and it["repeat"] and it["status"] == "open":
+            bot.answer(cb_id, "Отмечено. Следующий раз: %s" % H.fmt_when(it["due"]))
+        else:
+            bot.answer(cb_id, "Готово")
         sync_messages(c, bot)
     elif k == "s":
         iid, _, v = rest.partition(":")
@@ -637,8 +662,9 @@ def handle_callback(c, bot, chat, mid, cb_id, data):
             bot.answer(cb_id, "Отложено на %s" % H.fmt_secs(int(v)))
         sync_messages(c, bot)
     elif k == "x":
+        it = H.get_item(c, int(rest))
         H.drop(c, int(rest), "tg")
-        bot.answer(cb_id, "Остановлено")
+        bot.answer(cb_id, "Цикл закрыт" if it is not None and it["repeat"] else "Остановлено")
         sync_messages(c, bot)
     elif k == "t":
         text, btn = start_timer_reply(c, int(rest))
@@ -721,6 +747,10 @@ def process_update(c, bot, up):
             return
         bot.send(chat, "Услышал: " + text)
     if not text:
+        return
+    code = wake_code(text)
+    if code:
+        bot.send(chat, code)
         return
     global _last_item
     _last_item = None

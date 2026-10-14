@@ -126,14 +126,6 @@ layer-rule {
     }
 }
 
-layer-rule {
-    match namespace=r#"^jarvis-config-map$"#
-    background-effect {
-        blur true
-        xray false
-    }
-}
-
 // Слой «Фокус» поверх запрещённого окна (scripts/focus_mode.py overlay, 06.10.2026):
 // окно под ним размыто — видно, что там что-то есть, но смотреть нельзя.
 layer-rule {

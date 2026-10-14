@@ -1,0 +1,421 @@
+// ═══════════════════════════ КЛАВИШИ ═════════════════════════════
+binds {
+    // ─── Запуск программ (keybindings.lua) ───
+    // Все обычные терминалы — окна ОДНОЙ копии kitty (29.09.2026): окон сколько
+    // угодно, закрываются по одному, а память общая — три окна 66 МБ вместо
+    // ~165. Минус: если убить саму копию (упала, kill), закроются все её окна.
+    // Super+` (пробный шрифт) и дашборд сюда НЕ входят: общая копия
+    // игнорирует шрифт из -o, а дашборд опрашивает каждую копию отдельно.
+    Ctrl+Grave  hotkey-overlay-title="Терминал" { spawn-sh "~/.config/hypr/scripts/kitty_shared.sh"; }
+    // Терминал пробным шрифтом (Настройки → Шрифты → «Терминал на Super+`»).
+    // Шрифт уходит в kitty аргументом, kitty.conf и открытые окна не трогаются.
+    Mod+Grave   hotkey-overlay-title="Терминал пробным шрифтом" { spawn-sh "~/.config/hypr/scripts/term_font.sh"; }
+    // Второе сочетание для терминала. Нужно потому, что Ctrl+` идёт без Mod,
+    // и при запуске niri ВЛОЖЕННЫМ окном его перехватывает хозяйский Hyprland
+    // (keybindings.lua:8) — нажатие до niri не доходит. Mod+Return во вложенном
+    // режиме превращается в Alt+Return, а он у Hyprland свободен.
+    Mod+Return  hotkey-overlay-title="Терминал" { spawn-sh "~/.config/hypr/scripts/kitty_shared.sh"; }
+    // Запасной терминал foot — на случай, если kitty сломается (29.09.2026).
+    // Konsole удалена ради места; кроме kitty терминалов не оставалось.
+    Mod+Shift+Return hotkey-overlay-title="Запасной терминал (foot)" { spawn "foot"; }
+    // Меню и блокировка идут через scripts/shell-do: он сам выбирает между
+    // Noctalia и своим (rofi / hyprlock) по тому, какая оболочка включена.
+    // Всплывашки rofi через popup-toggle: повторное нажатие закрывает (23.09.2026).
+    Mod+Space   hotkey-overlay-title="Меню программ" { spawn-sh "~/.config/niri/scripts/popup-toggle ~/.config/niri/scripts/shell-do launcher"; }
+    Ctrl+Q      repeat=false hotkey-overlay-title="Закрыть окно / очистить буфер" { spawn-sh "~/.config/niri/scripts/close-or-clipboard"; }
+
+    Mod+E hotkey-overlay-title="Dolphin (файлы)" { spawn "dolphin"; }
+    Mod+I hotkey-overlay-title="Helium (браузер)" { spawn "helium-browser"; }
+    Mod+U hotkey-overlay-title="Zen (браузер)" { spawn "zen-browser"; }
+    Mod+B hotkey-overlay-title="Tor Browser" { spawn "torbrowser-launcher"; }
+    Mod+Y hotkey-overlay-title="LibreWolf (браузер)" { spawn "librewolf"; }
+    // Пароли — KeePassXC через обёртку (цвета обоев, пиксельный шрифт); открыт — поднимает окно.
+    Mod+Ctrl+Shift+P hotkey-overlay-title="Пароли (KeePassXC)" { spawn-sh "~/.local/bin/keepassxc"; }
+    Mod+Ctrl+T hotkey-overlay-title="Раскладка стола: прокрутка → мастер-стек → плавающие" { spawn-sh "python3 ~/.config/hypr/scripts/ws_layout.py cycle"; }
+    // Калькулятор-переводчик — своё окно (translate_popup.py): rofi-calc не
+    // умел показывать длинный перевод строками (23.09.2026). Повторное
+    // нажатие закрывает (single_instance внутри).
+    Mod+C hotkey-overlay-title="Калькулятор и переводчик" { spawn-sh "python3 ~/.config/hypr/scripts/translate_popup.py"; }
+    // Кто сколько ест: то же, что команда appmem, но окном и с живым счётчиком.
+    Mod+Alt+X hotkey-overlay-title="Кто сколько ест (память)" { spawn-sh "python3 ~/.config/hypr/scripts/appmem_popup.py"; }
+    // SUPER+N — всегда новая пустая заметка, где бы ни лежал большой черновик;
+    // принести черновик на текущий стол — SUPER+SHIFT+N (21.09.2026: раньше
+    // было наоборот, и пустую приходилось вызывать двумя нажатиями).
+    Mod+N hotkey-overlay-title="Блокнот: новая заметка" { spawn-sh "~/.config/hypr/scripts/notepad.sh new"; }
+    Mod+M       repeat=false hotkey-overlay-title="Hub: напоминания" { spawn-sh "~/.local/bin/hub-open --toggle"; }
+    Mod+Shift+M repeat=false hotkey-overlay-title="Hub: словарь" { spawn-sh "~/.local/bin/hub-open dict --toggle"; }
+    Mod+Shift+N hotkey-overlay-title="Блокнот" { spawn-sh "~/.config/hypr/scripts/notepad.sh"; }
+    Mod+F6 hotkey-overlay-title="Выбор эмодзи" { spawn "bemoji" "-t"; }
+    // Буфер обмена — своё окно с вкладками и избранным (03.10.2026). Прежнее меню на rofi
+    // (откат): spawn "~/.config/niri/scripts/popup-toggle" "python3" "~/.config/hypr/scripts/clipboard_menu.py"
+    Mod+Alt+V repeat=false hotkey-overlay-title="Окно буфера обмена" { spawn-sh "~/.config/niri/scripts/clipboard-toggle"; }
+    Mod+Shift+A hotkey-overlay-title="Выбор аватара" { spawn-sh "python3 ~/.config/hypr/scripts/avatar_picker.py"; }
+    Mod+Slash hotkey-overlay-title="Настройки" { spawn-sh "~/.config/niri/scripts/settings-open"; }
+    // Переключить оболочку: свои настройки ↔ Noctalia. Ничего не ломает,
+    // перезаход не нужен, выбор запоминается до следующего входа.
+    Mod+Shift+S hotkey-overlay-title="Noctalia вкл/выкл" { spawn-sh "~/.config/niri/scripts/shell-switch toggle"; }
+    // Нижняя панель (XP или док): показать/спрятать по кнопке (01.10.2026).
+    Mod+S hotkey-overlay-title="Нижняя XP-панель вкл/выкл" { spawn-sh "python3 ~/.config/hypr/scripts/bottom_bar.py toggle"; }
+    Mod+O hotkey-overlay-title="Блокировка экрана" { spawn-sh "~/.config/niri/scripts/shell-do lock"; }
+
+    // Обои: SUPER+W — своя лента миниатюр, SUPER+SHIFT+W — окно waypaper.
+    // (В niri по умолчанию SUPER+W — вкладки колонки; здесь они на SUPER+SHIFT+T.)
+    Mod+W hotkey-overlay-title="Выбор обоев" { spawn-sh "python3 ~/.config/hypr/scripts/wallpaper_picker.py"; }
+    Mod+Shift+W hotkey-overlay-title="Выбор обоев (waypaper)" { spawn "waypaper"; }
+
+    // ─── Помидор (~/.local/bin/pomo) ───
+    Mod+P hotkey-overlay-title="Помидор: старт/пауза" { spawn-sh "~/.local/bin/pomo toggle"; }
+    Mod+Shift+P hotkey-overlay-title="Помидор: пропустить" { spawn-sh "~/.local/bin/pomo skip"; }
+    Mod+Alt+P hotkey-overlay-title="Помидор: стоп" { spawn-sh "~/.local/bin/pomo stop"; }
+    Mod+T hotkey-overlay-title="Помидор: окно статуса" { spawn-sh "~/.config/niri/scripts/popup-toggle ~/.local/bin/pomo ask"; }
+    // Discipline на вкладке Alarm (07.10.2026; было Focus), повторное нажатие закрывает (scripts/routine_app.py, 06.10.2026); Super+Alt+T — нет, по выбору пользователя
+    Mod+Alt+F repeat=false hotkey-overlay-title="Discipline: будильник/фокус" { spawn-sh "~/.local/bin/discipline --toggle alarm"; }
+    // App list — программы, пакеты, версии, сведения о системе (scripts/app_list.py, 06.10.2026)
+    Mod+Alt+T repeat=false hotkey-overlay-title="App list" { spawn-sh "~/.local/bin/applist"; }
+    Mod+Ctrl+P hotkey-overlay-title="Помидор: сторож" { spawn-sh "kitty --title pomo -o initial_window_width=52c -o initial_window_height=3c ~/.local/bin/pomo watch"; }
+
+    // ─── Обзор: новое, в Hyprland такого не было ───
+    // Зум-вид всех столов и окон. Ещё — левый верхний угол мышью
+    // и четыре пальца вверх по тачпаду.
+    Mod+G repeat=false { toggle-overview; }
+
+    // ═══ НАВИГАЦИЯ: оси совпадают с направлениями vim ═══
+    //
+    //   H / L  — влево / вправо  → КОЛОНКИ ленты и МОНИТОРЫ
+    //   K / J  — вверх / вниз    → СТОЛЫ (в niri они вертикальные)
+    //
+    //   без модификатора — перевести фокус
+    //   ALT            — двигать то, что в фокусе, по той же оси
+    //   CTRL           — та же вертикаль, но внутри колонки (стопка окон)
+    //   SHIFT          — двигать сам стол в порядке
+    //   CTRL + ALT     — отправить окно на соседний стол
+    //   CTRL + SHIFT   — отправить стол на соседний монитор
+    //
+    // Стрелки повторяют буквы один в один, чтобы модель была одна, а не две.
+    // Прежняя схема (J/K — колонки, H/L — столы) лежит в config.kdl.bak.vimaxes-*
+
+    // ─── Фокус: колонки по горизонтали ───
+    Mod+H     { focus-column-left; }
+    Mod+L     { focus-column-right; }
+    Mod+Left  { focus-column-left; }
+    Mod+Right { focus-column-right; }
+
+    // Края ленты
+    Mod+Home { focus-column-first; }
+    Mod+End  { focus-column-last; }
+
+    // ─── Фокус: столы по вертикали ───
+    Mod+K { focus-workspace-up; }
+    Mod+J { focus-workspace-down; }
+    Mod+Up   { focus-workspace-up; }
+    Mod+Down { focus-workspace-down; }
+    Mod+Page_Up   { focus-workspace-up; }
+    Mod+Page_Down { focus-workspace-down; }
+
+    // ─── Фокус: окна внутри колонки (стопка) — вертикаль с CTRL ───
+    Mod+Ctrl+K { focus-window-up; }
+    Mod+Ctrl+J { focus-window-down; }
+    Mod+Ctrl+Up   { focus-window-up; }
+    Mod+Ctrl+Down { focus-window-down; }
+
+    // ─── Двигать колонку по ленте (ALT, горизонталь) ───
+    Mod+Alt+H     { move-column-left; }
+    Mod+Alt+L     { move-column-right; }
+    Mod+Alt+Left  { move-column-left; }
+    Mod+Alt+Right { move-column-right; }
+
+    Mod+Alt+Home { move-column-to-first; }
+    Mod+Alt+End  { move-column-to-last; }
+
+    // ─── Двигать окно внутри колонки (ALT, вертикаль) ───
+    Mod+Alt+K { move-window-up; }
+    Mod+Alt+J { move-window-down; }
+    Mod+Alt+Up   { move-window-up; }
+    Mod+Alt+Down { move-window-down; }
+
+    // ─── Двигать сам стол в порядке (SHIFT, вертикаль) ───
+    Mod+Shift+K { move-workspace-up; }
+    Mod+Shift+J { move-workspace-down; }
+    Mod+Shift+Up   { move-workspace-up; }
+    Mod+Shift+Down { move-workspace-down; }
+
+    // ─── Окно на соседний стол (CTRL+ALT, вертикаль) ───
+    // 13.10.2026, просьба: то же без Super — Ctrl+Alt+K/J (как Ctrl+Alt+H/L на мониторы).
+    Ctrl+Alt+K { move-column-to-workspace-up; }
+    Ctrl+Alt+J { move-column-to-workspace-down; }
+    Mod+Ctrl+Alt+K { move-column-to-workspace-up; }
+    Mod+Ctrl+Alt+J { move-column-to-workspace-down; }
+    Mod+Ctrl+Alt+Up   { move-column-to-workspace-up; }
+    Mod+Ctrl+Alt+Down { move-column-to-workspace-down; }
+    Mod+Ctrl+Alt+Minus { move-column-to-workspace-up; }
+    Mod+Ctrl+Alt+Equal { move-column-to-workspace-down; }
+    Mod+Ctrl+Alt+KP_Subtract { move-column-to-workspace-up; }
+    Mod+Ctrl+Alt+KP_Add      { move-column-to-workspace-down; }
+
+    // ─── Стол на соседний монитор (CTRL+SHIFT, горизонталь) ───
+    Mod+Ctrl+Shift+H { move-workspace-to-monitor-left; }
+    Mod+Ctrl+Shift+L { move-workspace-to-monitor-right; }
+    // Все окна стола — на соседний стол (замена SUPER+ALT+SHIFT+←/→ из
+    // Hyprland; ALT+SHIFT занят сменой раскладки, поэтому клавиши другие).
+    Mod+Ctrl+Shift+K hotkey-overlay-title="Все окна на стол выше" { spawn-sh "~/.config/niri/scripts/move_all up"; }
+    Mod+Ctrl+Shift+J hotkey-overlay-title="Все окна на стол ниже" { spawn-sh "~/.config/niri/scripts/move_all down"; }
+
+    Mod+Ctrl+Shift+Left  { move-workspace-to-monitor-left; }
+    Mod+Ctrl+Shift+Right { move-workspace-to-monitor-right; }
+
+    // ─── Новый стол РЯДОМ с текущим, а не в конце ───
+    // Замена SUPER+CTRL+вверх/вниз из Hyprland (там это делал ws_order.py insert).
+    // Отдельного «создать стол» в niri нет: столы динамические, и один пустой
+    // всегда висит в конце ленты. Скрипт берёт его оттуда и ставит куда нужно.
+    // Пустой стол живёт, пока на нём стоишь: уйдёте, не открыв окна, — niri его
+    // уберёт. Закрепляется первым же окном.
+    //
+    // H/L, а не K/J, по просьбе пользователя 21.09.2026 — как в Hyprland, где столы
+    // шли по горизонтали. В niri лента вертикальная, поэтому H («слева») ставит
+    // стол ВЫШЕ текущего, а L («справа») — НИЖЕ.
+    Mod+Ctrl+H hotkey-overlay-title="Новый стол перед текущим" { spawn-sh "python3 ~/.config/niri/scripts/ws_insert before"; }
+    Mod+Ctrl+L hotkey-overlay-title="Новый стол после текущего" { spawn-sh "python3 ~/.config/niri/scripts/ws_insert after"; }
+
+    // ─── Двигать сам стол в порядке, горизонтальная привычка из Hyprland ───
+    // То же, что Mod+Shift+K/J выше: там ось niri (вертикаль), здесь память рук
+    // от Hyprland, где это висело на SUPER+SHIFT+влево/вправо.
+    Mod+Shift+H { move-workspace-up; }
+    Mod+Shift+L { move-workspace-down; }
+
+    // ─── Ширина колонки ───
+    // Шаг ±10 % рабочей ширины — ровно то, что делал ribbon_width.
+    // Через scripts/colwidth, а не штатным set-column-width: у niri нет пределов
+    // ширины, и колонка росла бесконечно (скрипт объясняет подробно).
+    // Громкость ОТДЕЛЬНОГО приложения — того, чьё окно в фокусе (а если оно
+    // молчит, то играющего плеера). Подсказка сверху по центру показывает,
+    // у кого именно меняется звук (24.09.2026).
+    Mod+KP_Add      allow-when-locked=true hotkey-overlay-title="Громкость программы +" { spawn-sh "python3 ~/.config/hypr/scripts/app_volume.py up"; }
+    Mod+KP_Subtract allow-when-locked=true hotkey-overlay-title="Громкость программы -" { spawn-sh "python3 ~/.config/hypr/scripts/app_volume.py down"; }
+    // Те же действия на «=» и «-» верхнего ряда: SHIFT+= и SHIFT+- заняты
+    // высотой окна, поэтому ALT (25.09.2026).
+    Mod+Alt+Equal allow-when-locked=true hotkey-overlay-title="Громкость программы +" { spawn-sh "python3 ~/.config/hypr/scripts/app_volume.py up"; }
+    Mod+Alt+Minus allow-when-locked=true hotkey-overlay-title="Громкость программы -" { spawn-sh "python3 ~/.config/hypr/scripts/app_volume.py down"; }
+
+    Mod+Minus hotkey-overlay-title="Ширина колонки -" { spawn-sh "~/.config/niri/scripts/colwidth -"; }
+    Mod+Equal hotkey-overlay-title="Ширина колонки +" { spawn-sh "~/.config/niri/scripts/colwidth +"; }
+    // Высота окна в стопке
+    Mod+Shift+Minus { set-window-height "-10%"; }
+    Mod+Shift+Equal { set-window-height "+10%"; }
+    // Размер окна с тачпада (04.10.2026, пользователь на ноутбуке: «Super и двумя пальцами —
+    // ничего не происходит»): зажать Super+Shift и вести двумя пальцами — вправо/влево
+    // шире/уже, вверх/вниз выше/ниже. Скролл тачпада идёт мелкими шагами, отсюда cooldown.
+    // Направления наоборот: у тачпада natural-scroll, и «пальцы вправо» приходят как
+    // TouchpadScrollLeft (первая версия тянула окно не туда — 04.10.2026).
+    Mod+Shift+TouchpadScrollLeft  cooldown-ms=120 hotkey-overlay-title="Ширина колонки +" { spawn-sh "~/.config/niri/scripts/colwidth +"; }
+    Mod+Shift+TouchpadScrollRight cooldown-ms=120 hotkey-overlay-title="Ширина колонки -" { spawn-sh "~/.config/niri/scripts/colwidth -"; }
+    // Высота: пальцы вниз — окно тянется вниз (выше), вверх — короче. С natural-scroll
+    // «пальцы вниз» приходят как ScrollUp (проверено пользователем).
+    Mod+Shift+TouchpadScrollUp    cooldown-ms=120 { set-window-height "+5%"; }
+    Mod+Shift+TouchpadScrollDown  cooldown-ms=120 { set-window-height "-5%"; }
+    // Окно с фокусом — по центру: вкл/выкл (то же, что тумблер в «Настройках» →
+    // «Окна»). Перебор заготовленных ширин отсюда снят 28.09.2026: ширину
+    // меняют SUPER+= / −.
+    Mod+R hotkey-overlay-title="Центрирование ленты вкл/выкл" { spawn-sh "python3 ~/.config/hypr/scripts/ribbon_center.py toggle"; }
+
+    // ─── Вложить в колонку / вынуть из неё ───
+    Mod+BracketLeft  { consume-or-expel-window-left; }
+    Mod+BracketRight { consume-or-expel-window-right; }
+    Mod+Comma  { consume-window-into-column; }
+    // На английской — «вынуть из колонки» (клавиша «.»), на русской та же
+    // клавиша даёт «/», и там это «Настройки»: niri разбирает сочетания по
+    // символу текущей раскладки, отдельного бинда для «/» на русской нет.
+    Mod+Period hotkey-overlay-title="Вынуть окно из колонки / Настройки" { spawn-sh "~/.config/niri/scripts/slashkey"; }
+
+    // ─── Развернуть / полный экран / плавающее ───
+    Mod+F { fullscreen-window; }
+    // Последний шаг SUPER+= в Hyprland — развернуть на всю рабочую область.
+    Mod+Shift+F { maximize-column; }
+    // Растянуть колонку на всё свободное место; повторно — исходный размер (scripts/colexpand).
+    Mod+Alt+D hotkey-overlay-title="Колонку растянуть на всю ширину" { spawn-sh "~/.config/niri/scripts/colexpand"; }
+    // Через скрипт, а не toggle-window-floating напрямую (02.10.2026): niri, возвращая окно
+    // из плавающих в ленту, сбрасывал ширину на 50 % — скрипт возвращает ту, что была.
+    Mod+V hotkey-overlay-title="Плавающее окно вкл/выкл" { spawn-sh "~/.config/niri/scripts/floattoggle"; }
+    Mod+Shift+V { switch-focus-between-floating-and-tiling; }
+    // Вкладки внутри колонки — новое, в Hyprland такого не было.
+    Mod+Shift+T { toggle-column-tabbed-display; }
+    Mod+Shift+C { center-column; }
+
+    // ─── Мониторы (горизонталь) ───
+    // 05.10.2026: Super+Tab — следующий монитор, Alt+Tab — свой переключатель окон как в
+    // Windows (держим Alt, Tab листает, отпустили — переход). alt_tab.sh пишет строку в
+    // канал резидента alt_tab.py — без запуска питона, почти мгновенно.
+    Mod+Tab { focus-monitor-next; }
+    Alt+Tab hotkey-overlay-title="Переключатель окон" { spawn-sh "~/.config/hypr/scripts/alt_tab.sh next"; }
+    Ctrl+Alt+H { move-window-to-monitor-left; }
+    Ctrl+Alt+L { move-window-to-monitor-right; }
+    Ctrl+Alt+Left  { move-window-to-monitor-left; }
+    Ctrl+Alt+Right { move-window-to-monitor-right; }
+
+
+    // ─── «Карманный» стол (в Hyprland был спецстол special:magic) ───
+    // Одна клавиша туда и обратно: второе нажатие возвращает на тот стол,
+    // откуда вызвали (scripts/magic помнит его между нажатиями).
+    // ALT+Q — туда и обратно, ALT+E — положить окно в карман,
+    // SUPER+ALT+E — достать окно из кармана туда, откуда пришли (как в Hyprland).
+    Alt+Q repeat=false hotkey-overlay-title="Карманный стол: открыть/спрятать" { spawn-sh "~/.config/niri/scripts/magic toggle"; }
+    Alt+E hotkey-overlay-title="Окно в карманный стол" { spawn-sh "~/.config/niri/scripts/magic send"; }
+    Mod+Alt+E hotkey-overlay-title="Окно из карманного стола" { spawn-sh "~/.config/niri/scripts/magic take"; }
+
+    // ─── Столы по номеру ───
+    Mod+1 { focus-workspace 1; }
+    Mod+2 { focus-workspace 2; }
+    Mod+3 { focus-workspace 3; }
+    Mod+4 { focus-workspace 4; }
+    Mod+5 { focus-workspace 5; }
+    Mod+6 { focus-workspace 6; }
+    Mod+7 { focus-workspace 7; }
+    Mod+8 { focus-workspace 8; }
+    Mod+9 { focus-workspace 9; }
+    // SUPER+0 — исходный размер окна (scripts/winreset, 28.09.2026). На стол 10
+    // ведёт SUPER+0 на цифровом блоке.
+    Mod+0 hotkey-overlay-title="Сбросить размер окна" { spawn-sh "~/.config/niri/scripts/winreset"; }
+    // SUPER+D — стол дашборда (05.10.2026; раньше — стол 10)
+    Mod+D repeat=false hotkey-overlay-title="Дашборд: фокус" { spawn-sh "~/.config/niri/scripts/dashboard focus"; }
+
+    Mod+Shift+1 { move-column-to-workspace 1; }
+    Mod+Shift+2 { move-column-to-workspace 2; }
+    Mod+Shift+3 { move-column-to-workspace 3; }
+    Mod+Shift+4 { move-column-to-workspace 4; }
+    Mod+Shift+5 { move-column-to-workspace 5; }
+    Mod+Shift+6 { move-column-to-workspace 6; }
+    Mod+Shift+7 { move-column-to-workspace 7; }
+    Mod+Shift+8 { move-column-to-workspace 8; }
+    Mod+Shift+9 { move-column-to-workspace 9; }
+    Mod+Shift+0 { move-column-to-workspace 10; }
+
+    // Цифровая клавиатура — те же столы
+    Mod+KP_1 { focus-workspace 1; }
+    Mod+KP_2 { focus-workspace 2; }
+    Mod+KP_3 { focus-workspace 3; }
+    Mod+KP_4 { focus-workspace 4; }
+    Mod+KP_5 { focus-workspace 5; }
+    Mod+KP_6 { focus-workspace 6; }
+    Mod+KP_7 { focus-workspace 7; }
+    Mod+KP_8 { focus-workspace 8; }
+    Mod+KP_9 { focus-workspace 9; }
+    Mod+KP_0 { focus-workspace 10; }
+
+    Mod+Shift+KP_1 { move-column-to-workspace 1; }
+    Mod+Shift+KP_2 { move-column-to-workspace 2; }
+    Mod+Shift+KP_3 { move-column-to-workspace 3; }
+    Mod+Shift+KP_4 { move-column-to-workspace 4; }
+    Mod+Shift+KP_5 { move-column-to-workspace 5; }
+    Mod+Shift+KP_6 { move-column-to-workspace 6; }
+    Mod+Shift+KP_7 { move-column-to-workspace 7; }
+    Mod+Shift+KP_8 { move-column-to-workspace 8; }
+    Mod+Shift+KP_9 { move-column-to-workspace 9; }
+    Mod+Shift+KP_0 { move-column-to-workspace 10; }
+
+    // ─── Колесо мыши: SUPER + колесо листает ОКНА ленты ───
+    // (просьба пользователя 19.09.2026; столы остались на H / L)
+    Mod+WheelScrollDown { focus-column-right; }
+    Mod+WheelScrollUp   { focus-column-left; }
+    Mod+Ctrl+WheelScrollDown cooldown-ms=150 { focus-workspace-down; }
+    Mod+Ctrl+WheelScrollUp   cooldown-ms=150 { focus-workspace-up; }
+
+    // ─── Снимки экрана ───
+    // Print — родной экран выбора niri: область, окно или монитор,
+    // с заморозкой картинки. Заменяет hyprshot -m region -z.
+    Print { screenshot; }
+    Alt+Print { screenshot-window; }
+    // Окно в фокусе — одним нажатием, без выбора (13.10.2026, пользователь). Alt+Print на многих
+    // клавиатурах приходит как SysRq и не срабатывает — поэтому ещё два сочетания.
+    // Снимок — в буфер обмена и в ~/Pictures/Screenshots.
+    Mod+Ctrl+S hotkey-overlay-title="Снимок окна в фокусе" { screenshot-window; }
+    Ctrl+Shift+Print hotkey-overlay-title="Снимок окна в фокусе" { screenshot-window; }
+    Ctrl+Print { screenshot-screen; }
+    // Снимок с разметкой (ksnip / satty) — как было.
+    Mod+Print hotkey-overlay-title="Снимок с пометками" { spawn-sh "~/.config/hypr/scripts/screenshot_annotate.sh"; }
+    // Текст из любого места экрана — в буфер обмена (распознавание).
+    // Своей кнопкой в экране выбора niri это не сделать: тот экран рисует
+    // композитор, его кнопки встроенные. Поэтому отдельное сочетание.
+    Shift+Print hotkey-overlay-title="Скопировать текст с экрана" { spawn-sh "~/.config/hypr/scripts/ocr_copy.sh"; }
+    // Запись области в GIF или видео (29.09.2026): выделение → выбор → запись с рамкой;
+    // повторное нажатие — стоп, файл в ~/Videos и в буфер. Тот же скрипт — пункт «Gif» в меню.
+    Mod+Shift+Print hotkey-overlay-title="Recorder: GIF / видео / стикер" { spawn-sh "~/.config/hypr/scripts/rec_area.sh"; }
+    // Replay (30.09.2026): сохранить последние 5 минут, если буфер включён (replay on /
+    // меню Recorder → Replay). Как Instant Replay у NVIDIA.
+    Mod+Alt+Print hotkey-overlay-title="Replay: сохранить последние 5 минут" { spawn-sh "~/.local/bin/replay save"; }
+    // Снимок из буфера — в плавающее окно его же размера (29.09.2026).
+    // Print → выделил область → Ctrl+Super+V: снятое всплывает рядом, без Pinta.
+    Mod+Ctrl+V hotkey-overlay-title="Показать снимок из буфера" { spawn-sh "python3 ~/.config/hypr/scripts/pin_shot.py"; }
+
+    // ─── Громкость, яркость, плеер ───
+    XF86AudioRaiseVolume allow-when-locked=true hotkey-overlay-title="Громкость +5%" { spawn-sh "~/.config/eww/scripts/volume_manager.sh up 5%"; }
+    XF86AudioLowerVolume allow-when-locked=true hotkey-overlay-title="Громкость -5%" { spawn-sh "~/.config/eww/scripts/volume_manager.sh down 5%"; }
+    XF86AudioMute        allow-when-locked=true { spawn-sh "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"; }
+    XF86AudioMicMute     allow-when-locked=true { spawn-sh "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"; }
+
+    XF86MonBrightnessUp   allow-when-locked=true hotkey-overlay-title="Яркость экрана выше" { spawn "brightnessctl" "-e4" "-n2" "set" "5%+"; }
+    XF86MonBrightnessDown allow-when-locked=true hotkey-overlay-title="Яркость экрана ниже" { spawn "brightnessctl" "-e4" "-n2" "set" "5%-"; }
+
+    XF86AudioNext  allow-when-locked=true hotkey-overlay-title="Следующий трек" { spawn "playerctl" "next"; }
+    XF86AudioPlay  allow-when-locked=true hotkey-overlay-title="Играть/пауза" { spawn "playerctl" "play-pause"; }
+    XF86AudioPause allow-when-locked=true hotkey-overlay-title="Играть/пауза" { spawn "playerctl" "play-pause"; }
+    XF86AudioPrev  allow-when-locked=true hotkey-overlay-title="Предыдущий трек" { spawn "playerctl" "previous"; }
+
+    // Подсветка клавиатуры ноутбука
+    Mod+F1 allow-when-locked=true hotkey-overlay-title="Подсветка клавиатуры вкл/выкл" { spawn-sh "~/.config/hypr/scripts/kbdlight toggle"; }
+    Mod+F2 allow-when-locked=true hotkey-overlay-title="Подсветка клавиатуры тише" { spawn-sh "~/.config/hypr/scripts/kbdlight down"; }
+    Mod+F3 allow-when-locked=true hotkey-overlay-title="Подсветка клавиатуры ярче" { spawn-sh "~/.config/hypr/scripts/kbdlight up"; }
+
+    // F7 / F8 / F9 — плеер (scripts/mediakey, на playerctl)
+    F7 hotkey-overlay-title="Предыдущий трек" { spawn-sh "~/.config/hypr/scripts/mediakey previous"; }
+    F8 hotkey-overlay-title="Играть/пауза" { spawn-sh "~/.config/hypr/scripts/mediakey play-pause"; }
+    F9 hotkey-overlay-title="Следующий трек" { spawn-sh "~/.config/hypr/scripts/mediakey next"; }
+
+    // F1 / F2 — громкость
+    F1 hotkey-overlay-title="Громкость -5%" { spawn-sh "~/.config/eww/scripts/volume_manager.sh down 5%"; }
+    F2 hotkey-overlay-title="Громкость +5%" { spawn-sh "~/.config/eww/scripts/volume_manager.sh up 5%"; }
+    // Микрофон: Shift к тем же клавишам громкости (13.10.2026); микшер показывает микрофон
+    Shift+F1 allow-when-locked=true hotkey-overlay-title="Микрофон -5%" { spawn-sh "~/.config/eww/scripts/volume_manager.sh mic_down 5%"; }
+    Shift+F2 allow-when-locked=true hotkey-overlay-title="Микрофон +5%" { spawn-sh "~/.config/eww/scripts/volume_manager.sh mic_up 5%"; }
+    Shift+XF86AudioLowerVolume allow-when-locked=true hotkey-overlay-title="Микрофон -5%" { spawn-sh "~/.config/eww/scripts/volume_manager.sh mic_down 5%"; }
+    Shift+XF86AudioRaiseVolume allow-when-locked=true hotkey-overlay-title="Микрофон +5%" { spawn-sh "~/.config/eww/scripts/volume_manager.sh mic_up 5%"; }
+
+    // F10 — «нравится» тому плееру, который звучит. Нажатие в окно niri
+    // послать нечем, поэтому кнопка жмётся через API самого плеера
+    // (scripts/player_like_key, 21.09.2026).
+    F10 hotkey-overlay-title="Трек понравился" { spawn-sh "~/.config/hypr/scripts/player_like_key"; }
+
+    // CTRL+SHIFT+] — картинка в картинке (07.10.2026). На русской раскладке браузер
+    // видит «Ъ» и сочетание не узнаёт. niri ловит бинд на любой раскладке, а wtype
+    // (~/.local/bin, бинарник из пакета Arch) пересылает в окно в фокусе именно «]»
+    // своей виртуальной клавиатурой — её нажатия идут мимо биндов niri, петли нет.
+    // Перехват общий, но пересылается то же сочетание, так что другим программам
+    // (kitty: следующее окно) ничего не меняется.
+    Ctrl+Shift+BracketRight hotkey-overlay-title="Картинка в картинке" { spawn-sh "wtype -M ctrl -M shift -k bracketright -m shift -m ctrl"; }
+
+    // НЕ ПЕРЕНЕСЕНО, перенести нечем:
+    //   F11 — «дизлайк». Путь тот же, что у лайка, но кнопку надо добавить
+    //     во все три плеера (Яндекс, YouTube Music, Zen) — пока не сделано.
+    //   SUPER+CTRL+↑/↓ и ALT+H/L — создать и удалить стол. В niri столы
+    //     динамические: пустой всегда есть снизу, а опустевший исчезает сам.
+
+    // ─── Служебное ───
+    // Slash даёт символ «/» только на английской раскладке; на русской та же
+    // физическая клавиша шлёт period (как и у Mod+Period выше) — поэтому
+    // дублируем на Mod+Shift+Period, иначе бинд по-русски не нажать.
+    Mod+Shift+Slash  { show-hotkey-overlay; }
+    Mod+Shift+Period { show-hotkey-overlay; }
+    Mod+Escape allow-inhibiting=false { toggle-keyboard-shortcuts-inhibit; }
+    Mod+Shift+E { quit; }
+    Ctrl+Alt+Delete { quit; }
+    // Alt+F4 — меню «Питание» (power_menu.py); окна не закрывает — так решил пользователь.
+    Alt+F4 hotkey-overlay-title="Меню питания" { spawn-sh "~/.config/niri/scripts/alt-f4"; }
+    Mod+Shift+Backslash { power-off-monitors; }
+    Mod+Z hotkey-overlay-title="Шпаргалка клавиш" { spawn-sh "python3 ~/.config/hypr/scripts/keybinds_sheet.py"; }
+    Mod+Shift+Z hotkey-overlay-title="Карта staticOS" { spawn-sh "python3 ~/.config/hypr/scripts/config_map.py"; }
+    Mod+X hotkey-overlay-title="Лаунчер приложений" { spawn-sh "python3 ~/.config/hypr/scripts/app_launcher.py"; }
+}
+
+
+// Отключено 21.09.2026: Noctalia задавала здесь СПЛОШНУЮ тёмную рамку
+// неактивным окнам (#0a1a33) — отсюда «странные рамки» у всех окон.
+// Цвета рамок берём из matugen (include ~/.cache/matugen/niri-colors.kdl).
+// include "noctalia.kdl"

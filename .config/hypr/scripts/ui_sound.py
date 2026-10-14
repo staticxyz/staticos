@@ -5,7 +5,8 @@
     ui_sound.py on|off            включить / выключить все звуки (Настройки → Misc)
     ui_sound.py status            on | off
     ui_sound.py volume [0–100]    своя громкость этих звуков (без числа — показать)
-    ui_sound.py notify-volume [0–100]   своя громкость звука уведомления (не зависит от volume)
+    ui_sound.py notify-volume     громкость звука уведомления = volume (с 14.10.2026 общая)
+    ui_sound.py timer-amp         громкость звонка таймеров для pw-play --volume (0.0–1.0)
     ui_sound.py pack [retro|classic|xp]   набор: Windows XP, ретро (синтез) или обычный
     ui_sound.py cat               группы событий и включены ли они
     ui_sound.py cat ГРУППА [on|off]   включить / выключить группу (без on|off — показать)
@@ -59,9 +60,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STATE = os.path.expanduser("~/.config/hypr/state")
 OFF = os.path.join(STATE, "ui-sound-off")
 VOL = os.path.join(STATE, "ui-sound-volume")
-# Своя громкость звука уведомления (04.10.2026, Настройки → Уведомления), 0–100, по той же
-# кубической шкале, независимо от общей громкости звуков интерфейса. Звуки программ — не здесь.
-NOTIFY_VOL = os.path.join(STATE, "ui-sound-notify-volume")
+# Звук уведомления — с 14.10.2026 по общей громкости звуков (VOL). Просьба: «громкость
+# уведомлений объединим с громкостью системы, будет общая; вместо неё — громкость таймера».
+# Своя (ui-sound-notify-volume, 04.10) больше не читается.
+# Громкость звонка ВСЕХ таймеров: виджет timer.exe, таймеры hub, команда timer. 0–100,
+# кубическая шкала микшера; нет файла — 67 (≈ прежние 0.3). Настройки → Уведомления.
+TIMER_VOL = os.path.join(STATE, "timer-volume")
+TIMER_DEFAULT = 67
 PACK = os.path.join(STATE, "ui-sound-pack")
 CATS = os.path.join(STATE, "ui-sound-cats.json")
 OWN = os.path.expanduser("~/.config/hypr/sounds")
@@ -136,10 +141,20 @@ def get_volume():
 
 
 def get_notify_volume():
+    """Громкость звука уведомления — общая громкость звуков (с 14.10.2026)."""
+    return get_volume()
+
+
+def get_timer_volume():
     try:
-        return max(0, min(100, int(_read(NOTIFY_VOL, 100))))
+        return max(0, min(100, int(_read(TIMER_VOL, TIMER_DEFAULT))))
     except ValueError:
-        return 100
+        return TIMER_DEFAULT
+
+
+def timer_amp():
+    """Громкость звонка таймера для pw-play --volume."""
+    return round((get_timer_volume() / 100) ** 3, 4)
 
 
 def get_pack():
@@ -224,10 +239,6 @@ def dnd():
 def play(event, force=False, wait=False):
     f = sound_file(event)
     vol = get_volume()
-    if event == "notify":
-        # Своя громкость, НЕ доля от общей (05.10.2026): доля перемножалась до кубической
-        # шкалы — при звуках интерфейса 33% и уведомлениях 80% выходило 1,8%, тишина.
-        vol = get_notify_volume()
     if not f or vol == 0 or os.path.exists(REC_PID) or _cached("game", gaming):
         return False
     if not force:
@@ -286,12 +297,9 @@ def main():
                 pass
         print(get_volume())
     elif a[:1] == ["notify-volume"]:
-        if len(a) > 1:
-            try:
-                _write(NOTIFY_VOL, max(0, min(100, int(float(a[1])))))
-            except ValueError:
-                pass
         print(get_notify_volume())
+    elif a[:1] == ["timer-amp"]:
+        print(timer_amp())
     elif a[:1] == ["pack"]:
         if len(a) > 1 and a[1] in PACKS:
             _write(PACK, a[1])

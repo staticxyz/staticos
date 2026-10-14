@@ -260,9 +260,10 @@ def watch_notify():
                     # Telegram (05.10.2026, просьба: «системного звука в сообщениях Telegram
                     # быть не должно — пусть звучит сам Telegram»). Смена трека (track_notify.py,
                     # -a Music) — тоже молча (09.10.2026: «уведомление пусть будет, звук не хочу»).
-                    # hub (напоминания) звенит сам, громче (13.10.2026).
+                    # hub (напоминания) звенит сам, громче (13.10.2026); hub-log — запись
+                    # «что нажато» в центр уведомлений, без всплывания и звука (14.10.2026).
                     if app not in (b'string "niri"', b'string "Telegram Desktop"',
-                                   b'string "Music"', b'string "hub"') \
+                                   b'string "Music"', b'string "hub"', b'string "hub-log"') \
                             and time.monotonic() - last > 1.0:
                         last = time.monotonic()
                         ui_sound.play("notify")

@@ -346,9 +346,9 @@ def fit_rect(spec, W, H):
 
 
 def dash_mode():
-    """Режим дашборда (~/.config/niri/dashboard-mode): off | terminal | widgets."""
+    """Режим дашборда (~/.config/niri/state/dashboard-mode): off | terminal | widgets."""
     try:
-        m = open(os.path.expanduser("~/.config/niri/dashboard-mode")).read().strip()
+        m = open(os.path.expanduser("~/.config/niri/state/dashboard-mode")).read().strip()
     except OSError:
         m = ""
     return m if m in ("off", "terminal", "widgets") else "terminal"

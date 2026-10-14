@@ -74,8 +74,11 @@ duration_seconds() {
 
 play_alarm() {
     if [ -r "$ALARM_SOUND" ]; then
+        # громкость — общий ползунок «Громкость таймера» (Настройки → Уведомления, 14.10.2026)
+        local vol
+        vol=$(python3 ~/.config/hypr/scripts/ui_sound.py timer-amp 2>/dev/null) || vol=0.3
         for _ in 1 2 3; do
-            paplay "$ALARM_SOUND" 2>/dev/null || pw-play "$ALARM_SOUND" 2>/dev/null || break
+            pw-play --volume "${vol:-0.3}" "$ALARM_SOUND" 2>/dev/null || paplay "$ALARM_SOUND" 2>/dev/null || break
         done
     else
         printf '\a\a\a'

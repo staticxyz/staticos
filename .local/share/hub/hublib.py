@@ -91,6 +91,9 @@ def connect(path=None):
 
 
 PRIO_NAMES = {2: "High", 1: "Mid", 0: "Default"}
+# повтор (поле «повтор» в hub_app, 14.10.2026): по умолчанию нет
+REPEATS = ("", "daily", "weekly", "monthly")
+REPEAT_NAMES = {"": "нет", "daily": "день", "weekly": "неделя", "monthly": "месяц"}
 
 
 def _migrate(c):
@@ -194,7 +197,8 @@ def parse_when(text, base=None):
 
     Понимает: «через 2 часа», «через полчаса», «завтра», «послезавтра», «в пятницу»,
     «в 18:30», «в 9», «18.10», «18.10 в 10:00», «утром/вечером», «каждый день»,
-    «каждую неделю». Не разобрал — due None (пункт сохраняется без срока)."""
+    «каждую неделю», «5 числа» (ближайшее 5-е), «каждый месяц 5 числа», «каждое
+    5 число». Не разобрал — due None (пункт сохраняется без срока)."""
     base = base or dt.datetime.now()
     t = " " + text.strip() + " "
     low = t.lower()
@@ -232,7 +236,7 @@ def parse_when(text, base=None):
     if due is not None:
         return _clean(t, cut), int(due.timestamp()), repeat
 
-    day = None
+    day = dom = None
     m = re.search(r"\s(сегодня|завтра|послезавтра)\s", low)
     if m:
         day = base.date() + dt.timedelta(days=("сегодня", "завтра", "послезавтра").index(m.group(1)))
@@ -258,6 +262,14 @@ def parse_when(text, base=None):
                 take(m)
             except ValueError:
                 day = None
+    if day is None:
+        # число месяца (14.10.2026: «каждый месяц 5 числа» давало срок None)
+        m = re.search(r"\s(каждое\s+)?(\d{1,2})(?:-?(?:го|ое|е))?\s+числ[аоу]\s", low)
+        if m and 1 <= int(m.group(2)) <= 31:
+            dom = int(m.group(2))
+            if m.group(1) and not repeat:
+                repeat = "monthly"
+            take(m)
 
     hh = mm = None
     m = re.search(r"\s(?:в|к|at)?\s*(\d{1,2}):(\d{2})\s", low)
@@ -277,8 +289,20 @@ def parse_when(text, base=None):
                 take(m)
                 break
 
-    if day is None and hh is None:
+    if day is None and hh is None and dom is None:
         return text.strip(), None, repeat
+    if dom is not None:                                   # ближайшее такое число, ещё не прошедшее
+        h_, m_ = (hh, mm) if hh is not None else (9, 0)
+        y, mo = base.year, base.month
+        for _ in range(14):
+            try:
+                cand = dt.datetime(y, mo, dom, h_, m_)
+                if cand > base:
+                    day = cand.date()
+                    break
+            except ValueError:                            # 31 числа нет в этом месяце
+                pass
+            y, mo = (y + 1, 1) if mo == 12 else (y, mo + 1)
     if day is None:
         day = base.date()
         cand = dt.datetime.combine(day, dt.time(hh, mm))
@@ -473,6 +497,13 @@ def set_prio(c, iid, prio, source="cli"):
     ok = _apply(c, iid, None, prio=int(prio))
     if ok:
         log(c, "prio", iid, "%s %s" % (source, prio))
+    return ok
+
+
+def set_repeat(c, iid, repeat, source="cli"):
+    ok = _apply(c, iid, None, repeat=repeat or "")
+    if ok:
+        log(c, "repeat", iid, "%s %s" % (source, repeat or "-"))
     return ok
 
 

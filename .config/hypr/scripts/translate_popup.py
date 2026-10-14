@@ -346,7 +346,15 @@ class Popup(Gtk.Window):
 def main():
     popup_theme.single_instance(__file__)
     GLib.set_prgname("jarvis-calc")            # app-id для правила niri
+    if not os.environ.get("CALC_PROBE"):
+        from menu_one import close_others      # другое меню открыто — закрыть (14.10.2026)
+        close_others(__file__)
     win = Popup()
+    if not os.environ.get("CALC_PROBE"):
+        # затемнение, как у Super+X, и щелчок мимо — закрыть (14.10.2026, просьба:
+        # «и в Super+C тоже»); тёмный слой без этого глотал бы щелчки впустую
+        from scrim_layer import cover
+        cover(win, "jarvis-calc-catch", win.destroy)
     win.show_all()
     win.entry.grab_focus()
     if len(sys.argv) > 1:                      # начальный текст (и для проверок без рук)

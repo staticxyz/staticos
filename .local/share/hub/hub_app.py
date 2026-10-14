@@ -6,14 +6,15 @@ Discipline тянет будильник и фокус, hub ничего это�
     hub_app.py            напоминания            hub_app.py dict   словарь (с выделенным текстом)
 
 j/k — вниз/вверх · Tab, Shift+H/L — вкладка · i/a, Ctrl+E — новая запись (ввод обычным
-текстом; Enter, jj, Ctrl+E — сохранить, Esc — отмена, Ctrl+S — тоже сохранить) ·
+текстом; Enter, jj (только латиницей), Ctrl+E — сохранить, Esc — отмена, Ctrl+S — тоже сохранить) ·
 x — выполнено · 1/2/3 — важность High/Mid/Default · v — вид (общий/списком) ·
 Alt+j/k — переставить выше/ниже · s — +1 час · Shift+S — на завтра 09:00 · dd — удалить (второе «d» подряд —
 само подтверждение) · u — отменить последнее действие · Ctrl+R — повторить отменённое ·
 z — повторение слов (Space — показать, y — знал, n — не знал) · q, Esc — закрыть.
 Второй запуск поднимает уже открытое окно (GApplication).
 
-При вводе новой (и в «e») Tab переводит на поля дата / время / важность — всё по желанию:
+При вводе новой (и в «e») Tab переводит на поля дата / время / важность / повтор — всё по
+желанию (повтор по умолчанию «нет»; j/k — нет/день/неделя/месяц, нужен срок):
 j/k — ±день / ±15 минут (Shift — неделя / час), можно и вписать: «завтра», «пт», «15.10»,
 «1830». Без полей срок, как раньше, берётся из текста («купить хлеб завтра в 9»).
 
@@ -59,7 +60,9 @@ SIZE_FILE = os.path.expanduser("~/.config/hub/app-size")
 VIEW_FILE = os.path.expanduser("~/.config/hub/app-view")    # flat (общий) | list (списком)
 PRIO_COL = {2: (0.91, 0.30, 0.30), 1: (0.95, 0.77, 0.22)}  # High — красный, Mid — жёлтый
 HEAD_PRIO = {name: p for p, name in H.PRIO_NAMES.items()}
-FIELDS = ("title", "date", "time", "prio")
+FIELDS = ("title", "date", "time", "prio", "repeat")
+# поля под строкой ввода: имя, подсказка, ширина; не влезают в ширину — переносятся
+FORM = (("date", "дата", 210), ("time", "время", 64), ("prio", None, 96), ("repeat", None, 96))
 TABS = ("items", "words")
 TAB_NAMES = {"items": "Напоминания", "words": "Словарь"}
 
@@ -448,8 +451,9 @@ class View:
         self.draft_seq = -1
         self.text_new = False
         self.editing_id = None          # id записи, которую редактируем (e)
-        self.field = "title"            # поле ввода: title | date | time | prio (Tab)
+        self.field = "title"            # поле ввода: title | date | time | prio | repeat (Tab)
         self.f_date, self.f_time, self.f_prio = "", "", 0
+        self.f_repeat = ""              # повтор: "" | daily | weekly | monthly (H.REPEATS)
         self.edit_orig = ("", "")       # дата/время до правки — менялись ли
         self.cur = None                 # курсор в тексте (None — в конце)
         self.f_typing = False           # поле дата/время: False — j/k/h/l, True — ввод руками
@@ -652,11 +656,26 @@ class View:
         """Место под точку важности справа (только в общем виде)."""
         return 14 if self.view_mode == "flat" and (fld(d, "prio", 0) or 0) > 0 else 0
 
-    def draw_form(self, p, x, y):
-        """Строка полей под вводом: дата · время · важность (Tab, клик)."""
+    @staticmethod
+    def form_places(x, x1):
+        """[(имя, подсказка, x, номер строки, ширина)] — поля в ряд, лишнее на следующей строке
+        (четыре в ширину 460 не влезают: «повтор» уходит вниз, 14.10.2026)."""
+        out, cx, row = [], x, 0
+        for name, ph, w in FORM:
+            if cx > x and cx + w > x1:
+                cx, row = x, row + 1
+            out.append((name, ph, cx, row, w))
+            cx += w + 8
+        return out
+
+    def form_h(self, x, x1):
+        return ROW_H * (1 + max(r for *_a, r, _w in self.form_places(x, x1)))
+
+    def draw_form(self, p, x, y, x1):
+        """Поля под вводом: дата · время · важность · повтор (Tab, клик)."""
         c = self.c
-        by, bh = y + 1, ROW_H - 4
-        for name, ph, w in (("date", "дата", 210), ("time", "время", 64), ("prio", None, 96)):
+        for name, ph, x, row, w in self.form_places(x, x1):
+            by, bh = y + 1 + row * ROW_H, ROW_H - 4
             on = self.field == name
             hov = self.hover == ("field", name)
             p.rect(x, by, w, bh, c["field"])
@@ -671,6 +690,10 @@ class View:
                     p.cr.fill()
                     tx = x + 17
                 p.text(tx, ty, H.PRIO_NAMES[pr], c["text"] if (on or pr) else c["faint"])
+            elif name == "repeat":
+                rp = self.f_repeat
+                p.text(x + 6, ty, "↻ " + H.REPEAT_NAMES[rp],
+                       (c["acc_l"] if rp else c["text"]) if on else (c["text"] if rp else c["faint"]))
             else:
                 val = self.f_date if name == "date" else self.f_time
                 if not val:
@@ -691,7 +714,6 @@ class View:
                     col = c["acc_l"] if col != c["err"] else col
                 p.text(x + 6, ty, shown, col, maxw=w - 10)
             self.hits.append(((x, by, w, bh), ("field", name)))
-            x += w + 8
 
     def draw_list(self, p, x0, x1, y0, y1):
         c = self.c
@@ -754,7 +776,7 @@ class View:
         if kind == "new" or (editing and self.text_target == i):
             disp = self.edit_text(kind == "word")
             h = max(ROW_H, p.measure_wrap(disp, maxw=x1 - x0 - 24 - GAP) + 6)
-            return h + (ROW_H if self.tab == "items" else 0)
+            return h + (self.form_h(x0 + 14 + GAP, x1) if self.tab == "items" else 0)
         if kind == "item":
             main, due = self.item_parts(d)
             dw = (p.text_w(due) + 12 if due else 0) + self.dot_w(d)
@@ -785,12 +807,12 @@ class View:
                 disp = self.edit_text()
                 tw = x1 - x0 - 24 - GAP
                 tb = max(ROW_H, p.measure_wrap(disp, maxw=tw) + 6)
-                bh = tb + (ROW_H if self.tab == "items" else 0)
+                bh = tb + (self.form_h(x0 + 14 + GAP, x1) if self.tab == "items" else 0)
                 self.row_bg(p, x0, x1, y, True, ("row", i), h=bh)
                 self.icon_box(p, x0 + 1 + GAP, y + (ROW_H - 9) / 2, 9, c["acc_l"], filled=False)
                 p.text_wrap(x0 + 14 + GAP, y + 3, disp, c["acc_l"], maxw=tw)
                 if self.tab == "items":
-                    self.draw_form(p, x0 + 14 + GAP, y + tb)
+                    self.draw_form(p, x0 + 14 + GAP, y + tb, x1)
                 y += bh
                 continue
             elif kind == "item":
@@ -808,11 +830,11 @@ class View:
                     disp = self.edit_text()
                     tw = x1 - x0 - 24 - GAP
                     tb = max(ROW_H, p.measure_wrap(disp, maxw=tw) + 6)
-                    bh = tb + ROW_H
+                    bh = tb + self.form_h(x0 + 14 + GAP, x1)
                     self.row_bg(p, x0, x1, y, True, ("row", i), h=bh)
                     self.icon_box(p, x0 + 1 + GAP, y + (ROW_H - 9) / 2, 9, c["err"] if over else c["dim"], filled=False)
                     p.text_wrap(x0 + 14 + GAP, y + 3, disp, c["acc_l"], maxw=tw)
-                    self.draw_form(p, x0 + 14 + GAP, y + tb)
+                    self.draw_form(p, x0 + 14 + GAP, y + tb, x1)
                     y += bh
                     continue
                 dot = self.dot_w(d)
@@ -933,7 +955,10 @@ class View:
             if self.tab == "items":              # мышью: поле, шаг, ввод руками (13.10.2026)
                 if self.field == "title":
                     mid = [("дата", ("btn", "f_date")), ("время", ("btn", "f_time")),
-                           ("важность", ("btn", "f_prio"))]
+                           ("важность", ("btn", "f_prio")), ("повтор", ("btn", "f_repeat"))]
+                elif self.field == "repeat":
+                    mid = [(H.REPEAT_NAMES[r], ("btn", "rep:" + r), r == self.f_repeat)
+                           for r in H.REPEATS]
                 elif self.field == "prio":
                     mid = [("ниже", ("btn", "fminus")), ("выше", ("btn", "fplus"))]
                 else:
@@ -957,7 +982,10 @@ class View:
         n = self.n_drafts()
         save = [("сохранить (%d)" % n, ("btn", "savedraft"), True)] if n else []
         draft = bool(d is not None and fld(d, "_draft"))
-        delete = ("точно?" if confirming else "удалить", ("btn", "delete"))
+        # повторяющееся (14.10.2026): «отметить» — срок на следующий раз, «закрыть цикл» — конец
+        rep = kind == "item" and bool(fld(d, "repeat"))
+        delete = ("точно?" if confirming else ("закрыть цикл" if rep else "удалить"), ("btn", "delete"))
+        done_l = "Отметить" if rep else "Выполнено"
         if self.tab == "items":
             btns = [("+ запись", ("btn", "new"), not n)] + save
             if kind == "item" and draft:
@@ -965,9 +993,9 @@ class View:
             elif kind == "item" and fld(d, "status") == "done":
                 btns += [("вернуть", ("btn", "done")), delete]
             elif kind == "item" and n:
-                btns += [("Выполнено", ("btn", "done")), delete]
+                btns += [(done_l, ("btn", "done")), delete]
             elif kind == "item":
-                btns += [("Выполнено", ("btn", "done")), ("+1ч", ("btn", "snooze1")),
+                btns += [(done_l, ("btn", "done")), ("+1ч", ("btn", "snooze1")),
                          ("завтра", ("btn", "snoozetomorrow")), delete]
         else:
             btns = [("+ слово", ("btn", "new"), not n)] + save
@@ -978,10 +1006,11 @@ class View:
         self.buttons(p, x0, x1, y, btns)
 
     FIELD_HINTS = {
-        "title": "Enter · Tab — срок и важность · Esc",
+        "title": "Enter · Tab — срок, важность, повтор · Esc",
         "date": "j/k h/l ±день, Shift ±неделя · e или / — вписать",
         "time": "j/k h/l ±15 мин, Shift ±час · e или / — вписать",
         "prio": "j/k h/l или 1/2/3 · Enter — %s",
+        "repeat": "j/k h/l — нет/день/неделя/месяц · Enter — %s",
         "typing": "«пт» «15.10» «+3» «1830» · Enter — готово · Esc",
     }
     HINTS = {
@@ -1245,6 +1274,8 @@ class HubWindow(Gtk.ApplicationWindow):
         elif isinstance(key, tuple) and key[0] == "field" and v.mode == "text":
             if key[1] == "prio" and v.field == "prio":
                 v.f_prio = (v.f_prio + 1) % 3          # повторный клик — следующая важность
+            if key[1] == "repeat" and v.field == "repeat":
+                self.field_step(1, False, wrap=True)
             if key[1] != v.field:
                 self.field_typing(False)
             v.field = key[1]
@@ -1255,9 +1286,12 @@ class HubWindow(Gtk.ApplicationWindow):
     def do_button(self, action):
         v = self.view
         if v.mode == "text":
-            if action in ("f_date", "f_time", "f_prio"):
+            if action in ("f_date", "f_time", "f_prio", "f_repeat"):
                 self.field_typing(False)
                 v.field = action[2:]
+                return
+            if action.startswith("rep:"):
+                v.f_repeat = action[4:]
                 return
             if action in ("fminus", "fplus"):
                 self.field_typing(False)
@@ -1426,6 +1460,7 @@ class HubWindow(Gtk.ApplicationWindow):
         v.cur, v.f_typing, v.f_cur = None, False, None
         v.f_date = v.f_time = ""
         v.f_prio = (fld(d, "prio", 0) or 0) if d is not None else 0
+        v.f_repeat = (fld(d, "repeat", "") or "") if d is not None else ""
         if d is not None and d["due"]:
             t = dt.datetime.fromtimestamp(d["due"])
             v.f_date, v.f_time = fmt_date(t.date()), t.strftime("%H:%M")
@@ -1557,7 +1592,12 @@ class HubWindow(Gtk.ApplicationWindow):
                 v.flash("не разобрано поле «%s»" % due)
                 return
             due_changed = (v.f_date, v.f_time) != v.edit_orig
-            prio = v.f_prio
+            prio, repeat = v.f_prio, v.f_repeat
+            old = H.get_item(v.conn, iid)
+            if repeat and not (due if due_changed else (old and old["due"])):
+                v.field = "date"
+                v.flash("у повтора должен быть срок — дата или время")
+                return
         kind, d = v.current(v.rows())
         self.cancel_text()
         if not text or iid is None:
@@ -1567,16 +1607,21 @@ class HubWindow(Gtk.ApplicationWindow):
             if old is None:
                 return
             old_text, old_due, old_prio = old["text"], old["due"], old["prio"] or 0
+            old_rep = old["repeat"] or ""
 
             def fwd():
                 H.edit(v.conn, iid, text=text, due=due if due_changed else "keep", source="pc")
                 if prio != old_prio:
                     H.set_prio(v.conn, iid, prio, "pc")
+                if repeat != old_rep:
+                    H.set_repeat(v.conn, iid, repeat, "pc")
 
             def bwd():
                 H.edit(v.conn, iid, text=old_text, due=old_due if due_changed else "keep", source="pc")
                 if prio != old_prio:
                     H.set_prio(v.conn, iid, old_prio, "pc")
+                if repeat != old_rep:
+                    H.set_repeat(v.conn, iid, old_rep, "pc")
             self.run_action("редактирование", fwd, bwd)
             self.select_item(iid)
         else:
@@ -1718,10 +1763,14 @@ class HubWindow(Gtk.ApplicationWindow):
         self.redraw()
         return True
 
-    def field_step(self, step, big):
-        """Шаг поля: дата ±день (big — неделя), время ±15 мин (big — час), важность ±1."""
+    def field_step(self, step, big, wrap=False):
+        """Шаг поля: дата ±день (big — неделя), время ±15 мин (big — час), важность ±1,
+        повтор — следующий/прошлый (wrap — по кругу, для клика)."""
         v = self.view
-        if v.field == "prio":
+        if v.field == "repeat":
+            k = H.REPEATS.index(v.f_repeat) + step
+            v.f_repeat = H.REPEATS[k % len(H.REPEATS) if wrap else max(0, min(len(H.REPEATS) - 1, k))]
+        elif v.field == "prio":
             v.f_prio = max(0, min(2, v.f_prio + step))
         elif v.field == "date":
             d = parse_date(v.f_date)
@@ -1779,6 +1828,11 @@ class HubWindow(Gtk.ApplicationWindow):
                 v.f_prio = {"1": 2, "2": 1, "3": 0}[ch]
             elif ch == " ":
                 v.f_prio = (v.f_prio + 1) % 3
+        elif v.field == "repeat":
+            if ch == " ":
+                self.field_step(1, False, wrap=True)
+            elif name in ("BackSpace", "Delete"):
+                v.f_repeat = ""
         elif ch in ("e", "/"):
             self.field_typing(True)
         elif name in ("BackSpace", "Delete"):
@@ -1827,7 +1881,9 @@ class HubWindow(Gtk.ApplicationWindow):
                 return
             k = len(v.buf) if v.cur is None else min(v.cur, len(v.buf))
             now = time.monotonic()
-            if ch == "j" and self.pending_jj and now - self.pending_t < 0.4 and k > 0:
+            # jj — только латиницей: «оо» в русской раскладке (вообще, кооператив) — просто
+            # текст (14.10.2026, просьба: печатать «вообще» без пауз)
+            if chr(u) == "j" and self.pending_jj and now - self.pending_t < 0.4 and k > 0:
                 v.buf, v.cur = v.buf[:k - 1] + v.buf[k:], k - 1     # jj — первую j убрать
                 if v.editing_id is not None:
                     self.finish_edit()
@@ -1835,7 +1891,7 @@ class HubWindow(Gtk.ApplicationWindow):
                     self.submit_text()
                 return
             v.buf, v.cur = v.buf[:k] + chr(u) + v.buf[k:], k + 1
-            self.pending_jj = ch == "j"
+            self.pending_jj = chr(u) == "j"
             self.pending_t = now
 
     def submit_text(self):
@@ -1851,15 +1907,21 @@ class HubWindow(Gtk.ApplicationWindow):
             v.field = "date" if fdue == "дата" else "time"
             v.flash("не разобрано поле «%s»" % fdue)
             return
-        prio = v.f_prio
-        self.cancel_text()
-        if not text:
-            return
-        if v.tab == "items":
+        prio, frep = v.f_prio, v.f_repeat
+        if text and v.tab == "items":
             lname, body = H.split_list(text)
             clean, due, repeat = H.parse_when(body)
             if fdue is not None:                       # поля дата/время главнее текста
                 due = fdue
+            repeat = frep or repeat                    # поле «повтор» главнее «каждый …» в тексте
+            if repeat and not due:                     # без срока повтор не сработает ни разу
+                v.field = "date"
+                v.flash("у повтора должен быть срок — дата или время")
+                return
+        self.cancel_text()
+        if not text:
+            return
+        if v.tab == "items":
             d = {"id": v.draft_seq, "text": clean or body.strip(), "due": due, "repeat": repeat,
                  "status": "open", "kind": "task", "list": lname, "_draft": True, "_raw": text,
                  "prio": prio}
@@ -2043,11 +2105,12 @@ class App(Gtk.Application):
 
 
 def shot(path, tab="items", sel=0, mode="normal", style=None, w=0, h=0, view=None,
-         field="title", fdate="", ftime="", fprio=0):
+         field="title", fdate="", ftime="", fprio=0, frepeat=""):
     v = View()
     if view:
         v.view_mode = view
     v.field, v.f_date, v.f_time, v.f_prio = field, str(fdate), str(ftime), int(fprio)
+    v.f_repeat = frepeat
     if style:
         v.style, v.c = style, colors(style)
     v.tab, v.mode = tab, mode

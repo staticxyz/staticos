@@ -358,12 +358,16 @@ def menu_tree(cats):
     toggle = lambda get, on, off: "if %s; then %s; else %s; fi" % (get, off, on)
     on_off = lambda get: get + " && echo вкл || echo выкл"
     on_if = lambda get: get + " && echo ✓"
+    # раздел Настроек Binds: сменить сочетание клавиш (binds_edit.py)
+    BINDS_EDIT = act("Настроить бинды", ("preferences-desktop-keyboard-shortcuts", "input-keyboard"),
+                     os.path.join(NIRI_SCRIPTS, "settings-open") + " binds", "Настройки")
     return sub("Меню", None, [
         apps,
         sub("Справка", ("help-contents", "system-help"), [
-            act("Шпаргалка клавиш", ("preferences-desktop-keyboard-shortcuts", "input-keyboard"),
+            act("Список биндов", ("preferences-desktop-keyboard-shortcuts", "input-keyboard"),
                 _py("keybinds_sheet.py"), "Super+Z"),
-            act("Карта staticOS", ("gnome-maps", "document-properties"), _py("config_map.py"), "Super+Shift+Z"),
+            BINDS_EDIT,
+            act("Карта конфигов", ("gnome-maps", "document-properties"), _py("config_map.py"), "Super+Shift+Z"),
             act("Клавиши niri (встроенный список)", ("input-keyboard",),
                 "niri msg action show-hotkey-overlay", "Super+Shift+/"),
             act("Вики niri", ("help-browser",), _web("https://github.com/YaLTeR/niri/wiki")),
@@ -442,6 +446,9 @@ def menu_tree(cats):
         sub("Настройки", ("preferences-system",), [
             act("Настройки staticOS", ("preferences-system",), os.path.join(NIRI_SCRIPTS, "settings-open"),
                 "Super+/"),
+            # 14.10.2026, «в меню надо добавить, чтобы можно было зайти к настройкам биндов»:
+            # был девятым и терялся — теперь вторым, и ещё в «Справке» рядом со списком
+            BINDS_EDIT,
             act("Звук", ("audio-volume-high",), "pwvucontrol || pavucontrol"),
             act("Wi-Fi", ("network-wireless",), _py("wifi_popup.py")),
             act("Bluetooth", ("bluetooth",), _py("bluetooth_popup.py")),
@@ -450,6 +457,11 @@ def menu_tree(cats):
             act("Обои", ("preferences-desktop-wallpaper",), _py("wallpaper_picker.py"), "Super+W"),
             act("Мониторы (outputs.kdl)", ("video-display", "preferences-desktop-display"),
                 _edit("~/.config/niri/cfg/outputs.kdl")),
+            # 14.10.2026: карта и список биндов — и здесь (свои бинды — выше, вторым пунктом)
+            act("Список биндов", ("preferences-desktop-keyboard-shortcuts", "input-keyboard"),
+                _py("keybinds_sheet.py"), "Super+Z"),
+            act("Карта конфигов", ("gnome-maps", "document-properties"), _py("config_map.py"),
+                "Super+Shift+Z"),
             act("Клавиши (binds.kdl)", ("preferences-desktop-keyboard-shortcuts",),
                 _edit("~/.config/niri/cfg/binds.kdl")),
             act("Ввод: клавиатура и мышь (input.kdl)", ("input-keyboard",), _edit("~/.config/niri/cfg/input.kdl")),
@@ -890,13 +902,15 @@ def make_view(test=False, style=None):
             rows = self.rows()
             vis = self.visible()
             if self.style == "skeet":
-                label = "Поиск" if self.buf else (self.node()["name"] if self.path else "Разделы")
+                # в корне подписи нет: «Разделы» и так понятно (14.10.2026, просьба)
+                label = "Поиск" if self.buf else (self.node()["name"] if self.path else "")
                 gx, gy, gw, gh = lx - 10, top - 12, lw + 20, vis * G["ROW"] + 22
                 self.rect_line(cr, gx, gy, gw, gh, C["gline"])
                 self.rect_line(cr, gx + 1, gy + 1, gw - 2, gh - 2, C["gdark"])
-                tw = self.layout(cr, label).get_pixel_size()[0]
-                self.rect_fill(cr, gx + 10, gy - 1, tw + 8, 3, C["bg"])
-                self.text(cr, label, gx + 14, gy - G["PX"] // 2 - 1, C["text"])
+                if label:
+                    tw = self.layout(cr, label).get_pixel_size()[0]
+                    self.rect_fill(cr, gx + 10, gy - 1, tw + 8, 3, C["bg"])
+                    self.text(cr, label, gx + 14, gy - G["PX"] // 2 - 1, C["text"])
             elif self.style == "beta":
                 self.rect_fill(cr, lx - 1, top - 1, lw + 2, vis * G["ROW"] + 2, C["card"])
                 self.rect_line(cr, lx - 1, top - 1, lw + 2, vis * G["ROW"] + 2, C["line"])
@@ -1384,6 +1398,8 @@ def main():
         pass
     with open(pf, "w") as f:
         f.write(str(os.getpid()))
+    from menu_one import close_others              # другое меню открыто — закрыть (14.10.2026)
+    close_others(__file__)
     window()
     return 0
 

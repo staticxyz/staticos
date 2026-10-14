@@ -264,7 +264,7 @@ def app_title(e):
 APP_ICONS = {"telegram desktop": "org.telegram.desktop", "telegram": "org.telegram.desktop",
              "niri": "accessories-screenshot", "network management": "network-wired",
              "networkmanager applet": "network-wired", "pomodoro": "chronometer",
-             "timer": "chronometer", "music": "audio-x-generic", "notify-send": "dialog-information",
+             "timer": "chronometer", "music": "audio-x-generic", "notify-send": "settings",
              "system notifications": "preferences-system-notifications"}
 
 

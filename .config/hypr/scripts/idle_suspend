@@ -66,8 +66,18 @@ def main():
     if dry:
         print("сон бы состоялся (Savage Mode выключен)")
         return 0
+    hub_sleep_notice()
     subprocess.run(["systemctl", "suspend"])
     return 0
+
+
+def hub_sleep_notice():
+    """Хабу — сообщить в Telegram о сне заранее: внутри самого сна logind ждёт недолго."""
+    try:
+        subprocess.run([sys.executable, os.path.expanduser("~/.local/share/hub/hubd.py"), "sleep-notice"],
+                       timeout=17, capture_output=True)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 if __name__ == "__main__":

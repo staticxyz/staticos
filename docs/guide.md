@@ -103,9 +103,17 @@ windows or desktop widgets in Settings → **Applications** → **Дашборд
 **Right-click on empty wallpaper** for a Windows XP style menu: new folder or text file,
 your folders, terminal, system monitor, screen time, timers and widgets.
 
-Browser keys (Super+U, Super+Y, Super+I, Super+B) open the browsers the author uses. To change
-them, edit `~/.config/niri/cfg/binds.kdl` — every line reads like
-`Mod+U { spawn "zen-browser"; }`.
+Browser keys (Super+U, Super+Y, Super+I, Super+B) open the browsers the author uses.
+
+**Changing keys.** Settings (Super+/) → Binds lists every binding. Click one and press the new
+combination: niri checks the config before it is written, a combination that is already taken
+is named, and «Сбросить» («Вернуть все по умолчанию» for all of them) brings back the default — the `binds.kdl` the dotfiles came with, kept
+as `binds.default.kdl` next to it. You can still edit `~/.config/niri/cfg/binds.kdl` by hand —
+every line reads like `Mod+U { spawn "zen-browser"; }`. From a terminal:
+`binds_edit.py set Mod+U Mod+Shift+U`, `binds_edit.py reset all`.
+
+Only one of the menus Super+X, Super+Z, Super+Shift+Z, Super+C and Super+W is open at a time:
+opening one closes the other. A click outside a small menu closes it.
 
 ---
 

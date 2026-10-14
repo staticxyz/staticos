@@ -381,7 +381,12 @@ def register(ns):
             if getattr(self, "dead", False):
                 return False
             if self.st and self.st.get("playing"):
-                return True                       # играет и видно — снимок не нужен
+                # играет и видно — снимок не нужен; но жив ли плеер — сверить с шиной (~0,2 мс)
+                have = self.mpris_names()
+                if have is not None and self.inst and self.inst not in have:
+                    self.players.pop(self.inst, None)
+                    self.choose()
+                return True
 
             def work():
                 try:
@@ -483,8 +488,10 @@ def register(ns):
 
         def choose(self):
             alive = self.players
-            if alive and len(alive) > 1:
-                # закрытые плееры -F не сообщает — сверяемся со списком на шине
+            if alive:
+                # закрытые плееры -F не сообщает — сверяемся со списком на шине. И при одном
+                # плеере тоже (14.10.2026: Telegram исчез с шины, не сказав «Stopped», и виджет
+                # полчаса показывал «today at 11:34 AM», 29:41 из 1:54 — «я ничего не запускал»)
                 try:
                     # 05.10.2026, оптимизация: список плееров — прямо с шины (ListNames, ~0,2 мс),
                     # а не запуском `playerctl -l` (~5 мс) на КАЖДОЕ событие: при видео в браузере

@@ -89,7 +89,10 @@ def commands():
         # экран блокировки успел встать до сна (hypridle тоже блокирует перед
         # сном, но на него одного полагаться не хочется; второй hyprlock
         # lockscreen сам не запустит).
-        "suspend": ["sh", "-c", shlex.join(lock) + " & sleep 1; systemctl suspend"],
+        # Хабу — сообщить о сне в Telegram до сна (не дольше 16 с); заодно пауза под замок.
+        "suspend": ["sh", "-c", shlex.join(lock) + " & sleep 1; timeout 16 " + shlex.join(
+            [sys.executable, os.path.join(HOME, ".local/share/hub/hubd.py"), "sleep-notice"])
+            + "; systemctl suspend"],
         "logout": logout,
         "reboot": ["systemctl", "reboot"],
         "shutdown": ["systemctl", "poweroff"],

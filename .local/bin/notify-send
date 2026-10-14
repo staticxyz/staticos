@@ -43,6 +43,6 @@ case "${key,,}" in
     *микрофон*|*mic*)                          icon=audio-input-microphone ;;
     *раскладк*|*keyboard*)                     icon=input-keyboard ;;
     *focus*|*фокус*)                           icon=preferences-system-notifications ;;
-    *) icon=dialog-information ;;
+    *) icon=settings ;;                        # шестерёнка (14.10.2026; было dialog-information — «i»)
 esac
 exec "$REAL" -i "$icon" "$@"

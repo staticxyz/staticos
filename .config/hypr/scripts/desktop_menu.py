@@ -61,7 +61,7 @@ FONT = "JetBrainsMono Nerd Font"
 ICON_FONT = "JetBrainsMono Nerd Font"
 QUICK_N = 5            # значков в верхнем ряду
 QUICK_MIN_S = 60       # меньше минуты за неделю — не «часто используемая»
-QUICK_PX = 32          # размер значка (Papirus рисует 16/24/32/48 — 32 чёткий)
+QUICK_PX = 24          # размер значка (Papirus рисует 16/24/32/48 — чёткие); 32 → 24 «чуть меньше» (14.10.2026)
 
 KITTY = [os.path.expanduser("~/.config/hypr/scripts/kitty_shared.sh")]
 SETTINGS = ["python3", os.path.join(HERE, "settings_app.py")]
@@ -182,6 +182,7 @@ ACTIONS = {
     "overview": [["niri", "msg", "action", "toggle-overview"]],
     "menu-off": [["python3", os.path.abspath(__file__), "off"]],
     "settings": [SETTINGS],
+    "launcher": [["python3", os.path.join(HERE, "app_launcher.py")]],    # Super+X
     # 02.10.2026: таймер, запись видео и виджеты — по просьбе пользователя
     "timer": [[os.path.join(HERE, "timer_ask.sh")]],
     "record-video": [["env", "REC_TOP=Video", os.path.join(HERE, "rec_area.sh")]],
@@ -350,7 +351,10 @@ SUB_MORE = [
     ("\U000f0489", "Снимок области", "screenshot", "Print"),
     ("\U000f0570", "Обзор столов", "overview", "Super+G"),
     ("\U000f00e3", "Внешний вид", "look", ""),
-    # «Убрать это меню» убран (05.10.2026, просьба: «случайно нажал — убери кнопку»);
+    # 14.10.2026 из основного списка — «Записать видео положи в пункт Ещё. Экранное время тоже»
+    ("\U000f0567", "Записать видео", "record-video", ""),
+    ("\U000f13ab", "Экранное время", "screentime", ""),
+    # «Убрать это меню» убран (05.10.2026, Просьба: «случайно нажал — убери кнопку»);
     # выключить меню можно в Настройках или `desktop_menu.py off`.
 ]
 SUB_WIDGET = [(i, t, "widget-" + k, "") for k, i, t in WIDGET_KINDS]
@@ -429,20 +433,19 @@ MENU = [
     None,
     ("\U000f018d", "Терминал", "terminal", ""),
     ("\U000f012a", "Системный монитор", "btop", ""),
-    ("\U000f13ab", "Экранное время", "screentime", ""),
     None,
     # «Создать таймер…» — в основном списке, а не в «Создать виджет»: пользователь пользуется им
     # часто, должен быть под рукой (02.10.2026). Спрашивает название и время.
     ("\U000f051b", "Создать таймер…", "widget-timer", ""),
     ("\U000f0e17", "Создать секундомер", "widget-stopwatch", ""),
     ("\U000f051b", "Задать отсчёт hh", "timer-hh", ""),       # одной кнопкой, без подменю (05.10.2026)
-    ("\U000f0567", "Записать видео", "record-video", ""),
     None,
     ("\U000f0e2b", "Создать виджет", SUB_WIDGET, ""),
     ("\U000f03eb", "Редактировать виджеты", "widgets-edit", ""),
     ("\U000f0493", "Управление виджетами", SUB_CONTROL, ""),
     None,
     ("\U000f01d8", "Ещё", SUB_MORE, ""),
+    ("\U000f003b", "Системное меню", "launcher", "Super+X"),     # 14.10.2026
     ("\U000f0493", "Настройки", "settings", "Super+/"),
 ]
 
@@ -698,7 +701,7 @@ def build_menu(Gtk, on_action, on_quick, quick=None):
         it = Gtk.MenuItem()
         it.get_style_context().add_class("quick")
         img = Gtk.Image.new_from_gicon(gicon, Gtk.IconSize.DND) if gicon else Gtk.Image()
-        img.set_pixel_size(20 if menu_style() == "xp" else QUICK_PX)
+        img.set_pixel_size(16 if menu_style() == "xp" else QUICK_PX)   # xp: 20 → 16 (14.10.2026)
         img.set_halign(Gtk.Align.CENTER)
         it.add(img)
         it.set_tooltip_text(name)

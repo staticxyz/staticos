@@ -50,8 +50,8 @@ FONT_KITTEN = HOME / ".config/kitty/font_size_of.py"
 # на столе»). Значок стола = его имя в niri (бар показывает имя как есть): terminal — радар
 # U+F0437 (ключ workspace), widgets — md-widgets U+F072C (ключ widget_workspace; глиф есть в
 # JarvisBarIcons, EXTRA в build_bar_icons.py). Стол один и тот же — переименовывается.
-MODE_FILE = HOME / ".config/niri/dashboard-mode"
-PREV_WS_FILE = HOME / ".config/niri/dashboard-prev-ws"  # запоминает прошлый стол для toggle
+MODE_FILE = HOME / ".config/niri/state/dashboard-mode"
+PREV_WS_FILE = HOME / ".config/niri/state/dashboard-prev-ws"  # запоминает прошлый стол для toggle
 WS_KDL = HOME / ".config/niri/cfg/workspaces.kdl"
 WIDGETS = HOME / ".config/hypr/scripts/desktop_widgets.py"
 WIDGET_WS = "\U000f072c"

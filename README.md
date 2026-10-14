@@ -39,15 +39,21 @@ Every color comes from your wallpaper.
 350+ scripts and configs, named over months, are hard to find your way around. The config map
 tells you what each file does and what starts it, without opening anything.
 
-- **Areas instead of folders.** Every script and config sits in one of about twenty areas:
-  top bar, wallpaper and colors, lock screen, sound, niri windows and so on. `Enter` opens an area,
-  `Enter` again opens the file.
+- **Three levels instead of folders.** Eight sections (Look, Panels, Windows and keys, Screen
+  and sound, Programs, Tools, System, Config folders) hold about twenty areas: top bar, wallpaper
+  and colors, lock screen, sound, niri windows and so on. `Enter` goes one level deeper, `h` goes
+  back, and the last `Enter` opens the file.
+- **Remembers where you were.** Close the map and it opens on the same section, area, line and
+  search next time.
+- **The folder button follows you.** From the top level it opens `~/.config`; inside a section
+  or an area it opens the folder where most of its files live (`c` does the same).
 - **For each file:** what it does (from the file's own header), how it starts (key binding,
   niri autostart, bar module, systemd service, the staticOS host) and which scripts mention it.
 - **Forgiving search.** Synonyms in both languages, typos and the wrong keyboard layout:
   `screenshot`, `скриншот` and `cybvjr` (typed on the English layout) all find «снимок»;
   `громкочть` still finds «громкость».
 - **Vim keys:** `j/k`, `g/G`, `Ctrl+D/U`, `l`/`h`, `/` search, `o` folder, `y` copy path, `q` close.
+  The × at the right of the search field (or `Ctrl+U`) clears the query.
 - **Does not go stale.** `config_map.py check` lists files without an area and entries whose file
   is gone; `config_map.py md` writes the same map to `~/.config/0-КАРТА.md`.
   The scan is cached until a file changes, so the window opens in about a quarter of a second.
@@ -75,6 +81,12 @@ tells you what each file does and what starts it, without opening anything.
 - **Own clipboard, Alt+Tab, lock screen and screensaver**, all keyboard-driven with vim keys.
 - **Pixel, regular or Minimalistic look** in one switch: fonts, bar, notifications, menus, mixers
   and even Discord follow it. Minimalistic is a centered capsule bar with thin borders and popups under it. **Super+Z** shows every shortcut, grouped and searchable.
+- **Your own key bindings** — Settings → Binds. Press a new combination for any action; niri
+  checks the config before anything is written, conflicts are named, and one click brings back
+  the default (the bindings the dotfiles came with).
+- **One menu at a time.** Opening `Super+X`, `Super+Z`, `Super+Shift+Z`, `Super+C` or `Super+W`
+  closes whichever of them is already open. The small menus dim the screen behind them, and a
+  click outside closes them.
 - **Config map** — `Super+Shift+Z`. Which file does what and what starts it, with a search
   that understands synonyms, typos and the wrong keyboard layout. [See above ↑](#config-map--supershiftz)
 - **`Super+X` menu** in the spirit of Omarchy: apps by category, screenshots and toggles,

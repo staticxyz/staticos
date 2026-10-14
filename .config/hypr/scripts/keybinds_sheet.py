@@ -574,10 +574,20 @@ class App(Gtk.Application):
         if self.win is not None:
             self.win.close()
             return
+        from menu_one import close_others       # другое меню открыто — закрыть (14.10.2026)
+        close_others(__file__)
+        close = lambda: self.win.close() if self.win is not None else None
         self.win = SheetWindow(self)
-        self.win.connect("destroy", lambda *_: setattr(self, "win", None))
+        # щелчок мимо — закрыть (14.10.2026, «Super+Z тоже должен закрывать любым кликом
+        # кроме самого окна») и затемнение, как у Super+X (14.10.2026): scrim_layer
+        from scrim_layer import cover
+        cover(self.win, NAMESPACE + "-catch", close)
+        self.win.connect("destroy", lambda *_: self.closed())
         self.win.show_all()
         self.win.present()
+
+    def closed(self):
+        self.win = None                         # слои затемнения scrim_layer убирает сам
 
 
 def shot(path, style=None):
