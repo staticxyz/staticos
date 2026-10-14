@@ -36,6 +36,8 @@ Every color comes from your wallpaper.
 
 ![Config map](assets/config-map.png)
 
+<p align="center"><i>Sections · inside an area: every file and what it does · search by name, description or synonym</i></p>
+
 350+ scripts and configs, named over months, are hard to find your way around. The config map
 tells you what each file does and what starts it, without opening anything.
 
@@ -57,11 +59,6 @@ tells you what each file does and what starts it, without opening anything.
 - **Does not go stale.** `config_map.py check` lists files without an area and entries whose file
   is gone; `config_map.py md` writes the same map to `~/.config/0-КАРТА.md`.
   The scan is cached until a file changes, so the window opens in about a quarter of a second.
-
-| | |
-|:-:|:-:|
-| ![Config map: an area](assets/config-map-area.png) | ![Config map: search](assets/config-map-search.png) |
-| Inside an area: every file with what it does | Search by name, description or synonym |
 
 ## Highlights
 
