@@ -92,6 +92,11 @@ tells you what each file does and what starts it, without opening anything.
 - **Hub** — reminders, lists, timers and a spaced-repetition dictionary with no AI involved,
   its own SQLite database, a Discipline-styled window (`Super+M`) and an optional Telegram bot
   that reaches you when you're away from the computer. [How it works →](docs/hub.md)
+- **Island** — a small capsule at the top centre: calls (with mute for the call only), recording,
+  pomodoro, timers with 5–60 min presets, music with a pixel cover and a block equalizer, a
+  pixel cat that runs while something is going on (and shows synced lyrics instead), snapshots.
+  Hover or click opens a card, the wheel flips pages, it reopens on the page you left.
+  Settings → Waybar → Island: «As the system» or iOS look.
 
 ## More screenshots
 

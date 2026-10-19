@@ -43,6 +43,10 @@ close_by_args() {
 if printf '%s' "$layers" | grep -Eq '"namespace": *"jarvis-calc"'; then
     close_by_args 'translate_popup[.]py' && exit 0
 fi
+# Окна preset_ask (Pomo.exe, Timer.exe, Preset.exe, «Точно?»): SIGTERM у них = отмена (16.10.2026).
+if printf '%s' "$layers" | grep -Eq '"namespace": *"jarvis-preset"'; then
+    close_by_args 'preset_ask[.]py' && exit 0
+fi
 if printf '%s' "$layers" | grep -Eq '"namespace": *"rofi"'; then
     close_by_args '^ *[0-9]+ +(/usr/bin/)?rofi( |$)' && exit 0
 fi

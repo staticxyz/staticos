@@ -47,6 +47,7 @@ import collections
 import fcntl
 import json
 import os
+import re
 import selectors
 import signal
 import subprocess
@@ -77,6 +78,32 @@ SITES = ["YouTube", "GitHub", "Telegram", "Reddit", "Twitch",
          "Stack Overflow", "Instagram", "ВКонтакте", "VK", "Steam", "Discord", "Netflix",
          "Кинопоиск", "Notion", "Obsidian", "LeetCode", "Arch Wiki", "ArchWiki", "AUR"]
 SHELLS = {"fish", "zsh", "bash", "sh"}
+# Программы в терминале, которые считаются отдельной строкой, а не «kitty terminal»
+# (16.10.2026, просьба: «kitty terminal — общее название, я часто сижу в neovim»).
+# Ключ — то, что detail_of() достаёт из заголовка; значение — app_id строки (имя ей
+# даёт NAMES в screentime.py). Остальное (оболочка, pacman, ffetch…) — терминал.
+TERM_APPS = {"nvim": "nvim", "vim": "nvim", "jtetris": "jtetris", "jchat": "jchat",
+             "btop": "btop", "btop++": "btop", "OC": "opencode", "OpenCode": "opencode",
+             "opencode": "opencode", "agy": "agy", "jtype": "jtype", "yazi": "yazi"}
+APP_ID = re.compile(rb"\bAppId=(\d+)")
+
+
+def game_app(pid):
+    """Окно gamescope → steam_app_N по `reaper SteamLaunch AppId=N` в его командной
+    строке (16.10.2026: было «Game (gamescope)», а это CS2). Не нашли — None."""
+    try:
+        with open("/proc/%d/cmdline" % int(pid), "rb") as f:
+            m = APP_ID.search(f.read())
+    except (OSError, TypeError, ValueError):
+        return None
+    return "steam_app_%s" % m.group(1).decode() if m else None
+
+
+def app_key(w):
+    app = w.get("app_id") or ""
+    if app == "gamescope":
+        return game_app(w.get("pid")) or app
+    return app
 
 
 def log(*a):
@@ -285,6 +312,8 @@ class Tracker:
         t1 = time.time()
         t0 = t1 - dt
         det = self.current_detail(app)
+        if app in TERMINALS and det in TERM_APPS:
+            app, det = TERM_APPS[det], app
         self.store.add(app, t0, t1, detail=det)
         last = self.recent[-1] if self.recent else None
         if last and last[2] == app and last[3] == det and abs(last[1] - t0) < 1:
@@ -313,15 +342,16 @@ class Tracker:
         if "WindowsChanged" in ev:
             self.commit()
             ws = ev["WindowsChanged"]["windows"]
-            self.windows = {w["id"]: w.get("app_id") or "" for w in ws}
+            self.windows = {w["id"]: app_key(w) for w in ws}
             self.titles = {w["id"]: w.get("title") or "" for w in ws}
             self.focused = next((w["id"] for w in ws if w.get("is_focused")), None)
         elif "WindowOpenedOrChanged" in ev:
             w = ev["WindowOpenedOrChanged"]["window"]
-            if w.get("is_focused") or self.windows.get(w["id"]) != (w.get("app_id") or "") \
+            app = app_key(w)
+            if w.get("is_focused") or self.windows.get(w["id"]) != app \
                     or (w["id"] == self.focused and self.titles.get(w["id"]) != (w.get("title") or "")):
                 self.commit()
-            self.windows[w["id"]] = w.get("app_id") or ""
+            self.windows[w["id"]] = app
             self.titles[w["id"]] = w.get("title") or ""
             if w.get("is_focused"):
                 self.focused = w["id"]

@@ -9,30 +9,28 @@
 # Пустой ответ (недописанное выражение) буфер не трогает.
 #
 # Перевод (23.09.2026): если последний ввод был текстом, calc_qalc.py оставил
-# ~/.cache/calc_qalc.translate. Если рядом лежит исполняемый translate_refine.sh
-# (необязательный, свой: `translate_refine.sh ТЕКСТ SRC TGT` → перевод в stdout),
-# по Enter копируется его перевод — с уведомлением о ходе дела. Его нет или он
-# не ответил — копируется офлайн-черновик NLLB.
+# ~/.cache/calc_qalc.translate. С 17.10.2026 перевод уже от Google — он
+# копируется как есть. Если сети не было и показан черновик NLLB, по Enter
+# Google спрашивается ещё раз (translate_best.sh); снова нет — черновик.
 v=$(cat ~/.cache/calc_qalc.answer 2>/dev/null)
 [ -n "${v// /}" ] || exit 0
 req=~/.cache/calc_qalc.translate
 if [ -f "$req" ]; then
     # три строки, текст последним: read делит по пробелам, и фраза резалась до первого слова
     { read -r src; read -r tgt; read -r text; } < <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["src"]); print(d["tgt"]); print(d["text"].replace("\n"," "))' "$req")
+    engine=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("engine",""))' "$req" 2>/dev/null)
     rm -f "$req"
-    refine=~/.config/hypr/scripts/translate_refine.sh
-    if [ ! -x "$refine" ]; then
+    if [ "$engine" = google ]; then      # ответ уже от Google (17.10.2026) — копировать как есть
         printf '%s' "$v" | wl-copy
-        notify-send -a "Переводчик" -t 5000 "Скопировано" "$v"
         exit 0
     fi
-    nid=$(notify-send -p -a "Переводчик" -t 15000 "Уточняю перевод…" "$text")
-    if best=$(timeout 30 "$refine" "$text" "$src" "$tgt" 2>/dev/null) && [ -n "$best" ]; then
+    nid=$(notify-send -p -a "Переводчик" -t 15000 "Перевожу через Google…" "$text")
+    if best=$(timeout 30 ~/.config/hypr/scripts/translate_best.sh "$text" "$src" "$tgt" 2>/dev/null) && [ -n "$best" ]; then
         printf '%s' "$best" | wl-copy
-        notify-send -r "${nid:-0}" -a "Переводчик" -t 8000 "Скопировано" "$best"
+        notify-send -r "${nid:-0}" -a "Переводчик" -t 8000 "Скопировано (Google)" "$best"
     else
         printf '%s' "$v" | wl-copy
-        notify-send -r "${nid:-0}" -a "Переводчик" -t 8000 "Уточнение не ответило — скопирован черновик" "$v"
+        notify-send -r "${nid:-0}" -a "Переводчик" -t 8000 "Нет сети — скопирован офлайн-перевод" "$v"
     fi
     exit 0
 fi

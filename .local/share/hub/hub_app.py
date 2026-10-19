@@ -15,8 +15,10 @@ z — повторение слов (Space — показать, y — знал,
 
 При вводе новой (и в «e») Tab переводит на поля дата / время / важность / повтор — всё по
 желанию (повтор по умолчанию «нет»; j/k — нет/день/неделя/месяц, нужен срок):
-j/k — ±день / ±15 минут (Shift — неделя / час), можно и вписать: «завтра», «пт», «15.10»,
+j/k — ±день / ±15 минут, h/l у времени — ±1 минута (Shift — неделя / час), можно и вписать: «завтра», «пт», «15.10»,
 «1830». Без полей срок, как раньше, берётся из текста («купить хлеб завтра в 9»).
+Только дата — задача «на день»: без времени, ниже задач со временем, напоминает в 9, 12, 15
+и 18 (15.10.2026). Время без даты — нельзя.
 
 Мышь: кнопки-блоки в ряд над строкой статуса (+ запись, Выполнено, +1ч, завтра, удалить,
 повторить) — то же самое, что клавиши выше, просто кликом; «удалить» мышью требует
@@ -51,6 +53,7 @@ STATE_DIR = os.path.expanduser("~/.config/hypr/state")
 MATUGEN = os.path.expanduser("~/.cache/matugen")
 FONT = "PxPlus HP 100LX 6x8 Jarvis"
 PX = 12
+CARET = "\u2063"          # метка курсора в строке (невидимый разделитель), см. Painter.layout
 BIG = 28
 W = 460
 PAD = 14
@@ -193,7 +196,14 @@ class Painter:
         cr.close_path()
 
     def layout(self, s, px):
+        """Раскладка текста; метка курсора CARET из with_cursor вырезается — курсор
+        рисует show() поверх, тонкой чертой (14.10.2026: символ «▏» занимал целую клетку
+        пиксельного шрифта, и при ходьбе стрелками в тексте появлялся лишний пробел)."""
         lay = PangoCairo.create_layout(self.cr)
+        k = s.find(CARET)
+        if k >= 0:
+            s = s[:k] + s[k + 1:]
+        lay.caret = len(s[:k].encode("utf-8")) if k >= 0 else None
         fd = Pango.FontDescription.from_string(FONT)
         fd.set_absolute_size(px * Pango.SCALE)
         lay.set_font_description(fd)
@@ -214,9 +224,20 @@ class Painter:
         elif align == "c":
             x -= w / 2
         self.rgb(c, a)
-        self.cr.move_to(round(x), round(y))
-        PangoCairo.show_layout(self.cr, lay)
+        self.show(lay, x, y, px)
         return w
+
+    def show(self, lay, x, y, px):
+        """Вывести раскладку; если в ней курсор — черта шириной px/6 у его позиции."""
+        x, y = round(x), round(y)
+        self.cr.move_to(x, y)
+        PangoCairo.show_layout(self.cr, lay)
+        if lay.caret is not None:
+            r = lay.index_to_pos(lay.caret)
+            cx, cy = x + r.x // Pango.SCALE, y + r.y // Pango.SCALE
+            bw = max(1, round(px / 6))
+            self.cr.rectangle(cx - bw, cy, bw, r.height // Pango.SCALE)   # в просвете перед буквой
+            self.cr.fill()
 
     def measure_wrap(self, s, px=PX, maxw=None):
         lay = self.layout(s, px)
@@ -233,8 +254,7 @@ class Painter:
             lay.set_width(int(maxw * Pango.SCALE))
             lay.set_wrap(Pango.WrapMode.WORD_CHAR)
         self.rgb(c)
-        self.cr.move_to(round(x), round(y))
-        PangoCairo.show_layout(self.cr, lay)
+        self.show(lay, x, y, px)
         return lay.get_pixel_size()[1]
 
 
@@ -264,7 +284,7 @@ def word_right(s, i):
 
 
 def edit_line(s, cur, name, ctrl):
-    """Курсор в строке ввода (13.10.2026, Просьба: «не могу перемещаться курсором внутри
+    """Курсор в строке ввода (13.10.2026, просьба: «не могу перемещаться курсором внутри
     текста»): ←/→, Home/End, Backspace/Delete; с Ctrl — по словам.
     → (строка, курсор) или None, если клавиша не про это."""
     cur = len(s) if cur is None else max(0, min(cur, len(s)))
@@ -287,7 +307,7 @@ def edit_line(s, cur, name, ctrl):
 
 def with_cursor(s, cur):
     cur = len(s) if cur is None else max(0, min(cur, len(s)))
-    return s[:cur] + "▏" + s[cur:]
+    return s[:cur] + CARET + s[cur:]
 
 
 REL_DAYS = {0: "сегодня", 1: "завтра", 2: "послезавтра", -1: "вчера", -2: "позавчера"}
@@ -310,11 +330,12 @@ def rel_day(d, today=None):
     return "через " + plural_days(delta) if delta > 0 else plural_days(delta) + " назад"
 
 
-def fmt_due(ts):
-    """Срок в списке: сколько дней, потом дата, потом время — «через 3 дня 16.10 21:00»."""
+def fmt_due(ts, allday=False):
+    """Срок в списке: сколько дней, потом дата, потом время — «через 3 дня 16.10 21:00».
+    «Только дата» — без времени."""
     t = dt.datetime.fromtimestamp(ts)
     day = t.strftime("%d.%m") + ("" if t.year == dt.date.today().year else ".%02d" % (t.year % 100))
-    return "%s %s %s" % (rel_day(t.date()), day, t.strftime("%H:%M"))
+    return ("%s %s %s" % (rel_day(t.date()), day, "" if allday else t.strftime("%H:%M"))).strip()
 
 
 TIME_WORDS = re.compile(r"\d{1,2}[:.]\d{2}|\bв\s*\d{1,2}\b|утр|вечер|дн[её]м|ноч|час|мин", re.I)
@@ -323,10 +344,18 @@ TIME_WORDS = re.compile(r"\d{1,2}[:.]\d{2}|\bв\s*\d{1,2}\b|утр|вечер|д
 GAP = 5            # зазор между синей чертой выбора и квадратом (13.10.2026, пользователь)
 
 
-def order_key(r):
-    """Записи со сроком (дата/время) — выше записей без срока (13.10.2026); внутри
-    каждой группы — ручной порядок Alt+j/k, у кого его нет — в конец по номеру."""
-    return (not r["due"], r["pos"] is None, r["pos"] or 0, r["id"])
+def order_open(rows):
+    """Порядок открытых записей. Ручной порядок Alt+j/k главнее всего (14.10.2026, просьба:
+    «ручная сортировка должна обходить любые ограничения»): записи с pos — строго по нему.
+    Записи без pos (новые, ещё не переставленные) встают по правилу 13.10.2026: со сроком —
+    сразу за последней записью со сроком, без срока — в конец; между собой — по номеру."""
+    out = sorted((r for r in rows if r["pos"] is not None), key=lambda r: (r["pos"], r["id"]))
+    for r in sorted((r for r in rows if r["pos"] is None), key=lambda r: (not r["due"], r["id"])):
+        if r["due"]:
+            out.insert(max((n + 1 for n, x in enumerate(out) if x["due"]), default=0), r)
+        else:
+            out.append(r)
+    return out
 
 
 DOW_WORDS = (("пн", "пон", "mon"), ("вт", "втор", "tue"), ("ср", "сре", "wed"), ("чт", "чет", "thu"),
@@ -394,30 +423,32 @@ def fmt_date(d):
 
 
 def fields_due(fdate, ftime):
-    """Поля «дата» и «время» -> (True, due|None) или (False, «дата»|«время»).
-    Только время — сегодня (прошло — завтра); только дата — 09:00, а если это сегодня
-    и 9 уже прошло — следующий целый час."""
+    """Поля «дата» и «время» -> (True, due|None) или (False, «дата»|«время»|«без даты»).
+    15.10.2026, просьба: время без даты — нельзя; только дата — задача «на день» (allday):
+    срок 09:00 того дня, время не показывается, напоминает в 9, 12, 15 и 18 (hubd)."""
     fdate, ftime = fdate.strip(), ftime.strip()
     if not fdate and not ftime:
         return True, None
-    d = parse_date(fdate) if fdate else None
-    if fdate and d is None:
+    if not fdate:
+        return False, "без даты"
+    d = parse_date(fdate)
+    if d is None:
         return False, "дата"
     t = parse_time(ftime) if ftime else None
     if ftime and t is None:
         return False, "время"
-    now = dt.datetime.now()
-    if d is None:
-        d = now.date()
-        if dt.datetime.combine(d, dt.time(*t)) <= now:
-            d += dt.timedelta(days=1)
-    if t is None:
-        t = (9, 0)
-        if dt.datetime.combine(d, dt.time(*t)) <= now:
-            nh = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
-            if nh.date() == d:
-                t = (nh.hour, 0)
-    return True, int(dt.datetime.combine(d, dt.time(*t)).timestamp())
+    return True, int(dt.datetime.combine(d, dt.time(*(t or (9, 0)))).timestamp())
+
+
+def fields_allday(fdate, ftime):
+    """Только дата, без времени — задача «на день»."""
+    return bool(fdate.strip()) and not ftime.strip()
+
+
+def fields_err(v, err):
+    """Ошибка полей: курсор — в нужное поле, внизу — что не так."""
+    v.field = "time" if err == "время" else "date"
+    v.flash("к времени нужна дата" if err == "без даты" else "не разобрано поле «%s»" % err)
 
 
 def fmt_done(ts):
@@ -476,7 +507,7 @@ class View:
     def rows(self):
         out = []
         if self.tab == "items":
-            opened = sorted(H.items(self.conn, None, "open"), key=order_key)
+            opened = order_open(H.items(self.conn, None, "open"))
             if self.view_mode == "list":        # списком — разделы по важности
                 for pr in (2, 1, 0):
                     grp = [it for it in opened if (it["prio"] or 0) == pr]
@@ -802,7 +833,6 @@ class View:
                 continue
             is_sel = i == self.sel[self.tab]
             is_edit = editing and self.text_target == i
-            cursor = "▏"
             if kind == "new":
                 disp = self.edit_text()
                 tw = x1 - x0 - 24 - GAP
@@ -818,7 +848,7 @@ class View:
             elif kind == "item":
                 draft = bool(fld(d, "_draft"))
                 done = fld(d, "status") == "done"
-                over = not done and bool(d["due"]) and d["due"] < H.now()
+                over = not done and H.overdue(d)
                 if draft:
                     col = c["acc_l"]
                 elif done:
@@ -881,7 +911,7 @@ class View:
         main = ("✎ " if fld(d, "_draft") else "") + d["text"] + (" ↻" if d["repeat"] else "")
         if fld(d, "status") == "done":           # выполненная — когда (дата и время)
             return main, fmt_done(fld(d, "done_at"))
-        due = fmt_due(d["due"]) if d["due"] else ""
+        due = fmt_due(d["due"], H.is_allday(d)) if d["due"] else ""
         return main, due
 
     def icon_box(self, p, x, y, s, col, filled):
@@ -1008,7 +1038,7 @@ class View:
     FIELD_HINTS = {
         "title": "Enter · Tab — срок, важность, повтор · Esc",
         "date": "j/k h/l ±день, Shift ±неделя · e или / — вписать",
-        "time": "j/k h/l ±15 мин, Shift ±час · e или / — вписать",
+        "time": "j/k ±15 · h/l ±1 мин · Shift ±час · e",
         "prio": "j/k h/l или 1/2/3 · Enter — %s",
         "repeat": "j/k h/l — нет/день/неделя/месяц · Enter — %s",
         "typing": "«пт» «15.10» «+3» «1830» · Enter — готово · Esc",
@@ -1366,20 +1396,22 @@ class HubWindow(Gtk.ApplicationWindow):
         kind, d = v.current(v.rows())
         if kind != "item" or fld(d, "_draft"):
             return
-        iid, prev_due = d["id"], d["due"]
+        iid, prev_due, prev_allday = d["id"], d["due"], H.is_allday(d)
         if d["status"] == "done":
             self.run_action("вернуть", lambda: H.reopen(v.conn, iid, "pc"),
                             lambda: H.done(v.conn, iid, "pc"))
             v.flash("вернул в список")
             return
         had_repeat = bool(d["repeat"]) and bool(prev_due)
+        prev_base = H.rbase(d)
 
         def fwd():
             H.done(v.conn, iid, "pc")
 
         def bwd():
             if had_repeat:
-                H.edit(v.conn, iid, due=prev_due)
+                H.edit(v.conn, iid, due=prev_due, allday=prev_allday)
+                H._apply(v.conn, iid, None, rbase=prev_base)     # «отложено» не сдвигает расписание
             else:
                 H.reopen(v.conn, iid, "pc")
         self.run_action("выполнено", fwd, bwd)
@@ -1389,13 +1421,13 @@ class HubWindow(Gtk.ApplicationWindow):
         kind, d = v.current(v.rows())
         if kind != "item" or fld(d, "_draft") or d["status"] != "open":
             return
-        iid, prev_due = d["id"], d["due"]
+        iid, prev_due, prev_allday = d["id"], d["due"], H.is_allday(d)
 
         def fwd():
             H.snooze(v.conn, iid, secs, until, source="pc")
 
         def bwd():
-            H.edit(v.conn, iid, due=prev_due)
+            H.edit(v.conn, iid, due=prev_due, allday=prev_allday)
         self.run_action(label, fwd, bwd)
 
     def act_snooze_tomorrow(self):
@@ -1463,7 +1495,7 @@ class HubWindow(Gtk.ApplicationWindow):
         v.f_repeat = (fld(d, "repeat", "") or "") if d is not None else ""
         if d is not None and d["due"]:
             t = dt.datetime.fromtimestamp(d["due"])
-            v.f_date, v.f_time = fmt_date(t.date()), t.strftime("%H:%M")
+            v.f_date, v.f_time = fmt_date(t.date()), "" if H.is_allday(d) else t.strftime("%H:%M")
         v.edit_orig = (v.f_date, v.f_time)
 
     def cancel_text(self):
@@ -1537,11 +1569,8 @@ class HubWindow(Gtk.ApplicationWindow):
                 or rows[j][1]["status"] != "open":
             v.flash("выше некуда" if step < 0 else "ниже некуда")
             return
-        if bool(d["due"]) != bool(rows[j][1]["due"]):
-            v.flash("записи со сроком всегда выше записей без срока")
-            return
         a, b = d["id"], rows[j][1]["id"]
-        opened = sorted(H.items(v.conn, None, "open"), key=order_key)
+        opened = order_open(H.items(v.conn, None, "open"))
         before = {r["id"]: r["pos"] for r in opened}
         after = {r["id"]: float(k + 1) for k, r in enumerate(opened)}
         after[a], after[b] = after[b], after[a]
@@ -1588,9 +1617,9 @@ class HubWindow(Gtk.ApplicationWindow):
         if v.tab == "items" and iid is not None:
             ok, due = fields_due(v.f_date, v.f_time)
             if not ok:
-                v.field = "date" if due == "дата" else "time"
-                v.flash("не разобрано поле «%s»" % due)
+                fields_err(v, due)
                 return
+            allday = fields_allday(v.f_date, v.f_time)
             due_changed = (v.f_date, v.f_time) != v.edit_orig
             prio, repeat = v.f_prio, v.f_repeat
             old = H.get_item(v.conn, iid)
@@ -1607,17 +1636,20 @@ class HubWindow(Gtk.ApplicationWindow):
             if old is None:
                 return
             old_text, old_due, old_prio = old["text"], old["due"], old["prio"] or 0
+            old_allday = H.is_allday(old)
             old_rep = old["repeat"] or ""
 
             def fwd():
-                H.edit(v.conn, iid, text=text, due=due if due_changed else "keep", source="pc")
+                H.edit(v.conn, iid, text=text, due=due if due_changed else "keep", source="pc",
+                       allday=allday)
                 if prio != old_prio:
                     H.set_prio(v.conn, iid, prio, "pc")
                 if repeat != old_rep:
                     H.set_repeat(v.conn, iid, repeat, "pc")
 
             def bwd():
-                H.edit(v.conn, iid, text=old_text, due=old_due if due_changed else "keep", source="pc")
+                H.edit(v.conn, iid, text=old_text, due=old_due if due_changed else "keep", source="pc",
+                       allday=old_allday)
                 if prio != old_prio:
                     H.set_prio(v.conn, iid, old_prio, "pc")
                 if repeat != old_rep:
@@ -1660,10 +1692,14 @@ class HubWindow(Gtk.ApplicationWindow):
         if not tdue:
             return text
         t = dt.datetime.fromtimestamp(tdue)
-        if not TIME_WORDS.search(added) and old and old["due"]:
-            t = dt.datetime.combine(t.date(), dt.datetime.fromtimestamp(old["due"]).time())
-        v.f_date, v.f_time = fmt_date(t.date()), t.strftime("%H:%M")
-        v.flash("срок из текста: " + fmt_due(int(t.timestamp())))
+        notime = False
+        if not TIME_WORDS.search(added):            # без явного времени — прежнее; не было — «на день»
+            if old and old["due"] and not H.is_allday(old):
+                t = dt.datetime.combine(t.date(), dt.datetime.fromtimestamp(old["due"]).time())
+            else:
+                notime = True
+        v.f_date, v.f_time = fmt_date(t.date()), "" if notime else t.strftime("%H:%M")
+        v.flash("срок из текста: " + fmt_due(int(t.timestamp()), notime))
         return (head + " " + clean).strip() if head else (clean or text)
 
     def copy_current(self):
@@ -1763,9 +1799,10 @@ class HubWindow(Gtk.ApplicationWindow):
         self.redraw()
         return True
 
-    def field_step(self, step, big, wrap=False):
-        """Шаг поля: дата ±день (big — неделя), время ±15 мин (big — час), важность ±1,
-        повтор — следующий/прошлый (wrap — по кругу, для клика)."""
+    def field_step(self, step, big, wrap=False, fine=False):
+        """Шаг поля: дата ±день (big — неделя), время ±15 мин (fine — ±1 мин, big — час),
+        важность ±1, повтор — следующий/прошлый (wrap — по кругу, для клика).
+        15.10.2026, просьба: у времени h/l — ±1 минута, j/k — ±15."""
         v = self.view
         if v.field == "repeat":
             k = H.REPEATS.index(v.f_repeat) + step
@@ -1779,7 +1816,7 @@ class HubWindow(Gtk.ApplicationWindow):
         elif v.field == "time":
             t = parse_time(v.f_time)
             if t:
-                m = (t[0] * 60 + t[1] + step * (60 if big else 15)) % (24 * 60)
+                m = (t[0] * 60 + t[1] + step * (60 if big else 1 if fine else 15)) % (24 * 60)
             else:
                 n = dt.datetime.now()
                 m = (n.hour * 60 + n.minute + 15) // 15 * 15 % (24 * 60)
@@ -1822,7 +1859,7 @@ class HubWindow(Gtk.ApplicationWindow):
         step = {"Up": 1, "Right": 1, "Down": -1, "Left": -1}.get(name) or \
             {"k": 1, "l": 1, "j": -1, "h": -1}.get(ch, 0)
         if step:
-            self.field_step(step, shift)
+            self.field_step(step, shift, fine=name in ("Left", "Right") or ch in ("h", "l"))
         elif v.field == "prio":
             if ch in ("1", "2", "3"):
                 v.f_prio = {"1": 2, "2": 1, "3": 0}[ch]
@@ -1904,9 +1941,9 @@ class HubWindow(Gtk.ApplicationWindow):
         text = v.buf.strip()
         fok, fdue = fields_due(v.f_date, v.f_time) if v.tab == "items" else (True, None)
         if text and not fok:
-            v.field = "date" if fdue == "дата" else "time"
-            v.flash("не разобрано поле «%s»" % fdue)
+            fields_err(v, fdue)
             return
+        allday = fok and fdue is not None and fields_allday(v.f_date, v.f_time)
         prio, frep = v.f_prio, v.f_repeat
         if text and v.tab == "items":
             lname, body = H.split_list(text)
@@ -1924,7 +1961,7 @@ class HubWindow(Gtk.ApplicationWindow):
         if v.tab == "items":
             d = {"id": v.draft_seq, "text": clean or body.strip(), "due": due, "repeat": repeat,
                  "status": "open", "kind": "task", "list": lname, "_draft": True, "_raw": text,
-                 "prio": prio}
+                 "prio": prio, "allday": allday}
             lst = v.draft_items
         else:
             for sep in ("=", " — ", " - "):
@@ -1965,7 +2002,7 @@ class HubWindow(Gtk.ApplicationWindow):
 
             def fwd(d=d, box=box):
                 box["id"] = H.add_item(v.conn, d["text"], d["list"], d["due"], d["repeat"], "pc",
-                                       prio=d.get("prio", 0))
+                                       prio=d.get("prio", 0), allday=d.get("allday", False))
 
             def bwd(box=box):
                 H.drop(v.conn, box["id"], "pc")

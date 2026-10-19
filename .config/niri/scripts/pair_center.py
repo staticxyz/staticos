@@ -30,6 +30,16 @@
 
 Работает по смене ФОКУСА, а не по событиям раскладки: center-column сам меняет
 раскладку, и реакция на неё зациклила бы службу.
+
+16.10.2026 — у каждого стола свой вид (Super+R → ws_layout.py view, раскладки
+Super+Ctrl+T). Режим "always" в конфиге больше не включается: это одна настройка на все
+столы, и при каждом её перечитывании niri заново центрировал и чужие столы (просьба: «стол 1
+в Подогнать, сходил на стол 2 в Центре, вернулся — стол 1 тоже по центру»). Теперь в
+конфиге всегда "never", а «Центр» делает эта служба: на столе с видом center (и раскладкой
+peek) — center-column при каждой смене фокуса, при новом окне в фокусе и при смене ширины
+колонки в фокусе — как "always" у niri. Столы tiling/three/stacking служба не трогает.
+Живёт в хозяине staticOS (staticos_host.py): раньше стартовала один раз из autostart.kdl,
+упала — и «Подогнать» молча стал чистым "never" (16.10 её не было в процессах).
 """
 import json
 import os
@@ -39,10 +49,18 @@ import time
 
 GAPS = 16           # запасное значение; действующее — layout.gaps из cfg/layout.kdl
 LAYOUT = os.path.expanduser("~/.config/niri/cfg/layout.kdl")
+WS_LAYOUT = os.path.expanduser("~/.config/hypr/state/ws-layout.json")   # раскладки (ws_layout.py)
+WS_VIEW = os.path.expanduser("~/.config/hypr/state/ws-view.json")       # Super+R по столам
+RIBBON = os.path.expanduser("~/.config/hypr/state/ribbon-center")       # общий вид из Настроек
 SLACK = 8           # на столько пара может превысить экран (округление)
 ROOM = 48           # меньше этого свободного места — считаем, что третьему не влезть
 SETTLE = 0.05       # дать niri дорисовать раскладку перед опросом
 NARROW = 0.34       # колонка не шире этой доли экрана — «узкая» (чат, заметки)
+# «Подогнать» = чистый niri "never" (16.10.2026, просьба: «раньше не центрировал, просто
+# сдвигал экран настолько, сколько влезет второе окно… разницы со вторым режимом нет»).
+# Служба долго не работала, и привычным стало именно это; правило пары выключено.
+# Вернуть правило пары — True (и VM_PAIR_RULE в desktop_widgets.py).
+FIT_PAIR_RULE = False
 
 
 def ask(what):
@@ -80,7 +98,7 @@ def edges():
     """Отступы у левого и правого края экрана: gaps + struts (left/right). niri_compositor.py
     edge пишет отрицательные struts — 13.10.2026 край стал 16−8 = 8, половины выросли до
     944, а счёт «три зазора по 16» давал 1936 > 1920: пара из двух половин считалась
-    невлезшей и центрировалась при каждом переходе (Просьба: «окна двигаются, хотя не должны»)."""
+    невлезшей и центрировалась при каждом переходе (просьба: «окна двигаются, хотя не должны»)."""
     import re
     g = gaps()
     try:
@@ -98,7 +116,56 @@ def edges():
 
 
 def center():
+    # Сразу через сокет (16.10.2026): `niri msg` — отдельный процесс, плюс пауза SETTLE, и
+    # niri успевал начать свой сдвиг ленты, а потом center-column перехватывал его вторым —
+    # переход фокуса казался медленнее (Пользователь).
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as c:
+            c.settimeout(1)
+            c.connect(os.environ["NIRI_SOCKET"])
+            c.sendall(b'{"Action":{"CenterColumn":{}}}\n')
+            if b"Ok" in c.makefile("rb").readline():
+                return
+    except (OSError, KeyError):
+        pass
     subprocess.run(["niri", "msg", "action", "center-column"], capture_output=True)
+
+
+_view_cache = [None, None]
+
+
+def view_of(ws_id):
+    """Вид стола: "center" (всегда по центру), "fit" (правило пары) или None (не трогать —
+    у стола своя раскладка: сетка, три в ряд, плавающие). Как want_kdl в ws_layout.py."""
+    key = []
+    for path in (WS_LAYOUT, WS_VIEW, RIBBON):
+        try:
+            key.append(os.stat(path).st_mtime_ns)
+        except OSError:
+            key.append(None)
+    if _view_cache[0] != key:
+        maps = []
+        for path in (WS_LAYOUT, WS_VIEW):
+            try:
+                with open(path) as f:
+                    d = json.load(f)
+                maps.append(d if isinstance(d, dict) else {})
+            except (OSError, ValueError):
+                maps.append({})
+        try:
+            with open(RIBBON) as f:
+                glob = "center" if f.read().strip() == "center" else "fit"
+        except OSError:
+            glob = "fit"
+        _view_cache[:] = [key, (maps[0], maps[1], glob)]
+    modes, views, glob = _view_cache[1]
+    mode = modes.get(str(ws_id), "scrolling")
+    if mode == "peek":
+        return "center"
+    if mode != "scrolling":
+        return None
+    v = views.get(str(ws_id))
+    return v if v in ("fit", "center") else glob
 
 
 def decide(prev):
@@ -113,6 +180,14 @@ def decide(prev):
 
     mine, ws = pos[0], win.get("workspace_id")
     here = (mine, ws)
+    view = view_of(ws)
+    if view is None:
+        return here
+    if view == "center":
+        center()                    # как "always": колонка с фокусом всегда по центру
+        return here
+    if not FIT_PAIR_RULE:
+        return here                 # «Подогнать»: ленту доворачивает сам niri
 
     # Ширины колонок стола: {номер: ширина}. Окна одной колонки стоят друг под
     # другом и ширину делят, поэтому колонка считается один раз.
@@ -153,9 +228,24 @@ def decide(prev):
     return here
 
 
+def focused_center_ws():
+    """Окно в фокусе стоит в ленте на столе с видом «Центр» — его id и ширина, иначе None."""
+    win = ask("focused-window")
+    if not win or win.get("is_floating"):
+        return None
+    lay = win.get("layout") or {}
+    if not lay.get("pos_in_scrolling_layout") or view_of(win.get("workspace_id")) != "center":
+        return None
+    return win["id"], (lay.get("tile_size") or [0])[0]
+
+
 def main():
     last = None                     # id окна, на котором был фокус
     prev = None                     # (колонка, стол), откуда ушёл фокус
+    known = set()                   # окна, о которых уже знаем (новое = не было здесь)
+    place = {}                      # окно → (стол, плавающее) — «Центр» решается без опроса
+    tilew = {}                      # окно → ширина плитки (для смены ширины в «Центре»)
+    width = {}                      # окно в фокусе → его ширина (для «Центра» при смене ширины)
     while True:
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -176,13 +266,58 @@ def main():
                 if wid is None or wid == last:
                     continue
                 last = wid
+                ws, flt = place.get(wid, (None, True))
+                if ws is not None and not flt and view_of(ws) == "center":
+                    center()                # «Центр» — сразу, без паузы и опроса niri
+                    width = {wid: tilew.get(wid)} if tilew.get(wid) else {}
+                    prev = None
+                    continue
                 time.sleep(SETTLE)
                 try:
                     prev = decide(prev)
+                    got = focused_center_ws()
+                    width = {got[0]: got[1]} if got else {}
                 except Exception:
                     prev = None
             elif kind == "WorkspaceActivated":
                 last = prev = None  # на новом столе решаем заново
+            elif kind == "WindowsChanged":
+                known = {w["id"] for w in ev[kind].get("windows", [])}
+                place = {w["id"]: (w.get("workspace_id"), w.get("is_floating"))
+                         for w in ev[kind].get("windows", [])}
+                tilew = {w["id"]: ((w.get("layout") or {}).get("tile_size") or [0])[0]
+                         for w in ev[kind].get("windows", [])}
+            elif kind == "WindowOpenedOrChanged":
+                # Новое окно в фокусе: WindowFocusChanged niri для него не шлёт. «Подогнать» —
+                # niri сам доворачивает его на экран; «Центр» — по центру, как "always".
+                w = ev[kind].get("window") or {}
+                place[w.get("id")] = (w.get("workspace_id"), w.get("is_floating"))
+                tilew[w.get("id")] = ((w.get("layout") or {}).get("tile_size") or [0])[0]
+                new = w.get("id") not in known
+                known.add(w.get("id"))
+                if new and w.get("is_focused"):
+                    last = w.get("id")
+                    time.sleep(SETTLE)
+                    if focused_center_ws():
+                        center()
+            elif kind == "WindowClosed":
+                known.discard(ev[kind].get("id"))
+                place.pop(ev[kind].get("id"), None)
+                tilew.pop(ev[kind].get("id"), None)
+            elif kind == "WindowLayoutsChanged":
+                for c in ev[kind].get("changes", []):
+                    tilew[c[0]] = ((c[1] or {}).get("tile_size") or [0])[0]
+                # Сменилась ширина колонки в фокусе (Super+−/=) — «Центр» снова по центру.
+                if last is None or not any(c[0] == last for c in ev[kind].get("changes", [])):
+                    continue
+                try:
+                    got = focused_center_ws()
+                except Exception:
+                    got = None
+                if got and got[0] == last:
+                    if width.get(last) not in (None, got[1]):
+                        center()
+                    width = {last: got[1]}
         s.close()
         time.sleep(1)
 

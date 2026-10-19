@@ -258,7 +258,7 @@ window#waybar #workspaces button.empty:not(.focused):not(#niri-workspace-\U000f0
 """
 
 
-# Вид системы «Minimalistic» (13.10.2026, Просьба: «верхний бар в виде маленькой капсулы, где
+# Вид системы «Minimalistic» (13.10.2026, просьба: «верхний бар в виде маленькой капсулы, где
 # только рабочие столы, время, уровень вайфая и батарея… в виде островка с отступом сверху и
 # снизу»; образец — тёмная таблетка по центру). Включает pixel_look.py set minimal. Бар
 # остаётся во всю ширину (layer-shell), но прозрачный: видна только средняя группа — она и
@@ -396,17 +396,32 @@ def minimal_bar(s):
     return s
 
 
+def write_if_changed(path, text):
+    """Записать, только если содержимое другое (16.10.2026): у waybar включён
+    reload_style_on_change — перезапись того же стиля перерисовывала бары на всех
+    мониторах при каждой смене панели одного из них. True — файл изменился."""
+    try:
+        if open(path, encoding="utf-8").read() == text:
+            return False
+    except OSError:
+        pass
+    with open(path + ".tmp", "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(path + ".tmp", path)
+    return True
+
+
 def build_style():
     try:
         base = open(STYLE_SRC, encoding="utf-8").read()
     except OSError:
         base = ""
-    with open(STYLE_DST, "w", encoding="utf-8") as f:
-        f.write(base + "\n" + STYLE_EXTRA)
-        if os.path.exists(COZETTE_RULE) and os.path.exists(FIT_FLAG):
-            f.write(STYLE_COZETTE)
-        if minimal_on():
-            f.write(STYLE_MINIMAL)
+    text = base + "\n" + STYLE_EXTRA
+    if os.path.exists(COZETTE_RULE) and os.path.exists(FIT_FLAG):
+        text += STYLE_COZETTE
+    if minimal_on():
+        text += STYLE_MINIMAL
+    write_if_changed(STYLE_DST, text)
 
 
 def niri_gaps(default=16):
@@ -482,16 +497,23 @@ BAR_MARGINS = os.path.expanduser("~/.config/hypr/state/bar-margins")
 def vertical_margins():
     """(margin-top, margin-bottom) из состояния hypr/scripts/bar_margins.py или None.
 
-    В файле «E W»: E — от края экрана, у которого стоит бар, W — до окон. У вида
+    В файле «E W ВИД»: E — от края экрана, у которого стоит бар, W — до окон. У вида
     «Снизу» край — нижний, поэтому пара переворачивается. Нет файла — отступы
     остаются как у вида.
+
+    Отступы действуют только у того вида, при котором заданы (третье поле — имя
+    вида, 17.10.2026): 0/0 от «во всю ширину» прижимали к краю и «парящий».
     """
+    cur = os.path.expanduser("~/.config/waybar/looks/current.jsonc")
     try:
-        e, w = (max(-16, min(32, int(x))) for x in open(BAR_MARGINS).read().split()[:2])
+        e, w, look = open(BAR_MARGINS).read().split()[:3]
+        if look != os.path.basename(os.readlink(cur))[:-len(".jsonc")]:
+            return None
+        e, w = (max(-16, min(32, int(x))) for x in (e, w))
     except (OSError, ValueError):
         return None
     try:
-        txt = open(os.path.expanduser("~/.config/waybar/looks/current.jsonc")).read()
+        txt = open(cur).read()
     except OSError:
         txt = ""
     m = re.search(r'"position"\s*:\s*"(\w+)"', txt)
@@ -581,8 +603,7 @@ def main():
     s = minimal_bar(s) if minimal_on() else fix_margins(s)
     head = "// СОБРАНО АВТОМАТИЧЕСКИ из config.jsonc скриптом ~/.config/niri/scripts/waybar_niri.py.\n" \
            "// Не править: при следующем входе в niri файл будет перезаписан.\n"
-    with open(DST, "w", encoding="utf-8") as f:
-        f.write(head + top_bar_mode(s))
+    write_if_changed(DST, head + top_bar_mode(s))
     per_output(s, head)
 
 
@@ -606,8 +627,7 @@ def per_output(s, head):
                 t = re.sub(r'"output"\s*:\s*\[[^\]]*\]', '"output": ["%s"]' % out, s, count=1)
                 t = t.replace('"layer": "top",', '"layer": "top",\n    "name": "tb-%s",' % mode, 1)
                 path = panels.bar_config(out)
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(head + top_bar_mode(t, mode, ws=panels.ws_for(out, d)))
+                write_if_changed(path, head + top_bar_mode(t, mode, ws=panels.ws_for(out, d)))
                 keep.add(path)
     except Exception as e:
         print("waybar_niri: панели по мониторам: %r" % e, file=sys.stderr)

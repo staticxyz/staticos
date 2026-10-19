@@ -75,9 +75,9 @@ AREAS = [
         rofi fontprofile fontswap font-sample"""),
     ("Курсор", "➤", """
         cursor_colors.py cursor_shake.py cursor_theme.py bit_cursor.py
-        tri_cursor.py jarvis_pebble.py yamikai_wall.py"""),
+        tri_cursor.py skeet_cursor.py jarvis_pebble.py yamikai_wall.py"""),
     ("Уведомления и звуки интерфейса", "✉", """
-        notif_style.py track_notify.py dnd_sounds.py auto_dnd.py ui_sound.py
+        notif_style.py track_notify.py island.py dnd_sounds.py auto_dnd.py ui_sound.py
         ui_sound_retro.py ui_sound_watch.py layout_osd notif-look notify-send"""),
     # Панели
     ("Бар: устройство", "▔", """
@@ -86,7 +86,7 @@ AREAS = [
     ("Бар: модули", "▀", """
         bar_language.py bar_window_title.py browser_status.py bongo_cat.py cava_bar.py
         mpris_common.py mpris_status.py mpris_focus privacy_status.py rec_status.sh
-        ribbon_map.py sensor_colors.py start_button.py taskbar.py waybar_clock.py
+        ribbon_map.py sensor_colors.py start_button.py start_glyphs.py taskbar.py waybar_clock.py
         ws_labels.py ws_order.py lyrics_bar.py bar_volume.py bar_volume.sh
         savage_battery.py battery_mini.py"""),
     ("Бар: шрифты значков", "Aa", """
@@ -102,7 +102,7 @@ AREAS = [
         bottom_bar.py dock.py xpbar.py xpbar_colors.py xp_calendar.py start_menu.py
         super_tap.py app_search.py power_xp.py"""),
     ("Виджеты и меню рабочего стола", "▦", """
-        desktop_widgets.py desktop_widgets_extra.py preset_ask.py desktop_menu.py
+        desktop_widgets.py desktop_widgets_extra.py preset_ask.py banner_ask.py banner_fx.py desktop_menu.py
         timer_ask.sh"""),
     # Окна и клавиши
     ("Конфиг niri", "▣", ""),
@@ -122,7 +122,7 @@ AREAS = [
         login_theme/ vt_guard"""),
     ("Простой, сон, заставка", "☾", """
         idle_dim idle_guard.py idle_lock idle_suspend screen_awake.py screensaver.py
-        power_menu.py alt-f4 dpms screenon"""),
+        power_menu.py alt-f4 dpms screenon output-mode-fix"""),
     ("Яркость и ночной свет", "☀", """
         screen_gamma.py night_mode.py monitor_brightness.py"""),
     ("Звук и микрофон", "♪", """
@@ -156,7 +156,8 @@ AREAS = [
         jtetris jtype"""),
     # Инструменты
     ("Калькулятор и перевод", "=", """
-        calc_copy.sh calc_menu.sh calc_qalc.py translate_popup.py translate_server.py"""),
+        calc_copy.sh calc_menu.sh calc_qalc.py translate_popup.py translate_server.py
+        translate_best.sh translate_google.py"""),
     ("Буфер обмена", "⎘", """
         clipboard_menu.py clipboard_win.py clipboard-toggle cliphist-store xclip
         x-clip-pull x11-clip-bridge x11-clip-events wtype"""),
@@ -169,7 +170,7 @@ AREAS = [
     ("Экранное время и нагрузка", "◔", """
         screentime.py screentime_daemon.py appmem jtop"""),
     ("Discipline и hub", "⏱", """
-        routine_app.py focus_mode.py alarm discipline routine pomo hub hub-open rem dict"""),
+        routine_app.py focus_mode.py alarm discipline routine pomo hub hub-open rem dict wa tfa jchat jchat-tg jchat-wa"""),
     ("Будильник", "⏰", """
         wake_alarm.py jarvis-rtc-wake.sh wake_overlay.py wake-alarm"""),
     # Служебное
@@ -311,6 +312,10 @@ DESC = {
     "bar_volume.sh": "Щелчки и колёсико звука в баре: на динамики или микрофон — что показано",
     "wb_share": "Общий исполнитель модулей бара: команда идёт одна на оба монитора (через wb_hub.py)",
     "hub-open": "Открыть окно hub (одно на всех); hub-open dict — словарь",
+    "jchat": "Свои чаты WhatsApp+Telegram в терминале; демон живёт, пока открыт jchat",
+    "start_glyphs.py": "Символы кнопки «Пуск»: ярлык/значок × 8 символов",
+    "wa": "Отложенные сообщения WhatsApp: очередь, wa new, wa add, wa app — окно; вход по паролю sudo",
+    "tfa": "Второй ключ для Telegram: одноразовый код из приложения на телефоне (tfa setup / status / unlock)",
     "fontprofile": "Профили файлов под шрифт системы: сохранить оригинал перед правкой под Cozette и вернуть",
     "fontswap": "Проба шрифта на всю систему одним правилом fontconfig (Cozette вместо PxPlus) и откат",
     "termlook": "Пробовать вид терминала вживую: шрифт, прозрачность, размытие",

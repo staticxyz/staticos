@@ -26,6 +26,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image
 
@@ -185,9 +186,9 @@ def svg(parts, fill, out, light):
             '<g filter="url(#sh)">%s</g><g>%s%s</g></svg>' % (outline, outline, body))
 
 
-def render(svg_text, size, tmpdir):
-    src = pathlib.Path(tmpdir) / "f.svg"
-    dst = pathlib.Path(tmpdir) / "f.png"
+def render(svg_text, size, tmpdir, tag="f"):
+    src = pathlib.Path(tmpdir) / ("%s.svg" % tag)
+    dst = pathlib.Path(tmpdir) / ("%s.png" % tag)
     src.write_text(svg_text)
     subprocess.run(["rsvg-convert", "-w", str(size), "-h", str(size), str(src), "-o", str(dst)], check=True)
     return Image.open(dst).convert("RGBA")
@@ -271,16 +272,24 @@ def build(variant, name=None, colors=None):
     (tmp / "cursors").mkdir(parents=True)
     (tmp / "index.theme").write_text("[Icon Theme]\nName=%s\nComment=Jarvis Pebble — %s\n"
                                      "Inherits=breeze_cursors\n" % (name, label))
-    with tempfile.TemporaryDirectory() as td:
-        for base, (parts, hot, anim) in shapes().items():
-            frames = [parts(i) for i in range(ANIM_FRAMES)] if anim else [parts]
-            images = []
-            for size in SIZES:
-                k = size / 256
-                for fr in frames:
-                    im = render(svg(fr, fill, out, light), size, td)
-                    images.append((size, im, round(hot[0] * k), round(hot[1] * k), ANIM_DELAY if anim else 0))
-            write_xcursor(tmp / "cursors" / base, images)
+    # 15.10.2026: ~180 запусков rsvg-convert шли по одному (1,8 с из 2,2 — ожидание) — теперь
+    # параллельно, у каждого свои файлы; порядок кадров прежний, файлы темы те же до байта.
+    jobs = []
+    for base, (parts, hot, anim) in shapes().items():
+        frames = [parts(i) for i in range(ANIM_FRAMES)] if anim else [parts]
+        for size in SIZES:
+            k = size / 256
+            for fr in frames:
+                jobs.append((base, svg(fr, fill, out, light), size,
+                             (round(hot[0] * k), round(hot[1] * k)), ANIM_DELAY if anim else 0))
+    with tempfile.TemporaryDirectory() as td, ThreadPoolExecutor(os.cpu_count() or 4) as pool:
+        ims = list(pool.map(lambda ij: render(ij[1][1], ij[1][2], td, "f%d" % ij[0]),
+                            enumerate(jobs)))
+    images = {}
+    for (base, _, size, (xh, yh), delay), im in zip(jobs, ims):
+        images.setdefault(base, []).append((size, im, xh, yh, delay))
+    for base, imgs in images.items():
+        write_xcursor(tmp / "cursors" / base, imgs)
     for src, names in ALIASES.items():
         for alias in names.split():
             link = tmp / "cursors" / alias

@@ -30,6 +30,11 @@ SIZE = 512
 THUMB = 128
 PROBE = 16          # сторона копии для сравнения с ~/.cache/avatar.png
 EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+# Круглая копия для Zen (значок вместо Vimium, 15.10.2026): браузер сам режет 20 px
+# картинку по border-radius ступеньками — поэтому круг вырезается здесь, со сглаженным краем,
+# ровно под размер значка. Пересобрать: avatar_picker.py zen
+ZEN_ROUND = os.path.expanduser("~/.config/zen-jarvis/avatar-round.png")
+ZEN_SIZE = 20
 
 CSS = b"""
 button.avatar { padding: 3px; border: 4px solid transparent; border-radius: 10px; }
@@ -164,6 +169,7 @@ class Picker(Gtk.Application):
     def on_pick(self, _btn, path, name):
         try:
             crop_square(path, SIZE).savev(OUT, "png", [], [])
+            zen_round()
             with open(SOURCE, "w") as f:
                 f.write(path)
             self.mark(path)
@@ -172,5 +178,23 @@ class Picker(Gtk.Application):
             self.status.set_label("Не вышло: %s" % getattr(e, "message", e))
 
 
+def zen_round(size=ZEN_SIZE, ss=8):
+    """~/.cache/avatar.png → круг size px с краем, сглаженным подвыборкой ss (и копия ×2)."""
+    from PIL import Image, ImageDraw
+    src = Image.open(OUT).convert("RGBA")
+    for k, dst in ((1, ZEN_ROUND), (2, ZEN_ROUND.replace(".png", "@2x.png"))):
+        n = size * k
+        big = Image.new("L", (n * ss, n * ss), 0)
+        ImageDraw.Draw(big).ellipse((0, 0, n * ss - 1, n * ss - 1), fill=255)
+        im = src.resize((n, n), Image.LANCZOS)
+        im.putalpha(big.resize((n, n), Image.LANCZOS))
+        tmp = dst + ".tmp"
+        im.save(tmp, "PNG")
+        os.replace(tmp, dst)
+
+
 if __name__ == "__main__":
+    if sys.argv[1:] == ["zen"]:
+        zen_round()
+        sys.exit(0)
     sys.exit(Picker().run([]))

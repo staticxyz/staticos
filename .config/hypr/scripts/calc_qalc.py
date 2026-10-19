@@ -22,7 +22,11 @@
    → корейский, латиница → английский, а немецкий узнаётся по умлаутам и
    служебным словам (der, und, nicht…). Куда: русский → английский, остальное
    → русский. Хвост «> de» / «> ja» / «> ko» / «> en» или «на немецкий» —
-   принудительно. Офлайн, модель держит translate_server.py (см. его шапку).
+   принудительно. С 17.10.2026 переводит Google (translate_google.py, ~0,3 с):
+   NLLB — «посредственно, не как google translator» (Пользователь). Без сети —
+   офлайн NLLB, модель держит translate_server.py (см. его шапку).
+   Текст с цифрами («Index 4 out of bounds for length 4») распознаёт
+   text_after_qalc() — по ошибкам qalc на незнакомые «единицы».
    Как отличаем текст — looks_like_text(); числа, валюты и коды идут в qalc.
    Латиница из одной-двух букв тоже текст: пока печатали «hello», qalc
    показывал «h = hour», «ho = hectobyte» (журнал 23.09.2026); исключение —
@@ -69,6 +73,43 @@ RU = [
     (r"дирхам\w*", "AED"),
     (r"злот\w*", "PLN"),
 ]
+# Единицы по-русски (17.10.2026, просьба: «10 миль в км», «10 дней в часах»
+# давали «10 = 10» — qalc выкидывал русские слова). Основа -> имя для qalc;
+# фразы и составные — раньше простых («км/ч» до «км», «миллиметр» до «метр»).
+RU_UNITS = [
+    (r"км/ч|км в час|километр\w* в час", "km/h"), (r"м/с|метр\w* в секунду", "m/s"),
+    (r"мбит/с", "Mbit/s"), (r"мб/с", "MB/s"),
+    (r"кв\.?\s?км|км²|км2", "km^2"), (r"кв\.?\s?м|м²|м2", "m^2"),
+    (r"л\.\s?с\.?|лошадин\w* сил\w*", "hp"),
+    (r"градус\w* цельси\w*|цельси\w*|°c", "celsius"),
+    (r"градус\w* фаренгейт\w*|фаренгейт\w*|°f", "fahrenheit"), (r"кельвин\w*", "kelvin"),
+    (r"морск\w* мил[яиьюе]\w*", "nmi"),
+    (r"миллиметр\w*|мм", "mm"), (r"сантиметр\w*|см", "cm"), (r"дециметр\w*|дм", "dm"),
+    (r"километр\w*|км", "km"), (r"метр\w*", "m"), (r"мил[яиьюе]\w*", "mile"),
+    (r"дюйм\w*", "inch"), (r"фут|фута|футов|футах|футам", "ft"), (r"ярд\w*", "yd"),
+    (r"миллиграмм\w*|мг", "mg"), (r"килограмм\w*|кг", "kg"), (r"грамм\w*|гр", "g"),
+    (r"тонн\w*", "tonne"), (r"унци\w*", "oz"), (r"карат\w*", "carat"),
+    (r"миллилитр\w*|мл", "mL"), (r"литр\w*", "L"), (r"галлон\w*", "gal"),
+    (r"миллисекунд\w*|мс", "ms"), (r"секунд\w*|сек", "s"), (r"минут\w*|мин", "min"),
+    (r"час|часа|часов|часах|часам|часы|часу", "hour"),
+    (r"сутки|суток|сутках|суткам|сут", "day"), (r"день|дня|дней|днях|дням|дн", "day"),
+    (r"недел\w*|нед", "week"), (r"месяц\w*|мес", "month"),
+    (r"год|года|годов|годах|годам|годы|году|лет", "year"),
+    (r"килобайт\w*|кб", "kB"), (r"мегабайт\w*|мб", "MB"), (r"гигабайт\w*|гб", "GB"),
+    (r"терабайт\w*|тб", "TB"), (r"байт\w*", "B"),
+    (r"килобит\w*|кбит", "kbit"), (r"мегабит\w*|мбит", "Mbit"), (r"гигабит\w*|гбит", "Gbit"),
+    (r"бит|бита|битов|битах", "bit"),
+    (r"гектар\w*|га", "ha"), (r"сотка|сотки|соток|сотку|сотках|соткам", "are"), (r"акр\w*", "acre"),
+    (r"килокалори\w*|ккал", "kcal"), (r"калори\w*|кал", "cal"),
+    (r"киловатт-час\w*|квт·?ч", "kWh"), (r"киловатт\w*|квт", "kW"), (r"ватт\w*|вт", "W"),
+    (r"килоджоул\w*|кдж", "kJ"), (r"джоул\w*|дж", "J"),
+]
+# «Фунт» — валюта (GBP), но рядом с весом — фунты массы: «3 фунта в кг».
+MASS_NEAR = re.compile(r"(?<!\w)(?:кг|килограмм\w*|грамм\w*|гр?|тонн\w*|унци\w*|kg|g|oz|lb)(?!\w)", re.I)
+# Одна буква — единица только после числа или «в»: «5 ч», «в м». Иначе «с»,
+# «в» — предлоги («пойду с другом»).
+RU_UNIT_LETTERS = {"м": "m", "г": "g", "т": "tonne", "л": "L", "с": "s", "ч": "hour"}
+
 # Иероглифы и хангыль пишутся вплотную к числу («500円»), границы слова тут нет.
 CJK_MONEY = (("円", "JPY"), ("엔", "JPY"), ("원", "KRW"), ("元", "CNY"))
 SYMBOL = {"$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY", "₽": "RUB", "₸": "KZT", "₩": "KRW"}
@@ -91,6 +132,12 @@ def translate(expr):
         n *= 1_000_000 if len(m.group(2)) == 2 else 1000
         return ("%d" % n) if n == int(n) else ("%g" % n)
     expr = re.sub(r"(\d+(?:[.,]\d+)?)\s?([kк]{1,2})(?![A-Za-zА-Яа-я])", _thousands, expr, flags=re.I)
+    if MASS_NEAR.search(expr):
+        expr = re.sub(r"(?<!\w)фунт\w*", "lb", expr, flags=re.I)
+    for stem, unit in RU_UNITS:
+        expr = re.sub(r"(?<!\w)(?:%s)(?!\w)" % stem, unit, expr, flags=re.I)
+    expr = re.sub(r"(\d\s*|(?<!\w)(?:в|во|на|to|in)\s+)([мгтлсч])(?!\w)",
+                  lambda m: m.group(1) + RU_UNIT_LETTERS[m.group(2).lower()], expr, flags=re.I)
     for stem, code in RU:
         expr = re.sub(r"(?<!\w)(?:%s)(?!\w)" % stem, code, expr, flags=re.I)
     for sym, code in CJK_MONEY:
@@ -144,6 +191,7 @@ TRANSLATE_SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis
 TRANSLATE_SERVER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "translate_server.py")
 TRANSLATE_PY = os.environ.get("TRANSLATE_PYTHON") or os.path.expanduser("~/.local/share/jarvis-translate/venv/bin/python")
 ICON_TRANSLATE = "\U000f05ca"
+GOOGLE_TIMEOUT = 1.5                           # дольше — значит сети нет, идём в NLLB
 WRAP_AT = 38                                   # знаков в строке (панель 520 px, клетка 12 px)
 ENTRY_FITS = 42                                # столько строка ввода ещё показывает целиком
 ICON_INPUT = "\U000f0417"                      # nf-md-text — строка «что переводим»
@@ -152,6 +200,11 @@ JPN = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]")
 KOR = re.compile(r"[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]")
 # Всё, что делает строку выражением: цифры, знаки, символы валют.
 MATHY = re.compile(r"[0-9+\-*/^%%=()<>!&|√×÷%s]" % SYM)
+# Знаки действий — без цифр, скобок и дефиса (их хватает и в тексте).
+OPERATORS = re.compile(r"[+*/^=<>&|√×÷]")
+# Чем qalc выдаёт, что перед ним слова, а не единицы и функции.
+QALC_TEXT_ERR = re.compile(r"is not a valid variable/function/unit|You need at least \d+ argument"
+                           r"|Did you mean")
 # Немецкий от английского — по умлаутам и словам, которых в английском нет
 # (нарочно без die/hat/gut/was/bin: это и английские слова).
 GERMAN = re.compile(r"[äöüß]|(?<![A-Za-z])(?:der|das|und|ist|nicht|ich|wir|sie|ein|eine|mit|für"
@@ -250,7 +303,54 @@ def looks_like_text(body, expr, tgt=None):
     return src, (tgt or "rus_Cyrl")
 
 
+def text_after_qalc(body, expr, tgt, qalc_out):
+    """Текст с цифрами, который looks_like_text() отдал калькулятору (17.10.2026).
+
+    Цифра делает строку «выражением» (MATHY), и «Index 4 out of bounds for
+    length 4» qalc читал как I·n·d·e·x × 4 × … × for(len("gth")) — в окне был
+    мусор «0.000000000 × for(4 × len("gth")) × b·g²·B³·s³». Признак текста:
+    хотя бы два слова, нет знаков действий и кодов валют, а qalc ругается на
+    незнакомые единицы. Выражения с единицами («1 light year to km»,
+    «10 days to hours») qalc понимает без ошибок — они остаются ему.
+    """
+    s = body.strip()
+    if too_short(s, tgt) or OPERATORS.search(s):
+        return None
+    # Одно слово — только если строка с него начинается («Index 4», «Error
+    # 404»): «5 kilometr» — это недописанная единица, а не фраза.
+    if len(re.findall(r"[^\W\d_]{2,}", s)) < 2 and not re.match(r"[^\W\d_]{4}", s):
+        return None
+    if any(w.upper() in CODES for w in re.findall(r"[A-Za-z]{3}", expr)):
+        return None
+    if not QALC_TEXT_ERR.search(qalc_out):
+        return None
+    if JPN.search(s):
+        src = "jpn_Jpan"
+    elif KOR.search(s):
+        src = "kor_Hang"
+    elif CYR.search(s):
+        src = "rus_Cyrl"
+    else:
+        src = "deu_Latn" if GERMAN.search(s) else "eng_Latn"
+    if tgt == src:
+        tgt = None
+    return src, (tgt or ("eng_Latn" if src == "rus_Cyrl" else "rus_Cyrl"))
+
+
 def translate_text(text, src, tgt):
+    """(перевод, движок): Google, без сети — NLLB (17.10.2026).
+
+    Пользователь: NLLB переводит «посредственно, не так хорошо как google translator».
+    Google отвечает за ~0,3 с; заодно 1 ГБ модели NLLB не будится, пока есть сеть.
+    """
+    from translate_google import google
+    out = google(text, src, tgt, timeout=GOOGLE_TIMEOUT)
+    if out:
+        return out, "google"
+    return translate_nllb(text, src, tgt), "nllb"
+
+
+def translate_nllb(text, src, tgt):
     """Перевод через translate_server.py; нет службы — запустить и подождать."""
     import socket
 
@@ -335,6 +435,41 @@ def log(line):
         f.write(line)
 
 
+def show_translation(raw, body, src, tgt):
+    """Перевод вместо ответа qalc: в окно/rofi, в ANSWER и TRANSLATE_REQ."""
+    out, engine = translate_text(body, src, tgt)
+    with open(ANSWER, "w") as f:
+        f.write(out or "")
+    # Для Enter: calc_copy.sh / окно видят, что это перевод. Перевод Google
+    # копируется как есть; черновик NLLB (не было сети) по Enter ещё раз
+    # просится у Google (translate_best.sh). Файл живёт до следующего ввода.
+    with open(TRANSLATE_REQ, "w") as f:
+        json.dump({"text": body, "src": src, "tgt": tgt, "engine": engine}, f, ensure_ascii=False)
+    log("%s %r -> перевод %s %s→%s %r\n" % (time.strftime("%T"), [raw], engine, src[:3], tgt[:3], out))
+    # Пустой вывод роняет rofi-calc (см. ниже), поэтому хотя бы пробел.
+    # Длинный перевод — в несколько строк: сам rofi строку message не
+    # переносит, и хвост обрезался (23.09.2026).
+    if out and os.environ.get("CALC_RAW"):
+        # Своё окно (translate_popup.py) переносит строки само: ему —
+        # значок и перевод одной строкой, без эха ввода.
+        print("%s  %s" % (ICON_TRANSLATE, out))
+        return
+    if out:
+        import textwrap
+        block = []
+        # Сама фраза, если строка ввода её уже не вмещает: rofi сжимает
+        # длинный ввод многоточием посередине, а растянуть вниз его
+        # нельзя — поэтому она печатается строками над переводом.
+        if len(body) > ENTRY_FITS:
+            src_lines = textwrap.wrap(body, WRAP_AT)
+            block += [ICON_INPUT + "  " + src_lines[0]] + [" " * 4 + l for l in src_lines[1:]]
+        shown_lines = textwrap.wrap(out, WRAP_AT) or [out]
+        block += [ICON_TRANSLATE + "  " + shown_lines[0]] + [" " * 4 + l for l in shown_lines[1:]]
+        print("\n".join(block))
+    else:
+        print("Переводчик не ответил")
+
+
 def main():
     if sys.argv[1:] == ["--refresh"]:
         return refresh()
@@ -351,49 +486,22 @@ def main():
             args += ["-s", "update_exchange_rates 0"]
             continue
         args.append(a)
+    body = tgt = raw = None
     if args and not args[-1].startswith(("-", "+")):
         raw = args[-1]
         body, tgt, _pending = split_target(raw)
         pair = looks_like_text(body, translate(body), tgt)
         args[-1] = translate(raw)          # выражение rofi-calc передаёт последним
         if pair:
-            src, tgt = pair
-            out = translate_text(body, src, tgt)
-            with open(ANSWER, "w") as f:
-                f.write(out or "")
-            # Для Enter: calc_copy.sh увидит, что это перевод, и (если есть
-            # translate_refine.sh) попросит уточнённый, а черновик NLLB —
-            # запасной. Файл живёт ровно до следующего ввода.
-            with open(TRANSLATE_REQ, "w") as f:
-                json.dump({"text": body, "src": src, "tgt": tgt}, f, ensure_ascii=False)
-            log("%s %r -> перевод %s→%s %r\n" % (time.strftime("%T"), [raw], src[:3], tgt[:3], out))
-            # Пустой вывод роняет rofi-calc (см. ниже), поэтому хотя бы пробел.
-            # Длинный перевод — в несколько строк: сам rofi строку message не
-            # переносит, и хвост обрезался (23.09.2026).
-            if out and os.environ.get("CALC_RAW"):
-                # Своё окно (translate_popup.py) переносит строки само: ему —
-                # значок и перевод одной строкой, без эха ввода.
-                print("%s  %s" % (ICON_TRANSLATE, out))
-                return
-            if out:
-                import textwrap
-                block = []
-                # Сама фраза, если строка ввода её уже не вмещает: rofi сжимает
-                # длинный ввод многоточием посередине, а растянуть вниз его
-                # нельзя — поэтому она печатается строками над переводом.
-                if len(body) > ENTRY_FITS:
-                    src_lines = textwrap.wrap(body, WRAP_AT)
-                    block += [ICON_INPUT + "  " + src_lines[0]] + [" " * 4 + l for l in src_lines[1:]]
-                shown_lines = textwrap.wrap(out, WRAP_AT) or [out]
-                block += [ICON_TRANSLATE + "  " + shown_lines[0]] + [" " * 4 + l for l in shown_lines[1:]]
-                print("\n".join(block))
-            else:
-                print("Переводчик не ответил")
-            return
+            return show_translation(raw, body, *pair)
     # Показываем только ответ. Предупреждения и ошибки («Misplaced operator»,
     # «is not a valid unit», «It has been 67 days since the exchange rates…»)
     # сыпались красным на каждом недописанном символе — их нет.
     r = subprocess.run(["qalc"] + args, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    if body is not None:
+        pair = text_after_qalc(body, translate(body), tgt, r.stdout + r.stderr)
+        if pair:
+            return show_translation(raw, body, *pair)
     lines = [l.strip() for l in r.stdout.splitlines() if l.strip()]
     # Если вопрос всё же прозвучал, ответ стоит в конце той же строки. И вообще
     # у приближённых ответов («5 USD = approx. KZT 2277.9») оставляем только

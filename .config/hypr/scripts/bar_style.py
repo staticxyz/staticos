@@ -138,6 +138,13 @@ def main():
             top_bar.opacity_rule()
         except Exception as e:
             print("bar_style: плотность фона не пересчитана: %s" % e, file=sys.stderr)
+        # Скругление углов своё у каждого вида (bar_rounding.py, 17.10.2026); отступы
+        # bar_margins.py берёт по виду сам — config-niri.jsonc пересоберёт bar_argv().
+        try:
+            import bar_rounding
+            bar_rounding.refresh()
+        except Exception as e:
+            print("bar_style: rounding.css не пересобран: %s" % e, file=sys.stderr)
         # Пиксельный вид: кегль текста зависит от вида бара (pixel_look.py, 13.10.2026).
         try:
             import pixel_look

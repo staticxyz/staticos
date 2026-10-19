@@ -3,6 +3,7 @@
 
     desktop_widgets.py              сторож (автозапуск niri; второй экземпляр выходит)
     desktop_widgets.py on|off       включить / выключить (Настройки → Visuals)
+    desktop_widgets.py restart      перезапустить (новый код виджетов; метки столов и «поверх окон» сохраняются)
     desktop_widgets.py status       on | off
     desktop_widgets.py edit         режим расстановки: двигать, растягивать, удалять, добавлять
                                     (кнопка «Очистить стол» и Shift+Delete — убрать все виджеты стола)
@@ -87,7 +88,7 @@ TYPES = {
     "sprite": ("Осьминог", 440, 409),
     "sysinfo": ("Система (fastfetch)", 957, 411),
     "sysmon": ("Монитор ресурсов", 300, 236),
-    "banner": ("Бегущая надпись", 700, 110),
+    "banner": ("Надпись", 700, 110),
     "player": ("Плеер", 380, 132),
     "playermini": ("Плеер в одну строку", 460, 66),
     "calendar": ("Календарь", 300, 250),
@@ -127,6 +128,7 @@ LOOKS = ("xp", "skeet", "beta", "classic")
 STYLE_DEFAULT = {"look": "xp", "looks": {}, "transparent": True, "opacity": 62, "blur": 16,
                  "under": False, "shadow": False, "guests": True}
 PEEK_FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "desktop-widgets-peek")
+PEEK_RESTORE = PEEK_FLAG + "-restore"       # restart: вернуть «поверх окон» новому сторожу
 
 
 def glib_signal_add(prio, signum, handler):
@@ -554,6 +556,32 @@ def start_daemon():
                      stderr=open(log, "a"), start_new_session=True)
 
 
+def restart_daemon():
+    """Перезапуск, чтобы подхватить новый код (19.10.2026, кнопка «Обновить» в меню обоев).
+    Не `off; on`: флаг off велит сторожу при выходе снять метки со всех столов, niri убирает
+    пустые столы, номера съезжают — группы виджетов садились на чужие столы (04.10.2026).
+    Здесь — SIGTERM без флага (метки остаются, новый сторож находит столы по ним), ждём,
+    пока старый выйдет (иначе start_daemon решит, что он жив), и возвращаем «поверх окон»."""
+    if os.path.exists(OFF):
+        return "виджеты выключены — перезапускать нечего"
+    peek = os.path.exists(PEEK_FLAG)
+    if send(signal.SIGTERM):
+        for _ in range(80):
+            if not daemon_pids():
+                break
+            time.sleep(0.1)
+        else:
+            return "старый сторож не вышел за 8 с — не трогаю (pid %s)" % daemon_pids()
+    if peek:
+        open(PEEK_RESTORE, "w").close()
+    start_daemon()
+    for _ in range(50):
+        if daemon_pids():
+            return "виджеты перезапущены"
+        time.sleep(0.1)
+    return "сторож не поднялся — журнал: $XDG_RUNTIME_DIR/desktop-widgets.log"
+
+
 def send(sig):
     pids = daemon_pids()
     for pid in pids:
@@ -585,10 +613,17 @@ def parse_timer(words):
     всё прочее — надпись."""
     import datetime
     label, secs, end = [], 0, None
+    prev = ""
     for w in words:
-        if re.fullmatch(r"(\d+[dhmsDHMS]?)+", w):
-            for n, u in re.findall(r"(\d+)([dhms]?)", w.lower()):
-                secs += int(n) * {"d": 86400, "h": 3600, "m": 60, "s": 1, "": 1}[u]
+        # 15.10.2026: и по-русски — 25м, 5ч, 1ч30м, 90с, 2д, 25мин; порядок слов любой
+        if re.fullmatch(r"(\d+([dhms]|мин|м|ч|сек|с|д)?)+", w.lower()):
+            for n, u in re.findall(r"(\d+)(мин|сек|[dhmsмчсд]?)", w.lower()):
+                secs += int(n) * {"d": 86400, "h": 3600, "m": 60, "s": 1, "": 1, "д": 86400, "ч": 3600,
+                                  "м": 60, "мин": 60, "с": 1, "сек": 1}[u]
+        elif w.lower() in ("мин", "минут", "минуты", "м", "ч", "час", "часа", "часов", "сек") and secs \
+                and re.fullmatch(r"\d+", prev):
+            # «25 мин»: число без единицы считалось секундами — перевести в минуты/часы
+            secs += int(prev) * ((60 if w.lower()[0] == "м" else 3600 if w.lower()[0] == "ч" else 1) - 1)
         elif re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?", w):
             p = [int(v) for v in w.split(":")] + [0]
             now = datetime.datetime.now()
@@ -598,6 +633,7 @@ def parse_timer(words):
             end = t.timestamp()
         else:
             label.append(w)
+        prev = w
     if end is None and secs:
         end = time.time() + secs
     return " ".join(label), end
@@ -651,6 +687,8 @@ def cli(a):
             open(OFF, "w").close()
             send(signal.SIGTERM)
         print("off" if os.path.exists(OFF) else "on")
+    elif a[0] == "restart":
+        print(restart_daemon())
     elif a[0] == "edit":
         if os.path.exists(OFF):
             os.remove(OFF)
@@ -718,12 +756,23 @@ def cli(a):
             x, y = x - w // 2, y - 11
         pinned = kv.pop("pinned", "0") in ("1", "true", "on", "yes")
         if a[1] == "banner" and kv.pop("ask", None) is not None and "text" not in kv:
-            r = subprocess.run(["rofi", "-dmenu", "-p", "banner.exe", "-lines", "0",
-                                "-theme-str", 'entry { placeholder: "текст надписи"; }'],
-                               input="", capture_output=True, text=True)
-            if r.returncode != 0 or not r.stdout.strip():
+            # окно Banner.exe в стиле системы: текст + эффекты галочками (19.10.2026; было rofi,
+            # откат — desktop_widgets.py.bak-20261019-074233)
+            r = subprocess.run(["python3", os.path.join(HERE, "banner_ask.py")],
+                               capture_output=True, text=True)
+            try:
+                got = json.loads(r.stdout.strip() or "null")
+            except ValueError:
+                got = None
+            if not isinstance(got, dict) or not str(got.get("text", "")).strip():
                 return
-            kv["text"] = r.stdout.strip()
+            kv["text"] = str(got["text"]).strip()
+            kv["fx"] = str(got.get("fx", ""))     # «» — статичный текст (по умолчанию)
+            # и прежний ключ: процесс виджетов, запущенный до 19.10, fx не знает и без
+            # scroll гонит строку (просьба: «без галочек… текст бежит справа налево»)
+            kv["scroll"] = "true" if ("f" in kv["fx"] or "R" in kv["fx"]) else "false"
+            if float(got.get("pace", 1) or 1) != 1:
+                kv["pace"] = str(got["pace"])
         name = unique_name(c, a[1])
         c["widgets"].append({"name": name, "type": a[1], "output": out,
                              "x": max(0, min(lg["width"] - w, x)), "y": max(0, min(lg["height"] - h, y)),
@@ -1372,6 +1421,9 @@ def slot_of(name):
 
 VISIBLE, FROZEN, HIDDEN = 0, 1, 2
 LAYOUT_KDL = os.path.expanduser("~/.config/niri/cfg/layout.kdl")
+WS_LAYOUT_JSON = os.path.expanduser("~/.config/hypr/state/ws-layout.json")   # раскладки столов (ws_layout.py)
+WS_VIEW_JSON = os.path.expanduser("~/.config/hypr/state/ws-view.json")       # Super+R по столам
+RIBBON_CENTER = os.path.expanduser("~/.config/hypr/state/ribbon-center")    # общий вид (Настройки → Окна)
 
 
 # ── что видно: столы и окна niri ────────────────────────────────────────────
@@ -1451,6 +1503,18 @@ class Niri:
         # смена стола — срочно (виджеты должны появиться вместе со столом); окна — не к спеху
         GLib.idle_add(self.on_change, "Workspace" in next(iter(ev)))
 
+    def views_changed(self):
+        """Super+R / Super+A / Настройки сменили вид стола (16.10.2026). niri об этом событий
+        не шлёт: center-column сдвигает ленту молча, а конфиг больше не меняется. Без этого
+        модель держала колонку у края до следующего события — гости не возвращались домой,
+        хотя после «Центра» место освободилось (Пользователь)."""
+        with self.lock:
+            try:
+                self.vm_track()
+            except Exception as e:
+                print("модель ленты:", e, file=sys.stderr)
+        GLib.idle_add(self.on_change, True)
+
     def active_ws(self, output):
         """{"name": …, "idx": …} активного стола монитора (для привязки виджета к столу)."""
         with self.lock:
@@ -1519,6 +1583,45 @@ class Niri:
             self._edges = e
         return self._lc
 
+    def center_for(self, ws_id):
+        """Центрирует ли niri колонку с фокусом на этом столе (16.10.2026).
+
+        С 16.10 Super+R задаёт центрирование каждому столу отдельно (ws_layout.py view),
+        а раскладки Super+Ctrl+T — своё; niri получает его через cfg/ws-layout.kdl, пока
+        стол в фокусе. layout.kdl хранит только общее значение — для столов без выбора.
+        Читать только его — ошибка 16.10: стол в «Центре», а модель держала колонку у
+        края, «на виджетах», и они уходили на ноутбук при свободном месте."""
+        st = []
+        for path in (WS_LAYOUT_JSON, WS_VIEW_JSON, RIBBON_CENTER):
+            try:
+                st.append(os.stat(path).st_mtime_ns)
+            except OSError:
+                st.append(None)
+        if getattr(self, "_wsv_key", None) != st:
+            self._wsv_key = st
+            maps = []
+            for path in (WS_LAYOUT_JSON, WS_VIEW_JSON):
+                try:
+                    d = json.load(open(path))
+                    maps.append(d if isinstance(d, dict) else {})
+                except (OSError, ValueError):
+                    maps.append({})
+            # 16.10: в layout.kdl теперь всегда "never" (центрирует pair_center.py) — общий
+            # вид для столов без своего выбора берём из ribbon-center
+            try:
+                maps.append(open(RIBBON_CENTER).read().strip() == "center")
+            except OSError:
+                maps.append(self.layout_conf()[1])
+            self._wsv = maps
+        modes, views, center = self._wsv
+        mode = modes.get(str(ws_id), "scrolling")
+        if mode in ("tiling", "three"):
+            return False
+        if mode == "peek":
+            return True
+        v = views.get(str(ws_id))
+        return center if v not in ("fit", "center") else v == "center"
+
     def edges(self):
         """Отступы у краёв экрана: {"left","right","top","bottom"} = gaps + struts."""
         self.layout_conf()
@@ -1545,7 +1648,8 @@ class Niri:
             lay = w.get("layout") or {}
             c = (lay.get("pos_in_scrolling_layout") or [1, 1])[0]
             cols[c] = max(cols.get(c, 0), (lay.get("tile_size") or [0, 0])[0])
-        gap, center = self.layout_conf()
+        gap = self.layout_conf()[0]
+        center = self.center_for(ws["id"])
         order = sorted(cols)
         act = next((w for w in tiled if w["id"] == ws.get("active_window_id")), None) or max(
             tiled, key=lambda w: ((w.get("focus_timestamp") or {}).get("secs", 0),
@@ -1582,6 +1686,7 @@ class Niri:
     # (layout_conf): при "always" колонка с фокусом всегда по центру — как у niri в
     # compute_new_view_offset_centered (шире экрана — к левому краю).
     VM_GAP, VM_SLACK, VM_ROOM, VM_NARROW = 16, 8, 48, 0.34    # как в pair_center.py
+    VM_PAIR_RULE = False     # 16.10: «Подогнать» = чистый niri, FIT_PAIR_RULE в pair_center.py
 
     def vm_size(self, ws_id):
         out = (self.ws.get(ws_id) or {}).get("output")
@@ -1636,6 +1741,8 @@ class Niri:
         if wid is None or wid == self.flast:
             return
         self.flast = wid
+        if not self.VM_PAIR_RULE:
+            return
         win = self.win.get(wid)
         if not win or win.get("is_floating"):
             return
@@ -1681,7 +1788,7 @@ class Niri:
             ac = colof[act]
             w = cols[ac]
             cen = self.centered.get(wsid)
-            if self.layout_conf()[1]:          # "always": фокус всегда по центру
+            if self.center_for(wsid):          # "always": фокус всегда по центру
                 x = (W - w) / 2 if w < W else 0
             elif len(cols) == 1 or old is None:
                 x = (W - w) / 2                # одна колонка — по центру; впервые — догадка
@@ -1834,6 +1941,7 @@ class Widget(Gtk.Window):
     «закрыть», уголок для размера. За полосу виджет таскают мышью (02.10.2026)."""
     interval = 0          # мс между кадрами анимации; 0 — анимации нет
     clickable = False     # True — виджет принимает щелчки и по содержимому (on_click)
+    in_game = False       # True — не встаёт на паузу в игре (лёгкий, и нужен как раз в игре: sysmon, 16.10)
     hot = ()              # «горячие» прямоугольники (x, y, w, h): щелчок по ним — on_click, а
                           # остальное тело пропускает мышь к обоям (05.10.2026)
 
@@ -3973,6 +4081,18 @@ class Manager:
         m = Gio.File.new_for_path(XP_SHOWN).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
         m.connect("changed", lambda *_a: self.xp_shown_changed())
         self.zone_mons.append(m)
+        # вид стола (Super+R, Super+A, общий из Настроек) — пересчитать ленту и гостей
+        for path in (WS_VIEW_JSON, WS_LAYOUT_JSON, RIBBON_CENTER):
+            m = Gio.File.new_for_path(path).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+            m.connect("changed", self.on_view_file)
+            self.zone_mons.append(m)
+
+    def on_view_file(self, _m, _f, _o, ev):
+        if ev in (Gio.FileMonitorEvent.CHANGES_DONE_HINT, Gio.FileMonitorEvent.CREATED,
+                  Gio.FileMonitorEvent.RENAMED, Gio.FileMonitorEvent.MOVED_IN,
+                  Gio.FileMonitorEvent.DELETED):
+            # pair_center ставит center-column на тот же файл — дать niri сдвинуть ленту
+            GLib.timeout_add(120, lambda: self.niri.views_changed() and False)
 
     # ── панели «Всегда» отодвигают виджеты ────────────────────────────────
     # Пользователь (06.10.2026): «верхний и нижний бар двигали виджеты, если установлен режим
@@ -4039,7 +4159,7 @@ class Manager:
 
     def push_layout(self):
         """Посчитать сдвиг dy видимых виджетов от панелей «Всегда» и переставить тех,
-        у кого он изменился. Нижняя панель (13.10.2026, Просьба: «не двигала виджеты, а
+        у кого он изменился. Нижняя панель (13.10.2026, просьба: «не двигала виджеты, а
         уменьшала их размер снизу») — подрезает высоту (dh), верх виджета стоит на месте;
         двигает, только если после подрезки осталось бы меньше MIN_H."""
         zones = {} if self.edit else self.panel_zones()
@@ -4203,6 +4323,11 @@ class Manager:
     def spawn(self, spec):
         mon = self.outs.get(spec.get("output"))
         cls = CLASSES.get(spec.get("type"))
+        orphan = None
+        if not mon:
+            # свой монитор отключён — гость живёт на гостевом (18.10.2026, orphan_place)
+            orphan = self.orphan_place(spec)
+            mon = orphan and orphan["mon"]
         if not mon or not cls:
             return None
         if spec.get("autoplace"):
@@ -4212,6 +4337,9 @@ class Manager:
         except Exception as e:
             print("виджет %s: %s" % (spec.get("name"), e), file=sys.stderr)
             return None
+        w.orphan = orphan is not None
+        if orphan:
+            w.go_away(orphan)
         if self.edit or self.peek:
             GtkLayerShell.set_layer(w, GtkLayerShell.Layer.TOP if self.edit else GtkLayerShell.Layer.OVERLAY)
         w.show_all()                       # слой есть всегда; виден ли он — решает «плащ» (refreeze)
@@ -4251,8 +4379,7 @@ class Manager:
         for w in old.values():
             w.close_widget()
         self.widgets = keep
-        self.conf["widgets"] = [w.spec for w in self.widgets] + [
-            sp for sp in conf["widgets"] if sp.get("output") not in outs]
+        self.conf["widgets"] = [w.spec for w in self.widgets] + self.offline_specs(conf)
         for e in self.editors:
             e.area.queue_draw()
         self.refreeze()
@@ -4264,13 +4391,14 @@ class Manager:
         их сохраняем как есть: иначе запись из памяти стирала только что добавленное
         (так пропал один из девяти виджетов, добавленных подряд, 02.10.2026)."""
         for w in self.widgets:
+            if getattr(w, "orphan", False):
+                continue                     # свой монитор отключён — его размер не знаем
             # размер экрана, на котором снято место (для пропорционального переноса), и
             # прощай прежняя память мест по мониторам `at` (05.10.2026, см. follow_desks)
             g = w.home_mon.get_geometry()
             w.spec["scr"] = [g.width, g.height]
             w.spec.pop("at", None)
-        mine = [w.spec for w in self.widgets] + [
-            s for s in self.conf["widgets"] if s.get("output") not in self.outs]
+        mine = [w.spec for w in self.widgets] + self.offline_specs()
         names = {s.get("name") for s in mine} | self.gone
         try:
             fresh = [s for s in json.load(open(CONF)).get("widgets", [])
@@ -4315,6 +4443,8 @@ class Manager:
         return len(victims)
 
     def remove(self, w):
+        if hasattr(w, "removed"):          # закрыли насовсем (таймер — стоп и в hub)
+            w.removed()
         self.widgets.remove(w)
         self.gone.add(w.spec.get("name"))
         self.conf["widgets"] = [s for s in self.conf["widgets"] if s is not w.spec]
@@ -4434,8 +4564,7 @@ class Manager:
     def tidy_ws(self):
         """Столы с нашей меткой: без виджетов — снять имя; с виджетами — держать подпись
         (значок или номер) такой же, какой её показала бы служба значков."""
-        specs = [w.spec for w in self.widgets] + [
-            sp for sp in self.conf["widgets"] if sp.get("output") not in self.outs]
+        specs = [w.spec for w in self.widgets] + self.offline_specs()
         used = {(sp.get("ws") or {}).get("slot") for sp in specs if not sp.get("pinned")}
         for out in self.outs:
             for ws in self.niri.workspaces(out):
@@ -4845,6 +4974,39 @@ class Manager:
             print("гости:", e, file=sys.stderr)
             return {}
 
+    def offline_specs(self, conf=None):
+        """Виджеты отключённых мониторов, у которых нет слоя. Гость с отключённого монитора
+        (orphan) слой имеет и в этот список не входит — иначе записался бы дважды."""
+        names = {w.spec.get("name") for w in self.widgets}
+        return [sp for sp in (conf or self.conf)["widgets"]
+                if sp.get("output") not in self.outs and sp.get("name") not in names]
+
+    # 18.10.2026, просьба: «включён только ноут, не вижу виджетов, которые обычно переносятся
+    # с MSI на ноут — хочу, чтобы при отключённом MSI они появлялись на экране ноутбука».
+    # Раньше виджет отключённого монитора не создавался вовсе, а в гости уходили только
+    # виджеты живого монитора. Теперь гость (spec["guest"]) без своего монитора стоит на
+    # гостевом месте постоянно: не при полном экране ноутбука, не при выключенных «гостях».
+    # Монитор вернулся — rebuild (смена мониторов) пересоздаёт его дома, и дальше обычные
+    # правила гостя (только на столе дашборда, guest_desk_ok). Столы — см. orphan_desk_ok.
+    def orphan_place(self, spec):
+        gs = spec.get("guest")
+        if not isinstance(gs, dict) or not load_style().get("guests", True):
+            return None
+        out = gs.get("output")
+        if out == spec.get("output") or out not in self.outs:
+            return None
+        g = self.outs[out].get_geometry()
+        x = max(0, min(g.width - int(spec["w"]), int(gs.get("x", 0))))
+        y = max(0, min(g.height - int(spec["h"]), int(gs.get("y", 0))))
+        return {"out": out, "mon": self.outs[out], "x": x, "y": y}
+
+    def orphan_desk_ok(self, out):
+        """Гость с отключённого монитора виден на любом столе, как закреплённый. 18.10.2026, просьба: «виджеты, перенесённые с MSI, оставались на всех столах, как закреплённые…
+        только на случай отключения MSI». Прячется лишь на столе дашборда в режиме Terminal
+        (там только окна kitty)."""
+        cur = self.niri.active_ws(out)
+        return not (cur and cur.get("name") in dash_names() and dash_mode() == "terminal")
+
     def guest_desk_ok(self, out):
         """Можно ли гостю показаться на мониторе out. 13.10.2026, просьба: «перееханные
         виджеты оставались только на столе Дешборда… опускаю на другой стол на мониторе
@@ -4874,8 +5036,7 @@ class Manager:
             return True
         if not slot and not fixed_name(name):
             return False
-        specs = [w.spec for w in self.widgets] + [
-            sp for sp in self.conf["widgets"] if sp.get("output") not in self.outs]
+        specs = [w.spec for w in self.widgets] + self.offline_specs()
         for sp in specs:
             if sp.get("pinned"):
                 continue
@@ -4895,10 +5056,23 @@ class Manager:
         # спрятанными до режима Widget (05.10.2026: иначе лежали вперемешку с окнами)
         term_dash = dash_mode() == "terminal"
         guests = self.guest_places()
+        full = None                              # полный экран — для гостей с отключённого монитора
         for w in self.widgets:
             s = w.spec
             g = w.monitor.get_geometry()
-            if not s.get("pinned"):
+            if getattr(w, "orphan", False):
+                away = self.orphan_place(s)
+                if away and full is None:
+                    full = self.full_outputs()
+                if away and away["out"] in full:
+                    away = None
+                # откреплённый гость — только на столе дашборда (18.10.2026, просьба:
+                # «открепил clock.exe, а он всё ещё двигается по рабочим столам»)
+                mine = bool(away) and (self.orphan_desk_ok(away["out"]) if s.get("pinned")
+                                       else self.guest_desk_ok(away["out"]))
+                if away:
+                    w.go_away(away)
+            elif not s.get("pinned"):
                 before = json.dumps(s.get("ws"), sort_keys=True)
                 self.bind_ws(s)
                 dirty = dirty or json.dumps(s.get("ws"), sort_keys=True) != before
@@ -4910,10 +5084,11 @@ class Manager:
                 if o not in foreign:
                     foreign[o] = self.foreign_desk(o)
                 mine = not foreign[o]
-            away = guests.get(id(w)) if mine else None
-            if away and not self.guest_desk_ok(away["out"]):
-                away, mine = None, False         # в гостях — только на столе дашборда
-            w.go_away(away)
+            if not getattr(w, "orphan", False):
+                away = guests.get(id(w)) if mine else None
+                if away and not self.guest_desk_ok(away["out"]):
+                    away, mine = None, False         # в гостях — только на столе дашборда
+                w.go_away(away)
             # показать/убрать — сразу, одним кадром: стол въезжает уже со своими виджетами
             w.set_cloaked(not mine)
             if not mine:
@@ -4923,7 +5098,7 @@ class Manager:
             cx, cy = w.cur_xy()
             st = VISIBLE if (self.edit or self.peek) else self.niri.state(
                 w.cur_out(), cx, cy, s["w"], s["h"], g.width, g.height)
-            w.set_running(st == VISIBLE and not self.game)
+            w.set_running(st == VISIBLE and (not self.game or w.in_game))
         if self.niri.workspaces(next(iter(self.outs), "")) or not self.outs:
             dirty = self.tidy_ws() or dirty
         if dirty:
@@ -4988,11 +5163,16 @@ def main():
                                              Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
     mgr = Manager()
     mgr.peek_flag()
+    if os.path.exists(PEEK_RESTORE):         # restart_daemon: до перезапуска были поверх окон
+        os.remove(PEEK_RESTORE)
+        GLib.timeout_add(600, lambda: mgr.set_peek(True) and False)
     glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1,
                          lambda: mgr.set_edit(not mgr.edit) or True)
     glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR2,
                          lambda: mgr.set_peek(not mgr.peek) or True)
     glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGHUP, lambda: mgr.rebuild() or True)
+    if "hub_timer_sync" in globals():        # таймеры hub ↔ виджеты (14.10.2026)
+        GLib.timeout_add_seconds(2, hub_timer_sync, mgr)
 
     def bye():
         for w in mgr.widgets:

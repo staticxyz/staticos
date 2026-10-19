@@ -74,7 +74,7 @@ inputbar {{ children: [ "prompt", "entry" ]; spacing: 8px; border-radius: 0; }}
 prompt {{ str: ""; }}
 entry {{ placeholder: "поиск…"; }}
 textbox-ltitle {{ expand: true; content: "{title}"; vertical-align: 0.5; background-color: transparent; }}
-/* Крестик в заголовке, как у Recorder (13.10.2026, Просьба: «В Super+space меню rofi тоже,
+/* Крестик в заголовке, как у Recorder (13.10.2026, просьба: «В Super+space меню rofi тоже,
    кнопку закрыть»). Значок — PNG общего крестика (close_cap.py, как у буфера обмена), щелчок = Esc. */
 ltitlebar {{ orientation: horizontal; expand: false; spacing: 8px;
             children: [ "textbox-ltitle", "icon-lclose" ]; }}
@@ -105,11 +105,15 @@ textbox-lhint {{ text-color: {dim}; }}
 """
 
 SKEET = """
+/* Рамка gamesense, как у остальных окон skeet (exe_frame.py, Alt+Tab, календарь; 16.10.2026, просьба: «на меню rofi я бы также добавил рамки в стиле Skeet»): снаружи внутрь 1 px
+   line1_on, 3 px line2, 1 px line1_on, 1 px line3 — у rofi у коробки одна рамка, поэтому вложенные. */
 panel {{
-    width: 560px; padding: 0; spacing: 0; border: 1px solid; border-color: {line1};
-    border-radius: 0; background-color: {bg};
-    children: [ "lstrip", "lstrip-d", "lbody" ];
+    width: 560px; padding: 3px; spacing: 0; border: 1px solid; border-color: {line1_on};
+    border-radius: 0; background-color: {line2}; children: [ "lfr1" ];
 }}
+lfr1 {{ padding: 0; spacing: 0; border: 1px solid; border-color: {line1_on}; children: [ "lfr2" ]; }}
+lfr2 {{ orientation: vertical; padding: 0; spacing: 0; border: 1px solid; border-color: {line3};
+        background-color: {bg}; children: [ "lstrip", "lstrip-d", "lbody" ]; }}
 lstrip   {{ expand: false; padding: 1px 0 0 0; background-image: linear-gradient(to right, {s0}, {s1}, {s2}); }}
 lstrip-d {{ expand: false; padding: 1px 0 0 0; background-image: linear-gradient(to right, {s0d}, {s1d}, {s2d}); }}
 lbody {{ orientation: vertical; padding: 8px 10px 10px 10px; spacing: 6px;
@@ -159,6 +163,7 @@ def build(style):
         for i, s in enumerate(c["strip"]):
             c["s%d" % i] = s
             c["s%dd" % i] = rec_style._mix(s, "#000000", 0.55)
+        c["line1_on"] = rec_style._mix(c["line1"], c["acc"], 0.45)    # окно в фокусе
         body, lsp, epad = SKEET, 1, "3px 8px"
     elif style == "beta":
         c = rec_style.colors("beta")

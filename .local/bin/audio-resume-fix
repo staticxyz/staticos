@@ -1,0 +1,38 @@
+#!/bin/bash
+# После выхода из сна — вернуть звук (30.09.2026).
+#
+# При сне USB обесточивается, и гарнитура Razer BlackShark при пробуждении
+# подключается заново. PipeWire при этом оставлял программы привязанными к
+# исчезнувшему устройству: музыка «играла», а звука не было.
+#
+# Первая версия перезапускала wireplumber + pipewire + pipewire-pulse — и это
+# ломало Telegram: его звук (OpenAL) держит соединение с pipewire-pulse и после
+# перезапуска сервера молчит до перезапуска самого Telegram (30.09.2026:
+# «пропал звук в тг»; сон в 14:53, перезапуск звука в 14:54, Telegram с 10:23).
+#
+# Теперь мягко: перезапускается только wireplumber — менеджер устройств, к нему
+# программы не подключены, — и все играющие потоки переносятся на текущий выход.
+# Полный перезапуск остаётся запасным: если и после этого выхода нет (auto_null).
+SETTLE=4
+log() { echo "$(date '+%F %T') $*"; }
+gdbus monitor --system --dest org.freedesktop.login1 --object-path /org/freedesktop/login1 |
+while IFS= read -r line; do
+    case "$line" in
+        *PrepareForSleep*false*)
+            # Частота мониторов: после сна MSI встаёт на 165 Гц вместо 300 (19.10.2026).
+            ( for d in 3 10 30; do sleep "$d"; "$HOME/.local/bin/output-mode-fix"; done ) &
+            sleep "$SETTLE"
+            systemctl --user restart wireplumber
+            sleep 2
+            sink=$(pactl get-default-sink 2>/dev/null)
+            if [ -z "$sink" ] || [ "$sink" = "auto_null" ]; then
+                systemctl --user restart wireplumber pipewire pipewire-pulse
+                log "выхода не было — звук перезапущен целиком (Telegram может понадобиться перезапустить)"
+                continue
+            fi
+            for id in $(pactl list sink-inputs short 2>/dev/null | cut -f1); do
+                pactl move-sink-input "$id" "$sink" 2>/dev/null
+            done
+            log "после сна: wireplumber перезапущен, потоки на $sink" ;;
+    esac
+done

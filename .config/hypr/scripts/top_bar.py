@@ -460,6 +460,22 @@ if __name__ == "__main__":
             pass
         return h
 
+    ISLAND_CONF = os.path.expanduser("~/.config/hypr/state/island.json")
+    ISLAND_HOLE = 460      # карточка островка (420) + запас по краям
+
+    def island_hole(out):
+        """Ширина «дыры» по центру верхней полоски: там островок, бар не выезжает
+        (19.10.2026, просьба: «хочу открыть островок, а за ним сверху открывается waybar»).
+        Островок выключен или прикреплён к другому монитору — дыры нет."""
+        try:
+            c = json.load(open(ISLAND_CONF))
+        except (OSError, ValueError):
+            c = {}
+        if not c.get("on", True):
+            return 0
+        m = c.get("monitor", "focus")
+        return ISLAND_HOLE if m in ("focus", "all") or m == out else 0
+
     class Strip(Gtk.Window):
         """Невидимая полоска-датчик: top=True — у верхнего края, иначе — под баром."""
 
@@ -488,8 +504,23 @@ if __name__ == "__main__":
             self.set_app_paintable(True)
             self.connect("draw", self.on_draw)
             self.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
+            if top:
+                self.connect("size-allocate", lambda *_a: self.shape())
+                self.connect("map", lambda *_a: self.shape())
             self.connect("enter-notify-event", lambda *_a: owner.entered(top))
             self.connect("leave-notify-event", lambda _w, e: owner.left(top, e.y))
+
+        def shape(self):
+            """Верхняя полоска без середины, где островок (island_hole)."""
+            gw = self.get_window()
+            if gw is None or not self.top:
+                return
+            w, h = self.get_allocated_width(), max(2, self.get_allocated_height())
+            r = cairo.Region(cairo.RectangleInt(0, 0, w, h))
+            hole = island_hole(self.out)
+            if hole and w > hole + 40:
+                r.subtract(cairo.RectangleInt((w - hole) // 2, 0, hole, h))
+            gw.input_shape_combine_region(r, 0, 0)
 
         def on_draw(self, _w, cr):
             cr.set_operator(cairo.OPERATOR_SOURCE)
@@ -604,6 +635,14 @@ if __name__ == "__main__":
             полоски в порядок."""
             pid = self.waybar()
             game = gaming()
+            try:
+                mt = os.stat(ISLAND_CONF).st_mtime
+            except OSError:
+                mt = 0
+            if mt != getattr(self, "island_mt", None):     # островок включили/выключили
+                self.island_mt = mt
+                for s in self.tops:
+                    s.shape()
             if self.mon_sig() != self.sig:                 # подключили / отключили монитор
                 self.build_strips()
                 self.arrange()

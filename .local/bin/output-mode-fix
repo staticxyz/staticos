@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""Вернуть мониторам частоту из ~/.config/niri/cfg/outputs.kdl (19.10.2026).
+
+После выхода из сна niri иногда ставит MSI (DP-4) на 165 Гц вместо 300 —
+переходы между столами кажутся медленнее. Скрипт сверяет текущий режим с
+записанным в outputs.kdl и, если отличается, ставит записанный.
+Зовётся из audio-resume-fix после пробуждения; руками: output-mode-fix."""
+import glob, json, os, re, subprocess, sys
+
+KDL = os.path.expanduser("~/.config/niri/cfg/outputs.kdl")
+
+def env():
+    e = dict(os.environ)
+    if not e.get("NIRI_SOCKET"):
+        socks = sorted(glob.glob("/run/user/%d/niri.wayland-*.sock" % os.getuid()))
+        if not socks:
+            sys.exit(0)
+        e["NIRI_SOCKET"] = socks[0]
+    return e
+
+def wanted():
+    out = {}
+    name = None
+    for line in open(KDL):
+        m = re.match(r'\s*output\s+"([^"]+)"', line)
+        if m:
+            name = m.group(1)
+            continue
+        m = re.match(r'\s*mode\s+"(\d+)x(\d+)@([\d.]+)"', line)
+        if m and name:
+            out[name] = (int(m.group(1)), int(m.group(2)), float(m.group(3)))
+    return out
+
+def main():
+    e = env()
+    cur = json.loads(subprocess.run(["niri", "msg", "-j", "outputs"], env=e,
+                                    capture_output=True, text=True).stdout or "{}")
+    for name, (w, h, hz) in wanted().items():
+        o = cur.get(name)
+        if not o or o.get("current_mode") is None:
+            continue
+        m = o["modes"][o["current_mode"]]
+        if m["width"] == w and m["height"] == h and abs(m["refresh_rate"] / 1000 - hz) < 0.5:
+            continue
+        mode = "%dx%d@%.3f" % (w, h, hz)
+        subprocess.run(["niri", "msg", "output", name, "mode", mode], env=e)
+        print("%s: %.3f Гц → %s" % (name, m["refresh_rate"] / 1000, mode))
+
+main()

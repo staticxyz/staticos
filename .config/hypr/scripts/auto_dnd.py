@@ -114,6 +114,42 @@ def busy(casts):
     return ""
 
 
+POMO_STATE = os.path.join(RUN, "pomo", "state")
+SHOT_TEXT = "You can paste the image from the clipboard."     # как у самого niri
+
+
+def pomo_focus():
+    """Идёт рабочий отрезок pomo (не перерыв и не пауза) — pomo на это время включает DND."""
+    try:
+        st = dict(ln.split("=", 1) for ln in open(POMO_STATE).read().splitlines() if "=" in ln)
+    except OSError:
+        return False
+    return st.get("phase") == "work" and st.get("paused", "0") in ("", "0")
+
+
+def screenshot_through_pomo(line, casts):
+    """Снимок во время pomo — уведомление всё-таки показать (19.10.2026, просьба: «во время
+    pomo уведомления о скриншотах могут приходить»). Уведомление niri swaync в DND прячет;
+    пропустить его правилом нельзя: обходит DND только critical, а critical у нас не гаснет
+    (timeout-critical 0). Поэтому — своя копия с подсказкой SWAYNC_BYPASS_DND (обычная
+    важность, гаснет сама) и transient (в центре уже лежит оригинал niri). Не во время
+    записи/трансляции/игры — там DND ради кадра."""
+    if not pomo_focus() or busy(casts) or swaync("-D") != "true":
+        return
+    try:
+        path = (json.loads(line).get("ScreenshotCaptured") or {}).get("path") or ""
+    except ValueError:
+        path = ""
+    try:
+        subprocess.Popen(["notify-send", "-a", "niri", "-u", "normal", "-e",
+                          "-h", "int:SWAYNC_BYPASS_DND:1",
+                          "-i", path or "camera-photo", "Screenshot captured", SHOT_TEXT],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+
+
 LOG = os.path.expanduser("~/.cache/jarvis-auto-dnd.log")
 
 
@@ -261,6 +297,7 @@ def main():
                                              start_new_session=True)
                         except OSError:
                             pass
+                        screenshot_through_pomo(ln, casts)
                         continue
                     if not ln.startswith(b'{"Cast'):
                         continue

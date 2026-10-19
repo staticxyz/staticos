@@ -20,6 +20,6 @@ window#waybar {
        сатурация bar-bg и рамка остались штатными, 0.45 и 0.55. */
     background-color: alpha(@bar-bg, 0.86);
     border: 1px solid alpha(@primary, 0.55);
-    border-radius: 12px;
+    border-radius: 14px;
     color: @foreground;
 }

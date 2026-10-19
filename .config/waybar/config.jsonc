@@ -183,6 +183,7 @@
             // ── добавлено 13.10.2026 (П8): программы, у которых вместо значка был номер стола ──
             // Свои окна Джарвиса
             "class<(com.jarvis.hub|hub_app\\.py)>": "󰂚",
+            "class<com.jarvis.wa>": "󰖣",
             "class<alarm_app\\.py>": "󰀠",
             "class<(dev.static.calendar|xp_calendar\\.py|org.gnome.Calendar)>": "󰃭",
             "class<dev.static.avatarpicker>": "󰀄",
@@ -414,7 +415,11 @@
         // перечёркнутый бледный. Раньше «нет сети» и «выключен» оба были перечёркнуты.
         "format-ethernet": "󰈀 LAN",
         "format-wifi": "<span font_size='12pt'>󰤨</span>",
-        "format-disconnected": "<span font_size='12pt'>󰤯</span>",
+        // 19.10.2026 (просьба: «выключенный и включённый без сети выглядят одинаково»):
+        // без сети — веер с «!» (󰤫) обычной яркости, выключен — перечёркнутый бледный.
+        "format-disconnected": "<span font_size='12pt'>󰤫</span>",
+        // подключается (linked: адреса ещё нет) — без этого waybar писал имя «wlp0s20f3»
+        "format-linked": "<span font_size='12pt'>󰤫</span>",
         "format-disabled": "<span font_size='12pt'>󰤮</span>",
         "tooltip-format": "Сеть: {essid}\nIP: {ipaddr}",
         // 08.10.2026: левой — плашка анализа Wi-Fi (сигнал, канал,
@@ -454,7 +459,7 @@
             "transition-duration": 300,
             "transition-left-to-right": false
         },
-        // микрофон из выдвижного убран (13.10.2026, Просьба: «уберём скрытые элементы»)
+        // микрофон из выдвижного убран (13.10.2026, просьба: «уберём скрытые элементы»)
         // свой модуль вместо pulseaudio: СКМ — звук ⇄ микрофон (13.10.2026, bar_volume.py)
         "modules": ["custom/volume"]
     },

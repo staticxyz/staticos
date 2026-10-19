@@ -17,12 +17,14 @@ sys.path.insert(0, os.path.expanduser("~/.config/hypr/scripts"))
 import hublib as H  # noqa: E402
 import hubtg as T  # noqa: E402
 import hubguard  # noqa: E402
+import hubwa  # noqa: E402
 from idle_guard import video_in_focus  # noqa: E402
 import session_env  # noqa: E402
 
 TICK = 2
-DEFAULT_ESC_MIN = 10
+DEFAULT_ESC_MIN = 5                  # 14.10.2026: не тронул уведомление 5 мин — в Telegram
 DIGEST_HOUR, DIGEST_MIN = 9, 30
+DIGEST_ON = False                  # утренняя сводка выключена (19.10.2026)
 NAG_DAYS = [3, 7, 14, 30]            # ступени «запылился» для пунктов без срока
 RING_MAX = 300
 SOUND = "/usr/share/sounds/freedesktop/stereo/complete.oga"
@@ -79,7 +81,7 @@ def mean_db(path):
 
 
 def chime_volume():
-    """Громкость звонка напоминания — вдвое громче обычного уведомления (14.10.2026, Просьба: «сделай им звук х2 громче обычных»). Обычное — ui_sound: свой файл пакета
+    """Громкость звонка напоминания — вдвое громче обычного уведомления (14.10.2026, просьба: «сделай им звук х2 громче обычных»). Обычное — ui_sound: свой файл пакета
     на notify-volume в кубе. Файлы разной громкости (complete.oga на ~10 дБ громче
     XP Balloon), поэтому поправка на разницу средних громкостей. Не вышло — 0.3, как было."""
     try:
@@ -115,6 +117,17 @@ def chime():
 shown = {}
 shown_lock = threading.Lock()
 _dnd = {"last": None}
+# 19.10.2026: призраки. Карточку, которую спрятал DND, CloseNotification убирает из списка
+# swaync, но скрытый виджет остаётся в окне всплывающих и вылезает со следующим уведомлением —
+# мёртвый, кнопки не работают (воспроизведено: показать → DND вкл → закрыть → новое).
+# Повторный Close его не берёт, берёт только `swaync-client --hide-all`. Поэтому после такого
+# закрытия: hide-all, и живые карточки hub показываются заново (purge_ghosts).
+_purge_lock = threading.Lock()
+# Двойной щелчок: первая карточка закрылась, под курсор въехала соседняя — второй щелчок
+# нажимал её кнопку (19.10 09:15:30 так отложились два напоминания разом). Нажатие на другой
+# карточке быстрее DOUBLE_GUARD с после предыдущего — не ответ: карточка показывается снова.
+DOUBLE_GUARD = 0.6
+_last_press = {"t": 0.0, "nid": None}
 
 
 def notify(title, body, iid, critical=False, timer=False, again=False, rep=False):
@@ -126,8 +139,13 @@ def notify(title, body, iid, critical=False, timer=False, again=False, rep=False
     def work():
         cmd = ["notify-send", "-a", "hub", "-u", "critical" if critical else "normal", "-p"]
         if iid:                                     # у сводки (iid 0) пункта нет — и кнопок тоже
-            cmd += ["-A", "done=✓ Отметить" if rep else "done=✓ Сделано", "-A", "later=+1 час",
-                    "-A", "stop=■ Закрыть цикл" if rep else "stop=■ Стоп"]
+            # 15.10.2026, просьба: «не будем вообще ничего удалять… если я закрою уведомление,
+            # это и будет Скрыть». У напоминания две кнопки: «Сделано» (→ «Выполненные»;
+            # у повторяющегося — срок на следующий раз) и «+1 час»; закрыть = скрыть.
+            # «■ Стоп» остался только у таймера.
+            cmd += ["-A", "done=✓ Отметить" if rep else "done=✓ Сделано", "-A", "later=+1 час"]
+            if timer:
+                cmd += ["-A", "stop=■ Стоп"]
         cmd += ["-w", title, body]
         entry, key = {"nid": None, "again": False, "iid": iid}, object()
         try:
@@ -145,13 +163,27 @@ def notify(title, body, iid, critical=False, timer=False, again=False, rep=False
         finally:
             with shown_lock:
                 shown.pop(key, None)
-        if stop.is_set():                           # hub останавливается — это не ответ
+        if stop.is_set() or entry.get("gone"):     # hub останавливается / убрал сам — это не ответ
             return
         if entry["again"]:                          # закрыл сам hub — показать снова
+            gate = entry.get("gate")
+            if gate is not None:
+                gate.wait(5)                        # сперва hide-all убирает призраков
             notify(title, body, iid, critical, timer, again=True, rep=rep)
             return
         if not iid:
             return
+        if act in ("done", "later", "stop"):
+            t = time.monotonic()
+            prev, _last_press["t"], _last_press["nid"] = dict(_last_press), t, entry["nid"]
+            if t - prev["t"] < DOUBLE_GUARD and prev["nid"] != entry["nid"]:
+                log("двойной щелчок — не ответ, показываю снова:", iid)
+                if entry["nid"]:
+                    close_nid(entry["nid"])
+                    if dnd_on():
+                        purge_ghosts()
+                notify(title, body, iid, critical, timer, again=True, rep=rep)
+                return
         c = H.connect()
         if act in ("done", "later", "stop"):
             pressed(title, body, entry["nid"], act, rep, timer)
@@ -159,8 +191,10 @@ def notify(title, body, iid, critical=False, timer=False, again=False, rep=False
             H.done(c, iid, "pc")
         elif act == "later":
             H.snooze(c, iid, 3600, source="pc")
-        elif timer or act == "stop":
+        elif timer:
             H.drop(c, iid, "pc")                   # закрыл уведомление таймера = стоп
+        # Напоминание из уведомления не удаляется никогда (15.10.2026: «■ Стоп» = drop
+        # стёр три задачи — 74, 82, 85, возвращены). Закрыли — только «увидел».
         H.mark_seen(c, iid)                        # закрыл или нажал — эскалации в TG не будет
         c.close()
     threading.Thread(target=work, daemon=True).start()
@@ -168,17 +202,19 @@ def notify(title, body, iid, critical=False, timer=False, again=False, rep=False
 
 def pressed(title, body, nid, act, rep=False, timer=False):
     """Кнопку нажали — в центре уведомлений вместо карточки с кнопками остаётся запись
-    «что и какая кнопка» (14.10.2026, Просьба: «если я уже нажал на один из вариантов, в
+    «что и какая кнопка» (14.10.2026, просьба: «если я уже нажал на один из вариантов, в
     центре не показывать кнопки, просто напоминание, название и какая кнопка нажата»).
     Сама карточка swaync после нажатия не уходит — закрываем её по номеру. Запись идёт
     от имени hub-log: правило swaync (config.json, notification-visibility, muted) кладёт
     её в центр без всплывания; ui_sound_watch hub-log не озвучивает."""
     label = {"done": "✓ Отмечено, срок — на следующий раз" if rep else "✓ Сделано",
              "later": "+1 час",
-             "stop": "■ Стоп" if timer else ("■ Цикл закрыт" if rep else "■ Остановлено")}[act]
+             "stop": "■ Стоп"}[act]
     try:
         if nid:
             close_nid(nid)
+            if dnd_on():                            # закрыта спрятанная DND — убрать призрака
+                purge_ghosts()
         subprocess.run(["notify-send", "-a", "hub-log", "-u", "normal", title,
                         "%s\n— нажато: %s" % (body, label)],
                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -192,6 +228,35 @@ def close_nid(nid):
                     "--object-path", "/org/freedesktop/Notifications", "--method",
                     "org.freedesktop.Notifications.CloseNotification", str(nid)],
                    capture_output=True, timeout=5)
+
+
+def dnd_on():
+    try:
+        return subprocess.run(["swaync-client", "-D"], capture_output=True, text=True,
+                              timeout=3).stdout.strip() == "true"
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def purge_ghosts(items=None):
+    """Убрать призраков: живые карточки hub закрыть, `swaync-client --hide-all` (уносит и
+    скрытые виджеты; уведомления остаются в центре), потом живые показываются заново
+    (worker ждёт gate). items — уже помеченные again (из dnd_watch)."""
+    with _purge_lock:
+        if items is None:
+            with shown_lock:
+                items = [e for e in shown.values() if not e.get("gone")]
+            for e in items:
+                e["again"] = True
+                e["gate"] = threading.Event()
+                close_nid(e["nid"])
+        try:
+            subprocess.run(["swaync-client", "--hide-all"], capture_output=True, timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        for e in items:
+            if e.get("gate") is not None:
+                e["gate"].set()
 
 
 def unshow_all(c):
@@ -208,6 +273,38 @@ def unshow_all(c):
             pass
     if items:
         log("убрал висящие при остановке:", len(items))
+
+
+def close_stale(c):
+    """Пункт остановили не с этого уведомления (Telegram, щелчок по виджету-таймеру) или
+    отложили («+5 мин») — висящее уведомление убрать. 14.10.2026: таймеры виджетов теперь
+    живут в hub, щелчок по виджету гасит звонок — карточка не должна висеть дальше."""
+    with shown_lock:
+        items = list(shown.values())
+    for e in items:
+        if not e["iid"] or e.get("gone"):
+            continue
+        it = H.get_item(c, e["iid"])
+        if it is None or it["status"] != "open" or (it["due"] or 0) > H.now():
+            e["gone"] = True
+            close_nid(e["nid"])
+            if dnd_on():
+                purge_ghosts()
+
+
+def announce_away(c):
+    """Таймер с виджета на ПК идёт, а вы отошли (pc_present ложно) — один раз прислать
+    его в Telegram с кнопкой «■ Стоп» (14.10.2026, пользователь). Сообщение потом само
+    подправится под состояние (sync_messages): «Время вышло», «остановлен». fired_tg —
+    метка «уже присылал»: при срабатывании fire() всё равно пришлёт «Время вышло»."""
+    rows = c.execute("SELECT i.*, l.name AS list FROM items i JOIN lists l ON l.id=i.list_id "
+                     "WHERE i.status='open' AND i.kind='timer' AND i.source='widget' AND "
+                     "i.due>? AND i.fired_tg IS NULL", (H.now() + 5,)).fetchall()
+    if not rows or pc_present():
+        return
+    for it in rows:
+        send_tg(c, it)
+        log("away: таймер в Telegram", it["id"], it["text"])
 
 
 def dnd_watch():
@@ -228,7 +325,9 @@ def dnd_watch():
         log("DND", d, "— показываю заново:", len(items))
         for e in items:
             e["again"] = True
+            e["gate"] = threading.Event()
             close_nid(e["nid"])
+        purge_ghosts(items)
     _dnd["last"] = d
 
 
@@ -280,21 +379,51 @@ def send_tg(c, it):
     T.enqueue(c, text, btn, it["id"])
 
 
+def allday_again(c):
+    """«Только дата» (15.10.2026, пользователь): в 9, 12, 15 и 18 своего дня напомнить снова,
+    пока не отмечено. Прежнее уведомление (если висит) — закрыть, чтобы не копились."""
+    t = H.now()
+    today = dt.date.today()
+    for it in c.execute("SELECT i.*, l.name AS list FROM items i JOIN lists l ON l.id=i.list_id "
+                        "WHERE i.status='open' AND i.allday=1 AND i.due IS NOT NULL AND "
+                        "i.fired_pc IS NOT NULL", ()).fetchall():
+        d = dt.datetime.fromtimestamp(it["due"]).date()
+        if d != today:
+            continue
+        fired = dt.datetime.fromtimestamp(it["fired_pc"])
+        nxt = next((x for x in (dt.datetime.combine(d, dt.time(h)) for h in H.ALLDAY_HOURS)
+                    if x > fired), None)
+        if nxt is None or nxt.timestamp() > t:
+            continue
+        with shown_lock:
+            old = [e for e in shown.values() if e["iid"] == it["id"] and not e.get("gone")]
+        for e in old:
+            e["gone"] = True
+            close_nid(e["nid"])
+        c.execute("UPDATE items SET fired_tg=NULL, seen=0 WHERE id=?", (it["id"],))
+        fire(c, it)
+
+
 def tick(c):
     t = H.now()
     esc = int(H.cfg("esc_min", DEFAULT_ESC_MIN)) * 60
+    # Повтор — один пункт на цикл (16.10.2026): не отметили до следующего раза — пункт
+    # переезжает на него (H.repeat_catchup), прежнее уведомление закрывается. Копий больше нет.
+    for iid in H.repeat_catchup(c):
+        with shown_lock:
+            old = [e for e in shown.values() if e["iid"] == iid and not e.get("gone")]
+        for e in old:
+            e["gone"] = True
+            close_nid(e["nid"])
     for it in c.execute("SELECT i.*, l.name AS list FROM items i JOIN lists l ON l.id=i.list_id "
                         "WHERE i.status='open' AND i.due IS NOT NULL AND i.due<=? AND i.fired_pc IS NULL",
                         (t,)).fetchall():
         fire(c, it)
-        if it["repeat"]:                            # повторяющееся: следующий срок сразу
-            nd = H._next_due(it["due"], it["repeat"])
-            c.execute("INSERT INTO items(list_id,text,kind,due,repeat,created,updated_at,source) "
-                      "VALUES(?,?,?,?,?,?,?,?)", (it["list_id"], it["text"], it["kind"], nd,
-                                                  it["repeat"], t, t, "repeat"))
-            c.execute("UPDATE items SET repeat='' WHERE id=?", (it["id"],))
+    allday_again(c)
+    close_stale(c)
     if not T.token():
         return
+    announce_away(c)
     for it in c.execute("SELECT i.*, l.name AS list FROM items i JOIN lists l ON l.id=i.list_id "
                         "WHERE i.status='open' AND i.kind='task' AND i.fired_pc IS NOT NULL AND "
                         "i.fired_tg IS NULL AND i.seen=0 AND i.fired_pc<=?", (t - esc,)).fetchall():
@@ -303,7 +432,11 @@ def tick(c):
 
 
 def digest(c):
-    """Утренняя сводка: просроченное, на сегодня, запылившиеся без срока."""
+    """Утренняя сводка: просроченное, на сегодня, запылившиеся без срока.
+    19.10.2026, пользователь (снимок уведомления «Сводка»): «этой сводки не должно быть» —
+    выключена целиком, ни на ПК, ни в Telegram. Вернуть — DIGEST_ON = True."""
+    if not DIGEST_ON:
+        return
     today = dt.date.today().isoformat()
     if H.meta_get(c, "digest_day") == today:
         return
@@ -314,8 +447,8 @@ def digest(c):
     end = int(dt.datetime.combine(dt.date.today() + dt.timedelta(days=1), dt.time(0)).timestamp())
     lines = []
     tasks = H.items(c, None, "open", "task")
-    over = [i for i in tasks if i["due"] and i["due"] < H.now() - 3600]
-    soon = [i for i in tasks if i["due"] and H.now() - 3600 <= i["due"] < end]
+    over = [i for i in tasks if H.overdue(i, H.now() - 3600)]
+    soon = [i for i in tasks if i["due"] and not H.overdue(i, H.now() - 3600) and i["due"] < end]
     dusty = []
     for i in tasks:
         if i["due"]:
@@ -337,7 +470,7 @@ def digest(c):
     if not lines:
         return
     text = "Доброе утро, сэр.\n\n" + "\n\n".join(lines)
-    # 14.10.2026, Просьба: «если я на ПК, то надо отправлять на ПК только» — как у напоминаний:
+    # 14.10.2026, просьба: «если я на ПК, то надо отправлять на ПК только» — как у напоминаний:
     # рядом с ПК — висит на ПК до закрытия, иначе — только в Telegram.
     here = pc_present()
     log("digest", "pc" if here else "телефон")
@@ -347,16 +480,22 @@ def digest(c):
         T.enqueue(c, text)
 
 
-def say(text):
-    """Сразу в Telegram, мимо очереди: перед сном/выключением на очередь времени нет."""
+def say(text, html=False, buttons=None):
+    """Сразу в Telegram, мимо очереди: перед сном/выключением на очередь времени нет.
+    html — разметка Telegram (журнал охраны), buttons — кнопки под сообщением."""
     at = time.strftime("%H:%M")          # не вышло — в очередь с этим временем, не с временем сбоя
     tok = T.token()
     if not tok or not T.owner_ids():
         return
     bot = T.Bot(tok)
     for ch in T.owner_ids():
+        p = {"chat_id": ch, "text": text[:4000]}
+        if html:
+            p["parse_mode"] = "HTML"
+        if buttons:
+            p["reply_markup"] = {"inline_keyboard": buttons}
         try:
-            bot.call("sendMessage", {"chat_id": ch, "text": text}, timeout=4)
+            bot.call("sendMessage", p, timeout=4)
         except Exception as e:
             log("say:", repr(e))
             # 13.10.2026: Telegram с этой сети соединяется через раз — сообщение охраны
@@ -364,7 +503,8 @@ def say(text):
             # временем, когда оно было сказано.
             try:
                 q = H.connect()
-                T.enqueue(q, "%s\n(с опозданием, было в %s)" % (text, at))
+                late = "\n<i>(с опозданием, было в %s)</i>" if html else "\n(с опозданием, было в %s)"
+                T.enqueue(q, text + late % at, buttons, html=html)
                 q.commit()
                 q.close()
             except Exception as e2:
@@ -575,6 +715,8 @@ def main():
         except OSError:
             pass
 
+    wa = hubwa.Sender(pc_present, log)     # отложенные WhatsApp (15.10.2026)
+    wa.recover(c)
     guard = hubguard.Guard(say, photo, send_file, log)
     hubguard.active_guard = guard
     polling = False
@@ -584,6 +726,7 @@ def main():
         session_env.fill()      # при входе niri ещё не отдал переменные — ищем, пока не найдём
         try:
             tick(c)
+            wa.tick(c)
             digest(c)
             dnd_watch()
             away = H.meta_get(c, "away", "0") == "1"

@@ -87,7 +87,7 @@ def run_one(name):
         write_status()
         t0 = time.time()
         try:
-            _libc.prctl(15, ("jv:" + os.path.splitext(name)[0])[:15].encode(), 0, 0, 0)  # имя потока
+            _libc.prctl(15, ("jv:" + os.path.splitext(os.path.basename(name))[0])[:15].encode(), 0, 0, 0)  # имя потока
             sys.argv = [path]
             runpy.run_path(path, run_name="__main__")
             why = "вышел сам"

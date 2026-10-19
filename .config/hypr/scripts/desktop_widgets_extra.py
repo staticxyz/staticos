@@ -35,6 +35,40 @@ import time
 HOME = os.path.expanduser("~")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import banner_fx  # noqa: E402
+
+# Таймеры живут и в hub (14.10.2026, пользователь): поставленный с телефона (/timer) —
+# компактный виджет на столе дашборда; заведённый тут — виден в /timer. Звонит hub
+# по присутствию: за ПК — ПК, отошли — телефон. HUB_DATA — копия базы для проверок.
+HUB_DIR = os.path.join(HOME, ".local/share/hub")
+HUB_SEEN = os.path.join(HOME, ".config/hypr/state/hub-timer-widgets.json")
+_hub = [None, 0.0]
+
+
+def hub():
+    """(hublib, соединение) или None — hub не установлен / база не открылась.
+    Неудача — новая попытка не раньше чем через минуту."""
+    if _hub[0]:
+        return _hub[0]
+    if time.time() - _hub[1] < 60:
+        return None
+    _hub[1] = time.time()
+    try:
+        if HUB_DIR not in sys.path:
+            sys.path.insert(0, HUB_DIR)
+        import hublib
+        _hub[0] = (hublib, hublib.connect())
+    except Exception as e:
+        print("hub: %s" % e, file=sys.stderr)
+    return _hub[0]
+
+
+def hub_alive(H, c):
+    """hubd жив (пишет heartbeat каждый тик)? Нет — виджет звенит сам, как раньше."""
+    try:
+        return time.time() - int(H.meta_get(c, "heartbeat") or 0) < 30
+    except Exception:
+        return False
 
 
 def register(ns):
@@ -93,7 +127,14 @@ def register(ns):
 
         GPU — NVIDIA через один долгий `nvidia-smi -l 2` (а не запуск каждые две
         секунды) и только пока виджет на виду и карта не спит: опрос не даёт ей
-        уснуть, поэтому спящую карту не трогаем и пишем «sleep»."""
+        уснуть, поэтому спящую карту не трогаем и пишем «sleep».
+
+        16.10.2026 (просьба: «запустил кс2, а gpu всё ещё спит»): в игре виджет больше не
+        встаёт на паузу (in_game) — раньше пауза гасила опрос и рисовалось ложное «sleep».
+        Карта проснулась после старта виджета — опрос начинается сам; 30 с простоя (0 %) не
+        в игре — опрос снимается на 20 с, чтобы карта могла уснуть, если держали её только мы."""
+
+        in_game = True
 
         def setup(self):
             self.d = {}
@@ -101,6 +142,9 @@ def register(ns):
             self.gpu = None
             self.gproc = None
             self.n = 0
+            self.idle = 0
+            self.retry = 0.0
+            self.awake = False
             self.sample()
             self.start_seconds()
 
@@ -190,9 +234,20 @@ def register(ns):
 
         def second(self):
             self.n += 1
-            if self.n % 2 or not self.on_screen() or self.mgr.game:
+            if self.n % 2 or not self.on_screen():
                 return False
             self.sample()
+            self.awake = self.nvidia_awake()
+            if self.running and not self.gproc and self.awake and time.monotonic() >= self.retry:
+                self.on_start()                   # карту разбудил кто-то другой (игра)
+            elif self.gproc and self.gpu and self.gpu[0] == 0 and not self.mgr.game:
+                self.idle += 2
+                if self.idle >= 30:               # простаивает — отпустить, пусть уснёт
+                    self.idle = 0
+                    self.on_stop()
+                    self.retry = time.monotonic() + 20
+            else:
+                self.idle = 0
             return True
 
         @staticmethod
@@ -211,7 +266,7 @@ def register(ns):
             if g:
                 rows.append(("GPU", g[0] / 100, "%d%%" % g[0], "%d°" % g[1]))
             else:
-                rows.append(("GPU", 0, "sleep" if not self.gproc else "…", ""))
+                rows.append(("GPU", 0, "…" if self.gproc else ("idle" if self.awake else "sleep"), ""))
             if "ram" in d:
                 rows.append(("RAM", d["ram"][0] / d["ram"][1],
                              "%.1fG" % d["ram"][0] if narrow else "%.1f / %d GB" % (d["ram"][0], round(d["ram"][1])), ""))
@@ -248,55 +303,35 @@ def register(ns):
 
     # ── banner.exe ──────────────────────────────────────────────────────────
     class Banner(Widget):
-        """Крупная надпись — как `text gamesense -f`: шрифт 6x8, увеличенный по пикселям
-        во всю высоту; scroll (по умолчанию да) — бегущая строка справа налево."""
+        """Крупная надпись — как `text gamesense`: шрифт 6x8, увеличенный по пикселям во всю
+        высоту. Эффекты — флаги `text` в opts.fx (banner_fx.py, 19.10.2026): «» — статичный
+        текст, f/R бег, w волна, l блик, r радуга, p пульс, b мигание, t машинка, g глитч;
+        opts.pace — скорость (-s), opts.speed — бег строки в px/с. У старых надписей fx нет:
+        тогда, как раньше, scroll (по умолчанию да) — бегущая строка справа налево."""
         interval = 33
 
         def setup(self):
             self.small = None
-            self.off = None
-            self.t = None
+            self.t0 = time.monotonic()
+            self.glitch = {}
 
         def theme_changed(self):
             self.small = None
+
+        def fx(self):
+            if "fx" in self.opts:
+                return banner_fx.clean(self.opts.get("fx"))
+            return "f" if self.opts.get("scroll", True) else ""
 
         def build(self):
             s = str(self.opts.get("text", "gamesense"))
             # Cozette (08.10.2026): font_desc(8) давал 10 px — не родной кегль, буквы выходили
             # кривыми и потом увеличивались вместе с кривизной. Родной — 13.
             bpx = 13 if ns.get("COZETTE", False) else 8
-            probe = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 8, 8))
-            crisp(probe)
-            lay = PangoCairo.create_layout(probe)
-            lay.set_font_description(font_desc(bpx))
-            lay.set_text(s, -1)
-            lw, lh = lay.get_pixel_size()
-            self.small = cairo.ImageSurface(cairo.FORMAT_ARGB32, max(1, lw), max(1, lh))
-            cr = cairo.Context(self.small)
-            fo = cairo.FontOptions()
-            fo.set_antialias(cairo.ANTIALIAS_NONE)       # чистые пиксели: их потом увеличивать
-            PangoCairo.context_set_font_options(PangoCairo.create_context(cr), fo)
-            lay = PangoCairo.create_layout(cr)
-            PangoCairo.context_set_font_options(lay.get_context(), fo)
-            lay.set_font_description(font_desc(bpx))
-            lay.set_text(s, -1)
-            cr.set_source_rgb(*T["accent"])
-            PangoCairo.show_layout(cr, lay)
-
-        def scrolling(self):
-            return bool(self.opts.get("scroll", True))
+            self.small = banner_fx.Text(s, font_desc(bpx))   # статичная — сама в 1–4 строки
 
         def tick(self):
-            if not self.scrolling():
-                return False
-            now = time.monotonic()
-            if self.off is not None and self.t is not None:
-                self.off -= float(self.opts.get("speed", 90)) * (now - self.t)
-            self.t = now
-            return True
-
-        def on_stop(self):
-            self.t = None
+            return banner_fx.animated(self.fx())
 
         def dirty_rect(self):
             return self.inner()
@@ -304,22 +339,12 @@ def register(ns):
         def paint(self, cr, x, y, w, h):
             if self.small is None:
                 self.build()
-            sw, sh = self.small.get_width(), self.small.get_height()
-            k = max(1, h // sh)
-            if self.scrolling():
-                if self.off is None or self.off < -sw * k:
-                    self.off = w
-                ox = x + self.off
-            else:
-                k = max(1, min(k, w // max(1, sw)))
-                ox = x + (w - sw * k) // 2
-            cr.save()
-            cr.translate(int(ox), y + (h - sh * k) // 2)
-            cr.scale(k, k)
-            cr.set_source_surface(self.small, 0, 0)
-            cr.get_source().set_filter(cairo.FILTER_NEAREST)
-            cr.paint()
-            cr.restore()
+            try:
+                pace = float(self.opts.get("pace", 1.0))
+            except (TypeError, ValueError):
+                pace = 1.0
+            banner_fx.paint(cr, self.small, x, y, w, h, time.monotonic() - self.t0, self.fx(),
+                            pace, T["accent"], float(self.opts.get("speed", 90)), self.glitch)
 
     # ── player.exe ──────────────────────────────────────────────────────────
     class Player(Widget, SecondTicker):
@@ -868,11 +893,69 @@ def register(ns):
             if self.done() and not self.opts.get("rang"):
                 self.opts["rang"] = True
                 self.keep()
-                self.ring()
+                h = hub() if self.opts.get("hub") else None
+                if not (h and hub_alive(*h)):      # связан с живым hub — звенит он
+                    self.ring()
             return self.on_screen() and not self.paused()
+
+        # ── связь с hub ──────────────────────────────────────────────────────
+        # opts.hub — номер пункта hub (kind timer), opts.auto — виджет создан для таймера
+        # с телефона. Отсчёт идёт — пункт открыт со сроком = opts.end. Пауза, сброс, NEW,
+        # закрытие виджета — пункт закрывается (у hub паузы нет; продолжили — новый пункт).
+        def hub_drop(self):
+            iid = self.opts.pop("hub", None)
+            h = hub()
+            if iid and h:
+                try:
+                    h[0].drop(h[1], int(iid), "widget")
+                except Exception as e:
+                    print("hub drop: %s" % e, file=sys.stderr)
+
+        def removed(self):
+            """Закрыли крестиком / «Очистить стол» — таймер останавливается и в hub."""
+            self.hub_drop()
+
+        def hub_follow(self, H, c):
+            """Раз в 2 с из hub_timer_sync: подогнать виджет под пункт hub или завести пункт."""
+            o = self.opts
+            iid = o.get("hub")
+            if not iid:
+                left = self.left()
+                if left is None or self.paused() or left < 3 or o.get("rang"):
+                    return
+                try:
+                    iid, due = H.start_timer(c, int(left + 0.5), str(o.get("label") or ""), "widget")
+                except Exception as e:
+                    print("hub timer: %s" % e, file=sys.stderr)
+                    return
+                o["hub"], o["end"] = iid, int(due)
+                self.keep()
+                return
+            it = H.get_item(c, int(iid))
+            if it is None or it["status"] != "open":
+                # остановили из Telegram или закрыли уведомление hub
+                o.pop("hub", None)
+                if o.get("auto"):
+                    self.mgr.remove(self)
+                    return
+                if not self.done() and "end" in o:
+                    o["paused_left"] = max(1, int(o.pop("end") - time.time() + 0.5))
+                else:
+                    o["rang"] = True
+                self.stop_alarm()
+                self.keep()
+                return
+            due = it["due"]
+            if due and not self.paused() and abs(due - float(o.get("end") or 0)) >= 1:
+                o["end"] = int(due)                      # «+5 мин» из Telegram
+                if due > time.time():
+                    o.pop("rang", None)
+                    self.menu = False
+                self.keep()
 
         # действия
         def toggle_pause(self):
+            self.hub_drop()                      # на паузе пункта нет; продолжили — новый
             o = self.opts
             if "paused_left" in o:
                 o["end"] = int(time.time() + o.pop("paused_left"))
@@ -886,6 +969,7 @@ def register(ns):
 
         def replay(self):
             self.stop_alarm()
+            self.hub_drop()
             o = self.opts
             dur = int(o.get("dur") or 0)
             if dur > 0:
@@ -905,6 +989,7 @@ def register(ns):
         def set_new(self, words):
             if words:
                 self.stop_alarm()
+                self.hub_drop()
                 label, end = ns["parse_timer"](words)
                 frame = {k: v for k, v in self.opts.items() if k in ("frame", "title")}
                 self.opts = dict(frame)                 # новый таймер — адрес прежнего не наследует
@@ -919,6 +1004,16 @@ def register(ns):
             return False
 
         def on_click(self, x, y, button=1):
+            if self.opts.get("hub") and self.done():
+                self.hub_drop()                # звонит hub: первый щелчок — «Стоп» в hub
+                if self.opts.get("auto"):
+                    self.mgr.remove(self)
+                    return
+                self.keep()
+                if button == 1:
+                    self.menu = True
+                    self.area.queue_draw()
+                return
             if self.alarm is not None:         # звенит: первый щелчок только снимает звонок
                 self.stop_alarm()
                 if button == 1 and self.done():
@@ -951,8 +1046,17 @@ def register(ns):
                             return
                 self.menu = not self.menu
                 self.area.queue_draw()
-            else:
+            elif self.near_center(x, y):
                 self.toggle_pause()
+
+        def near_center(self, x, y):
+            """Пауза — только щелчком ближе к середине (15.10.2026, просьба: «случайно задену, когда
+            хотел уменьшить размер, — ставится на паузу»): средние 50 % ширины и высоты
+            содержимого, края виджета щелчок не ловят."""
+            w, h = self.size()
+            top = self.head() if self.titled() else 0
+            ch = h - top
+            return abs(x - w / 2) <= w * .25 and abs(y - (top + ch / 2)) <= ch * .25
 
         def ring(self):
             label = str(self.opts.get("label") or "timer")
@@ -1128,7 +1232,7 @@ def register(ns):
     # ── screentime.exe ──────────────────────────────────────────────────────
     class ScreenTime(Widget, SecondTicker):
         """Экранное время сегодня: всего и первые программы. Раз в минуту спрашивает
-        screentime.py --text (тот же отчёт, что читает Пятница)."""
+        screentime.py --text (тот же отчёт текстом)."""
 
         def setup(self):
             self.total, self.rows = "", []
@@ -1904,6 +2008,104 @@ def register(ns):
                           file=sys.stderr)
 
         ns["CLASSES"]["cava"] = CavaAGC
+
+    # ── таймеры hub → виджеты (14.10.2026) ──────────────────────────────────
+    # Просьба: «пусть создаётся компактный виджет на пк, на столе дешборда, чтобы не
+    # перекрывал другие виджеты — если я с телефона создал». Каждый пункт hub — один раз:
+    # закрыли виджет, а таймер ещё идёт (rm/очистка без крестика) — заново не создаём.
+    HUB_W, HUB_H = 220, 96
+    same_desk_name, dash_names, dash_home = ns["same_desk_name"], ns["dash_names"], ns["dash_home"]
+
+    def dash_ws(mgr):
+        """Привязка стола дашборда — как у виджетов, что уже на нём живут."""
+        for w in mgr.widgets:
+            b = w.spec.get("ws") or {}
+            if not w.spec.get("pinned") and b.get("name") in dash_names():
+                return {"name": b["name"], "idx": b.get("idx")}
+        return {"name": ns["DASH_WIDGET_WS"], "idx": 1}
+
+    def dash_spot(mgr, out, ws_name):
+        """Свободное место HUB_W×HUB_H на столе дашборда: мимо его виджетов, закреплённых
+        (они видны на всех столах) и гостей этого монитора; поближе к середине сверху."""
+        g = mgr.outs[out].get_geometry()
+        W, H = g.width, g.height
+        top, bot = (mgr.panel_zones() or {}).get(out, (0, 0))
+        M, gap, step = mgr.SPOT_M, mgr.SPOT_GAP, mgr.SPOT_STEP
+        y0, y1 = max(M, top + mgr.PANEL_GAP), H - max(M, bot + mgr.PANEL_GAP)
+        obst = []
+        for sp in [w.spec for w in mgr.widgets]:
+            if sp.get("output") == out and (sp.get("pinned") or
+                                            same_desk_name((sp.get("ws") or {}).get("name"), ws_name)):
+                obst.append((sp["x"], sp["y"], sp["x"] + sp["w"], sp["y"] + sp["h"]))
+            gst = sp.get("guest") or {}
+            if gst.get("output") == out:
+                obst.append((gst["x"], gst["y"], gst["x"] + sp["w"], gst["y"] + sp["h"]))
+        cx, cy = W / 2, H * 0.3
+        best = None
+        for y in range(y0, y1 - HUB_H + 1, step):
+            for x in range(M, W - M - HUB_W + 1, step):
+                if all(x + HUB_W + gap <= r[0] or x >= r[2] + gap or y + HUB_H + gap <= r[1] or
+                       y >= r[3] + gap for r in obst):
+                    d = (x + HUB_W / 2 - cx) ** 2 + (y + HUB_H / 2 - cy) ** 2
+                    if best is None or d < best[0]:
+                        best = (d, x, y)
+        return (best[1], best[2]) if best else ((W - HUB_W) // 2, int(cy - HUB_H / 2))
+
+    def load_seen():
+        try:
+            return set(json.load(open(HUB_SEEN)))
+        except (OSError, ValueError, TypeError):
+            return set()
+
+    def hub_timer_sync(mgr):
+        h = hub()
+        if not h or not getattr(mgr, "outs", None):
+            return True
+        H, c = h
+        try:
+            for w in list(mgr.widgets):
+                if isinstance(w, Timer) and w in mgr.widgets:
+                    w.hub_follow(H, c)
+            linked = {int(w.opts["hub"]) for w in mgr.widgets if isinstance(w, Timer) and w.opts.get("hub")}
+            seen = load_seen()
+            opened = H.items(c, None, "open", "timer")
+            for it in opened:
+                iid = it["id"]
+                if it["source"] != "tg" or iid in linked or iid in seen:
+                    continue
+                seen.add(iid)
+                if not it["due"] or it["due"] <= time.time() + 2:
+                    continue                          # уже истёк — звонок и так у hub
+                out = dash_home() if dash_home() in mgr.outs else next(
+                    (o for o in ("eDP-1",) + tuple(mgr.outs) if o in mgr.outs), None)
+                if not out:
+                    continue
+                ws = dash_ws(mgr)
+                x, y = dash_spot(mgr, out, ws["name"])
+                text = str(it["text"] or "")
+                label = "" if text.startswith("Таймер ") else text
+                spec = {"name": ns["unique_name"](mgr.conf, "timer"), "type": "timer", "output": out,
+                        "x": x, "y": y, "w": HUB_W, "h": HUB_H, "pinned": False, "v": 2,
+                        "ws": ws, "home": out,
+                        "opts": {"end": int(it["due"]), "dur": int(it["due"] - it["created"]),
+                                 "label": label, "hub": iid, "auto": 1}}
+                if mgr.spawn(spec):
+                    mgr.known.add(spec["name"])
+                    mgr.conf["widgets"].append(spec)
+                    mgr.save()
+                    mgr.refreeze()
+            keep = {it["id"] for it in opened}
+            if seen != load_seen() or seen - keep:
+                seen &= keep
+                tmp = HUB_SEEN + ".tmp"
+                with open(tmp, "w") as f:
+                    json.dump(sorted(seen), f)
+                os.replace(tmp, HUB_SEEN)
+        except Exception as e:
+            print("hub sync: %s" % e, file=sys.stderr)
+        return True
+
+    ns["hub_timer_sync"] = hub_timer_sync
 
     ns["CLASSES"]["weather"] = Weather
     ns["CLASSES"].update({"sysmon": SysMon, "banner": Banner, "player": Player,

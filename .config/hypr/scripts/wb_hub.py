@@ -118,6 +118,13 @@ def scan(mods):
         names = os.listdir(D)
     except OSError:
         return
+    # 16.10: бар ушёл, а модуль молчит — EPIPE не случится, fd копились до предела 1024
+    # (новые модули не запускались). Закрыть те, чей FIFO стёрт или читатель умер.
+    for m in mods.values():
+        for path in list(m.fifos):
+            pid = path[:-5].rpartition(".")[2]
+            if not os.path.exists(path) or (pid.isdigit() and not pid_alive(int(pid))):
+                m.drop(path)
     for n in names:
         if not n.endswith(".fifo"):
             continue
@@ -200,6 +207,7 @@ def serve():
                     m.last = line
                     m.send(line)
     finally:
+        lock.close()                                 # сразу: бары через 1 с поднимут новый хаб
         for m in mods.values():
             m.stop()
 

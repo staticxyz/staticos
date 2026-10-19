@@ -1,1 +1,5 @@
-// Пишет ws_layout.py: пусто, пока в фокусе не тайлинговый стол. Руками не править.
+// Пишет ws_layout.py: всегда "never" — центр по столам делает pair_center.py.
+// Руками не править.
+layout {
+    center-focused-column "never"
+}

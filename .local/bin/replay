@@ -18,8 +18,11 @@ bar() { pkill -RTMIN+11 -x waybar 2>/dev/null; }
 case "${1:-status}" in
     on)
         [ "$(state)" = on ] && { echo on; exit 0; }
+        # MSI отключён (ноутбук в дороге) — пишем экран ноутбука (17.10.2026)
+        mon=DP-4
+        niri msg -j outputs 2>/dev/null | python3 -c 'import json,sys; sys.exit("DP-4" not in json.load(sys.stdin))' || mon=eDP-1
         systemd-run --user --unit=$UNIT --collect -q \
-            gpu-screen-recorder -w DP-4 -f 60 -c mp4 -k h264 -bm cbr -q 8000 \
+            gpu-screen-recorder -w "$mon" -f 60 -c mp4 -k h264 -bm cbr -q 8000 \
                 -a default_output -ac aac -r 300 -replay-storage ram \
                 -sc "$HOME/.config/hypr/scripts/replay_saved.sh" -o "$HOME/Videos/Replays"
         sleep 1.5; bar

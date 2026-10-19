@@ -110,6 +110,9 @@ def group_of(p):
 # помощники дашборда считаются дашбордом, а не «fish» и «python3»).
 
 BY_CMD = (   # подстрока в командной строке → название
+    # Переводчик Super+C: модель NLLB ~1 ГиБ, грузится при переводе и сама уходит через
+    # 10 мин простоя. Это не «конфиги» — отдельной строкой, чтобы staticOS не пугал.
+    ("translate_server", "Translator (Super+C)"),
 )
 BY_GROUP = {
     "kitty": "kitty terminal", "waybar": "Waybar",
@@ -180,6 +183,42 @@ def _ours(p):
     return False
 
 
+# ── Игры Steam (15.10.2026, просьба: «показывать кс2, а не стим»). Путь игры лежит в
+# ~/.local/share/Steam/steamapps, поэтому по подстроке «steam» она уходила в «Steam».
+# Игру запускает `reaper SteamLaunch AppId=N`: всё, у чего AppId в командной строке
+# или у родителей (gamescope, reaper, pressure-vessel, сама игра), — эта игра.
+APP_ID = re.compile(r"\bAppId=(\d+)")
+GAME_NAMES = {"730": "CS2"}          # свои короткие имена; остальные — из appmanifest
+_game_cache = {}
+
+
+def game_name(appid):
+    if appid not in _game_cache:
+        name = GAME_NAMES.get(appid)
+        if not name:
+            name = "Steam game %s" % appid
+            for lib in glob.glob(os.path.expanduser("~/.local/share/Steam/steamapps")) + \
+                    glob.glob("/*/SteamLibrary/steamapps") + glob.glob("/*/*/SteamLibrary/steamapps"):
+                try:
+                    m = re.search(r'"name"\s+"([^"]+)"',
+                                  open("%s/appmanifest_%s.acf" % (lib, appid)).read())
+                except OSError:
+                    continue
+                if m:
+                    name = m.group(1)
+                    break
+        _game_cache[appid] = name
+    return _game_cache[appid]
+
+
+def game_of(p, chain):
+    for q in [p] + chain:
+        m = APP_ID.search(q["cmd"])
+        if m:
+            return game_name(m.group(1))
+    return None
+
+
 def label_of(p, procs=None):
     """Название программы для людей. procs — весь снимок scan(), для родителей.
     07.10.2026, пользователь: наши дотфайлы — одной строкой «staticOS» (было «Jarvis scripts»;
@@ -191,6 +230,9 @@ def label_of(p, procs=None):
     if _is_dash(p):
         return "Dashboard"
     chain = _chain(p, procs)
+    game = game_of(p, chain)
+    if game:
+        return game
     if any(_is_dash(q) for q in chain):
         return "Dashboard"
     if _ours(p):

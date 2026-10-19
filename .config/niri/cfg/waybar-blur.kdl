@@ -1,6 +1,6 @@
 // Пишет top_bar.py (blur_rule): размытие под верхним баром.
 layer-rule {
-    match namespace=r#"^waybar$"#
+    match namespace=r#"^tb-always$"#
     background-effect {
         blur true
     }

@@ -51,6 +51,11 @@ NAMES = {
     "YandexMusic": "Yandex Music",
     "org.xfce.mousepad": "Mousepad",
     "gamescope": "Game (gamescope)",
+    # 16.10.2026: игры Steam (окно gamescope → steam_app_N) и программы из терминала
+    # отдельными строками (TERM_APPS в screentime_daemon.py).
+    "steam_app_730": "CS2",
+    "nvim": "Neovim", "jtetris": "jtetris", "jchat": "jchat", "btop": "btop",
+    "opencode": "OpenCode", "agy": "Antigravity CLI", "jtype": "jtype", "yazi": "yazi",
     "steam": "Steam",
     "unknown": "Unknown window",
 }

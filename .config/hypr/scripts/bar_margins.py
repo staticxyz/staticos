@@ -9,9 +9,12 @@
 «От края экрана» — отступ бара от того края, у которого он стоит (margin-top у
 бара сверху, margin-bottom у вида «Снизу»), «до окон» — с другой стороны.
 
-Состояние — ~/.config/hypr/state/bar-margins («E W»). Нет файла — отступы
-берёт форма панели (looks/current.jsonc, её меняет bar_style.py); заданные
-здесь отступы действуют при любой форме, пока их не сбросят.
+Состояние — ~/.config/hypr/state/bar-margins («E W ВИД»). Нет файла — отступы
+берёт форма панели (looks/current.jsonc, её меняет bar_style.py). Свои отступы
+действуют только у того вида, при котором заданы (17.10.2026, просьба: «Парящий
+и Компактный одинаковы… почему у Парящего вверху нет пространства?» — отступы
+0/0, выставленные при виде «во всю ширину», прижимали к краю и парящие виды).
+Строка старого вида «E W» без имени вида не действует.
 
 Применяет ~/.config/niri/scripts/waybar_niri.py: вписывает margin-top и
 margin-bottom в config-niri.jsonc сразу после include — ключи основного
@@ -51,10 +54,20 @@ def look_values():
     return (bottom, top) if m and m.group(1) == "bottom" else (top, bottom)
 
 
-def custom():
-    """(от края, до окон) из состояния или None."""
+def look_name():
+    """Имя текущего вида — куда указывает ссылка looks/current.jsonc."""
     try:
-        e, w = open(STATE).read().split()[:2]
+        return os.path.basename(os.readlink(LOOK))[:-len(".jsonc")]
+    except OSError:
+        return ""
+
+
+def custom():
+    """(от края, до окон) из состояния или None — если заданы не для текущего вида."""
+    try:
+        e, w, look = open(STATE).read().split()[:3]
+        if look != look_name():
+            return None
         return max(LO, min(HI, int(e))), max(LO, min(HI, int(w)))
     except (OSError, ValueError):
         return None
@@ -88,7 +101,7 @@ def main():
         os.makedirs(os.path.dirname(STATE), exist_ok=True)
         tmp = STATE + ".tmp"
         with open(tmp, "w") as f:
-            f.write("%d %d\n" % new)
+            f.write("%d %d %s\n" % (new + (look_name(),)))
         os.replace(tmp, STATE)
         apply()
         print("отступы бара: от края %d px, до окон %d px" % new)
@@ -96,7 +109,7 @@ def main():
     if args == ["reset"]:
         if cur is None:
             return 0
-        os.remove(STATE)
+        os.remove(STATE)    # свои отступы есть только у текущего вида — их и убираем
         if cur != look:
             apply()
         print("отступы бара — как у формы панели")

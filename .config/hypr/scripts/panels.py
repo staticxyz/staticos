@@ -32,6 +32,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 STATE = os.path.expanduser("~/.config/hypr/state")
 FILE = os.path.join(STATE, "panels.json")
@@ -76,7 +77,7 @@ def per_monitor(d=None):
     """True — у мониторов свой выбор: переключатель «На всех мониторах» снят И подключено
     не меньше двух мониторов. С одним ноутбуком (MSI отключён) — общий режим, как раньше;
     выбор по мониторам хранится и вернётся, когда второй монитор подключат (06.10.2026,
-    Просьба: «настройки такие должны появляться тогда, когда доп. монитор вообще подключён»).
+    просьба: «настройки такие должны появляться тогда, когда доп. монитор вообще подключён»).
     niri не ответил — верим файлу."""
     if (d or load()).get("same", True):
         return False
@@ -211,27 +212,190 @@ def launch_top(log=None):
     return n
 
 
+APPLIED = os.path.join(STATE, "panels-applied.json")
+LOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "panels-apply.lock")
+
+
+def _bar_pids(out):
+    """waybar этого сеанса, поднятые с конфигом монитора out."""
+    me = ("WAYLAND_DISPLAY=%s" % os.environ.get("WAYLAND_DISPLAY", "")).encode()
+    want = os.path.basename(bar_config(out)).encode()
+    res = []
+    for p in os.listdir("/proc"):
+        if not p.isdigit():
+            continue
+        try:
+            if open("/proc/%s/comm" % p, "rb").read().strip() != b"waybar":
+                continue
+            argv = open("/proc/%s/cmdline" % p, "rb").read().split(b"\0")
+            if me in open("/proc/%s/environ" % p, "rb").read().split(b"\0") and \
+                    any(a.endswith(b"/" + want) or a == want for a in argv):
+                res.append(int(p))
+        except OSError:
+            pass
+    return res
+
+
+def _kill_bars(pids):
+    """Погасить бары вместе с детьми (exec-модули), дождаться выхода — до 2 с."""
+    for pid in pids:
+        subprocess.run(["pkill", "-TERM", "-P", str(pid)], capture_output=True)
+        try:
+            os.kill(pid, 15)
+        except OSError:
+            pass
+    for _ in range(40):
+        if not any(os.path.exists("/proc/%d" % p) for p in pids):
+            return
+        time.sleep(0.05)
+    for pid in pids:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
+
+def _read_text(path):
+    try:
+        return open(path, encoding="utf-8").read()
+    except OSError:
+        return None
+
+
+def _apply_top_split(d):
+    """Верх по мониторам: пересобрать конфиги и перезапустить бар ТОЛЬКО того монитора,
+    чей конфиг изменился или чей бар надо включить/выключить (16.10.2026: раньше любой
+    щелчок в Настройках гасил и поднимал бары на обоих мониторах — barfix)."""
+    import top_bar
+    outs = top_outputs(d)
+    before = {o: _read_text(bar_config(o)) for o in outs}
+    top_bar.opacity_rule()
+    top_bar.blur_rule(top_bar.get_mode())
+    subprocess.run([sys.executable, os.path.expanduser("~/.config/niri/scripts/waybar_niri.py")],
+                   capture_output=True, timeout=30)
+    try:        # метка для bar_watch: бар перезапущен нарочно, не поднимать его второй раз
+        open(os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "barfix-stamp"), "a").close()
+        os.utime(os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "barfix-stamp"))
+    except OSError:
+        pass
+    css = ["-s", CSS] if os.path.exists(CSS) else []
+    # бар общего режима (config-niri.jsonc) после снятия «На всех мониторах» — погасить
+    mine = {p for o in outs for p in _bar_pids(o)}
+    me = ("WAYLAND_DISPLAY=%s" % os.environ.get("WAYLAND_DISPLAY", "")).encode()
+    stray = []
+    for p in subprocess.run(["pgrep", "-x", "waybar"], capture_output=True, text=True).stdout.split():
+        try:
+            if int(p) not in mine and me in open("/proc/%s/environ" % p, "rb").read().split(b"\0"):
+                stray.append(int(p))
+        except OSError:
+            pass
+    if stray:
+        _kill_bars(stray)
+    for out in outs:
+        mode = top_for(out, d)
+        pids = _bar_pids(out)
+        cfg = _read_text(bar_config(out))
+        if mode == "off" or cfg is None:
+            if pids:
+                _kill_bars(pids)
+        elif not pids or cfg != before.get(out):
+            _kill_bars(pids)
+            subprocess.Popen(["waybar", "-c", bar_config(out)] + css, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        if mode != "hover":
+            for pid in top_bar.daemon_pids(out):        # сторож наведения больше не нужен
+                try:
+                    os.kill(pid, 15)
+                except OSError:
+                    pass
+    for pid in top_bar.daemon_pids(None):               # общий сторож — только в общем режиме
+        try:
+            os.kill(pid, 15)
+        except OSError:
+            pass
+    top_bar.spawn_watchers()
+
+
+def _apply_bottom_split(d, q):
+    here = os.path.dirname(os.path.abspath(__file__))
+    xp, dock = os.path.join(here, "xpbar.py"), os.path.join(here, "dock.py")
+    want = {o: bottom_for(o, d) for o in niri_outputs()}
+    try:
+        was = json.load(open(APPLIED)).get("bottom") or {}
+    except (OSError, ValueError, AttributeError):
+        was = None
+    if set(want.values()) & {"always", "hover"}:
+        # работающая панель пересоздаёт только панель изменённого монитора (SIGHUP)
+        subprocess.run([sys.executable, xp, "reload"], **q)
+    else:
+        subprocess.run([sys.executable, xp, "stop"], **q)
+    docks = sorted(o for o, v in want.items() if v == "dock")
+    if was is None or docks != sorted(o for o, v in was.items() if v == "dock") or \
+            (docks and not _dock_pids()):
+        subprocess.run([sys.executable, dock, "off"], **q)       # док строит панели при старте
+        # дождаться выхода: «on» при ещё живом старом доке ничего не запускал
+        for _ in range(60):
+            if not _dock_pids():
+                break
+            time.sleep(0.05)
+        if docks:
+            subprocess.run([sys.executable, dock, "on"], **q)
+    return want
+
+
+def _dock_pids():
+    res = []
+    for p in os.listdir("/proc"):
+        if not p.isdigit():
+            continue
+        try:
+            argv = open("/proc/%s/cmdline" % p, "rb").read().split(b"\0")
+        except OSError:
+            continue
+        if len(argv) >= 2 and b"python" in os.path.basename(argv[0]) \
+                and os.path.basename(argv[1]) == b"dock.py" and (len(argv) == 2 or argv[2] == b""):
+            res.append(int(p))
+    return res
+
+
 def apply(which=("top", "bottom")):
-    """Перезапустить то, что зависит от выбора: верхние бары (top_bar.py apply — конфиги,
-    стиль, сторожа) и нижнюю XP-панель (если выбрана она)."""
+    """Перезапустить то, что зависит от выбора: верхние бары и нижнюю XP-панель. Под
+    замком: быстрые щелчки в Настройках не применяются наперегонки."""
+    import fcntl
+    lk = open(LOCK, "w")
+    fcntl.flock(lk, fcntl.LOCK_EX)
+    try:
+        _apply(which)
+    finally:
+        lk.close()
+
+
+def _apply(which):
     here = os.path.dirname(os.path.abspath(__file__))
     q = dict(capture_output=True, timeout=60)
+    d = load()
+    split = per_monitor(d)
     if "top" in which:
-        subprocess.run([sys.executable, os.path.join(here, "top_bar.py"), "apply"], **q)
-    if "bottom" in which:
-        xp, dock, bb = (os.path.join(here, n) for n in ("xpbar.py", "dock.py", "bottom_bar.py"))
-        d = load()
-        if per_monitor(d):
-            # у каждого монитора своё: XP там, где always/hover, док — где dock
-            want = {bottom_for(o, d) for o in niri_outputs()}
-            if want & {"always", "hover"}:
-                subprocess.run([sys.executable, xp, "restart"], **q)
-            else:
-                subprocess.run([sys.executable, xp, "stop"], **q)
-            subprocess.run([sys.executable, dock, "off"], **q)       # док строит панели при старте
-            if "dock" in want:
-                subprocess.run([sys.executable, dock, "on"], **q)
+        if split:
+            _apply_top_split(d)
         else:
+            subprocess.run([sys.executable, os.path.join(here, "top_bar.py"), "apply"], **q)
+    if "bottom" in which:
+        xp, bb = (os.path.join(here, n) for n in ("xpbar.py", "bottom_bar.py"))
+        if split:
+            want = _apply_bottom_split(d, q)
+            try:
+                with open(APPLIED + ".tmp", "w") as f:
+                    json.dump({"bottom": want}, f)
+                os.replace(APPLIED + ".tmp", APPLIED)
+            except OSError:
+                pass
+        else:
+            try:
+                os.remove(APPLIED)
+            except OSError:
+                pass
             # общий выбор — как было: bottom_bar.py поднимает выбранное, XP перечитывает режим
             subprocess.run([sys.executable, bb], **q)
             kind = subprocess.run([sys.executable, bb, "get"], capture_output=True, text=True).stdout.strip()
@@ -254,6 +418,18 @@ def set_same(on):
     return d
 
 
+def set_value(out, key, val):
+    """Записать выбор монитора без применения (Настройки пишут сразу, применяют после
+    паузы в щелчках). False — неверный ключ или значение."""
+    if key not in ("top", "bottom", "ws") or \
+            val not in {"top": TOP_MODES, "bottom": BOTTOM_MODES, "ws": ("top", "bottom")}[key]:
+        return False
+    d = load()
+    d["mon"].setdefault(out, {})[key] = val
+    save(d)
+    return True
+
+
 def main(a):
     if not a:
         print(json.dumps(load(), ensure_ascii=False, indent=1))
@@ -266,21 +442,11 @@ def main(a):
         d = set_same(a[1] == "on")
         apply()
         print("yes" if d["same"] else "no")
-    elif a[0] == "set" and len(a) == 4 and a[2] in ("top", "bottom", "ws") and \
-            a[3] in {"top": TOP_MODES, "bottom": BOTTOM_MODES, "ws": ("top", "bottom")}[a[2]]:
-        d = load()
-        was = (d["mon"].get(a[1]) or {}).get(a[2])
-        d["mon"].setdefault(a[1], {})[a[2]] = a[3]
-        save(d)
-        if per_monitor(d):
-            # верхний бар включили/выключили — нижней панели показать/убрать столы
-            off_changed = a[2] == "top" and "off" in (was, a[3])
-            # низ стал/перестал быть XP — столы переезжают в верхний бар этого монитора/обратно
-            xp = ("always", "hover")
-            xp_changed = a[2] == "bottom" and (was in xp) != (a[3] in xp)
-            # столы переезжают — верхний бар (его конфиг) и нижняя панель, обе
-            both = off_changed or xp_changed or a[2] == "ws"
-            apply(("top", "bottom") if both else (a[2],))
+    elif a[0] == "set" and len(a) == 4 and set_value(a[1], a[2], a[3]):
+        if per_monitor():
+            # применяется разница: бар/панель перезапускаются только у монитора, где
+            # что-то поменялось (столы переехали — и верх, и низ этого монитора)
+            apply()
         print(a[3])
     elif a[0] == "apply":
         apply(tuple(a[1:]) or ("top", "bottom"))

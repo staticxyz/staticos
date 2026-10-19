@@ -31,7 +31,8 @@ binds {
     Mod+Y hotkey-overlay-title="LibreWolf (браузер)" { spawn "librewolf"; }
     // Пароли — KeePassXC через обёртку (цвета обоев, пиксельный шрифт); открыт — поднимает окно.
     Mod+Ctrl+Shift+P hotkey-overlay-title="Пароли (KeePassXC)" { spawn-sh "~/.local/bin/keepassxc"; }
-    Mod+Ctrl+T hotkey-overlay-title="Раскладка стола: прокрутка → мастер-стек → плавающие" { spawn-sh "python3 ~/.config/hypr/scripts/ws_layout.py cycle"; }
+    Mod+A hotkey-overlay-title="Раскладка стола: прокрутка → сетка → плавающие → подглядывание → три в ряд" { spawn-sh "python3 ~/.config/hypr/scripts/ws_layout.py cycle"; }
+    Mod+Ctrl+A hotkey-overlay-title="Раскладка стола: прежняя" { spawn-sh "python3 ~/.config/hypr/scripts/ws_layout.py cycle back"; }
     // Калькулятор-переводчик — своё окно (translate_popup.py): rofi-calc не
     // умел показывать длинный перевод строками (23.09.2026). Повторное
     // нажатие закрывает (single_instance внутри).
@@ -215,7 +216,7 @@ binds {
     // Окно с фокусом — по центру: вкл/выкл (то же, что тумблер в «Настройках» →
     // «Окна»). Перебор заготовленных ширин отсюда снят 28.09.2026: ширину
     // меняют SUPER+= / −.
-    Mod+R hotkey-overlay-title="Центрирование ленты вкл/выкл" { spawn-sh "python3 ~/.config/hypr/scripts/ribbon_center.py toggle"; }
+    Mod+R hotkey-overlay-title="Центрирование ленты вкл/выкл (у каждого стола своё)" { spawn-sh "python3 ~/.config/hypr/scripts/ws_layout.py view toggle"; }
 
     // ─── Вложить в колонку / вынуть из неё ───
     Mod+BracketLeft  { consume-or-expel-window-left; }

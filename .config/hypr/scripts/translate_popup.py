@@ -9,7 +9,7 @@
 Считает то же, что и раньше: calc_qalc.py (qalc с валютами по-русски, живой
 перевод NLLB) вызывается на каждый ввод с теми же аргументами, что давал
 rofi-calc, — поведение один в один. Enter — calc_copy.sh: число в буфер, а
-текст — перевод (уточнённый своим translate_refine.sh, если он есть), после
+для текста — перевод Google (с 17.10.2026; без сети — NLLB), после
 чего окно закрывается. Esc — закрыть. Повторное SUPER+C закрывает окно
 (popup_theme.single_instance).
 
@@ -137,7 +137,7 @@ class Popup(Gtk.Window):
         self.set_app_paintable(True)
         self.serial = 0
         self.timer = None
-        self.final = None                      # None — нет; False — ждём уточнение; True — показан
+        self.final = None                      # None — нет; False — ждём Google; True — показан
         self.build()
         self.apply_css()
         self.connect("key-press-event", self.on_key)
@@ -156,7 +156,7 @@ class Popup(Gtk.Window):
                 bar.set_size_request(-1, 1)
                 bar.get_style_context().add_class(cls)
                 self.panel.pack_start(bar, False, False, 0)
-        # Заголовок: имя окна + крестик как у Recorder (13.10.2026, Просьба: «В Super+C тоже»).
+        # Заголовок: имя окна + крестик как у Recorder (13.10.2026, просьба: «В Super+C тоже»).
         tbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         tbar.get_style_context().add_class("title")
         title = Gtk.Label(label=TITLE, xalign=0.0)
@@ -287,8 +287,9 @@ class Popup(Gtk.Window):
         return False
 
     def accept(self):
-        """Enter. Число — в буфер и закрыть. Текст — перевод прямо
-        здесь: строка «Перевожу…», потом сам перевод (он же в буфере); окно
+        """Enter. Число — в буфер и закрыть. Текст — перевод Google в буфер, окно
+        остаётся с пометкой «скопировано». Был черновик NLLB (нет сети) — Google
+        спрашивается ещё раз прямо здесь: строка «Перевожу…», потом сам перевод (он же в буфере); окно
         остаётся, чтобы его прочитать, — второй Enter или Esc закрывают
         («после Enter тупо копируется, я даже не вижу, что перевёл» — пользователь)."""
         if self.timer:                          # ответ ещё не досчитан — досчитать сейчас
@@ -313,7 +314,11 @@ class Popup(Gtk.Window):
                     d = json.load(f)
             except (OSError, ValueError):
                 d = None
-            self.answer.set_text(draft + "\n\nУточняю перевод…")
+            if d and d.get("engine") == "google":   # уже перевод Google — просто скопировать
+                self.final = False
+                self.show_best(draft, draft)
+                return
+            self.answer.set_text(draft + "\n\nПеревожу через Google…")
             self.final = False
             threading.Thread(target=self.best_worker, args=(d, draft), daemon=True).start()
             return
@@ -338,7 +343,8 @@ class Popup(Gtk.Window):
             subprocess.run(["wl-copy"], input=text, text=True, timeout=5)
         except (OSError, subprocess.SubprocessError):
             pass
-        self.answer.set_text(text + "\n\n— скопировано")
+        self.answer.set_text(text + ("\n\n— скопировано (Google)" if best else
+                                     "\n\n— нет сети, скопирован офлайн-перевод"))
         self.final = True
         return False
 

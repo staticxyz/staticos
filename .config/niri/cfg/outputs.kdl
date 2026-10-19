@@ -16,4 +16,13 @@ output "DP-4" {
     // on-demand=true — это аналог misc.vrr = 3 из gaming.lua: переменная
     // частота включается только под полноэкранной игрой, на столе не мерцает.
     variable-refresh-rate on-demand=true
+    // Зазор под нить островка (пишет niri_compositor.py, руками не править)
+    layout {
+        struts {
+            left -8
+            right -8
+            top 20
+            bottom -8
+        }
+    }
 }

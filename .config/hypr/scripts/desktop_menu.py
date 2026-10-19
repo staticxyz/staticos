@@ -170,7 +170,10 @@ ACTIONS = {
     "open-documents": None,
     "open-pictures": None,
     "open-videos": None,
-    "refresh": [["barfix"]],
+    # «Обновить»: бар (только своя оболочка) + виджеты на обоях — их код грузится один раз
+    # при старте сторожа (19.10.2026, просьба: «как я без тебя буду перезапускать виджеты?»)
+    "refresh": lambda dry: ([["barfix"]] if shell_is_mine() else []) +
+                           [["python3", WIDGETS, "restart"]],
     "wallpaper": [["python3", os.path.join(HERE, "wallpaper_picker.py")]],
     "display": [SETTINGS + ["screen"]],
     "look": [SETTINGS + ["look"]],
@@ -230,7 +233,7 @@ WIDGET_KINDS = [
     ("player", "\U000f075a", "player.exe — что играет"),
     ("playermini", "\U000f040a", "nowplaying.exe — плеер одной строкой"),
     ("cava", "\U000f0f74", "visualizer.exe — эквалайзер"),
-    ("banner", "\U000f0284", "banner.exe — бегущая надпись…"),
+    ("banner", "\U000f0284", "banner.exe — надпись…"),
     ("pomo", "\U000f051b", "pomodoro.exe — помодоро"),
     ("screentime", "\U000f13ab", "screentime.exe — экранное время"),
     ("appmem", "\U000f035b", "ram.exe — память по программам"),
@@ -354,7 +357,7 @@ SUB_MORE = [
     # 14.10.2026 из основного списка — «Записать видео положи в пункт Ещё. Экранное время тоже»
     ("\U000f0567", "Записать видео", "record-video", ""),
     ("\U000f13ab", "Экранное время", "screentime", ""),
-    # «Убрать это меню» убран (05.10.2026, Просьба: «случайно нажал — убери кнопку»);
+    # «Убрать это меню» убран (05.10.2026, просьба: «случайно нажал — убери кнопку»);
     # выключить меню можно в Настройках или `desktop_menu.py off`.
 ]
 SUB_WIDGET = [(i, t, "widget-" + k, "") for k, i, t in WIDGET_KINDS]
@@ -458,16 +461,17 @@ window.popup, window.popup.background, window.popup decoration {
 }
 menu.jd {
     background-color: %(surface)s; color: %(on_surface)s;
-    border: 2px solid %(primary)s; border-radius: 10px; padding: 4px;
+    border: 2px solid %(primary)s; border-radius: 10px; padding: 3px;
     /* Тёмный контур в пиксель, как у .popup-box: на светлых обоях светлая
        рамка акцента иначе сливается с фоном. */
     margin: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.60);
     font-family: '%(font)s', sans-serif; font-size: 14px; font-weight: normal;
 }
 /* 04.10.2026, просьба: «чуть компактнее» — было 16px, отступы 4px, высота 24px.
-   Бэкап desktop_menu.py.bak-compact-classic. */
+   Бэкап desktop_menu.py.bak-compact-classic. 14.10.2026: «компактнее по горизонтали» —
+   поля пункта 5/8 → 4/5, значок 20 → 16, отступ клавиш 20 → 10, стрелка 14+10 → 12+4. */
 menu.jd menuitem {
-    padding: 2px 8px 2px 5px; border-radius: 6px; min-height: 20px;
+    padding: 2px 5px 2px 4px; border-radius: 6px; min-height: 20px;
     color: %(on_surface)s;
     /* рамка — такая же, как при наведении: тема даёт пункту невидимую рамку 1 px,
        а у наведённого её не было — пункт сжимался на 2 px и меню дёргалось (02.10.2026) */
@@ -482,7 +486,7 @@ menu.jd menuitem:hover label.mi-accel { color: %(primary)s; }
 menu.jd menuitem:disabled label { color: %(on_surface_variant)s; opacity: 0.55; }
 menu.jd menuitem.quick { padding: 4px 3px; border-radius: 8px; }
 menu.jd menuitem arrow {
-    min-width: 14px; min-height: 14px; margin-left: 10px;
+    min-width: 12px; min-height: 12px; margin-left: 4px;
     -gtk-icon-source: -gtk-icontheme("pan-end-symbolic");
     color: %(on_surface_variant)s;
 }
@@ -492,13 +496,13 @@ menu.jd separator {
 }
 menu.jd separator.quick-sep { background-color: %(primary)s; opacity: 0.45; margin: 3px 4px 4px 4px; }
 label.mi-icon {
-    font-family: '%(icon_font)s'; font-size: 16px; min-width: 20px;
+    font-family: '%(icon_font)s'; font-size: 16px; min-width: 16px;
     color: %(primary)s;
 }
 label.mi-title { font-family: '%(font)s', sans-serif; font-size: 14px; }
 label.mi-accel {
     font-family: '%(font)s', sans-serif; font-size: 14px;
-    color: %(on_surface_variant)s; margin-left: 20px;
+    color: %(on_surface_variant)s; margin-left: 10px;
 }
 tooltip {
     background-color: %(surface)s; color: %(on_surface)s;
@@ -571,6 +575,135 @@ tooltip label {
     padding: 1px 4px;
 }
 """
+# Вид «Система» (15.10.2026, просьба: «адаптировать под стиль системы (то есть Skeet) и добавить
+# ещё одним выбором; назови Система»). Берёт стиль монитора, где щёлкнули (system_style.py).
+# Первая версия повторяла каркас XP в цветах Skeet — «чем это отличается от XP?». Переделано:
+# skeet — рамка слоями как у gamesense и Настроек (тёмная, светлая, 3 px средняя, светлая,
+# тёмная), под ней полоса палитры, без тени со сдвигом; значки серые, выделенный пункт —
+# поле светлее, черта акцентом слева, текст акцентом. beta — плоско: рамка 1 px акцентом.
+# default — «Обычный» (CSS).
+CSS_SKEET = """
+window.popup, window.popup.background, window.popup decoration {
+    background-color: transparent; background-image: none;
+    box-shadow: none; border: none;
+}
+menu.jd {
+    background-color: %(bg)s; color: %(text)s;
+    background-image: linear-gradient(to right, %(s0)s, %(s1)s, %(s2)s),
+                      linear-gradient(to right, %(s0d)s, %(s1d)s, %(s2d)s)%(dots)s;
+    background-size: 100%% 1px, 100%% 1px%(dots_size)s;
+    background-position: 0 7px, 0 8px%(dots_pos)s;  /* сразу под рамкой: тени рисуются поверх фона */
+    background-repeat: no-repeat, no-repeat%(dots_rep)s;
+    /* снаружи светлая кромка line1 — граница видна и на тёмных обоях (15.10) */
+    /* 16.10: светлые слои рамки — line1 с акцентом (line1_on), как у окна в фокусе и Programs.exe */
+    border: 1px solid %(line1_on)s; border-radius: 0;
+    padding: 0 8px; margin: 2px;      /* по вертикали GtkMenu отступ не берёт — см. first/last-child */
+    /* GTK кладёт следующую тень поверх предыдущей — от широкой к узкой */
+    box-shadow: inset 0 0 0 7px %(line3)s, inset 0 0 0 6px %(line1_on)s,
+                inset 0 0 0 5px %(line2)s, inset 0 0 0 2px %(line1_on)s,
+                inset 0 0 0 1px %(line3)s;
+    font-family: '%(font)s', sans-serif; font-size: 12px; font-weight: normal;
+}
+menu.jd menuitem {
+    padding: 1px 12px 1px 8px; border-radius: 0; min-height: 18px;
+    color: %(text)s;
+    border: none; box-shadow: none; outline: none;
+}
+menu.jd menuitem:hover {
+    background-color: %(field_l)s; color: #ffffff;
+    border: none; box-shadow: inset 2px 0 %(acc)s; outline: none;
+}
+/* текст пунктов белый всегда; значки и подсказки клавиш — акцентом всегда (16.10, было только
+   при наведении), при наведении светлее */
+menu.jd menuitem label.mi-title { color: %(text)s; }
+menu.jd menuitem:hover label.mi-title { color: #ffffff; }
+menu.jd menuitem:hover label.mi-icon { color: %(acc_l)s; }
+menu.jd menuitem:hover label.mi-accel { color: %(acc_l)s; }
+menu.jd menuitem:disabled label { color: %(dim)s; opacity: 0.55; }
+menu.jd menuitem.quick { padding: 3px 3px; border-radius: 0; margin-top: 10px; }
+/* рамка 6 px + полоса: первый пункт подменю и последний пункт — с отступом от рамки */
+menu.jd menuitem:first-child { margin-top: 10px; }
+menu.jd menuitem:last-child { margin-bottom: 8px; }
+menu.jd menuitem.quick:hover { box-shadow: inset 0 -2px %(acc)s; }
+menu.jd menuitem arrow {
+    min-width: 12px; min-height: 12px; margin-left: 8px;
+    -gtk-icon-source: -gtk-icontheme("pan-end-symbolic");
+    color: %(dim)s;
+}
+menu.jd menuitem:hover arrow { color: #ffffff; }
+/* разделитель как у групп gamesense: тёмная линия и светлая под ней */
+menu.jd separator {
+    background-color: %(line3)s; min-height: 1px; margin: 2px 2px 3px 2px;
+    box-shadow: 0 1px 0 0 %(gline)s;
+}
+menu.jd separator.quick-sep { background-color: %(line3)s; opacity: 1; margin: 2px 0 3px 0; }
+label.mi-icon {
+    font-family: '%(icon_font)s'; font-size: 14px; min-width: 20px;
+    color: %(acc)s;
+}
+label.mi-title { font-family: '%(font)s', sans-serif; font-size: 12px; }
+label.mi-accel {
+    font-family: '%(font)s', sans-serif; font-size: 12px;
+    color: %(acc)s; margin-left: 18px;
+}
+tooltip {
+    background-color: %(bg)s; color: %(text)s;
+    border: 1px solid %(line3)s; border-radius: 0;
+    box-shadow: inset 0 0 0 1px %(line1)s;
+}
+tooltip label {
+    font-family: '%(font)s', sans-serif; font-size: 12px; font-weight: normal;
+    padding: 2px 5px;
+}
+"""
+CSS_BETA = """
+window.popup, window.popup.background, window.popup decoration {
+    background-color: transparent; background-image: none;
+    box-shadow: none; border: none;
+}
+menu.jd {
+    background-color: %(bg)s; color: %(text)s;
+    border: 1px solid %(frame)s; border-radius: 0; padding: 3px; margin: 2px;
+    box-shadow: none;
+    font-family: '%(font)s', sans-serif; font-size: 12px; font-weight: normal;
+}
+menu.jd menuitem {
+    padding: 2px 10px 2px 6px; border-radius: 0; min-height: 16px;
+    color: %(text)s; border: none; box-shadow: none; outline: none;
+}
+menu.jd menuitem:hover {
+    background-color: %(sel)s; color: %(sel_text)s;
+    border: none; box-shadow: none; outline: none;
+}
+menu.jd menuitem:hover label { color: %(sel_text)s; }
+menu.jd menuitem:disabled label { color: %(dim)s; opacity: 0.55; }
+menu.jd menuitem.quick { padding: 3px 2px; border-radius: 0; }
+menu.jd menuitem arrow {
+    min-width: 12px; min-height: 12px; margin-left: 8px;
+    -gtk-icon-source: -gtk-icontheme("pan-end-symbolic");
+    color: %(dim)s;
+}
+menu.jd separator { background-color: %(line)s; min-height: 1px; margin: 3px 0; }
+menu.jd separator.quick-sep { background-color: %(line)s; opacity: 1; margin: 3px 0; }
+label.mi-icon {
+    font-family: '%(icon_font)s'; font-size: 14px; min-width: 18px;
+    color: %(acc)s;
+}
+label.mi-title { font-family: '%(font)s', sans-serif; font-size: 12px; }
+label.mi-accel {
+    font-family: '%(font)s', sans-serif; font-size: 12px;
+    color: %(dim)s; margin-left: 18px;
+}
+tooltip {
+    background-color: %(bg)s; color: %(text)s;
+    border: 1px solid %(frame)s; border-radius: 0;
+}
+tooltip label {
+    font-family: '%(font)s', sans-serif; font-size: 12px; font-weight: normal;
+    padding: 1px 4px;
+}
+"""
+STYLES = ("xp", "classic", "system")
 STYLE_FILE = os.path.expanduser("~/.config/hypr/state/desktop-menu-style")
 BAR_LOOK = os.path.expanduser("~/.config/waybar/looks/current.jsonc")
 
@@ -595,11 +728,63 @@ def bar_compact():
 
 
 def menu_style():
-    """xp (по умолчанию) или classic — прежний вид с круглой рамкой акцентом."""
+    """xp (по умолчанию), classic — прежний вид с круглой рамкой акцентом, system — по стилю
+    монитора (Skeet/Beta; Default → classic)."""
     try:
-        return "classic" if open(STYLE_FILE).read().strip() == "classic" else "xp"
+        v = open(STYLE_FILE).read().strip()
+        return v if v in STYLES else "xp"
     except OSError:
         return "xp"
+
+
+def system_look(point=None):
+    """Стиль системы монитора под точкой щелчка (x, y) — skeet | beta | default."""
+    import system_style
+    out = None
+    if point is not None:
+        for name, o in (niri_json("outputs") or {}).items():      # niri: {имя: выход}
+            lg = (o or {}).get("logical") or {}
+            if lg and lg["x"] <= point[0] < lg["x"] + lg["width"] and lg["y"] <= point[1] < lg["y"] + lg["height"]:
+                out = name
+                break
+    if out is None:
+        out = (niri_json("focused-output") or {}).get("name", "")
+    return system_style.style_of(out)
+
+
+def skeet_dots(bg, dot):
+    """Плитка 4×4 точечного фона gamesense — тот же кэш, что у Настроек (settings_app.skeet_dots)."""
+    path = os.path.expanduser("~/.cache/jarvis/skeet-dots-%s-%s.png" % (bg.lstrip("#"), dot.lstrip("#")))
+    if os.path.exists(path):
+        return path
+    try:
+        from PIL import Image
+        im = Image.new("RGB", (4, 4), bg)
+        for xy in ((0, 0), (2, 2)):
+            im.putpixel(xy, tuple(int(dot[i:i + 2], 16) for i in (1, 3, 5)))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        im.save(path)
+    except Exception:
+        return None
+    return path
+
+
+def system_colors(look):
+    """(шаблон, цвета) для вида «Система» по стилю монитора или None (Default — «Обычный»)."""
+    import rec_style
+    if look == "skeet":
+        c = rec_style.colors("skeet")
+        c["line1_on"] = rec_style._mix(c["line1"], c["acc"], 0.45)
+        for i, v in enumerate(c["strip"][:3]):
+            c["s%d" % i], c["s%dd" % i] = v, rec_style._mix(v, "#000000", 0.55)
+        dots = skeet_dots(c["bg"], rec_style._mix(c["bg"], "#ffffff", 0.022))
+        c.update(dots=", url('file://%s')" % dots if dots else "", dots_size=", auto" if dots else "",
+                 dots_pos=", 0 0" if dots else "", dots_rep=", repeat" if dots else "")
+        return CSS_SKEET, c
+    if look == "beta":
+        b = rec_style.colors("beta")
+        return CSS_BETA, dict(b, bg=b["bar"])
+    return None
 
 
 def gui():
@@ -617,7 +802,10 @@ def load_css(Gdk, Gtk, state={}):
     import popup_theme
     p = popup_theme.palette()
     p.update(font=FONT, icon_font=ICON_FONT)
-    if menu_style() == "xp":
+    sysc = system_colors(system_look(LAST_CLICK[0])) if menu_style() == "system" else None
+    if sysc is not None:
+        data = sysc[0] % dict(sysc[1], font=FONT, icon_font=ICON_FONT)
+    elif menu_style() == "xp":
         import xpbar_colors
         c = xpbar_colors.colors()
         p.update(xp_bg=xpbar_colors.mix(c["base"], c["primary"], 0.13),
@@ -625,7 +813,8 @@ def load_css(Gdk, Gtk, state={}):
         data = CSS_XP % p
     else:
         data = CSS % p
-    if bar_compact():
+    # «Система» (Skeet/Beta) своих размеров: сжатие под компактный бар делало её тесной (15.10)
+    if bar_compact() and sysc is None:
         data += CSS_COMPACT
     data = data.encode()
     old = state.get("provider")
@@ -646,7 +835,7 @@ def build_menu(Gtk, on_action, on_quick, quick=None):
 
     def row(icon, title, accel=""):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
-                      spacing=5 if menu_style() == "xp" else 8)
+                      spacing=5)
         ic = Gtk.Label(label=icon)
         ic.get_style_context().add_class("mi-icon")
         ic.set_xalign(0.5)
@@ -684,9 +873,9 @@ def build_menu(Gtk, on_action, on_quick, quick=None):
                 elif what == "noop":
                     it.set_sensitive(False)
                 else:
-                    if what == "refresh" and not shell_mine:
-                        it.set_sensitive(False)
-                        it.set_tooltip_text("Оболочка Noctalia: бар не свой, перезапускать нечего")
+                    if what == "refresh":
+                        it.set_tooltip_text("Перезапустить виджеты на обоях" if not shell_mine
+                                            else "Перезапустить верхний бар и виджеты на обоях")
                     it.connect("activate", lambda _w, k=what: on_action(k))
             menu.attach(it, 0, cols, r, r + 1)
             r += 1
@@ -701,7 +890,7 @@ def build_menu(Gtk, on_action, on_quick, quick=None):
         it = Gtk.MenuItem()
         it.get_style_context().add_class("quick")
         img = Gtk.Image.new_from_gicon(gicon, Gtk.IconSize.DND) if gicon else Gtk.Image()
-        img.set_pixel_size(16 if menu_style() == "xp" else QUICK_PX)   # xp: 20 → 16 (14.10.2026)
+        img.set_pixel_size(QUICK_PX if menu_style() == "classic" else 16)   # xp: 20 → 16 (14.10.2026)
         img.set_halign(Gtk.Align.CENTER)
         it.add(img)
         it.set_tooltip_text(name)
@@ -780,6 +969,13 @@ def _mtimes():
     return res
 
 
+def _self_mtime():
+    try:
+        return os.stat(os.path.abspath(__file__)).st_mtime_ns
+    except OSError:
+        return None
+
+
 def run(dry_run=False):
     if os.path.exists(FLAG):
         print("desktop_menu: выключено (%s)" % FLAG, flush=True)
@@ -810,7 +1006,7 @@ def run(dry_run=False):
 
     _fill_dirs()
     E = GtkLayerShell.Edge
-    st = {"wins": [], "menu": None, "cursor": _mtimes(), "restart": False,
+    st = {"wins": [], "menu": None, "cursor": _mtimes(), "self": _self_mtime(), "restart": False,
           "inherited": inherited_children()}      # до первого своего запуска
     reap_inherited(st["inherited"])
 
@@ -987,7 +1183,7 @@ def run(dry_run=False):
         if st["menu"] is not None and st["menu"].get_visible():
             st["restart"] = True
             return False
-        print("desktop_menu: сменился курсор — перезапуск", flush=True)
+        print("desktop_menu: сменился курсор или код меню — перезапуск", flush=True)
         lock.close()                     # замок отпускается, новый процесс его возьмёт
         args = [sys.executable, os.path.abspath(__file__)] + (["--dry-run"] if dry_run else [])
         os.execv(sys.executable, args)
@@ -1003,6 +1199,12 @@ def run(dry_run=False):
         if m != st["cursor"]:
             st["cursor"] = m
             GLib.timeout_add(1500, restart)   # дать смене курсора дописать все файлы
+        # правка самого меню — тоже перезапуск: иначе новые пункты появлялись только после
+        # перезахода (19.10.2026, «Обновить» с перезапуском виджетов)
+        me = _self_mtime()
+        if me != st["self"]:
+            st["self"] = me
+            GLib.timeout_add(1500, restart)
         return True
 
     # Главный источник темы курсора для GTK под Wayland — gsettings; файлы выше —
@@ -1219,7 +1421,7 @@ def main(argv):
         return 0
     if cmd == "style":
         # вид меню: читается при каждом открытии — действует сразу, без перезапуска
-        if len(argv) > 1 and argv[1] in ("xp", "classic"):
+        if len(argv) > 1 and argv[1] in STYLES:
             os.makedirs(os.path.dirname(STYLE_FILE), exist_ok=True)
             with open(STYLE_FILE, "w") as f:
                 f.write(argv[1] + "\n")

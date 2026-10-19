@@ -16,7 +16,8 @@ spawn-at-startup "python3" "~/.config/niri/scripts/bar_watch"
 // уже ПОСЛЕ появления, и правила открытия их не ловят — см. шапку скрипта.
 spawn-at-startup "python3" "~/.config/niri/scripts/no_self_maximize.py"
 // Центрировать колонку при переходе фокуса — кроме случая «две ровные половины».
-spawn-at-startup "python3" "~/.config/niri/scripts/pair_center.py"
+// pair_center.py — внутри хозяина staticOS (16.10.2026: отсюда стартовал один раз и, упав, не поднимался)
+// spawn-at-startup "python3" "~/.config/niri/scripts/pair_center.py"
 spawn-at-startup "hypridle"
 // hyprsunset в Niri не работает — он требует hyprland-ctm-control-v1 и сразу
 // выходит. Цвет и яркость экрана ставит screen_gamma: в Niri через gammastep.
@@ -81,6 +82,9 @@ spawn-at-startup "python3" "~/.config/hypr/scripts/screentime_daemon.py"
 
 // Горячие углы (30.09.2026): правый верхний — центр уведомлений; hot_corners.py list/set.
 spawn-at-startup "python3" "~/.config/hypr/scripts/hot_corners.py"
+
+// Островок сверху по центру (19.10.2026): запись, помидор, музыка; island.py set/get, Настройки → Waybar.
+spawn-at-startup "python3" "~/.config/hypr/scripts/island.py"
 
 // Тишина звуков уведомлений Telegram и др. в «Не беспокоить», звук окон не трогается (30.09.2026).
 // dnd_sounds.py — внутри хозяина staticOS (07.10.2026)

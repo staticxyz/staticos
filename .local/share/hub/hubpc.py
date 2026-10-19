@@ -45,9 +45,59 @@ def status():
                                            open(d + "/status").read().strip())
             break
     vol = _run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
-    return ("Работает %dч %dмин\nПамять: %.1f из %.1f ГиБ\nЗагрузка: %.2f\nЗвук: %s%s\nОкон: %d"
+    return ("Работает %dч %dмин\nПамять: %.1f из %.1f ГиБ\nЗагрузка: %.2f\nЗвук: %s%s\nОкон: %d\nЭкраны: %s"
             % (up // 3600, up % 3600 // 60, used, mem["MemTotal"] / 1048576, load, vol or "—", bat,
-               len(windows())))
+               len(windows()), SCREENS_RU[screens()]))
+
+
+IDLE_DIM = os.path.expanduser("~/.config/hypr/scripts/idle_dim")
+
+
+SCREENS_RU = {"on": "включены", "off": "выключены", "dim": "приглушены (простой)"}
+
+
+def screens():
+    """on | off (кнопкой «Погасить») | dim (приглушены простоем)."""
+    try:
+        return subprocess.run([IDLE_DIM, "state"], capture_output=True, text=True, timeout=5).stdout.strip() or "on"
+    except (OSError, subprocess.SubprocessError):
+        return "on"
+
+
+def info():
+    """14.10.2026: для панели /pc — состояние по полям, а не готовым текстом."""
+    up = float(open("/proc/uptime").read().split()[0])
+    mem = {l.split(":")[0]: int(l.split()[1]) for l in open("/proc/meminfo")}
+    d = {"up": up, "mem_used": (mem["MemTotal"] - mem["MemAvailable"]) / 1048576,
+         "mem_total": mem["MemTotal"] / 1048576, "load": os.getloadavg()[0],
+         "bat": None, "charging": False, "vol": None, "muted": False, "screens": screens()}
+    for p in ("BAT0", "BAT1"):
+        b = "/sys/class/power_supply/" + p
+        if os.path.exists(b + "/capacity"):
+            d["bat"] = int(open(b + "/capacity").read().strip())
+            d["charging"] = open(b + "/status").read().strip() in ("Charging", "Full")
+            break
+    v = _run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"]).split()
+    if len(v) >= 2:
+        try:
+            d["vol"] = round(float(v[1]) * 100)
+        except ValueError:
+            pass
+        d["muted"] = "[MUTED]" in v
+    ws = windows()
+    d["windows"] = ws
+    d["focus"] = next(((w.get("app_id") or "?") for w in ws if w.get("is_focused")), "—")
+    return d
+
+
+def close_id(wid):
+    """Закрыть окно по id niri (кнопки панели — номер в списке мог устареть)."""
+    ws = {w["id"]: w for w in windows()}
+    w = ws.get(int(wid))
+    if not w:
+        return "Этого окна уже нет."
+    subprocess.run(["niri", "msg", "action", "close-window", "--id", str(w["id"])], timeout=5)
+    return "Закрыто: %s" % (w.get("app_id") or w.get("title"))
 
 
 def apps():
@@ -95,14 +145,18 @@ def run(action, arg=""):
     if a == "lock":
         _run(["loginctl", "lock-session"])
         return "Заблокировано.", None
+    # 17.10.2026: питание мониторов (idle_dim off/on), а не яркость; повтор — ничего.
     if a == "dark":
-        idle = os.path.expanduser("~/.config/hypr/scripts/idle_dim")
-        subprocess.Popen([idle, "deep"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return "Мониторы гаснут.", None
+        if screens() == "off":
+            return "Экраны уже погашены.", None
+        r = subprocess.run([IDLE_DIM, "off"], capture_output=True, timeout=20)
+        return ("Экраны выключены, подсветка клавиатур погашена." if r.returncode == 0
+                else "Экраны уже погашены."), None
     if a == "light":
-        idle = os.path.expanduser("~/.config/hypr/scripts/idle_dim")
-        subprocess.Popen([idle, "restore"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return "Мониторы включены, яркость восстановлена.", None
+        if screens() == "on":
+            return "Экраны уже включены.", None
+        subprocess.run([IDLE_DIM, "on"], capture_output=True, timeout=60)
+        return "Экраны включены, подсветка клавиатур вернулась.", None
     if a == "close":
         return close(arg), None
     if a == "sleep":

@@ -156,6 +156,23 @@ if sys.argv[1:2] == ["restart"]:
     _stop()
     _start()
     sys.exit(0)
+# reload (16.10.2026): панели по мониторам поменялись — работающая панель перечитывает
+# panels.json по SIGHUP и пересоздаёт панель только того монитора, где выбор другой
+# (раньше restart гасил и поднимал обе — дёргался и соседний монитор). Метка RELOAD_PID
+# пишется, когда обработчик уже стоит: старой панели без него SIGHUP был бы смертелен.
+RELOAD_PID = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "xpbar-reload.pid")
+if sys.argv[1:2] == ["reload"]:
+    pids = running_pids()
+    try:
+        rp = int(open(RELOAD_PID).read().strip())
+    except (OSError, ValueError):
+        rp = 0
+    if pids == [rp]:
+        os.kill(rp, signal.SIGHUP)
+    else:
+        _stop()
+        _start()
+    sys.exit(0)
 if sys.argv[1:]:
     print(__doc__)
     sys.exit(0)
@@ -270,6 +287,8 @@ button.ws.active {
     border-color: %(f_border)s; box-shadow: inset 1px 1px 2px alpha(black, 0.6);
 }
 button.ws.empty { color: alpha(%(text)s, 0.5); }
+button.ws label.wsnote { font-size: 9px; margin-top: -3px; }   /* меньше и выше (19.10.2026) */
+button.ws.plus label { font-size: 14px; }
 /* Стол в фокусе — светлая плашка акцента, даже ПУСТОЙ (05.10.2026, просьба: «перешёл на
    пустой стол — непонятно, где фокус»). Раньше было только цветом текста, и правило
    .empty (тусклый текст) его перебивало. */
@@ -337,6 +356,18 @@ button.xptray-item:hover { border-color: %(tr_light)s; background-color: alpha(%
 .tray eventbox { padding: 0 2px; }
 label.lyrics { font-family: %(font)s; font-size: 16px; color: %(text)s; }
 label.note { font-family: %(nerd)s; font-size: 16px; color: %(primary)s; }
+/* плашка-меню панели (BarPopup, 19.10.2026): компактно, 12 px, рамка как у трея */
+.xptray.xppop { padding: 2px; box-shadow: 0 0 0 1px %(tr_dark)s; }
+button.xppop-item {
+    background: transparent; background-image: none; border: 1px solid transparent;
+    box-shadow: none; padding: 0 6px; margin: 0; min-width: 0; min-height: 0; border-radius: 2px;
+}
+button.xppop-item label { font-family: %(font12)s; font-size: 12px; color: %(text)s; }
+button.xppop-item:hover, button.xppop-item:focus { border-color: %(tr_light)s; background-color: alpha(%(primary)s, 0.18); }
+button.xppop-item:disabled label { color: alpha(%(text)s, 0.4); }
+button.xppop-item label.xppop-side { color: %(st_hi)s; }
+.xppop label.xppop-title { font-family: %(font12)s; font-size: 12px; color: %(dim)s; padding: 0 7px 1px 7px; }
+.xppop .xppop-sep { min-height: 1px; background-color: alpha(%(text)s, 0.2); margin: 1px 3px; }
 menu, .menu, .context-menu {
     background-color: %(surface)s; color: %(on_surface)s;
     border: 2px solid %(primary)s; border-radius: 8px; padding: 4px;
@@ -384,10 +415,342 @@ button.start.open, button.start.open:hover, button.start.open:active {
 
 
 def start_button_look():
+    """default | square | <вид>-<символ> (badge-bolt, icon-moon… — start_glyphs.py, 15.10.2026)."""
     try:
-        return "square" if open(START_BUTTON_FILE).read().strip() == "square" else "default"
+        v = open(START_BUTTON_FILE).read().strip()
     except OSError:
         return "default"
+    import start_glyphs
+    return v if v == "square" or start_glyphs.parse(v) else "default"
+
+
+# Символы «Пуска» (15.10.2026): «ярлык» — квадрат акцентом впритык к левой рамке, «значок» —
+# кнопка 29×29 без надписи. Идёт после блоков видов: та же специфичность, побеждает порядок.
+GLYPH_CSS = """
+window.xpbar-win button.start.badge, window.xpbar-win button.start.badge:hover,
+window.xpbar-win button.start.badge.open, window.xpbar-win button.start.badge.open:hover,
+window.xpbar-win button.start.badge.open:active { padding: 0 9px 0 1px; }
+window.xpbar-win button.start.glyphonly, window.xpbar-win button.start.glyphonly:hover,
+window.xpbar-win button.start.glyphonly.open, window.xpbar-win button.start.glyphonly.open:hover,
+window.xpbar-win button.start.glyphonly.open:active { padding: 0 1px; }
+"""
+
+
+# ── оформление по стилю системы (15.10.2026) ─────────────────────────────────
+# Просьба: «переделать стиль нижней панели под стиль системы (сейчас Skeet), в Настройках
+# переключатель; этот (XP) оставь как выбор». state/xpbar-look: xp | system.
+# system — у каждой панели вид стиля СВОЕГО монитора (system_style.style_of):
+# skeet / beta, default → Light = прежний XP (Default·Light и есть бывший XP), Dark = «dark».
+# CSS общий на экран, поэтому вид — класс окна look-<вид>, блоки ниже им ограничены.
+BAR_LOOK_FILE = os.path.expanduser("~/.config/hypr/state/xpbar-look")
+SYS_STYLE_FILE = os.path.expanduser("~/.config/hypr/state/system-style")
+SETTINGS_MODE_FILE = os.path.expanduser("~/.config/hypr/state/settings-mode")
+LOOKS = ("xp", "skeet", "beta", "dark")
+LOOK_COLS = {}           # вид → цвета для рисунков cairo (ручка, раскладка, искорка)
+WS_ACC = {}              # вид → (акцент, радиус) подсветки стола, что переезжает к новому квадрату
+
+
+def look_choice():
+    try:
+        return "system" if open(BAR_LOOK_FILE).read().strip() == "system" else "xp"
+    except OSError:
+        return "xp"
+
+
+def bar_look(connector):
+    if look_choice() != "system":
+        return "xp"
+    try:
+        import system_style
+        st = system_style.style_of(connector)
+    except Exception:
+        return "xp"
+    if st in ("skeet", "beta"):
+        return st
+    try:
+        light = open(SETTINGS_MODE_FILE).read().strip() == "light"
+    except OSError:
+        light = False
+    return "xp" if light else "dark"
+
+
+def look_of(widget):
+    top = widget.get_toplevel() if widget is not None else None
+    return getattr(top, "look", "xp")
+
+
+SKEET_BAR_CSS = """
+%(W)s .xpbar {
+    background-color: %(bg)s;
+    /* полоса в тонах акцента, как кромка waybar: к краям темнее, без белого конца
+       (15.10.2026, просьба: «линия в конце становится белой») */
+    background-image: linear-gradient(to right, %(b0)s, %(b1)s, %(b2)s, %(b1)s, %(b0)s),
+                      linear-gradient(to right, %(b0d)s, %(b1d)s, %(b2d)s, %(b1d)s, %(b0d)s),
+                      linear-gradient(%(line3)s, %(line3)s);
+    background-size: 100%% 1px, 100%% 1px, 100%% 1px;
+    background-position: 0 0, 0 1px, 0 2px;
+    background-repeat: no-repeat;
+    border-top: none; box-shadow: none; color: %(text)s;
+    min-height: 35px;                 /* как у XP (31 + кромка + «Пуск» 26 px) — окна не прыгают */
+}
+%(W)s button.start, %(W)s button.start:hover {
+    background-color: %(field)s; background-image: none;
+    border: 1px solid %(line1)s; border-radius: 0;
+    box-shadow: inset 0 0 0 1px %(line3)s;
+    padding: 0 9px 0 7px; margin: 4px 8px 2px 4px; min-height: 0;
+    color: %(text)s; text-shadow: none;
+}
+%(W)s button.start:hover { background-color: %(field_l)s; }
+%(W)s button.start.open, %(W)s button.start.open:hover, %(W)s button.start.open:active {
+    background-color: %(field_l)s; background-image: none; border-color: %(line1)s;
+    box-shadow: inset 0 0 0 1px %(line3)s, inset 0 -2px %(acc)s;
+    padding: 0 9px 0 7px; color: %(acc_l)s;
+}
+%(W)s button.ws {                     /* квадраты столов в рамке, как поля skeet (15.10.2026) */
+    background-image: none; background-color: %(field)s; border: 1px solid %(line2)s; border-radius: 0;
+    box-shadow: inset 0 0 0 1px %(line3)s; color: %(dim)s; margin: 5px 1px 3px 1px;
+}
+%(W)s button.ws:hover { background-image: none; background-color: %(field_l)s; border-color: %(line1)s; color: %(text)s; }
+%(W)s button.ws.active { background-image: none; border-color: %(line1)s; box-shadow: inset 0 0 0 1px %(line3)s; color: %(text)s; }
+%(W)s button.ws.empty { color: alpha(%(dim)s, 0.6); }
+%(W)s button.ws.focused, %(W)s button.ws.focused.empty {
+    /* открытый стол — тонкая рамка акцентом по кругу, приглушённо, черта снизу остаётся
+       (15.10.2026, просьба: «обвести квадратик маленькой линией… не так сильно… не только снизу») */
+    background-image: none; background-color: %(field_l)s; border-color: alpha(%(acc)s, 0.55);
+    color: %(acc_l)s; box-shadow: inset 0 0 0 1px %(line3)s, inset 0 -2px %(acc)s;
+}
+%(W)s button.task {
+    background-color: %(field)s; background-image: none;
+    border: 1px solid %(line1)s; border-radius: 0;
+    box-shadow: inset 0 0 0 1px %(line3)s;
+    margin: 5px 2px 3px 2px; color: %(text)s; text-shadow: none;
+}
+%(W)s button.task:hover { background-image: none; background-color: %(field_l)s; }
+%(W)s button.task.focused {
+    background-image: none; background-color: %(field_l)s; border-color: %(line1)s;
+    box-shadow: inset 0 0 0 1px %(line3)s, inset 0 -2px %(acc)s; color: %(acc_l)s;
+}
+%(W)s button.task.urgent { border-color: %(err)s; box-shadow: inset 0 -2px %(err)s; }
+%(W)s button.arrow { color: %(dim)s; }
+%(W)s button.arrow:hover { color: %(acc)s; }
+%(W)s .tray {
+    background-color: %(gdark)s; background-image: none;
+    border-left: 1px solid %(line1)s; box-shadow: inset 1px 0 %(line3)s;
+    margin-top: 3px;                  /* полоса палитры сверху идёт во всю ширину */
+}
+%(W)s .tray label { color: %(dim)s; }  /* не белым: значки акцентом, цифры приглушённо */
+%(W)s .tray label.glyph { color: %(acc)s; }
+%(W)s .tray label.clock { color: %(acc_l)s; }
+%(W)s .tray label.off { color: alpha(%(dim)s, 0.55); }
+%(W)s label.lyrics { color: %(text)s; }
+%(W)s label.note { color: %(acc)s; }
+%(T)s .xptray {                      /* окно skeet: полоса акцента сверху, значки в рамках (15.10.2026) */
+    background-color: %(bg)s;
+    background-image: linear-gradient(to right, %(b0)s, %(b1)s, %(b2)s, %(b1)s, %(b0)s),
+                      linear-gradient(to right, %(b0d)s, %(b1d)s, %(b2d)s, %(b1d)s, %(b0d)s),
+                      linear-gradient(%(line3)s, %(line3)s);
+    background-size: 100%% 1px, 100%% 1px, 100%% 1px;
+    background-position: 0 0, 0 1px, 0 2px;
+    background-repeat: no-repeat;
+    border: 1px solid %(line1)s; padding: 7px 4px 4px 4px;
+    border-radius: 0; box-shadow: 0 0 0 1px %(line3)s, 0 0 0 4px %(line2)s, 0 0 0 5px %(line1)s;
+}
+%(T)s button.xptray-item {
+    background-color: %(field)s; background-image: none; border: 1px solid %(line2)s;
+    box-shadow: inset 0 0 0 1px %(line3)s; border-radius: 0; padding: 4px; margin: 1px;
+}
+%(T)s button.xptray-item:hover {
+    border-color: %(line1)s; background-color: %(field_l)s;
+    box-shadow: inset 0 0 0 1px %(line3)s, inset 0 -2px %(acc)s;
+}
+%(T)s .xptray label { color: %(dim)s; }
+%(T)s .xptray.xppop {                 /* рамка тонкая и внутри плашки — внешнее кольцо обрезалось снизу (19.10.2026) */
+    padding: 4px 1px 1px 1px; border: 1px solid %(line1)s; box-shadow: inset 0 0 0 1px %(line3)s;
+}
+%(T)s button.xppop-item { border: none; border-radius: 0; padding: 1px 7px; }
+%(T)s button.xppop-item label { color: %(text)s; }
+%(T)s button.xppop-item:hover, %(T)s button.xppop-item:focus {
+    background-color: %(field_l)s; box-shadow: inset 2px 0 %(acc)s;
+}
+%(T)s button.xppop-item:hover label, %(T)s button.xppop-item:focus label { color: %(acc_l)s; }
+%(T)s button.xppop-item.current label { color: %(acc)s; }
+%(T)s button.xppop-item:disabled label { color: alpha(%(dim)s, 0.5); }
+%(T)s button.xppop-item label.xppop-side { color: %(acc)s; }
+%(T)s .xppop label.xppop-title { color: %(acc)s; }
+%(T)s .xppop .xppop-sep { background-color: %(line2)s; margin: 2px 1px; }
+"""
+
+BETA_BAR_CSS = """
+%(W)s .xpbar {
+    background-color: %(bar)s; background-image: none;
+    border-top: 1px solid %(line_strong)s; box-shadow: none; color: %(text)s;
+}
+%(W)s button.start, %(W)s button.start:hover {
+    background-color: %(card)s; background-image: none;
+    border: 1px solid %(frame)s; border-radius: 0; box-shadow: none;
+    padding: 0 9px 0 7px; margin: 3px 8px 3px 4px; min-height: 0;
+    color: %(text)s; text-shadow: none;
+}
+%(W)s button.start:hover { background-color: %(hover)s; }
+%(W)s button.start.open, %(W)s button.start.open:hover, %(W)s button.start.open:active {
+    background-color: %(sel)s; background-image: none; border-color: %(frame)s;
+    box-shadow: inset 0 -2px %(acc)s; padding: 0 9px 0 7px; color: %(sel_text)s;
+}
+%(W)s button.ws {
+    background-image: none; background-color: %(card)s; border: 1px solid %(line)s; border-radius: 0;
+    box-shadow: none; color: %(dim)s;
+}
+%(W)s button.ws:hover { background-image: none; background-color: %(hover)s; border-color: %(line_strong)s; color: %(text)s; }
+%(W)s button.ws.active { background-image: none; border-color: %(line_strong)s; box-shadow: none; color: %(text)s; }
+%(W)s button.ws.empty { color: alpha(%(dim)s, 0.6); }
+%(W)s button.ws.focused, %(W)s button.ws.focused.empty {
+    background-image: none; background-color: %(sel)s; border-color: %(frame)s;
+    color: %(sel_text)s; box-shadow: none;
+}
+%(W)s button.task {
+    background-color: %(card)s; background-image: none;
+    border: 1px solid %(line)s; border-radius: 0; box-shadow: none;
+    color: %(text)s; text-shadow: none;
+}
+%(W)s button.task:hover { background-image: none; background-color: %(hover)s; }
+%(W)s button.task.focused {
+    background-image: none; background-color: %(sel)s; border-color: %(frame)s;
+    box-shadow: none; color: %(sel_text)s;
+}
+%(W)s button.task.urgent { border-color: %(err)s; box-shadow: inset 0 -2px %(err)s; }
+%(W)s button.arrow { color: %(dim)s; }
+%(W)s button.arrow:hover { color: %(acc)s; }
+%(W)s .tray {
+    background-color: %(card)s; background-image: none;
+    border-left: 1px solid %(line)s; box-shadow: none;
+}
+%(W)s .tray label { color: %(dim)s; }
+%(W)s .tray label.glyph { color: %(acc)s; }
+%(W)s .tray label.clock { color: %(text)s; }
+%(W)s .tray label.off { color: alpha(%(dim)s, 0.55); }
+%(W)s label.lyrics { color: %(text)s; }
+%(W)s label.note { color: %(acc)s; }
+%(T)s .xptray {
+    background-color: %(bg)s; background-image: none; border: 1px solid %(frame)s;
+    border-radius: 0; box-shadow: 3px 3px 0 0 alpha(black, 0.35);
+}
+%(T)s button.xptray-item {
+    background-color: %(card)s; background-image: none; border: 1px solid %(line)s;
+    border-radius: 0; padding: 4px; margin: 1px;
+}
+%(T)s button.xptray-item:hover { border-color: %(acc)s; background-color: %(hover)s; }
+%(T)s .xptray label { color: %(dim)s; }
+%(T)s .xptray.xppop { padding: 1px; box-shadow: none; }
+%(T)s button.xppop-item { border: none; border-radius: 0; padding: 1px 7px; }
+%(T)s button.xppop-item label { color: %(text)s; }
+%(T)s button.xppop-item:hover, %(T)s button.xppop-item:focus { background-color: %(hover)s; box-shadow: inset 2px 0 %(acc)s; }
+%(T)s button.xppop-item.current label, %(T)s button.xppop-item label.xppop-side { color: %(acc)s; }
+%(T)s button.xppop-item:disabled label { color: alpha(%(dim)s, 0.5); }
+%(T)s .xppop .xppop-sep { background-color: %(line)s; }
+"""
+
+DARK_BAR_CSS = """
+%(W)s .xpbar {
+    background-color: %(base)s; background-image: none;
+    border-top: 1px solid %(line)s; box-shadow: none; color: %(on_surface)s;
+    min-height: 34px;
+}
+%(W)s button.start, %(W)s button.start:hover {
+    background-color: %(surface_high)s; background-image: none;
+    border: none; border-radius: 8px; box-shadow: none;
+    padding: 0 12px 0 8px; margin: 3px 8px 3px 4px; min-height: 0;
+    color: %(on_surface)s; text-shadow: none;
+}
+%(W)s button.start:hover { background-color: %(hover)s; }
+%(W)s button.start.open, %(W)s button.start.open:hover, %(W)s button.start.open:active {
+    background-color: %(sel)s; background-image: none; box-shadow: none;
+    padding: 0 12px 0 8px; color: %(primary)s;
+}
+%(W)s button.ws {
+    background-image: none; background-color: %(surface_container)s; border: none; border-radius: 6px;
+    box-shadow: inset 0 0 0 1px %(line)s; color: %(dim)s;
+}
+%(W)s button.ws:hover { background-image: none; background-color: %(surface_high)s; color: %(on_surface)s; }
+%(W)s button.ws.active { background-image: none; color: %(on_surface)s; }
+%(W)s button.ws.empty { color: alpha(%(dim)s, 0.6); }
+%(W)s button.ws.focused, %(W)s button.ws.focused.empty {
+    background-image: none; background-color: %(sel)s; color: %(primary)s; box-shadow: none;
+}
+%(W)s button.task {
+    background-color: %(surface_container)s; background-image: none;
+    border: none; border-radius: 6px; box-shadow: none;
+    color: %(on_surface)s; text-shadow: none;
+}
+%(W)s button.task:hover { background-image: none; background-color: %(surface_high)s; }
+%(W)s button.task.focused {
+    background-image: none; background-color: %(sel)s;
+    box-shadow: inset 0 -2px %(primary)s; color: %(primary)s;
+}
+%(W)s button.task.urgent { box-shadow: inset 0 -2px %(error)s; }
+%(W)s .tray {
+    background-color: transparent; background-image: none;
+    border-left: none; box-shadow: none;
+}
+%(W)s .tray label { color: %(dim)s; }
+%(W)s .tray label.glyph { color: %(primary)s; }
+%(W)s .tray label.clock { color: %(on_surface)s; }
+%(W)s .tray label.off { color: alpha(%(dim)s, 0.55); }
+%(T)s .xptray {
+    background-color: %(surface)s; background-image: none; border: 1px solid %(line)s;
+    border-radius: 8px; box-shadow: none;
+}
+%(T)s button.xptray-item {
+    background-color: %(surface_container)s; background-image: none; border: none;
+    box-shadow: inset 0 0 0 1px %(line)s; border-radius: 6px; padding: 4px; margin: 1px;
+}
+%(T)s button.xptray-item:hover { background-color: %(surface_high)s; }
+%(T)s .xptray label { color: %(dim)s; }
+%(T)s .xptray.xppop { padding: 2px; }
+%(T)s button.xppop-item { border: none; border-radius: 5px; padding: 1px 7px; }
+%(T)s button.xppop-item label { color: %(on_surface)s; }
+%(T)s button.xppop-item:hover, %(T)s button.xppop-item:focus { background-color: %(surface_high)s; }
+%(T)s button.xppop-item:hover label, %(T)s button.xppop-item.current label,
+%(T)s button.xppop-item label.xppop-side { color: %(primary)s; }
+%(T)s button.xppop-item:disabled label { color: alpha(%(dim)s, 0.5); }
+%(T)s .xppop .xppop-sep { background-color: %(line)s; }
+"""
+
+
+def look_css(c):
+    """Блоки CSS всех видов, кроме xp, + цвета для рисунков cairo (LOOK_COLS)."""
+    import rec_style
+    out = []
+    p = c
+    sk = rec_style.colors("skeet")
+    for i, s in enumerate(sk["strip"]):
+        sk["s%d" % i] = s
+        sk["s%dd" % i] = mix(s, "#000000", 0.55)
+    # Кромка тише: середина была почти белой и не сливалась с панелью (19.10.2026, просьба:
+    # «слишком яркая… адаптируй под панель») — акцент наполовину в фон панели, без acc_l.
+    bstrip = [mix(sk["acc_d"], sk["bg"], 0.55), mix(sk["acc"], sk["bg"], 0.5), mix(sk["acc"], sk["bg"], 0.35)]
+    for i, s in enumerate(bstrip):
+        sk["b%d" % i] = s
+        sk["b%dd" % i] = mix(s, sk["bg"], 0.6)
+    sk["err"] = p["error"]
+    be = rec_style.colors("beta")
+    be.update(err=p["error"], hover=mix(be["card"], be["acc"], 0.12))
+    dk = dict(p, line=mix(c["base"], p["on_surface"], 0.14), dim=p["on_surface_variant"],
+              hover=mix(p["surface_high"], p["primary"], 0.15),
+              sel=mix(c["base"], p["primary"], 0.24))
+    for look, tpl, cc in (("skeet", SKEET_BAR_CSS, sk), ("beta", BETA_BAR_CSS, be),
+                          ("dark", DARK_BAR_CSS, dk)):
+        cc = dict(cc, W="window.xpbar-win.look-" + look, T="window.xptray-win.look-" + look)
+        out.append(tpl % cc)
+    LOOK_COLS.clear()
+    LOOK_COLS.update({
+        "skeet": dict(acc=sk["acc"], acc_d=sk["acc_d"], bg=sk["bg"], st_hi=sk["acc_l"], grip=sk["line1"], grip_d=sk["line3"], lang_bg=sk["field"],
+                      lang_line=sk["line1"], lang_in=sk["line3"], lang_text=sk["acc_l"], radius=0),
+        "beta": dict(acc=be["acc"], bg=be["bar"], st_hi=be["acc"], grip=be["line"], grip_d=None, lang_bg=be["field"],
+                     lang_line=be["line_strong"], lang_in=None, lang_text=be["text"], radius=0),
+        "dark": dict(acc=p["primary"], bg=c["base"], st_hi=p["primary"], grip=dk["line"], grip_d=None, lang_bg=p["surface_high"],
+                     lang_line=None, lang_in=None, lang_text=p["on_surface"], radius=4),
+    })
+    return "".join(out)
 
 
 def load_css():
@@ -395,7 +758,7 @@ def load_css():
     c = colors()
     c.update(font=FONT, nerd=NERD, font12=FONT12)
     css = CSS % c
-    if start_button_look() == "square":
+    if start_button_look() != "default":
         b, p = c["base"], c["primary"]
         # Утопленный тёмный блок, как кнопка angelOS (04.10.2026, «внимание к деталям»):
         # темнее панели, рамка-«врезка»: сверху/слева тень, снизу/справа светлый край.
@@ -404,6 +767,32 @@ def load_css():
                                  sq_dark=mix(b, "#000000", 0.70), sq_light=c["st_bot"],
                                  sq_text=mix(c["on_surface"], b, 0.12),
                                  sq_open=mix(b, p, 0.30), sq_open_text=c["st_hi"])
+    try:
+        css += look_css(c)
+    except Exception as e:                      # вид по стилю не собрался — остаётся XP
+        print("xpbar: look_css: %r" % e, file=sys.stderr)
+    # квадрат стола под перетаскиваемой кнопкой окна — рамка акцентом (19.10.2026); правила
+    # сильнее .focused/.empty каждого вида, потому по одному на вид
+    for sel, col in [("window", c["st_hi"])] + [("window.xpbar-win.look-" + k, v["acc"])
+                                                for k, v in LOOK_COLS.items()]:
+        css += ("%(s)s button.ws.drop, %(s)s button.ws.drop.focused, %(s)s button.ws.drop.empty, "
+                "%(s)s button.ws.drop.focused.empty { border-color: %(c)s; "
+                "box-shadow: inset 0 0 0 2px %(c)s; }\n" % dict(s=sel, c=col))
+    # 19.10.2026: окно просит внимания — квадрат стола трижды мягко вспыхивает акцентом и
+    # остаётся с тонкой чертой снизу; нота — кто на столе звучит (тусклая — заглушён)
+    WS_ACC.clear()
+    WS_ACC.update({"xp": (c["st_hi"], 3)})
+    WS_ACC.update({k: (v["acc"], v.get("radius", 0)) for k, v in LOOK_COLS.items()})
+    for key, sel in [("xp", "window")] + [(k, "window.xpbar-win.look-" + k) for k in LOOK_COLS]:
+        css += ("@keyframes ws-urgent-%(k)s { from { box-shadow: inset 0 -2px alpha(%(c)s, 0.3); } "
+                "to { box-shadow: inset 0 0 0 1px %(c)s, inset 0 -3px %(c)s; } }\n"
+                "%(s)s button.ws.urgent { box-shadow: inset 0 -2px %(c)s; "
+                "animation: ws-urgent-%(k)s 0.9s ease-in-out 6 alternate; }\n"
+                "%(s)s button.ws label.wsnote { color: %(c)s; }\n"
+                "%(s)s button.ws label.wsnote.muted { color: alpha(%(c)s, 0.45); }\n"
+                "%(s)s button.ws.focused label.wsnote { color: inherit; }\n"
+                % dict(k=key, s=sel, c=WS_ACC[key][0]))
+    css += GLYPH_CSS
     prov = Gtk.CssProvider()
     prov.load_from_data(css.encode())
     screen = Gdk.Screen.get_default()
@@ -425,6 +814,47 @@ def niri_json(*args):
         return None
 
 
+KBD = {"fds": {}, "t": 0.0}
+
+
+def shift_held():
+    """Зажат ли Shift — спросить у самих клавиатур (EVIOCGKEY). Панель — слой без фокуса
+    клавиатуры, и Wayland не шлёт ей модификаторы: в событии колеса Shift не виден никогда
+    (19.10.2026, «Shift+колесо у меня не работает»). Группа input у static есть. Устройства
+    держатся открытыми: close() у evdev — ~20 мс на каждое (замерено), опрос — доли мс."""
+    import fcntl
+    if time.monotonic() - KBD["t"] > 30:
+        paths = set()
+        try:
+            blocks = open("/proc/bus/input/devices").read().split("\n\n")
+        except OSError:
+            blocks = []
+        for b in blocks:
+            h = next((ln for ln in b.splitlines() if ln.startswith("H: Handlers=")), "")
+            ev = next((ln for ln in b.splitlines() if ln.startswith("B: EV=")), "B: EV=0")
+            # настоящая клавиатура — с автоповтором (EV_REP), как в super_tap.py
+            if "kbd" in h and int(ev[6:], 16) & 0x100000:
+                paths |= {"/dev/input/" + t for t in h.split() if t.startswith("event")}
+        for path in set(KBD["fds"]) - paths:
+            os.close(KBD["fds"].pop(path))
+        for path in paths - set(KBD["fds"]):
+            try:
+                KBD["fds"][path] = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+            except OSError:
+                pass
+        KBD["t"] = time.monotonic()
+    for path, fd in list(KBD["fds"].items()):
+        try:
+            keys = fcntl.ioctl(fd, 0x80604518, bytes(96))      # EVIOCGKEY(96)
+        except OSError:                                         # клавиатуру выдернули
+            os.close(KBD["fds"].pop(path))
+            KBD["t"] = 0.0
+            continue
+        if any(keys[k // 8] >> (k % 8) & 1 for k in (42, 54)):   # KEY_LEFTSHIFT, KEY_RIGHTSHIFT
+            return True
+    return False
+
+
 def action(*args):
     subprocess.Popen(["niri", "msg", "action", *args], stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL)
@@ -439,10 +869,11 @@ def niri_request(obj):
         sk.settimeout(2)
         sk.connect(os.environ["NIRI_SOCKET"])
         sk.sendall(json.dumps(obj).encode() + b"\n")
-        sk.makefile().readline()
+        reply = sk.makefile().readline()
         sk.close()
-    except (OSError, KeyError):
-        pass
+        return reply
+    except (OSError, KeyError) as e:
+        return "Err: %s" % e
 
 
 def _ws_bottom():
@@ -539,6 +970,10 @@ class NiriState:
             w = self.windows.get(d["id"])
             if w:
                 w["is_urgent"] = d.get("urgent")
+        elif kind == "WorkspaceUrgencyChanged":
+            ws = self.workspaces.get(d["id"])
+            if ws:
+                ws["is_urgent"] = d.get("urgent")
         elif kind == "WindowLayoutsChanged":
             for wid, lay in d.get("changes", []):
                 if wid in self.windows:
@@ -585,8 +1020,14 @@ def niri_border():
         return 0
 
 
-def zone_size():
-    """Сколько места отнять у окон снизу. С зазором — вся высота панели (niri
+# Настоящая высота панели по виду (CSS min-height + кромка): у skeet и dark она 35, а зона
+# была H = 32 — панель на 3 px лезла в зазор, снизу он выходил 5 px против 8 сверху
+# (19.10.2026, просьба: «зазор до нижней панели отличается от верхнего»).
+LOOK_H = {"skeet": 35, "dark": 35}
+
+
+def zone_size(h=H):
+    """Сколько места отнять у окон снизу. h — высота панели (LOOK_H по виду). С зазором — вся высота панели (niri
     добавит свой обычный зазор gaps). Вплотную — меньше на этот зазор: низ окон
     ложится ровно на верх панели (01.10.2026, выбор в Настройках)."""
     try:
@@ -600,12 +1041,24 @@ def zone_size():
     # обычно, с рамкой со всех сторон.
     # Но край окна должен читаться: из рамки над панелью видно GLUE_SHOW px
     # («я всё равно должен видеть, где кончается граница, — на чуть-чуть»).
-    return max(1, H - niri_gaps() - max(0, niri_border() - GLUE_SHOW)) if glued else H
+    return max(1, h - niri_gaps() - max(0, niri_border() - GLUE_SHOW)) if glued else h
 
 
 # ── значки программ ────────────────────────────────────────────────────────
 
 _app_cache = {}
+
+TERMINALS = {"kitty", "foot", "alacritty", "org.wezfurlong.wezterm", "com.mitchellh.ghostty"}
+
+
+def window_icon_id(app_id, title):
+    """app_id для значка: терминал с jchat — как jchat."""
+    t = (title or "").lstrip()
+    # jchat, запущенный из терминала (заголовок «jchat ~», «jchat tg-login ~»), —
+    # значком jchat.desktop (15.10.2026, просьба: «показывать иконку вместо kitty»).
+    if app_id in TERMINALS and (t == "jchat" or t.startswith("jchat ")):
+        return "jchat"
+    return app_id
 
 
 def app_icon(app_id):
@@ -823,9 +1276,54 @@ class LangBadge(Gtk.DrawingArea):
         PangoCairo.show_layout(cr, lay)
         return True
 
+    def draw_flat(self, cr, lc):
+        """Стиль системы (skeet/beta/dark): плоский квадратик, буквы цветом стиля."""
+        import gi
+        gi.require_version("PangoCairo", "1.0")
+        from gi.repository import Pango, PangoCairo
+        a = self.get_allocation()
+        w, h = a.width, a.height
+        x0, y0, bw, bh, r = 1, (h - self.H) // 2, w - 2, self.H, lc.get("radius", 0)
+        if r:
+            cr.new_sub_path()
+            cr.arc(x0 + bw - r, y0 + r, r, -math.pi / 2, 0)
+            cr.arc(x0 + bw - r, y0 + bh - r, r, 0, math.pi / 2)
+            cr.arc(x0 + r, y0 + bh - r, r, math.pi / 2, math.pi)
+            cr.arc(x0 + r, y0 + r, r, math.pi, 3 * math.pi / 2)
+            cr.close_path()
+        else:
+            cr.rectangle(x0, y0, bw, bh)
+        cr.set_source_rgb(*hex2rgb(lc["lang_bg"]))
+        cr.fill()
+        if lc.get("lang_line"):
+            cr.set_line_width(1)
+            cr.set_source_rgb(*hex2rgb(lc["lang_line"]))
+            cr.rectangle(x0 + 0.5, y0 + 0.5, bw - 1, bh - 1)
+            cr.stroke()
+        if lc.get("lang_in"):
+            cr.set_line_width(1)
+            cr.set_source_rgb(*hex2rgb(lc["lang_in"]))
+            cr.rectangle(x0 + 1.5, y0 + 1.5, bw - 3, bh - 3)
+            cr.stroke()
+        lay = PangoCairo.create_layout(cr)
+        fo = cairo.FontOptions()
+        fo.set_antialias(cairo.ANTIALIAS_GRAY)
+        fo.set_hint_style(cairo.HINT_STYLE_SLIGHT)
+        PangoCairo.context_set_font_options(lay.get_context(), fo)
+        lay.set_font_description(Pango.FontDescription(self.FONT))
+        lay.set_text(self.text, -1)
+        tw, th = lay.get_pixel_size()
+        cr.set_source_rgb(*hex2rgb(lc["lang_text"]))
+        cr.move_to(round((w - tw) / 2), round((h - th) / 2))
+        PangoCairo.show_layout(cr, lay)
+        return True
+
     def on_draw(self, _w, cr):
         if self.look == "keyboard":
             return self.draw_keyboard(cr)
+        lc = LOOK_COLS.get(look_of(self))
+        if lc:
+            return self.draw_flat(cr, lc)
         import gi
         gi.require_version("PangoCairo", "1.0")
         from gi.repository import Pango, PangoCairo
@@ -878,12 +1376,13 @@ class Sparkle(Gtk.DrawingArea):
 
     def __init__(self, w, h, small=False):
         super().__init__()
+        self.set_has_window(False)   # без своего окна: иначе, показанный на лету, перехватывает щелчки кнопки «Пуск» (15.10.2026)
         self.small = small
         self.set_size_request(w, h)
         self.connect("draw", self.on_draw)
 
     def on_draw(self, _w, cr):
-        c = colors()
+        c = LOOK_COLS.get(look_of(self)) or colors()
         acc = [int(c["st_hi"][i:i + 2], 16) / 255 for i in (1, 3, 5)]
         btn = self.get_ancestor(Gtk.Button)
         if btn is not None and btn.get_style_context().has_class("open"):
@@ -921,11 +1420,56 @@ class Sparkle(Gtk.DrawingArea):
         return True
 
 
+class StartGlyph(Gtk.DrawingArea):
+    """Символ кнопки «Пуск» из start_glyphs.py: «ярлык» (квадрат акцентом с тёмным силуэтом и
+    чертой-разделителем) или «значок» (символ акцентом со свечением)."""
+
+    def __init__(self):
+        super().__init__()
+        self.set_has_window(False)   # без своего окна: иначе, показанный на лету, перехватывает щелчки кнопки «Пуск» (15.10.2026)
+        self.form, self.name = "icon", "sparkle"
+        self.connect("draw", self.on_draw)
+
+    def set(self, form, name):
+        self.form, self.name = form, name
+        self.set_size_request(27 if form == "badge" else 25, 25)
+        self.queue_draw()
+
+    def on_draw(self, _w, cr):
+        import start_glyphs as sg
+        c = LOOK_COLS.get(look_of(self)) or colors()
+        rgb = lambda h: tuple(int(h[i:i + 2], 16) / 255 for i in (1, 3, 5))  # noqa: E731
+        acc, bg = rgb(c.get("acc") or c["primary"]), rgb(c.get("bg") or c["base"])
+        btn = self.get_ancestor(Gtk.Button)
+        op = btn is not None and btn.get_style_context().has_class("open")
+        icon, badge = sg.palette(acc, bg)
+        cr.set_antialias(cairo.ANTIALIAS_NONE)
+        a = self.get_allocation()
+        if self.form == "badge":
+            y0 = (a.height - 25) // 2
+            cr.set_source_rgb(*(rgb(c["st_hi"]) if op else acc))   # меню открыто — светлее
+            cr.rectangle(0, y0, 25, 25)
+            cr.fill()
+            cr.set_source_rgb(*sg._mix(acc, (0, 0, 0), .4))       # нижняя кромка темнее
+            cr.rectangle(0, y0 + 24, 25, 1)
+            cr.fill()
+            cr.set_source_rgb(*bg)                                 # черта между квадратом и надписью
+            cr.rectangle(25, y0, 1, 25)
+            cr.fill()
+            sg.draw(cr, self.name, 12.5, y0 + 12.5, badge)
+        else:
+            if op:
+                icon = {k: sg._mix(v, (1, 1, 1), .15) for k, v in icon.items()}
+            sg.draw(cr, self.name, a.width / 2, a.height / 2, icon, glow=acc)
+        return True
+
+
 class Logo(Gtk.DrawingArea):
     """Живой спрайт (если выбран) или телевизор static в цветах палитры."""
 
     def __init__(self):
         super().__init__()
+        self.set_has_window(False)   # без своего окна: иначе, показанный на лету, перехватывает щелчки кнопки «Пуск» (15.10.2026)
         self.frames, self.delays, self.i = [], [], 0
         self.timer = None
         self.scale = 2
@@ -1016,8 +1560,18 @@ class Grip(Gtk.DrawingArea):
         self.connect("draw", self.on_draw)
 
     def on_draw(self, w, cr):
-        c = colors()
         hh = w.get_allocated_height()
+        lc = LOOK_COLS.get(look_of(w))
+        if lc:                                  # стиль системы: тонкий разделитель вместо точек
+            cr.set_source_rgb(*hex2rgb(lc["grip"]))
+            cr.rectangle(3, 8, 1, hh - 14)
+            cr.fill()
+            if lc.get("grip_d"):
+                cr.set_source_rgb(*hex2rgb(lc["grip_d"]))
+                cr.rectangle(4, 8, 1, hh - 14)
+                cr.fill()
+            return True
+        c = colors()
         for y in range(7, hh - 6, 4):
             cr.set_source_rgb(*hex2rgb(c["tr_dark"]))
             cr.rectangle(4, y + 1, 2, 2)
@@ -1262,6 +1816,7 @@ class TrayPlate(Gtk.Window):
         super().__init__(title="XP tray")
         self.bar = bar
         self.get_style_context().add_class("xptray-win")
+        self.get_style_context().add_class("look-" + getattr(bar, "look", "xp"))
         GtkLayerShell.init_for_window(self)
         GtkLayerShell.set_namespace(self, "jarvis-xptray")
         GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
@@ -1397,6 +1952,300 @@ class TrayPlate(Gtk.Window):
             self.open_plate()
 
 
+POPUP = []               # открытая плашка-меню панели (одна на все мониторы)
+
+
+def pop_item(text, cb=None, on=True, mark=False, sub=None, back=False):
+    """Строка плашки: cb — что сделать; sub — список строк второй ступени; back — назад."""
+    return dict(kind="item", text=text, cb=cb, on=on, mark=mark, sub=sub, back=back)
+
+
+def pop_title(text):
+    return dict(kind="title", text=text)
+
+
+POP_SEP = dict(kind="sep")
+
+
+class BarPopup(Gtk.Window):
+    """Маленькое меню над панелью вместо Gtk.Menu (19.10.2026, просьба: «слишком большое…
+    в стиле Skeet… не исчезает, если кликнуть в другое место»). Слой OVERLAY во весь
+    монитор, как TrayPlate: щелчок мимо закрывает; на других мониторах — прозрачные
+    слои scrim_layer. Вид — рамка .xptray своего вида панели; подменю — вторая ступень
+    в той же плашке. Esc — назад или закрыть."""
+
+    def __init__(self, bar, entries, x=None):
+        super().__init__(title="XP menu")
+        for p in POPUP[:]:
+            p.close()
+        POPUP.append(self)
+        self.bar = bar
+        self.x = x
+        self.pages = [entries]
+        for cls in ("xptray-win", "xppop-win", "look-" + getattr(bar, "look", "xp")):
+            self.get_style_context().add_class(cls)
+        GtkLayerShell.init_for_window(self)
+        GtkLayerShell.set_namespace(self, "jarvis-xppop")
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+        if bar.monitor:
+            GtkLayerShell.set_monitor(self, bar.monitor)
+        for e in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
+                  GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+            GtkLayerShell.set_anchor(self, e, True)
+        GtkLayerShell.set_exclusive_zone(self, -1)
+        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.EXCLUSIVE)
+        visual = self.get_screen().get_rgba_visual()
+        if visual:
+            self.set_visual(visual)
+        self.set_app_paintable(True)
+        self.connect("key-press-event", self.on_key)
+        bg = Gtk.EventBox()
+        bg.set_visible_window(False)
+        bg.connect("button-press-event", lambda *_a: self.close() or True)
+        self.add(bg)
+        self.holder = Gtk.Box()
+        self.holder.set_halign(Gtk.Align.START)
+        self.holder.set_valign(Gtk.Align.END)
+        # над панелью своего вида: у Skeet/Dark она 35 px, и плашка садилась на её край (19.10.2026)
+        self.holder.set_margin_bottom(LOOK_H.get(getattr(bar, "look", "xp"), H) + 3)
+        bg.add(self.holder)
+        catch = Gtk.EventBox()
+        catch.connect("button-press-event", lambda *_a: True)
+        catch.connect("button-release-event", lambda *_a: True)
+        self.holder.add(catch)
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        for cls in ("xptray", "xppop"):
+            self.box.get_style_context().add_class(cls)
+        catch.add(self.box)
+        self.scrims = []
+        try:
+            import scrim_layer
+            disp = Gdk.Display.get_default()
+            for i in range(disp.get_n_monitors()):
+                m = disp.get_monitor(i)
+                if m != bar.monitor:
+                    s = scrim_layer.Scrim(m, "jarvis-xppop-catch", self.close)
+                    s.show_all()
+                    self.scrims.append(s)
+        except Exception as e:
+            print("xpbar popup: scrim: %r" % e, file=sys.stderr)
+        bar.menu_open = True
+        self.fill()
+        self.show()
+
+    def fill(self):
+        for c in self.box.get_children():
+            c.destroy()
+        for it in self.pages[-1]:
+            if it["kind"] == "title":
+                w = Gtk.Label(label=it["text"], xalign=0)
+                w.get_style_context().add_class("xppop-title")
+            elif it["kind"] == "sep":
+                w = Gtk.Box()
+                w.get_style_context().add_class("xppop-sep")
+            else:
+                w = Gtk.Button()
+                w.set_relief(Gtk.ReliefStyle.NONE)
+                w.get_style_context().add_class("xppop-item")
+                if it["mark"]:
+                    w.get_style_context().add_class("current")
+                row = Gtk.Box(spacing=6)
+                row.pack_start(Gtk.Label(label=it["text"], xalign=0), True, True, 0)
+                side = "●" if it["mark"] else "›" if it["sub"] else ""
+                if side:
+                    sl = Gtk.Label(label=side)
+                    sl.get_style_context().add_class("xppop-side")
+                    row.pack_end(sl, False, False, 0)
+                w.add(row)
+                w.set_sensitive(it["on"])
+                w.connect("clicked", self.on_item, it)
+            self.box.pack_start(w, False, False, 0)
+        # ширину мерить у показанного содержимого и с отступом 0 (см. TrayPlate.open_plate)
+        self.get_child().show_all()
+        self.holder.set_margin_start(0)
+        self.place(self.holder.get_preferred_width()[1])
+
+    def place(self, width):
+        mon_w = self.bar.monitor.get_geometry().width if self.bar.monitor else self.bar.get_allocated_width()
+        x = self.x
+        if x is None:
+            x = mon_w / 2
+            try:
+                ptr = Gdk.Display.get_default().get_default_seat().get_pointer()
+                x = self.bar.get_window().get_device_position(ptr)[1]
+            except Exception:
+                pass
+            self.x = x
+        self.holder.set_margin_start(int(max(4, min(mon_w - width - 4, x))))
+
+    def on_item(self, _b, it):
+        if it["back"]:
+            self.back()
+        elif it["sub"] is not None:
+            ui_click("click")
+            self.pages.append([pop_item("‹  " + it["text"], back=True), POP_SEP] + it["sub"])
+            self.fill()
+        else:
+            self.close()
+            if it["cb"]:
+                it["cb"]()
+
+    def back(self):
+        if len(self.pages) > 1:
+            self.pages.pop()
+            self.fill()
+        else:
+            self.close()
+
+    def on_key(self, _w, e):
+        k = e.keyval
+        if k in (Gdk.KEY_Escape, Gdk.KEY_BackSpace, Gdk.KEY_h, Gdk.KEY_Left):
+            self.back()
+            return True
+        if k in (Gdk.KEY_j, Gdk.KEY_k):                 # строки — j/k, как в vim
+            self.child_focus(Gtk.DirectionType.DOWN if k == Gdk.KEY_j else Gtk.DirectionType.UP)
+            return True
+        if k in (Gdk.KEY_l, Gdk.KEY_Right):
+            f = self.get_focus()
+            if isinstance(f, Gtk.Button):
+                f.clicked()
+            return True
+        return False
+
+    def close(self):
+        if self in POPUP:
+            POPUP.remove(self)
+        for s in self.scrims:
+            s.destroy()
+        self.scrims = []
+        bar = self.bar
+        bar.menu_open = False
+        if bar.mode == "hover":
+            bar.hide_id = GLib.timeout_add(HIDE_MS * 2, bar.hide_now)
+        self.destroy()
+        return False
+
+
+class PomoBolt(Gtk.DrawingArea):
+    """Пиксельная молния pomo в трее (19.10.2026, пользователь): видна, пока идёт pomo (работа
+    или перерыв), иначе её нет в панели совсем; на паузе — сильно бледная. В духе Skeet —
+    заливка акцентом обоев сверху светлее, книзу темнее, тёмный контур и слабое свечение.
+    Цвета — LOOK_COLS["skeet"], их пересобирает load_css при смене обоев."""
+    STATE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "pomo", "state")
+    # ровная лесенка: внизу правый край уходит на клетку за строку до острого кончика
+    # (19.10.2026, просьба: гладкий контур не понравился, «ровнее снизу», без обрубка)
+    SHAPE = ("...###",
+             "..###.",
+             ".###..",
+             "######",
+             "..###.",
+             ".###..",
+             "###...",
+             "##....",
+             "#.....")
+    K = 2
+    ALL = []
+    _mon = None
+
+    def __init__(self):
+        super().__init__()
+        self.set_has_window(False)
+        self.set_size_request(len(self.SHAPE[0]) * self.K + 4, 22)
+        self.connect("draw", self.on_draw)
+        self.box = None             # EventBox в трее — его и прячем
+        self.st = {}
+        PomoBolt.ALL.append(self)
+        self.connect("destroy", lambda *_a: PomoBolt.ALL.remove(self) if self in PomoBolt.ALL else None)
+        if PomoBolt._mon is None:
+            # inotify на файл состояния + редкий опрос (на случай, если каталога ещё нет)
+            try:
+                PomoBolt._mon = Gio.File.new_for_path(self.STATE).monitor_file(Gio.FileMonitorFlags.NONE, None)
+                PomoBolt._mon.connect("changed", lambda *_a: PomoBolt.refresh_all())
+            except GLib.Error:
+                PomoBolt._mon = False
+            GLib.timeout_add_seconds(5, lambda: PomoBolt.refresh_all() or True)
+
+    @classmethod
+    def read_state(cls):
+        st = {}
+        try:
+            for line in open(cls.STATE):
+                k, _, v = line.strip().partition("=")
+                st[k] = v
+        except OSError:
+            pass
+        return st
+
+    @classmethod
+    def refresh_all(cls):
+        st = cls.read_state()
+        for b in list(cls.ALL):
+            b.apply(st)
+
+    def apply(self, st):
+        on = st.get("phase", "idle") in ("work", "break")
+        if self.box is not None and self.box.get_visible() != on:
+            self.box.set_visible(on)
+        if on:
+            self.box.set_tooltip_text(self.tip(st))
+        if st != self.st:
+            self.st = st
+            self.queue_draw()
+
+    @staticmethod
+    def tip(st):
+        what = "работа" if st.get("phase") == "work" else "перерыв"
+        try:
+            paused = int(st.get("paused") or 0)
+            left = int(st.get("started") or 0) + int(st.get("duration") or 0) - int(paused or time.time())
+        except ValueError:
+            paused, left = 0, 0
+        t = "Pomo: %s" % what
+        if st.get("task"):
+            t += " · %s" % st["task"]
+        if left > 0:
+            t += " · осталось %d:%02d" % (left // 60, left % 60)
+        return t + (" · пауза" if paused else "")
+
+    def on_draw(self, _w, cr):
+        c = LOOK_COLS.get("skeet") or {}
+
+        def rgb(v, d):
+            v = v or d
+            return [int(v[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        hi = rgb(c.get("st_hi"), "#9fb4f5")
+        acc = rgb(c.get("acc"), "#7f95e0")
+        lo = rgb(c.get("acc_d"), "#4a5a99")
+        dark = [v * 0.25 for v in rgb(c.get("bg"), "#0c0c0c")]
+        paused = (self.st.get("paused") or "0") != "0"
+        if paused:                                              # пауза: сильно бледнее и серее
+            gray = [0.55, 0.55, 0.58]
+            hi, acc, lo = (mix_rgb(x, gray, 0.6) for x in (hi, acc, lo))
+        alpha = 0.3 if paused else 1.0
+        k, rows = self.K, self.SHAPE
+        a = self.get_allocation()
+        x0 = (a.width - len(rows[0]) * k) // 2
+        y0 = (a.height - len(rows) * k) // 2
+        cells = [(i, j) for j, row in enumerate(rows) for i, ch in enumerate(row) if ch == "#"]
+        cr.set_antialias(cairo.ANTIALIAS_NONE)
+        cr.set_source_rgba(*acc, 0.16 * alpha)                  # свечение
+        for i, j in cells:
+            cr.rectangle(x0 + i * k - 2, y0 + j * k - 2, k + 4, k + 4)
+        cr.fill()
+        cr.set_source_rgba(*dark, 0.9 * alpha)                  # контур
+        for i, j in cells:
+            cr.rectangle(x0 + i * k - 1, y0 + j * k - 1, k + 2, k + 2)
+        cr.fill()
+        n = len(rows) - 1
+        for i, j in cells:                                      # заливка: светлый верх → тёмный низ
+            t = j / n
+            col = mix_rgb(hi, acc, t * 2) if t < 0.5 else mix_rgb(acc, lo, (t - 0.5) * 2)
+            cr.set_source_rgba(*col, alpha)
+            cr.rectangle(x0 + i * k, y0 + j * k, k, k)
+            cr.fill()
+        return True
+
+
 class Tray(Gtk.Box):
     def __init__(self, bar):
         super().__init__(spacing=14)
@@ -1429,6 +2278,12 @@ class Tray(Gtk.Box):
         nb.add(self.bell_n)
         self.add(self.clickable(nb, self.on_bell,
                                 tip="Уведомления: ЛКМ — «Не беспокоить» вкл/выкл, ПКМ — открыть"))
+        self.bolt = PomoBolt()
+        self.bolt.box = self.clickable(self.bolt, None)
+        self.bolt.box.set_no_show_all(True)
+        self.bolt.show()
+        self.add(self.bolt.box)
+        self.bolt.apply(PomoBolt.read_state())
         self.clock = Gtk.Label(label="")
         self.clock.get_style_context().add_class("clock")
         self.clock_box = self.clickable(self.clock, self.on_clock)
@@ -1577,6 +2432,631 @@ class Tray(Gtk.Box):
 
 # ── сама панель ────────────────────────────────────────────────────────────
 
+# Перенос окна на стол перетаскиванием кнопки окна на квадрат стола (19.10.2026, пользователь
+# выбрал из идей по столам в нижней панели). Только внутри панели (SAME_APP) — квадраты
+# любых мониторов принимают, окно уходит без фокуса: остаётесь на своём столе.
+DND_TARGET = "jarvis/window-id"
+
+
+def dnd_targets():
+    return [Gtk.TargetEntry.new(DND_TARGET, Gtk.TargetFlags.SAME_APP, 0)]
+
+
+# ── столы: перенос квадратов, звук, меню (19.10.2026) ─────────────────────────
+WS_TARGET = "jarvis/workspace-id"       # квадрат стола тащат на другое место / монитор
+SPRING_MS = 600                         # окно держат над квадратом — стол открывается
+SLIDE_MS = 170                          # подсветка переезжает к новому столу
+SLIDE_WAIT = 12                         # кадров ждать места у квадрата нового стола
+# Вид перехода между столами — выбор в Настройках → Нижняя панель (19.10.2026, просьба: «какой-то
+# один сложно выбрать»). Файл читается при каждом переходе — панель не перезапускать.
+WS_ANIM_FILE = os.path.expanduser("~/.config/hypr/state/xpbar-ws-anim")
+# 19.10.2026 вечер (понравились Переезд и Червячок): ещё восемь с движением — Гусеница … Телепорт.
+WS_ANIMS = (("slide", "Переезд"), ("worm", "Червячок"), ("inch", "Гусеница"), ("stretch", "Резинка"),
+            ("goo", "Капля"), ("lean", "Наклон"), ("snap", "Рывок"), ("spring", "Пружина"),
+            ("elastic", "Эластик"), ("bounce", "Отскок"), ("teleport", "Телепорт"),
+            ("steps", "Пиксельные шаги"), ("trail", "Шлейф"), ("underline", "Черта снизу"),
+            ("fade", "Угасание"), ("fill", "Заливка"), ("grow", "Вырастает"), ("off", "Без анимации"))
+WS_ANIM_MS = {"worm": 240, "spring": 280, "steps": 210, "trail": 230, "fade": 200, "fill": 230,
+              "grow": 200, "stretch": 230, "goo": 300, "lean": 200, "snap": 120, "elastic": 520,
+              "bounce": 420, "teleport": 240}
+
+
+def ws_anim():
+    try:
+        k = open(WS_ANIM_FILE).read().strip()
+    except OSError:
+        return "slide"
+    return k if k in dict(WS_ANIMS) else "slide"
+
+
+def _ease(t):
+    return 1 - (1 - max(0.0, min(1.0, t))) ** 3
+
+
+def _back(t):                           # с проскоком за цель и возвратом
+    c1 = 2.0
+    t = max(0.0, min(1.0, t)) - 1
+    return 1 + (c1 + 1) * t ** 3 + c1 * t ** 2
+
+
+def _elastic(t):
+    t = max(0.0, min(1.0, t))
+    return 1 if t >= 1 else 2 ** (-10 * t) * math.sin((t * 10 - 0.75) * 2 * math.pi / 3) + 1
+
+
+def _bounce(t):
+    t, n, d = max(0.0, min(1.0, t)), 7.5625, 2.75
+    if t < 1 / d:
+        return n * t * t
+    if t < 2 / d:
+        t -= 1.5 / d
+        return n * t * t + 0.75
+    if t < 2.5 / d:
+        t -= 2.25 / d
+        return n * t * t + 0.9375
+    t -= 2.625 / d
+    return n * t * t + 0.984375
+
+
+def inch_steps(f, to):
+    """Сколько квадратов проходит гусеница (шаг — ширина квадрата с зазором)."""
+    return max(1, round(abs(to[0] - f[0]) / max(1.0, f[2] + 2)))
+
+
+def slide_ms(kind, f, to):
+    if kind == "inch":
+        return min(480, 170 * inch_steps(f, to))
+    return WS_ANIM_MS.get(kind, SLIDE_MS)
+
+
+def _worm(f, to, t, y_t=None):
+    lead, tail = _ease(t / 0.6), _ease((t - 0.3) / 0.7)
+    el, er = (tail, lead) if to[0] >= f[0] else (lead, tail)
+    x1 = f[0] + (to[0] - f[0]) * el
+    x2 = f[0] + f[2] + (to[0] + to[2] - f[0] - f[2]) * er
+    k = t if y_t is None else y_t
+    return (x1, f[1] + (to[1] - f[1]) * k, x2 - x1, f[3] + (to[3] - f[3]) * k)
+
+
+def _scaled(b, sx, sy=None):
+    x, y, w, h = b
+    sy = sx if sy is None else sy
+    return (x + w * (1 - sx) / 2, y + h * (1 - sy) / 2, w * sx, h * sy)
+
+
+def _lerp(f, to, e):
+    return tuple(f[i] + (to[i] - f[i]) * e for i in range(4))
+
+
+def slide_rects(kind, f, to, t):
+    """[(рамка, прозрачность, полоса?)] — что рисовать на доле пути t; первая — «где сейчас»."""
+    if kind == "spring":
+        return [(_lerp(f, to, _back(t)), 1, False)]
+    if kind == "steps":                 # рывками, как в старых играх
+        return [(tuple(round(v) for v in _lerp(f, to, round(_ease(t) * 5) / 5)), 1, False)]
+    if kind == "worm":                  # передний край вперёд, хвост догоняет
+        return [(_worm(f, to, t), 1, False)]
+    if kind == "inch":                  # червячок, но шажками через каждый квадрат
+        n = inch_steps(f, to)
+        i = min(n - 1, int(t * n))
+        a, b = _lerp(f, to, i / n), _lerp(f, to, (i + 1) / n)
+        return [(_worm(a, b, t * n - i, t), 1, False)]
+    if kind == "stretch":               # тянется по скорости, у цели сжимается обратно
+        x, y, w, h = _lerp(f, to, _ease(t))
+        v = (1 - t) ** 2 * min(1.0, abs(to[0] - f[0]) / max(1.0, 2 * f[2]))
+        sw, sh = 1 + 0.7 * v, 1 - 0.15 * v
+        return [(_scaled((x, y, w, h), sw, sh), 1, False)]
+    if kind == "goo":                   # перетекает: старая капля тает, новая набухает, перемычка
+        e = _ease(t)
+        a, b = _scaled(f, 1 - e), _scaled(to, _back(t))
+        neck = 0.32 * f[3] * math.sin(math.pi * min(1.0, t * 1.15))
+        cx1, cx2 = f[0] + f[2] / 2, to[0] + to[2] / 2
+        cy = (f[1] + f[3] / 2 + to[1] + to[3] / 2) / 2
+        tip = cx1 + (cx2 - cx1) * _ease(t * 1.6)            # перемычка тянется от старой капли
+        tail = cx1 + (cx2 - cx1) * _ease((t - 0.3) / 0.7)    # и подтягивается за ней
+        lo, hi = min(tail, tip), max(tail, tip)
+        return [(to, 0, False), (a, 1, False), (b, 1, False),
+                ((lo, cy - neck / 2, hi - lo, neck), 1, False)]
+    if kind == "lean":                  # на ходу кренится вперёд, как в мультфильмах
+        x, y, w, h = _lerp(f, to, _ease(t))
+        d = 1 if to[0] >= f[0] else -1
+        k = d * 5 * (1 - t) ** 2 * min(1.0, abs(to[0] - f[0]) / max(1.0, 2 * f[2]))
+        return [((x, y, w, h), 0, False),
+                ([(x + k, y), (x + w + k, y), (x + w - k, y + h), (x - k, y + h)], 1, "poly")]
+    if kind == "snap":
+        return [(_lerp(f, to, 1 - 2 ** (-10 * t)), 1, False)]
+    if kind == "elastic":
+        return [(_lerp(f, to, _elastic(t)), 1, False)]
+    if kind == "bounce":
+        return [(_lerp(f, to, _bounce(t)), 1, False)]
+    if kind == "teleport":              # схлопывается в черту — разворачивается на новом месте
+        if t < 0.45:
+            return [(f, 0, False), (_scaled(f, 1 - _ease(t / 0.45) * 0.9, 1 + 0.15 * t / 0.45), 1, False)]
+        u = _ease((t - 0.45) / 0.55)
+        return [(to, 0, False), (_scaled(to, 0.1 + 0.9 * u, 1.07 - 0.07 * u), 1, False)]
+    if kind == "trail":
+        return [(_lerp(f, to, _ease(t)), 1, False)] + [
+            (_lerp(f, to, _ease(t - 0.08 * k)), a, False) for k, a in ((1, .45), (2, .25), (3, .12))]
+    if kind == "underline":
+        x, y, w, h = _lerp(f, to, _ease(t))
+        return [((x, y, w, h), 0, False), ((x + 2, y + h - 3, w - 4, 2), 1, True)]
+    if kind == "fade":
+        e = _ease(t)
+        return [(to if e > 0.5 else f, 0, False), (f, 1 - e, False), (to, e, False)]
+    if kind == "fill":                  # новый квадрат наливается снизу вверх
+        x, y, w, h = to
+        e = _ease(t)
+        return [(to, 0, False), ((x, y + h * (1 - e), w, h * e), 1, False)]
+    if kind == "grow":                  # подсветка вырастает из середины нового квадрата
+        x, y, w, h = to
+        e = _back(t) if t < 1 else 1
+        return [(to, 0, False), ((x + w * (1 - e) / 2, y + h * (1 - e) / 2, w * e, h * e), 1, False)]
+    return [(_lerp(f, to, _ease(t)), 1, False)]
+NOTE, NOTE_OFF = "\U000f075a", "\U000f075b"
+NOTE_AFTER = 4.0                        # поток звучит дольше — тогда нота (короткие звуки уведомлений — нет)
+# 1.5 → 4 с (19.10.2026, «нота срабатывает от обычных уведомлений»): Telegram и браузер на звук
+# уведомления открывают свой поток и держат его ещё несколько секунд после звука
+NOTE_AFTER_MEDIA = 1.5                  # браузеру и музыке — быстрее (19.10.2026, «не сразу появляется»)
+NOTE_LINGER = 8.0                       # пауза или конец — нота держится, чтобы успеть нажать
+BROWSER_RE = re.compile(r"zen|firefox|librewolf|helium|chrom|brave|vivaldi", re.I)
+PIP_TITLES = ("Picture-in-Picture", "Картинка в картинке")    # как pip_place.TITLES
+NOTE_SKIP_ROLES = {"event", "notification", "alert"}
+NOTE_SKIP_NAMES = {"Звуки интерфейса"}  # ui_sound.py — щелчки и уведомления системы
+VOL_STEP = 5
+# Колесо над нотой крутит одну программу стола, а не все разом: музыка → Telegram → прочее
+# (19.10.2026, просьба: «Telegram + Yandexmusic» общим микшером не надо)
+MUSIC_RE = re.compile(r"music|музык|spotify|yandex|deezer|tidal|soundcloud|bandcamp|rhythmbox|"
+                      r"strawberry|cmus|mpd|ncmpcpp|amberol|lollypop|tauon|feishin|audacious|"
+                      r"clementine|quodlibet|elisa|g4music|ytm", re.I)
+CHAT_RE = re.compile(r"telegram|ayugram|64gram|materialgram", re.I)
+# окна игр — без ноты: звук игры крутят в самой игре (19.10.2026)
+GAME_RE = re.compile(r"^(steam_app_\d+|gamescope|cs2|.*\.exe)$", re.I)
+GENERIC_WORDS = {"org", "com", "net", "app", "desktop", "electron", "chromium", "client"}
+LAYOUT_STATE = os.path.expanduser("~/.config/hypr/state/ws-layout.json")
+LAYOUT_MODES = (("scrolling", "Прокрутка"), ("tiling", "Плитка-сетка"), ("peek", "Подглядывание"),
+                ("three", "Три в ряд"), ("stacking", "Плавающие"))       # как MODES/NAMES в ws_layout.py
+AUDIO = {"streams": [], "seen": {}, "pend": None, "busy": False, "recheck": None,
+         "found": [], "last": {}, "info": {},     # поток → когда последний раз играл, его данные
+         "lastvol": {}}         # программа → последняя ненулевая громкость (вернуть с 0 %)
+
+
+def ws_targets():
+    return dnd_targets() + [Gtk.TargetEntry.new(WS_TARGET, Gtk.TargetFlags.SAME_APP, 1)]
+
+
+OUTPUTS = {}                            # разъём → данные niri (make) — имя монитора в меню
+
+
+def monitor_name(conn):
+    if conn.startswith("eDP"):
+        return "Laptop"
+    make = (OUTPUTS.get(conn) or {}).get("make") or ""
+    return "MSI" if "Microstep" in make or "MSI" in make else conn
+
+
+def read_streams():
+    """[(index, имя, цепочка pid, слова, заглушён, громкость %, на паузе)] — все потоки. Цепочка — pid потока и его предки: звук браузера идёт из вкладки-потомка."""
+    import app_volume
+    import audio_names
+    try:
+        out = subprocess.run(["pactl", "-f", "json", "list", "sink-inputs"], capture_output=True,
+                             text=True, timeout=2, env=dict(os.environ, LC_ALL="C.UTF-8")).stdout
+        data = json.loads(out or "[]")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+    res = []
+    for s in data:
+        p = s.get("properties") or {}
+        if str(p.get("media.role", "")).lower() in NOTE_SKIP_ROLES or \
+                p.get("application.name") in NOTE_SKIP_NAMES:
+            continue
+        pid = p.get("application.process.id")
+        try:
+            pid = int(pid) if pid else None
+        except ValueError:
+            pid = None
+        chain = ({pid} | set(app_volume.parents(pid, 8))) if pid else set()
+        words = app_volume.words_of(p.get("application.name"), p.get("node.name"),
+                                    p.get("application.process.binary")) - GENERIC_WORDS
+        vols = [int(str(v.get("value_percent", "0")).rstrip("%") or 0)
+                for v in (s.get("volume") or {}).values()]
+        res.append((s["index"], audio_names.stream_name(p), chain, words, bool(s.get("mute")),
+                    round(sum(vols) / len(vols)) if vols else 0, bool(s.get("corked"))))
+    return res
+
+
+def schedule_streams(delay=250):
+    """Событие pactl о потоках — перечитать (одним разом на серию событий)."""
+    if AUDIO["pend"] is None:
+        AUDIO["pend"] = GLib.timeout_add(delay, _load_streams)
+    return False
+
+
+def _load_streams():
+    AUDIO["pend"] = None
+    if AUDIO["busy"]:                   # чтение уже идёт — повторить после него
+        AUDIO["again"] = True
+        return False
+    AUDIO["busy"] = True
+
+    def work():
+        found = read_streams()
+        GLib.idle_add(_apply_streams, found)
+    threading.Thread(target=work, daemon=True).start()
+    return False
+
+
+def note_after(name, words):
+    text = " ".join([name or ""] + sorted(words))
+    return NOTE_AFTER_MEDIA if MUSIC_RE.search(text) or BROWSER_RE.search(text) else NOTE_AFTER
+
+
+def _apply_streams(found):
+    AUDIO["busy"] = False
+    AUDIO["found"] = found
+    AUDIO["lastvol"].update({f[1]: f[5] for f in found if f[5] > 0})
+    _eval_streams()
+    if AUDIO.pop("again", False):
+        schedule_streams(50)
+    return False
+
+
+def _eval_streams():
+    """Кого показывать нотой: играет дольше note_after; после паузы или конца потока —
+    ещё NOTE_LINGER (повтор в это время — сразу, без нового ожидания)."""
+    now = time.monotonic()
+    seen, last, info = AUDIO["seen"], AUDIO["last"], AUDIO["info"]
+    playing = {f[0]: f for f in AUDIO["found"] if not f[6]}
+    for sid in AUDIO.get("was", set()) - set(playing):     # только что смолк — играл до сих пор
+        last[sid] = now
+    AUDIO["was"] = set(playing)
+    for sid, f in playing.items():
+        if sid not in seen:
+            seen[sid] = now
+        last[sid] = now
+        info[sid] = f[:6]
+    show, wake = [], []
+    for sid in list(seen):
+        f = info.get(sid)
+        after = note_after(f[1], f[3]) if f else NOTE_AFTER
+        if sid in playing:
+            if now - seen[sid] >= after:
+                show.append(f)
+            else:
+                wake.append(after - (now - seen[sid]))
+            continue
+        qualified = last[sid] - seen[sid] >= after
+        if qualified and now - last[sid] < NOTE_LINGER:
+            cur = next((g for g in AUDIO["found"] if g[0] == sid), None)
+            show.append(cur[:6] if cur else f)             # заглушили на паузе — видно сразу
+            wake.append(NOTE_LINGER - (now - last[sid]))
+            continue
+        if not qualified and last[sid] - seen[sid] < 15 and f:
+            print("xpbar note: поток %s прожил %.1f с" % (f[1], last[sid] - seen[sid]),
+                  file=sys.stderr, flush=True)
+        for d in (seen, last, info):
+            d.pop(sid, None)
+    AUDIO["streams"] = show
+    if AUDIO["recheck"] is not None:
+        GLib.source_remove(AUDIO["recheck"])
+        AUDIO["recheck"] = None
+    if wake:
+        def recheck():
+            AUDIO["recheck"] = None
+            _eval_streams()
+            return False
+        AUDIO["recheck"] = GLib.timeout_add(int(min(wake) * 1000) + 100, recheck)
+    for bar in BARS:
+        bar.refresh_ws()
+
+
+def audio_by_ws(windows):
+    """стол → [{name, sids, muted, vol}]: кто звучит на каком столе. Поток — к окну по
+    дереву процессов, а без pid (Telegram) — по имени приложения. Окон с тем же pid
+    несколько (два окна Zen) — к тому, что было в фокусе последним."""
+    if not AUDIO["streams"]:
+        return {}
+    import app_volume
+    wins = [w for w in windows.values() if w.get("workspace_id") is not None]
+
+    def ts(w):
+        t = w.get("focus_timestamp") or {}
+        return (t.get("secs", 0), t.get("nanos", 0))
+    out = {}
+    playing = {f[0] for f in AUDIO.get("found", ()) if not f[6]}
+    for sid, name, chain, words, muted, vol in AUDIO["streams"]:
+        cand = [w for w in wins if w.get("pid") in chain]
+        if not cand and words:
+            cand = [w for w in wins
+                    if app_volume.same_app(words, app_volume.words_of(w.get("app_id")) - GENERIC_WORDS)]
+        if not cand:
+            continue
+        # 19.10.2026: окно «картинки в картинке» — того же pid, что браузер. Нота — на
+        # главном окне браузера (просьба: «не на картинке в картинке, а в самом браузере»),
+        # даже если картинку потом трогали и она была в фокусе позже
+        w = max(cand, key=lambda w: ((w.get("title") or "") not in PIP_TITLES, ts(w)))
+        if GAME_RE.match(w.get("app_id") or ""):
+            continue
+        apps = out.setdefault(w["workspace_id"], {})
+        a = apps.setdefault(name, {"name": name, "sids": [], "muted": True, "vol": 0, "rank": 9,
+                                   "playing": False})
+        a["rank"] = min(a["rank"], app_rank(name, w))
+        a["playing"] = a["playing"] or sid in playing or not AUDIO.get("found")
+        a["sids"].append(sid)
+        a["muted"] = a["muted"] and muted
+        a["vol"] = max(a["vol"], vol)
+    # первым — что играет сейчас (музыка на паузе уступает Telegram), дальше по рангу
+    return {ws: sorted(apps.values(), key=lambda a: (not a["playing"], a["rank"], a["name"]))
+            for ws, apps in out.items()}
+
+
+def app_rank(name, win):
+    """0 — музыка и видео в браузере, 1 — Telegram, 2 — прочее (19.10.2026: браузер
+    наравне с музыкой — Просьба: «в приоритете музыка или видео в браузере, потом телеграм»)."""
+    text = " ".join((name or "", win.get("app_id") or "", win.get("title") or ""))
+    return 0 if MUSIC_RE.search(text) or BROWSER_RE.search(text) else 1 if CHAT_RE.search(text) else 2
+
+
+def silent(a):
+    """Не слышно: заглушена или громкость 0 % — нота перечёркнута (19.10.2026)."""
+    return a["muted"] or a["vol"] == 0
+
+
+def set_app_mute(apps, mute):
+    for a in apps:
+        for sid in a["sids"]:
+            spawn("pactl", "set-sink-input-mute", str(sid), "1" if mute else "0")
+            if not mute and a["vol"] == 0:              # с 0 % — вернуть прежнюю громкость
+                spawn("pactl", "set-sink-input-volume", str(sid),
+                      "%d%%" % AUDIO["lastvol"].get(a["name"], 50))
+        a["muted"] = mute
+    schedule_streams(150)
+
+
+def set_app_volume(apps, step):
+    """Колесо над нотой — громкость главной программы стола (apps уже по приоритету);
+    заглушённые не трогаем."""
+    live = ([a for a in apps if not a["muted"]] or apps)[:1]
+    for a in live:
+        a["vol"] = max(0, min(100, a["vol"] + step))
+        for sid in a["sids"]:
+            spawn("pactl", "set-sink-input-volume", str(sid), "%d%%" % a["vol"])
+        for s_i, s in enumerate(AUDIO["streams"]):           # следующий щелчок колеса — от нового
+            if s[0] in a["sids"]:
+                AUDIO["streams"][s_i] = s[:5] + (a["vol"],)
+    name = " + ".join(a["name"] for a in live)
+    pct = live[0]["vol"]
+
+    def show():
+        try:
+            import app_volume
+            app_volume.osd(name, pct, False, "app")
+        except Exception as e:
+            print("xpbar: osd: %r" % e, file=sys.stderr)
+    threading.Thread(target=show, daemon=True).start()
+
+
+def layout_of(ws_id):
+    try:
+        return json.load(open(LAYOUT_STATE)).get(str(ws_id), "scrolling")
+    except (OSError, ValueError, AttributeError):
+        return "scrolling"
+
+
+class WsButton(Gtk.Button):
+    """Квадрат стола: щелчок — перейти, ПКМ — меню стола, перетащить — на другое место или
+    другой монитор; нота — кто здесь звучит (щелчок по ней — заглушить, колесо — громкость).
+    plus — квадрат «+» в конце: новый пустой стол."""
+
+    def __init__(self, bar, ws_id, plus=False):
+        super().__init__()
+        self.bar, self.ws_id, self.plus = bar, ws_id, plus
+        ctx = self.get_style_context()
+        ctx.add_class("ws")
+        if plus:
+            ctx.add_class("plus")
+            ctx.add_class("empty")
+            self.set_tooltip_text("Новый стол — щёлкнуть или бросить сюда окно")
+        self.set_relief(Gtk.ReliefStyle.NONE)
+        box = Gtk.Box(spacing=2)
+        self.lbl = Gtk.Label(label="+" if plus else "")
+        self.note = Gtk.Label()
+        self.note.get_style_context().add_class("wsnote")
+        self.note.set_no_show_all(True)
+        self.note.set_valign(Gtk.Align.START)   # выше цифры, значком в углу (19.10.2026)
+        box.pack_start(self.lbl, True, True, 0)
+        box.pack_start(self.note, False, False, 0)
+        self.add(box)
+        self.apps = []
+        self.dragging = False
+        self.drag_t = 0.0
+        self.spring = None
+        self.connect("button-release-event", self.on_release)
+        self.drag_dest_set(0, ws_targets(), Gdk.DragAction.MOVE)
+        self.connect("drag-motion", self.on_motion)
+        self.connect("drag-leave", self.on_leave)
+        self.connect("drag-drop", self.on_drop)
+        self.connect("drag-data-received", self.on_data)
+        if not plus:
+            self.drag_source_set(Gdk.ModifierType.BUTTON1_MASK,
+                                 [Gtk.TargetEntry.new(WS_TARGET, Gtk.TargetFlags.SAME_APP, 1)],
+                                 Gdk.DragAction.MOVE)
+            self.connect("drag-begin", self.on_drag_begin)
+            self.connect("drag-data-get", lambda _w, _c, data, *_a:
+                         data.set(data.get_target(), 8, str(self.ws_id).encode()))
+            self.connect("drag-end", self.on_drag_end)
+            self.connect("drag-failed", self.on_drag_failed)
+
+    def target_id(self):
+        return self.bar.trailing_ws() if self.plus else self.ws_id
+
+    def set_audio(self, apps):
+        self.apps = apps or []
+        if not self.apps:
+            self.note.hide()
+            return
+        muted = all(silent(a) for a in self.apps)
+        self.note.set_text(NOTE_OFF if muted else NOTE)
+        (self.note.get_style_context().add_class if muted
+         else self.note.get_style_context().remove_class)("muted")
+        self.note.show()
+        self.set_tooltip_text("Звучит: " + ", ".join(
+            a["name"] + (" (заглушён)" if a["muted"] else " · %d%%" % a["vol"]) for a in self.apps)
+            + "\nЩелчок по ноте — %s %s, колесо — громкость %s%s"
+            % ("вернуть звук" if silent(self.apps[0]) else "заглушить", self.apps[0]["name"],
+               ([a for a in self.apps if not a["muted"]] or self.apps)[0]["name"],
+               "\nСредняя кнопка или Shift+щелчок — выбрать программу" if len(self.apps) > 1 else ""))
+
+    # ── щелчки ──
+    def on_release(self, _w, e):
+        # Стол «не кликался» (19.10.2026): щелчок, отпущенный не над квадратом,
+        # или залипший dragging молча терялись. Теперь пишется в журнал, а dragging старше 3 с
+        # без drag-end считается залипшим и сбрасывается.
+        if self.dragging and time.monotonic() - self.drag_t > 3:
+            print("xpbar ws: dragging залип у стола %s — сброшен" % self.ws_id, flush=True)
+            self.dragging = False
+        if self.dragging:
+            return True
+        a = self.get_allocation()
+        if not (0 <= e.x < a.width and 0 <= e.y < a.height):
+            print("xpbar ws: щелчок по столу %s отпущен вне квадрата (%.0f,%.0f из %dx%d)"
+                  % (self.ws_id, e.x, e.y, a.width, a.height), flush=True)
+            return True
+        on_note = self.apps and self.note.get_visible() and self.on_note(e)
+        if e.button == 2 and on_note:
+            self.note_click(e, pick=True)
+        elif e.button == 1:
+            if on_note:
+                self.note_click(e, pick=bool(e.state & Gdk.ModifierType.SHIFT_MASK))
+            elif self.plus:
+                wid = self.target_id()
+                if wid is not None:
+                    self.bar.focus_ws(wid)
+            else:
+                self.bar.focus_ws(self.ws_id)
+        elif e.button == 3 and not self.plus:
+            self.bar.ws_menu(self.ws_id, e)
+        return True
+
+    def on_note(self, e):
+        """Только по самой ноте (+3 px), не по всей высоте плитки: ниже ноты — щелчок по
+        столу (19.10.2026, просьба: «хочу перейти на стол, а кликается мьют»)."""
+        x, y = self.note.translate_coordinates(self, 0, 0) or (0, 0)
+        return (x - 3 <= e.x <= x + self.note.get_allocated_width() + 3
+                and y - 3 <= e.y <= y + self.note.get_allocated_height() + 1)
+
+    def note_click(self, e, pick=False):
+        """Щелчок — заглушить/вернуть первую по приоритету (apps уже упорядочены: что играет,
+        потом музыка/браузер → Telegram → прочее), без окна выбора (19.10.2026). pick —
+        список, чтобы выбрать программу самому."""
+        ui_click("click")
+        if len(self.apps) == 1 or not pick:
+            set_app_mute(self.apps[:1], not silent(self.apps[0]))
+            return
+        items = [pop_item("%s  %s — %s" % (NOTE_OFF if silent(a) else NOTE, a["name"],
+                                            "вернуть звук" if silent(a) else "заглушить"),
+                          lambda a=a: set_app_mute([a], not silent(a))) for a in self.apps]
+        allm = all(silent(a) for a in self.apps)
+        items += [POP_SEP, pop_item("Вернуть звук всем" if allm else "Заглушить всё на столе",
+                                    lambda: set_app_mute(self.apps, not allm))]
+        self.bar.menu(items, self)
+
+    # ── этот квадрат тащат ──
+    def on_drag_begin(self, _w, ctx):
+        self.dragging = True
+        self.drag_t = time.monotonic()
+        a = self.get_allocation()
+        try:
+            import cairo
+            surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, max(1, a.width), max(1, a.height))
+            self.draw(cairo.Context(surf))
+            Gtk.drag_set_icon_surface(ctx, surf)
+        except Exception:
+            pass
+
+    def on_drag_end(self, *_a):
+        clear_drop()
+        GLib.timeout_add(150, lambda: setattr(self, "dragging", False))
+
+    def on_drag_failed(self, _w, _ctx, result):
+        """Щелчок с дрожью мыши GTK начинает как перетаскивание квадрата; брошенный никуда
+        (обратно на себя) — это щелчок: перейти на стол (19.10.2026)."""
+        if result == Gtk.DragResult.NO_TARGET or result == Gtk.DragResult.USER_CANCELLED:
+            win = self.get_window()
+            seat = Gdk.Display.get_default().get_default_seat()
+            pos = win.get_device_position(seat.get_pointer()) if win and seat else None
+            a = self.get_allocation()
+            if pos and 0 <= pos[1] - a.x < a.width and 0 <= pos[2] - a.y < a.height:
+                print("xpbar ws: перетаскивание стола %s на себя — щелчок" % self.ws_id, flush=True)
+                self.bar.focus_ws(self.ws_id)
+        return False
+
+    # ── на квадрат что-то бросают ──
+    def kind(self, ctx):
+        t = self.drag_dest_find_target(ctx, None)
+        name = t.name() if t else None
+        return name if name in (DND_TARGET, WS_TARGET) else None
+
+    def on_motion(self, _w, ctx, _x, _y, time_):
+        kind = self.kind(ctx)
+        src = Gtk.drag_get_source_widget(ctx)
+        if kind is None or src is self:
+            Gdk.drag_status(ctx, 0, time_)
+            return True
+        self.get_style_context().add_class("drop")
+        Gdk.drag_status(ctx, Gdk.DragAction.MOVE, time_)
+        # окно держат над квадратом — стол открывается, как в macOS (пружинящие папки)
+        if kind == DND_TARGET and not self.plus and self.spring is None:
+            self.spring = GLib.timeout_add(SPRING_MS, self.on_spring)
+        return True
+
+    def on_spring(self):
+        self.spring = None
+        ws = self.bar.state.workspaces.get(self.ws_id) or {}
+        if not ws.get("is_active") or not ws.get("is_focused"):
+            self.bar.focus_ws(self.ws_id)
+        return False
+
+    def cancel_spring(self):
+        if self.spring is not None:
+            GLib.source_remove(self.spring)
+            self.spring = None
+
+    def on_leave(self, *_a):
+        self.get_style_context().remove_class("drop")
+        self.cancel_spring()
+
+    def on_drop(self, _w, ctx, _x, _y, time_):
+        self.cancel_spring()
+        kind = self.kind(ctx)
+        if kind is None:
+            return False
+        self.drag_get_data(ctx, Gdk.Atom.intern(kind, False), time_)
+        return True
+
+    def on_data(self, _w, ctx, _x, _y, data, _info, time_):
+        self.get_style_context().remove_class("drop")
+        try:
+            val = int(bytes(data.get_data() or b"").decode())
+        except ValueError:
+            val = None
+        kind = data.get_target().name() if data.get_target() else None
+        ok = val is not None
+        if ok and kind == DND_TARGET:
+            self.bar.move_window(val, self.target_id())
+        elif ok and kind == WS_TARGET:
+            self.bar.move_ws(val, None if self.plus else self.ws_id)
+        Gtk.drag_finish(ctx, ok, False, time_)
+
+
+def clear_drop():
+    for bar in BARS:
+        for b in list(bar.ws_buttons.values()) + [bar.ws_plus]:
+            if b is not None:
+                b.get_style_context().remove_class("drop")
+                b.cancel_spring()
+
+
 class TaskButton(Gtk.Button):
     def __init__(self, bar, wid):
         super().__init__()
@@ -1594,14 +3074,20 @@ class TaskButton(Gtk.Button):
         box.pack_start(self.lbl, True, True, 0)
         self.add(box)
         self.app = self.title = None
+        self.dragging = False
         self.connect("button-release-event", self.on_release)
+        self.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, dnd_targets(), Gdk.DragAction.MOVE)
+        self.connect("drag-begin", self.on_drag_begin)
+        self.connect("drag-data-get", self.on_drag_get)
+        self.connect("drag-end", self.on_drag_end)
 
     def update(self, w):
-        app = w.get("app_id") or ""
+        app = window_icon_id(w.get("app_id") or "", w.get("title"))
         if app != self.app:
             self.app = app
             self.img.set_from_gicon(app_icon(app), Gtk.IconSize.MENU)
             self.img.set_pixel_size(16)
+            self.drag_source_set_icon_gicon(app_icon(app))     # под курсором при переносе
         title = w.get("title") or app or "Окно"
         if title != self.title:
             self.title = title
@@ -1611,7 +3097,23 @@ class TaskButton(Gtk.Button):
         for cls, on in (("focused", w.get("is_focused")), ("urgent", w.get("is_urgent"))):
             (ctx.add_class if on else ctx.remove_class)(cls)
 
+    def on_drag_begin(self, *_a):
+        self.dragging = True
+
+    def on_drag_get(self, _w, _ctx, data, _info, _time):
+        data.set(data.get_target(), 8, str(self.wid).encode())
+
+    def on_drag_end(self, *_a):
+        clear_drop()
+        # стол открылся под окном (SPRING_MS) — кнопка ушла из панели, но жила до конца переноса
+        if getattr(self, "stale", False):
+            GLib.idle_add(self.destroy)
+        # отпускание кнопки мыши после переноса — не щелчок по окну
+        GLib.timeout_add(150, lambda: setattr(self, "dragging", False))
+
     def on_release(self, _w, e):
+        if self.dragging:
+            return True
         if e.button == 1:
             ui_click("click")
             action("focus-window", "--id", str(self.wid))
@@ -1662,6 +3164,7 @@ def _set_open(bar, on):
     (ctx.add_class if on else ctx.remove_class)("open")
     if getattr(bar, "spark", None) is not None:
         bar.spark.queue_draw()
+        bar.glyph.queue_draw()
 
 
 def menu_for(bar):
@@ -1773,13 +3276,15 @@ class XPBar(Gtk.Window):
         self.menu_open = False
         self.hide_id = None
         self.get_style_context().add_class("xpbar-win")
+        self.look = bar_look(connector)
+        self.get_style_context().add_class("look-" + self.look)
         GtkLayerShell.init_for_window(self)
         GtkLayerShell.set_namespace(self, "jarvis-xpbar")
         GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
         GtkLayerShell.set_monitor(self, monitor)
         for edge in (GtkLayerShell.Edge.BOTTOM, GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
             GtkLayerShell.set_anchor(self, edge, True)
-        GtkLayerShell.set_exclusive_zone(self, zone_size() if mode == "always" else 0)
+        GtkLayerShell.set_exclusive_zone(self, zone_size(LOOK_H.get(self.look, H)) if mode == "always" else 0)
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.NONE)
         visual = self.get_screen().get_rgba_visual()
         if visual:
@@ -1828,13 +3333,15 @@ class XPBar(Gtk.Window):
         # Надпись — простым текстом, как было: пиксельный static_ в гамме обоев с
         # мигающим курсором пользователь отверг («не должен двигаться, слишком большой,
         # расцветка не нравится», 01.10.2026). Класс Wordmark оставлен на потом.
-        self.wordmark = Gtk.Label(label="static")
+        self.wordmark = Gtk.Label(label="staticOS")         # 15.10.2026, просьба: «static на staticOS»
         sb.pack_start(self.wordmark, False, False, 0)
         # вид «Квадратный» (angelOS): искорка вместо логотипа, «staticOS» с ярким «OS» и
         # маленькая «+» сверху справа — как «angelOS⁺» на образце
         self.spark = Sparkle(20, 26)
         self.sq_label = Gtk.Label()
         self.plus = Sparkle(7, 26, small=True)
+        self.glyph = StartGlyph()
+        sb.pack_start(self.glyph, False, False, 0)
         sb.pack_start(self.spark, False, False, 0)
         sb.pack_start(self.sq_label, False, False, 0)
         sb.pack_start(self.plus, False, False, 0)
@@ -1848,6 +3355,12 @@ class XPBar(Gtk.Window):
         self.ws_buttons = {}
         self.ws_order = []
         self.wsbox = Gtk.Box(spacing=0)
+        self.wsbox.connect_after("draw", self.draw_slide)
+        self.slide = None               # подсветка в пути: {to, x0, w0, t0}
+        self.ws_focus = None            # стол в фокусе на этой панели — откуда ехать подсветке
+        self.ws_plus = WsButton(self, None, plus=True) if self.ws_here else None
+        if self.ws_plus:
+            self.wsbox.pack_end(self.ws_plus, False, False, 0)
         self.ws_ev = Gtk.EventBox()
         self.ws_ev.add(self.wsbox)
         self.ws_ev.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
@@ -1865,6 +3378,8 @@ class XPBar(Gtk.Window):
         self.sw.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
         self.sw.connect("scroll-event", self.on_task_scroll)
         self.sw.connect("size-allocate", lambda *_a: GLib.idle_add(self.fit_buttons))
+        self.sw.drag_dest_set(Gtk.DestDefaults.ALL, dnd_targets(), Gdk.DragAction.MOVE)
+        self.sw.connect("drag-data-received", self.on_tasks_data)
         self.btn_w = TASK_W
         self.tasks = Gtk.Box(spacing=0)
         self.sw.add(self.tasks)
@@ -1930,15 +3445,42 @@ class XPBar(Gtk.Window):
         self.play(mode == "always")
 
     def apply_start_look(self):
-        """Кнопка «Пуск»: обычная (логотип + static) или квадратная (искорка + staticOS⁺)."""
-        sq = start_button_look() == "square"
-        c = colors()
+        """Кнопка «Пуск»: обычная (логотип + static), квадратная (искорка + staticOS⁺),
+        ярлык (квадрат с символом + staticOS) или значок (только символ)."""
+        import start_glyphs
+        v = start_button_look()
+        sq, g = v == "square", start_glyphs.parse(v)
+        c = LOOK_COLS.get(self.look) or colors()
         self.sq_label.set_markup('static<span foreground="%s">OS</span>' % c["st_hi"])
+        ctx = self.start.get_style_context()
+        ctx.remove_class("badge")
+        ctx.remove_class("glyphonly")
+        if g:
+            ctx.add_class("badge" if g[0] == "badge" else "glyphonly")
+            self.glyph.set(*g)
+        self.start.set_tooltip_text("Пуск — staticOS" if g and g[0] == "icon" else "Пуск")
         for w in (self.logo, self.wordmark):
-            w.set_visible(not sq)
-        for w in (self.spark, self.sq_label, self.plus):
-            w.set_visible(sq)
+            w.set_visible(v == "default")
+        for w, on in ((self.spark, sq), (self.plus, sq), (self.sq_label, sq or (g and g[0] == "badge")),
+                      (self.glyph, bool(g))):
+            w.set_visible(bool(on))
             w.queue_draw()
+
+    def apply_look(self):
+        """Стиль системы / XP сменили (Настройки, system_style.py set) — на лету."""
+        new = bar_look(self.connector)
+        if new == self.look:
+            return
+        wins = [self] + ([self.tray.plate] if self.tray.plate is not None else [])
+        for w in wins:
+            ctx = w.get_style_context()
+            ctx.remove_class("look-" + self.look)
+            ctx.add_class("look-" + new)
+        self.look = new
+        if self.mode == "always" and getattr(self, "shown_now", False):
+            GtkLayerShell.set_exclusive_zone(self, zone_size(LOOK_H.get(new, H)))
+        self.apply_start_look()
+        self.queue_draw()
 
     def play(self, on):
         self.logo.play(on)
@@ -1959,7 +3501,7 @@ class XPBar(Gtk.Window):
             # слоя застревала (кадры не шли) — поэтому через паузу, а не сразу.
             self.rev.set_transition_duration(0)
             self.rev.set_reveal_child(False)
-            GtkLayerShell.set_exclusive_zone(self, zone_size())
+            GtkLayerShell.set_exclusive_zone(self, zone_size(LOOK_H.get(self.look, H)))
             self.show()
 
             def slide_in():
@@ -2066,50 +3608,303 @@ class XPBar(Gtk.Window):
             return
         wss = self.ws_list()
         ids = [w["id"] for w in wss]
+        focus = next((w["id"] for w in wss if w.get("is_focused")), None)
+        # откуда ехать — замерить до уборки квадратов: пустой стол, с которого ушли, исчезает
+        frm = self.box_of(self.ws_buttons.get(self.ws_focus)) if focus != self.ws_focus else None
         for wid in list(self.ws_buttons):
             if wid not in ids:
-                self.ws_buttons.pop(wid).destroy()
+                b = self.ws_buttons.pop(wid)
+                if b.dragging:              # квадрат ещё тащат (уехал на другой монитор)
+                    b.hide()
+                    GLib.timeout_add(3000, lambda b=b: b.destroy() or False)
+                else:
+                    b.destroy()
+        audio = audio_by_ws(self.state.windows)
+        urgent = {w.get("workspace_id") for w in self.state.windows.values() if w.get("is_urgent")} | \
+            {w["id"] for w in wss if w.get("is_urgent")}
+        slide_to = None
+        if focus != self.ws_focus:
+            slide_to = focus
+            self.ws_focus = focus
         for w in wss:
             b = self.ws_buttons.get(w["id"])
             if b is None:
-                b = self.ws_buttons[w["id"]] = Gtk.Button()
-                b.get_style_context().add_class("ws")
-                b.set_relief(Gtk.ReliefStyle.NONE)
-                b.add(Gtk.Label())
-                b.connect("clicked", lambda _b, i=w["id"]: self.focus_ws(i))
+                b = self.ws_buttons[w["id"]] = WsButton(self, w["id"])
                 self.wsbox.pack_start(b, False, False, 0)
                 b.show_all()
             # подпись — имя без невидимых меток служб (значок) или номер стола
-            label = (w.get("name") or "").replace("\u200b", "").replace("\u2060", "") or str(w.get("idx"))
-            if b.get_child().get_text() != label:
-                b.get_child().set_text(label)
+            label = (w.get("name") or "").replace("​", "").replace("⁠", "") or str(w.get("idx"))
+            if b.lbl.get_text() != label:
+                b.lbl.set_text(label)
+            b.set_audio(audio.get(w["id"]))
+            if not b.apps and b.get_tooltip_text():
+                b.set_tooltip_text(None)
+            sliding = (self.slide is not None and self.slide["to"] == w["id"]) or \
+                (w["id"] == slide_to and frm is not None)
             ctx = b.get_style_context()
-            for cls, on in (("active", w.get("is_active")), ("focused", w.get("is_focused")),
-                            ("empty", w.get("active_window_id") is None)):
+            for cls, on in (("active", w.get("is_active")),
+                            ("focused", w.get("is_focused") and not sliding),
+                            ("empty", w.get("active_window_id") is None),
+                            ("urgent", w["id"] in urgent and not w.get("is_focused"))):
                 (ctx.add_class if on else ctx.remove_class)(cls)
         if ids != self.ws_order:
             self.ws_order = ids
             for i, wid in enumerate(ids):
                 self.wsbox.reorder_child(self.ws_buttons[wid], i)
+        # после квадратов: новый стол («+», окно на «+») получает квадрат только сейчас —
+        # раньше подсветка искала его до создания и не ехала (19.10.2026)
+        if slide_to is not None:
+            self.start_slide(frm, slide_to)
+            if self.slide is None:              # ехать не вышло — подсветка сразу на месте
+                self.ws_buttons[slide_to].get_style_context().add_class("focused")
+
+    # ── подсветка переезжает к новому квадрату ──
+    def box_of(self, b):
+        """Рамка квадрата внутри wsbox — без отступов CSS (они входят в allocation)."""
+        if b is None or not b.get_mapped():
+            return None
+        a = b.get_allocation()
+        if a.width <= 1:                        # только что создан — места ещё нет
+            return None
+        xy = b.translate_coordinates(self.wsbox, 0, 0)
+        if not xy:
+            return None
+        ctx = b.get_style_context()
+        m = ctx.get_margin(ctx.get_state())
+        return (xy[0] + m.left, xy[1] + m.top, a.width - m.left - m.right, a.height - m.top - m.bottom)
+
+    def start_slide(self, frm, new):
+        """frm — рамка, откуда ехать (box_of прежнего квадрата); квадрат new может быть ещё
+        без места — slide_tick ждёт его до SLIDE_WAIT кадров."""
+        if self.slide and self.slide.get("cur"):
+            frm = self.slide["cur"]             # смена посреди пути — ехать от того места
+        kind = ws_anim()
+        if kind == "off" or frm is None or new is None or self.ws_buttons.get(new) is None:
+            if self.slide:
+                self.slide = None
+                self.wsbox.queue_draw()
+            return
+        first = self.slide is None
+        self.slide = {"to": new, "from": frm, "cur": frm, "t0": None, "wait": 0, "kind": kind,
+                      "rects": [(frm, 1, False)]}
+        if first:
+            self.wsbox.add_tick_callback(self.slide_tick)
+
+    def slide_tick(self, _w, clock):
+        s = self.slide
+        if s is None:
+            return False
+        now = clock.get_frame_time() / 1000.0
+        to = self.box_of(self.ws_buttons.get(s["to"]))
+        if to is None and s["t0"] is None and s["wait"] < SLIDE_WAIT and s["to"] in self.ws_buttons:
+            s["wait"] += 1                      # новый квадрат ещё раскладывается
+            self.wsbox.queue_draw()
+            return True
+        if s["t0"] is None:
+            s["t0"] = now
+        t = min(1.0, (now - s["t0"]) / slide_ms(s["kind"], s["from"], to or s["from"]))
+        if to is None or t >= 1.0:
+            self.slide = None
+            self.refresh_ws()                   # квадрат приехал — ему класс focused
+            self.wsbox.queue_draw()
+            return False
+        s["rects"] = slide_rects(s["kind"], s["from"], to, t)
+        s["cur"] = s["rects"][0][0]
+        self.wsbox.queue_draw()
+        return True
+
+    def draw_slide(self, _w, cr):
+        """Рамка акцентом поверх квадратов, пока подсветка в пути (координаты — от wsbox)."""
+        s = self.slide
+        if not s or not s.get("cur"):
+            return False
+        col, rad = WS_ACC.get(self.look) or WS_ACC.get("xp") or ("#ffffff", 3)
+        rgba = Gdk.RGBA()
+        rgba.parse(col)
+        cr.save()
+        # фигуры одной прозрачности — одним контуром: слившиеся (Капля) без тёмных наложений
+        groups = []
+        for shape, alpha, kind in reversed(s.get("rects") or [(s["cur"], 1, False)]):
+            if alpha <= 0.01:
+                continue
+            if kind is True:
+                x, y, ww, hh = shape
+                cr.rectangle(x, y, ww, hh)
+                cr.set_source_rgba(rgba.red, rgba.green, rgba.blue, 0.95 * alpha)
+                cr.fill()
+                continue
+            if kind != "poly" and (shape[2] < 1 or shape[3] < 1):
+                continue
+            if groups and groups[-1][0] == alpha:
+                groups[-1][1].append((shape, kind))
+            else:
+                groups.append((alpha, [(shape, kind)]))
+        for alpha, shapes in groups:
+            cr.new_path()
+            for shape, kind in shapes:
+                if kind == "poly":
+                    cr.move_to(*shape[0])
+                    for pt in shape[1:]:
+                        cr.line_to(*pt)
+                    cr.close_path()
+                    continue
+                x, y, ww, hh = shape
+                r = min(rad, ww / 2, hh / 2)
+                cr.new_sub_path()
+                cr.arc(x + ww - r, y + r, r, -math.pi / 2, 0)
+                cr.arc(x + ww - r, y + hh - r, r, 0, math.pi / 2)
+                cr.arc(x + r, y + hh - r, r, math.pi / 2, math.pi)
+                cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+                cr.close_path()
+            cr.set_fill_rule(cairo.FILL_RULE_WINDING)
+            cr.set_source_rgba(rgba.red, rgba.green, rgba.blue, 0.55 * alpha)
+            if len(shapes) > 1:
+                cr.fill()
+                continue
+            cr.fill_preserve()
+            cr.set_source_rgba(rgba.red, rgba.green, rgba.blue, 0.95 * alpha)
+            cr.set_line_width(1)
+            cr.stroke()
+        cr.restore()
+        return False
+
+    # ── действия со столами ──
+    def trailing_ws(self):
+        """Пустой стол в конце монитора — niri держит его всегда; на него ведёт «+»."""
+        mine = sorted((w for w in self.state.workspaces.values() if w.get("output") == self.connector),
+                      key=lambda w: w.get("idx", 0))
+        if mine and mine[-1].get("active_window_id") is None and not mine[-1].get("name"):
+            return mine[-1]["id"]
+        return None
+
+    def move_window(self, wid, ws_id):
+        if ws_id is None:
+            return
+        ui_click("click")
+        ws = self.state.workspaces.get(ws_id) or {}
+        # бросили на стол, который сейчас перед глазами (открылся под окном) — фокус за окном
+        niri_request({"Action": {"MoveWindowToWorkspace": {
+            "window_id": wid, "reference": {"Id": ws_id},
+            "focus": bool(ws.get("is_active") and ws.get("is_focused"))}}})
+
+    def on_tasks_data(self, _w, ctx, _x, _y, data, _info, time_):
+        """Окно бросили на полосу окон — на стол, что открыт на этом мониторе."""
+        try:
+            wid = int(bytes(data.get_data() or b"").decode())
+        except ValueError:
+            return
+        act = next((w["id"] for w in self.state.workspaces.values()
+                    if w.get("output") == self.connector and w.get("is_active")), None)
+        win = self.state.windows.get(wid) or {}
+        if act is not None and win.get("workspace_id") != act:
+            self.move_window(wid, act)
+
+    def move_ws(self, src, dst):
+        """Квадрат src бросили на квадрат dst (None — на «+»): на его место, а если dst на
+        другом мониторе — стол уезжает туда."""
+        s = self.state.workspaces.get(src)
+        if not s or src == dst:
+            return
+        ui_click("click")
+        if dst is None:
+            t = self.state.workspaces.get(self.trailing_ws()) or {}
+            idx = t.get("idx")
+            if idx and s.get("output") == self.connector:
+                idx -= 1                       # пустой стол в конце остаётся последним
+        else:
+            idx = (self.state.workspaces.get(dst) or {}).get("idx")
+        if s.get("output") != self.connector:
+            niri_request({"Action": {"MoveWorkspaceToMonitor": {
+                "output": self.connector, "reference": {"Id": src}}}})
+        if idx:
+            niri_request({"Action": {"MoveWorkspaceToIndex": {"index": idx, "reference": {"Id": src}}}})
+
+    def ws_windows(self, ws_id):
+        return [w for w in self.state.windows.values() if w.get("workspace_id") == ws_id
+                and not (w.get("app_id") or "").startswith(HIDDEN_APPS)]
+
+    def ws_menu(self, ws_id, e):
+        ws = self.state.workspaces.get(ws_id) or {}
+        cur = layout_of(ws_id)
+        lays = [pop_item("%d  %s" % (i + 1, name), mark=mode == cur,
+                         cb=None if mode == cur else lambda md=mode: self.set_layout(ws_id, md))
+                for i, (mode, name) in enumerate(LAYOUT_MODES)]
+        items = [pop_title("Стол %s" % ws.get("idx", "?")), pop_item("Раскладка", sub=lays)]
+        others = sorted({w.get("output") for w in self.state.workspaces.values()} - {ws.get("output"), None})
+        for out in others:
+            items.append(pop_item("Перенести на %s" % monitor_name(out),
+                                  lambda o=out: niri_request({"Action": {"MoveWorkspaceToMonitor": {
+                                      "output": o, "reference": {"Id": ws_id}}}})))
+        wins = self.ws_windows(ws_id)
+        here = next((w for w in self.state.workspaces.values() if w.get("is_focused")), None)
+        ok = bool(wins) and here is not None and here["id"] != ws_id
+        # окна этого стола переедут на стол, где Вы сейчас
+        items.append(pop_item("Собрать окна сюда (%d)" % len(wins), on=ok,
+                              cb=lambda: [niri_request({"Action": {"MoveWindowToWorkspace": {
+                                  "window_id": w["id"], "reference": {"Id": here["id"]},
+                                  "focus": False}}}) for w in wins]))
+        items += [POP_SEP, pop_item("Закрыть все окна (%d)" % len(wins), on=bool(wins), sub=[
+            pop_item("Да, закрыть %d" % len(wins),
+                     lambda: [action("close-window", "--id", str(w["id"])) for w in wins]),
+            pop_item("Отмена", back=True)])]
+        self.menu(items, self.ws_buttons.get(ws_id))
+
+    def menu(self, items, widget=None):
+        """Плашка-меню над панелью: левым краем к widget, без него — к курсору."""
+        x = None
+        if widget is not None and widget.get_mapped():
+            xy = widget.translate_coordinates(self, 0, 0)
+            x = xy[0] if xy else None
+        BarPopup(self, items, x)
+
+    def set_layout(self, ws_id, mode):
+        """ws_layout.py меняет раскладку стола в фокусе — сперва открыть нужный стол."""
+        niri_request({"Action": {"FocusWorkspace": {"reference": {"Id": ws_id}}}})
+        spawn(sys.executable, os.path.join(HERE, "ws_layout.py"), "set", mode)
 
     def focus_ws(self, ws_id):
         ui_click("click")
-        niri_request({"Action": {"FocusWorkspace": {"reference": {"Id": ws_id}}}})
+        reply = niri_request({"Action": {"FocusWorkspace": {"reference": {"Id": ws_id}}}}) or ""
+        if "Ok" not in reply:            # журнал для «стол не кликается» (19.10.2026)
+            print("xpbar ws: переход на стол %s не вышел: %s" % (ws_id, reply.strip()[:200]), flush=True)
+
+    def ws_under(self, x):
+        for wid in self.ws_order:
+            b = self.ws_buttons.get(wid)
+            xy = b.translate_coordinates(self.ws_ev, 0, 0) if b and b.get_mapped() else None
+            if xy and xy[0] <= x < xy[0] + b.get_allocated_width():
+                return b
+        return None
 
     def on_ws_scroll(self, _w, e):
-        """Колесо над столами — соседний стол этого монитора."""
+        """Колесо над столами — соседний стол этого монитора; над квадратом с нотой —
+        громкость того, что звучит на столе; с Shift — окно в фокусе на соседний стол."""
         d = 0
-        if e.direction == Gdk.ScrollDirection.UP:
+        if e.direction in (Gdk.ScrollDirection.UP, Gdk.ScrollDirection.LEFT):
             d = -1
-        elif e.direction == Gdk.ScrollDirection.DOWN:
+        elif e.direction in (Gdk.ScrollDirection.DOWN, Gdk.ScrollDirection.RIGHT):
             d = 1
         elif e.direction == Gdk.ScrollDirection.SMOOTH:
-            ok, _dx, dy = e.get_scroll_deltas()
-            d = (1 if dy > 0 else -1) if ok and abs(dy) >= 0.5 else 0
+            ok, dx, dy = e.get_scroll_deltas()
+            v = dy if abs(dy) >= abs(dx) else dx       # Shift+колесо часто приходит как dx
+            d = (1 if v > 0 else -1) if ok and abs(v) >= 0.5 else 0
+        if not d:
+            return True
+        if e.state & Gdk.ModifierType.SHIFT_MASK or shift_held():
+            action("move-window-to-workspace-down" if d > 0 else "move-window-to-workspace-up")
+            return True
+        x = e.x
+        src = Gtk.get_event_widget(e)           # get_user_data() в PyGObject — число, не виджет
+        if src is not None and src is not self.ws_ev:   # событие пришло окну квадрата
+            x = (src.translate_coordinates(self.ws_ev, int(e.x), 0) or (x, 0))[0]
+        b = self.ws_under(x)
+        if b is not None and b.apps:
+            set_app_volume(b.apps, -d * VOL_STEP)
+            return True
         ids = self.ws_order
         cur = next((i for i, wid in enumerate(ids)
                     if (self.state.workspaces.get(wid) or {}).get("is_active")), None)
-        if d and cur is not None and 0 <= cur + d < len(ids):
+        if cur is not None and 0 <= cur + d < len(ids):
             niri_request({"Action": {"FocusWorkspace": {"reference": {"Id": ids[cur + d]}}}})
         return True
 
@@ -2119,7 +3914,12 @@ class XPBar(Gtk.Window):
         ids = [w["id"] for w in wins]
         for wid in list(self.buttons):
             if wid not in ids:
-                self.buttons.pop(wid).destroy()
+                b = self.buttons.pop(wid)
+                if b.dragging:          # окно ещё тащат (стол открылся под ним) — убрать после
+                    b.stale = True
+                    b.hide()
+                else:
+                    b.destroy()
         focused = None
         for w in wins:
             b = self.buttons.get(w["id"])
@@ -2185,47 +3985,29 @@ class XPBar(Gtk.Window):
         return True
 
     def task_menu(self, wid, e):
-        m = Gtk.Menu()
+        w = self.state.windows.get(wid) or {}
 
         def item(label, *act):
-            mi = Gtk.MenuItem(label=label)
-            mi.connect("activate", lambda _m: action(*act))
-            m.append(mi)
-        w = self.state.windows.get(wid) or {}
-        item("Перейти", "focus-window", "--id", str(wid))
-        item("Во весь экран", "fullscreen-window", "--id", str(wid))
-        item("В ленту" if w.get("is_floating") else "Плавающее", "toggle-window-floating",
-             "--id", str(wid))
-        m.append(Gtk.SeparatorMenuItem())
-        item("Закрыть", "close-window", "--id", str(wid))
-        self.popup(m, e)
-
-    def popup(self, m, e):
-        m.show_all()
-        self.menu_open = True
-
-        def closed(*_a):
-            self.menu_open = False
-            if self.mode == "hover":
-                self.hide_id = GLib.timeout_add(HIDE_MS * 2, self.hide_now)
-        m.connect("deactivate", closed)
-        m.attach_to_widget(self, None)
-        m.popup_at_pointer(e)
+            return pop_item(label, lambda: action(*act))
+        self.menu([item("Перейти", "focus-window", "--id", str(wid)),
+                   item("Во весь экран", "fullscreen-window", "--id", str(wid)),
+                   item("В ленту" if w.get("is_floating") else "Плавающее", "toggle-window-floating",
+                        "--id", str(wid)),
+                   POP_SEP,
+                   item("Закрыть", "close-window", "--id", str(wid))])
 
     def on_start(self, _w, e):
         if e.button == 1:
             # Меню «Пуск» в духе XP — живёт в этом же процессе, построено заранее.
             toggle_menu(self.connector)
         elif e.button == 3:
-            m = Gtk.Menu()
+            items = []
             for label, cmd in (("Программы", [os.path.expanduser("~/.config/niri/scripts/shell-do"), "launcher"]),
                                ("Настройки", [sys.executable, os.path.join(HERE, "settings_app.py")]),
                                ("Экранное время", [sys.executable, os.path.join(HERE, "screentime.py")]),
                                ("Заблокировать", [os.path.join(HERE, "lockscreen")])):
-                mi = Gtk.MenuItem(label=label)
-                mi.connect("activate", lambda _m, c=cmd: spawn(*c))
-                m.append(mi)
-            self.popup(m, e)
+                items.append(pop_item(label, lambda c=cmd: spawn(*c)))
+            self.menu(items, self.start)
         return True
 
     # ── текст песни ───────────────────────────────────────────────────────
@@ -2298,6 +4080,7 @@ def main():
     fit_lyrics()
     display = Gdk.Display.get_default()
     outs = niri_json("outputs") or {}
+    OUTPUTS.update(outs)
     by_model = {(o.get("model") or ""): conn for conn, o in outs.items()}
     bars = []
     pending = {"id": None}
@@ -2330,11 +4113,13 @@ def main():
         print("xpbar: panels: %r" % e, file=sys.stderr)
         panels = pan = None
 
+    pan_box = [pan]                  # SIGHUP (reload) подменяет выбор, не перезапуская процесс
+
     def mode_for(conn):
         if panels is None:
             return mode
         try:
-            return panels.bottom_for(conn, pan) or mode
+            return panels.bottom_for(conn, pan_box[0]) or mode
         except Exception:
             return mode
 
@@ -2403,12 +4188,15 @@ def main():
                 for line in p.stdout:
                     if "'change' on source" in line or "'change' on sink" in line or "on server" in line:
                         GLib.idle_add(schedule_volume)
+                    if "on sink-input" in line:      # кто звучит — ноты на квадратах столов
+                        GLib.idle_add(schedule_streams)
                 p.wait()
             except OSError:
                 pass
             time.sleep(3)
     AUDIO_REFRESH[0] = lambda: (apply_volume(), False)[1]
     apply_volume()
+    schedule_streams(400)
     threading.Thread(target=watch_volume, daemon=True).start()
 
     # уведомления — swaync-client -swb (строка JSON на каждое изменение)
@@ -2510,17 +4298,16 @@ def main():
     display.connect("monitor-removed", monitors_changed)
 
     # смена обоев — новые цвета
-    last = {"m": 0}
-    try:
-        last["m"] = os.stat(PALETTE_FILE).st_mtime
-    except OSError:
-        pass
+    # Смотрим и vivid.txt: skeet берёт акцент оттуда, а theme_changer.sh пишет его позже
+    # colors.json — опрос между ними оставил бы старый акцент до следующих обоев (15.10.2026).
+    vivid_file = os.path.join(os.path.dirname(PALETTE_FILE), "vivid.txt")
+
+    def stamp():
+        return tuple(os.stat(f).st_mtime if os.path.exists(f) else 0 for f in (PALETTE_FILE, vivid_file))
+    last = {"m": stamp()}
 
     def check_palette():
-        try:
-            m = os.stat(PALETTE_FILE).st_mtime
-        except OSError:
-            return True
+        m = stamp()
         if m != last["m"]:
             last["m"] = m
             load_css()
@@ -2557,6 +4344,11 @@ def main():
                       Gio.FileMonitorEvent.DELETED):
             return
         paths = {x.get_path() for x in (f, o) if x is not None}
+        if paths & {BAR_LOOK_FILE, SYS_STYLE_FILE, SETTINGS_MODE_FILE}:
+            if SETTINGS_MODE_FILE in paths or SYS_STYLE_FILE in paths:
+                load_css()                  # beta Light/Dark — другие цвета
+            for b in bars:
+                b.apply_look()
         if START_BUTTON_FILE in paths:
             load_css()
             for b in bars:
@@ -2571,9 +4363,17 @@ def main():
     main.look_monitor = lm
 
     # SIGUSR2 — одиночный Super (super_tap.py): меню на мониторе в фокусе.
+    # 19.10.2026, просьба: «на мониторе без нижней панели нажимаю Super — открывается Пуск,
+    # и с ним ничего не сделать, только открыть и закрыть». toggle_menu без своей панели брал
+    # BARS[0] — меню другого монитора, а клавиатура оставалась здесь. Теперь открытое меню
+    # Super закрывает где угодно, а открывает — только если панель этого монитора на экране.
     def on_usr2():
         out = next((w.get("output") for w in state.workspaces.values() if w.get("is_focused")), "")
-        toggle_menu(out)
+        if any(m.get_visible() for m in MENUS.values()):
+            close_menus()
+            return True
+        if any(b.connector == out and getattr(b, "shown_now", False) for b in bars):
+            toggle_menu(out)
         return True
     glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR2, on_usr2)
 
@@ -2591,9 +4391,39 @@ def main():
     # (panels.py) — только панель монитора в фокусе: у соседа может быть другой режим, и
     # Super+S на MSI прятал его панель «всегда» и выдвигал «при наведении» на ноутбуке
     # (06.10.2026).
+    # SIGHUP — `xpbar.py reload` (panels.py apply): перечитать panels.json; панель монитора,
+    # где режим или место столов другие, убрать — sync_bars создаст её заново. Остальные
+    # панели не трогаются (16.10.2026).
+    def on_hup():
+        if panels is None:
+            return True
+        try:
+            pan_box[0] = panels.load()
+        except Exception:
+            return True
+        for b in list(bars):
+            if mode_for(b.connector) == b.mode and _ws_here(b.connector) == b.ws_here:
+                continue
+            m = MENUS.pop(b.connector, None)
+            if m is not None:
+                m.destroy()
+            bars.remove(b)
+            if b in BARS:
+                BARS.remove(b)
+            b.destroy()
+        sync_bars()
+        return True
+    glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGHUP, on_hup)
+    try:
+        with open(RELOAD_PID + ".tmp", "w") as f:
+            f.write("%d\n" % os.getpid())
+        os.replace(RELOAD_PID + ".tmp", RELOAD_PID)
+    except OSError:
+        pass
+
     def on_usr1():
         targets = bars
-        if panels is not None and panels.per_monitor(pan):
+        if panels is not None and panels.per_monitor(pan_box[0]):
             out = next((w.get("output") for w in state.workspaces.values() if w.get("is_focused")), "")
             targets = [b for b in bars if b.connector == out]
         for b in targets:

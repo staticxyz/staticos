@@ -7,11 +7,16 @@
 import json
 import os
 import subprocess
+import time
 
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 STATE = os.path.join(RUN, "niri-colexpand.json")
 TOUCH = os.path.join(RUN, "niri-colwidth-touch")
 RESET = os.path.join(os.path.dirname(os.path.abspath(__file__)), "winreset")
+
+
+def tile_w(w):
+    return ((w or {}).get("layout") or {}).get("tile_size", [0])[0]
 
 
 def main():
@@ -23,21 +28,45 @@ def main():
     if not w:
         return
     wid = str(w["id"])
+    # {окно: ширина ДО растяжения}. 16.10.2026: раньше был просто список окон, и он
+    # устаревал — окно сузили иначе (Super+0, Super+−, раскладка), а оно числилось
+    # растянутым: Super+Alt+D делал «вернуть», и ничего не менялось (просьба: «в Центре не
+    # работает»). Теперь «растянуто» — только если ширина не вернулась к прежней.
     try:
         with open(STATE) as f:
-            ids = json.load(f)
+            got = json.load(f)
+        widths = got if isinstance(got, dict) else {}
     except (OSError, ValueError):
-        ids = []
+        widths = {}
     open(TOUCH, "w").close()  # размер менял человек — сторож не откатывает
-    if wid in ids:
-        ids.remove(wid)
-        subprocess.run([RESET])
+    cur = tile_w(w)
+    was = widths.pop(wid, None)
+    out = {}
+    try:
+        out = json.loads(subprocess.run(["niri", "msg", "--json", "focused-output"],
+                                        capture_output=True, text=True).stdout) or {}
+    except ValueError:
+        pass
+    screen = (out.get("logical") or {}).get("width") or 1920
+    if (was is not None and abs(cur - was) >= 2) or (was is None and cur >= 0.95 * screen):
+        subprocess.run([RESET])               # растянуто (нами или уже во всю ширину) — вернуть
     else:
-        ids.append(wid)
         subprocess.run(["niri", "msg", "action", "expand-column-to-available-width"],
                        capture_output=True)
+        # Свободного места нет (16.10.2026, просьба: «когда остаются 2 окна на половину не
+        # работает»): обе половины целиком на экране, и niri растягивать некуда — тогда во весь экран.
+        time.sleep(0.15)
+        r = subprocess.run(["niri", "msg", "--json", "focused-window"], capture_output=True, text=True)
+        try:
+            now = tile_w(json.loads(r.stdout))
+        except ValueError:
+            now = cur
+        if abs(now - cur) < 2:
+            subprocess.run(["niri", "msg", "action", "set-column-width", "100%"], capture_output=True)
+        widths[wid] = cur
+    keep = dict(list(widths.items())[-50:])
     with open(STATE, "w") as f:
-        json.dump(ids[-50:], f)
+        json.dump(keep, f)
 
 
 if __name__ == "__main__":

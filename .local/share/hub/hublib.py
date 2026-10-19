@@ -68,6 +68,17 @@ CREATE TABLE IF NOT EXISTS tgmsgs(
   item_id INTEGER NOT NULL, chat INTEGER NOT NULL, mid INTEGER NOT NULL, sig TEXT NOT NULL DEFAULT '',
   created INTEGER NOT NULL, PRIMARY KEY(chat, mid));
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS wa(                -- отложенные сообщения WhatsApp (hubwa.py, 15.10.2026)
+  id INTEGER PRIMARY KEY,
+  jid TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
+  text TEXT NOT NULL,
+  due INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',   -- pending | sending | sent | ask | cancelled
+  created INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  sent_at INTEGER, tries INTEGER NOT NULL DEFAULT 0, next_try INTEGER,
+  error TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT 'pc',
+  hidden INTEGER NOT NULL DEFAULT 0);        -- убрано из истории (dd в окне), не стёрто
+CREATE INDEX IF NOT EXISTS wa_due ON wa(status, due);
 """
 
 # коробки Leitner: через сколько дней показать слово снова после верного ответа
@@ -87,6 +98,12 @@ def connect(path=None):
     c.execute("PRAGMA busy_timeout=10000")
     c.executescript(SCHEMA)
     _migrate(c)
+    for f in (path, path + "-wal", path + "-shm"):   # задачи и тексты WhatsApp — только владельцу
+        try:
+            if os.stat(f).st_mode & 0o077:
+                os.chmod(f, 0o600)
+        except OSError:
+            pass
     return c
 
 
@@ -100,17 +117,26 @@ def _migrate(c):
     """13.10.2026: важность (prio) и ручной порядок (pos) — в старую базу. Порядок
     заполняется тем, что был (срок, потом номер), чтобы список не перемешался."""
     cols = {r[1] for r in c.execute("PRAGMA table_info(items)")}
-    for col, decl in (("prio", "INTEGER NOT NULL DEFAULT 0"), ("pos", "REAL")):
+    for col, decl in (("prio", "INTEGER NOT NULL DEFAULT 0"), ("pos", "REAL"),
+                      ("allday", "INTEGER NOT NULL DEFAULT 0"), ("rbase", "INTEGER")):
         if col not in cols:
             try:
                 c.execute("ALTER TABLE items ADD COLUMN %s %s" % (col, decl))
             except sqlite3.OperationalError:
                 pass                         # другой процесс успел первым
+            if col == "rbase":       # 16.10.2026: опорный срок повтора = нынешний срок
+                c.execute("UPDATE items SET rbase=due WHERE repeat!='' AND rbase IS NULL")
             if col == "pos":
                 ids = [r[0] for r in c.execute("SELECT id FROM items WHERE pos IS NULL "
                                                "ORDER BY (due IS NULL), due, id")]
                 c.executemany("UPDATE items SET pos=? WHERE id=?",
                               [(i + 1, iid) for i, iid in enumerate(ids)])
+    # 15.10.2026: wa.hidden — «убрать запись» из истории окна (u возвращает)
+    if "hidden" not in {r[1] for r in c.execute("PRAGMA table_info(wa)")}:
+        try:
+            c.execute("ALTER TABLE wa ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
 
 
 def config():
@@ -362,16 +388,50 @@ def lists(c):
         "FROM lists l ORDER BY l.name='" + DEFAULT_LIST + "' DESC, l.name").fetchall()
 
 
-def add_item(c, text, list_name=None, due=None, repeat="", source="cli", kind="task", prio=0):
+# «Только дата» (15.10.2026, пользователь): напоминает в эти часы своего дня, пока не отмечено.
+ALLDAY_HOURS = (9, 12, 15, 18)
+
+
+def due_class(due, allday):
+    """0 — дата и время, 1 — только дата, 2 — без срока."""
+    return 2 if not due else 1 if allday else 0
+
+
+def _new_pos(c, cls):
+    """Место новой задачи (15.10.2026, пользователь): с датой и временем — выше задач «только
+    дата», те — выше задач без срока. Встаёт перед первой открытой задачей класса ниже;
+    ручной порядок Alt+j/k потом главнее."""
+    rows = c.execute("SELECT pos, due, allday FROM items WHERE status='open' AND kind='task' "
+                     "AND pos IS NOT NULL ORDER BY pos, id").fetchall()
+    prev = None
+    for r in rows:
+        if due_class(r["due"], r["allday"]) > cls:
+            return (prev + r["pos"]) / 2 if prev is not None else r["pos"] - 1
+        prev = r["pos"]
+    top = c.execute("SELECT MAX(pos) FROM items").fetchone()[0]
+    return (top or 0) + 1
+
+
+def _quiet(due, allday):
+    """«Только дата» звенит с 09:00 того дня (дальше — ALLDAY_HOURS). Записали на сегодня, когда 9 уже прошло, —
+    без звонка: задача и так перед глазами."""
+    return bool(allday and due and due <= now())
+
+
+def add_item(c, text, list_name=None, due=None, repeat="", source="cli", kind="task", prio=0,
+             allday=False):
     text = text.strip()
     if not text:
         raise ValueError("пустой текст")
     lid = ensure_list(c, list_name)
     t = now()
+    allday = int(bool(allday and due))
+    quiet = _quiet(due, allday)
     cur = c.execute(
-        "INSERT INTO items(list_id,text,kind,due,repeat,created,updated_at,source,prio,pos) "
-        "VALUES(?,?,?,?,?,?,?,?,?,(SELECT COALESCE(MAX(pos),0)+1 FROM items))",
-        (lid, text, kind, due, repeat, t, t, source, int(prio)))
+        "INSERT INTO items(list_id,text,kind,due,repeat,created,updated_at,source,prio,pos,allday,"
+        "fired_pc,seen,rbase) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (lid, text, kind, due, repeat, t, t, source, int(prio), _new_pos(c, due_class(due, allday)),
+         allday, t if quiet else None, int(quiet), due))
     log(c, "add", cur.lastrowid, source)
     return cur.lastrowid
 
@@ -440,18 +500,50 @@ def _next_due(due, repeat, base=None):
     return int(d.timestamp())
 
 
+def rbase(it):
+    """Опорный срок повтора: когда пункт стоял по расписанию. «Отложить» двигает только due,
+    поэтому следующий раз считается от rbase — время дня не уползает (16.10.2026)."""
+    try:
+        return it["rbase"] or it["due"]
+    except (IndexError, KeyError):
+        return it["due"]
+
+
 def done(c, iid, source="cli", ts=None):
     it = get_item(c, iid)
     if it is None or it["status"] != "open":
         return False
     if it["repeat"] and it["due"]:
-        nd = _next_due(it["due"], it["repeat"])
-        ok = _apply(c, iid, ts, due=nd, fired_pc=None, fired_tg=None, seen=0)
+        nd = _next_due(rbase(it), it["repeat"])
+        ok = _apply(c, iid, ts, due=nd, rbase=nd, fired_pc=None, fired_tg=None, seen=0)
     else:
         ok = _apply(c, iid, ts, status="done", done_at=now(), seen=1)
     if ok:
         log(c, "done", iid, source)
     return ok
+
+
+def repeat_catchup(c):
+    """Повторяющийся пункт не отметили, а подошёл следующий раз — пункт сам переезжает на
+    него и звенит заново. Один пункт на цикл (16.10.2026, просьба: «повторяющиеся
+    дублируются»): раньше hubd при каждом звонке заводил копию на следующий раз, а старая
+    теряла ↻ и висела рядом. Возвращает id переехавших."""
+    t = now()
+    moved = []
+    for it in c.execute("SELECT * FROM items WHERE status='open' AND repeat!='' AND due IS NOT NULL"
+                        ).fetchall():
+        base = rbase(it)
+        nxt = _next_due(base, it["repeat"], dt.datetime.fromtimestamp(base))
+        if nxt is None or nxt > t:
+            continue
+        last = base
+        while nxt is not None and nxt <= t:          # последний наступивший раз
+            last, nxt = nxt, _next_due(nxt, it["repeat"], dt.datetime.fromtimestamp(nxt))
+        c.execute("UPDATE items SET due=?, rbase=?, fired_pc=NULL, fired_tg=NULL, seen=0, nag=0, "
+                  "updated_at=? WHERE id=?", (last, last, t, it["id"]))
+        log(c, "repeat-next", it["id"], str(last))
+        moved.append(it["id"])
+    return moved
 
 
 def snooze(c, iid, secs=None, until=None, source="cli", ts=None):
@@ -479,12 +571,16 @@ def reopen(c, iid, source="cli"):
     return ok
 
 
-def edit(c, iid, text=None, due="keep", list_name=None, source="cli", ts=None):
+def edit(c, iid, text=None, due="keep", list_name=None, source="cli", ts=None, allday=False):
+    """allday — только вместе с due: новый срок «только дата» (иначе — с временем)."""
     f = {}
     if text is not None:
         f["text"] = text.strip()
     if due != "keep":
-        f.update(due=due, fired_pc=None, fired_tg=None, seen=0)
+        allday = int(bool(allday and due))
+        quiet = _quiet(due, allday)
+        f.update(due=due, rbase=due, allday=allday, fired_pc=now() if quiet else None,
+                 fired_tg=None, seen=int(quiet))
     if list_name:
         f["list_id"] = ensure_list(c, list_name)
     ok = bool(f) and _apply(c, iid, ts, **f)
@@ -501,7 +597,9 @@ def set_prio(c, iid, prio, source="cli"):
 
 
 def set_repeat(c, iid, repeat, source="cli"):
-    ok = _apply(c, iid, None, repeat=repeat or "")
+    it = get_item(c, iid)
+    extra = {"rbase": rbase(it)} if it is not None and repeat else {}
+    ok = _apply(c, iid, None, repeat=repeat or "", **extra)
     if ok:
         log(c, "repeat", iid, "%s %s" % (source, repeat or "-"))
     return ok
@@ -525,13 +623,13 @@ def rename_list(c, old, new):
 RU_DOW = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
 
 
-def fmt_when(due, base=None):
+def fmt_when(due, base=None, allday=False):
     if not due:
         return ""
     base = base or dt.datetime.now()
     d = dt.datetime.fromtimestamp(due)
     delta = (d.date() - base.date()).days
-    hm = d.strftime("%H:%M")
+    hm = "" if allday else d.strftime("%H:%M")
     if delta == 0:
         s = "сегодня " + hm
     elif delta == 1:
@@ -541,8 +639,29 @@ def fmt_when(due, base=None):
     elif 0 < delta < 7:
         s = "%s %s" % (RU_DOW[d.weekday()], hm)
     else:
-        s = d.strftime("%d.%m") + (" " + hm if hm != "09:00" else "")
-    return s
+        s = d.strftime("%d.%m") + (" " + hm if hm and hm != "09:00" else "")
+    return s.strip()
+
+
+def is_allday(it):
+    try:
+        return bool(it["due"] and it["allday"])
+    except (IndexError, KeyError):
+        return False
+
+
+def when(it, base=None):
+    """Срок пункта словами; у «только дата» — без времени."""
+    return fmt_when(it["due"], base, is_allday(it))
+
+
+def overdue(it, t=None):
+    """Просрочено: срок прошёл; у «только дата» — когда прошёл весь день."""
+    if not it["due"]:
+        return False
+    if is_allday(it):
+        return dt.datetime.fromtimestamp(it["due"]).date() < dt.date.today()
+    return it["due"] <= (t or now())
 
 
 def fmt_secs(s):
@@ -556,8 +675,8 @@ def fmt_secs(s):
 
 
 def fmt_item(it, base=None):
-    when = fmt_when(it["due"], base)
-    over = it["due"] and it["status"] == "open" and it["due"] < now()
+    when = fmt_when(it["due"], base, is_allday(it))
+    over = it["status"] == "open" and overdue(it)
     mark = {"open": "·", "done": "✓", "dropped": "✗"}.get(it["status"], "·")
     if it["kind"] == "timer":
         mark = "⏱"

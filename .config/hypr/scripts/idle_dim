@@ -6,6 +6,11 @@
                       ноутбука в ноль, MSI 1%, подсветка клавиатур выключена
                       (и ноутбука, и Razer)
     idle_dim restore  вернуть обычную яркость
+    idle_dim off      ВЫКЛЮЧИТЬ экраны (питание, niri) + подсветку клавиатур;
+                      повтор ничего не делает (код 2). Кнопка «Погасить» в боте
+    idle_dim on       включить экраны и подсветку обратно (и всё, что погасил простой)
+    idle_dim hold     (служебное) держит мониторы выключенными, пока есть файл OFF
+    idle_dim state    on | off | dim — для статуса в боте
 
 Приглушение пропускается, когда включён Savage Mode вместе с «не отключать
 экран». Возврат гаммы делается ВСЕГДА и безусловно: если флаг переключили,
@@ -15,6 +20,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from idle_guard import keep_screen_on  # noqa: E402
@@ -38,6 +44,37 @@ MSI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitor_brightne
 KBD = "rgb:kbd_backlight"   # подсветка клавиатуры ноутбука (см. scripts/kbdlight)
 
 
+LOG = os.path.expanduser("~/.cache/idle-dim.log")
+
+
+def log(msg):
+    try:
+        with open(LOG, "a") as f:
+            f.write("%s %s\n" % (time.strftime("%F %T"), msg))
+    except OSError:
+        pass
+
+
+def msi_set(kind, value):
+    """Поставить яркость/контраст MSI и проверить чтением, до 4 попыток.
+
+    17.10.2026: «Погасить» дважды и сразу «Включить» — MSI остался тусклым
+    (яркость 100, контраст 0). setvcp идёт с --noverify, и команда, пришедшая
+    вплотную за предыдущей DDC-командой другого процесса, монитором молча
+    теряется. Поэтому возврат проверяется и повторяется."""
+    pre = ["contrast"] if kind == "contrast" else []
+    for i in range(4):
+        subprocess.run(["python3", MSI] + pre + ["set", str(value)], capture_output=True)
+        time.sleep(0.3)
+        r = subprocess.run(["python3", MSI] + pre + ["get"], capture_output=True, text=True)
+        got = r.stdout.strip()
+        if got.isdigit() and abs(int(got) - int(value)) <= 1:
+            return True
+        time.sleep(0.5 * (i + 1))
+    log("MSI %s %s не встал (последнее чтение %r)" % (kind, value, got))
+    return False
+
+
 def backlight_down():
     """Опустить подсветку обоих экранов, запомнив прежние значения.
 
@@ -46,13 +83,16 @@ def backlight_down():
     проснулся). Поэтому «глубокое» приглушение ещё и приглушает саму подсветку,
     до 5 %, и никогда до нуля — чтобы было видно, что машина жива.
     """
-    saved = {}
+    # 17.10.2026: второе «глубокое» подряд (кнопка «Погасить» в боте + простой
+    # hypridle 600 с) записывало в память уже нулевую яркость, и «Включить» возвращал
+    # ноль: экран и клавиатура оставались тёмными. Запомненное не перезаписываем.
+    saved = _load_saved()
     # `-m` (машинный вид) — целая строка «устройство,класс,текущее,процент,макс»;
     # `-m g` отдаёт одно число и по нему не узнать, что было (21.09.2026).
     r = subprocess.run(["brightnessctl", "-m"], capture_output=True, text=True)
     cur = r.stdout.strip().splitlines()[0].split(",") if r.stdout.strip() else []
     if r.returncode == 0 and len(cur) > 4:
-        saved["laptop"] = cur[2]
+        saved.setdefault("laptop", cur[2])
         subprocess.run(["brightnessctl", "-q", "set", DEEP_LAPTOP], capture_output=True)
 
     # Подсветка клавиатуры: гасим совсем, но только если она горела — иначе
@@ -60,15 +100,15 @@ def backlight_down():
     r = subprocess.run(["brightnessctl", "-d", KBD, "-m"], capture_output=True, text=True)
     kbd = r.stdout.strip().split(",") if r.stdout.strip() else []
     if r.returncode == 0 and len(kbd) > 4 and kbd[2].isdigit() and int(kbd[2]) > 0:
-        saved["kbd"] = kbd[2]
+        saved.setdefault("kbd", kbd[2])
         subprocess.run(["brightnessctl", "-d", KBD, "-q", "set", "0"], capture_output=True)
     r = subprocess.run(["python3", MSI, "get"], capture_output=True, text=True)
     if r.returncode == 0 and r.stdout.strip().isdigit():
-        saved["msi"] = r.stdout.strip()
+        saved.setdefault("msi", r.stdout.strip())
         subprocess.run(["python3", MSI, "set", DEEP_MSI], capture_output=True)
         c = subprocess.run(["python3", MSI, "contrast", "get"], capture_output=True, text=True)
         if c.returncode == 0 and c.stdout.strip().isdigit():
-            saved["msi_contrast"] = c.stdout.strip()
+            saved.setdefault("msi_contrast", c.stdout.strip())
             try:
                 with open(CONTRAST_SAVE, "w") as f:
                     f.write(saved["msi_contrast"])
@@ -100,11 +140,11 @@ def razer_down(saved):
                 level = float(dev.brightness)
             except Exception:
                 continue
-            if level > 0:
+            if level > 0 and dev.serial not in (saved.get("razer") or {}):
                 values[dev.serial] = level
                 dev.brightness = 0
         if values:
-            saved["razer"] = values
+            saved["razer"] = {**(saved.get("razer") or {}), **values}
     except Exception:
         pass
 
@@ -125,6 +165,21 @@ def razer_up(saved):
         pass
 
 
+def _load_saved():
+    try:
+        with open(BACKLIGHT_SAVE) as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        saved = {}
+    if not saved.get("msi_contrast"):
+        try:
+            with open(CONTRAST_SAVE) as f:
+                saved["msi_contrast"] = f.read().strip()
+        except OSError:
+            pass
+    return saved
+
+
 def backlight_up():
     """Вернуть подсветку. Делается всегда, даже если мы её не опускали."""
     try:
@@ -139,8 +194,7 @@ def backlight_up():
         except OSError:
             pass
     if saved.get("msi_contrast", "").isdigit():
-        subprocess.run(["python3", MSI, "contrast", "set", saved["msi_contrast"]],
-                       capture_output=True)
+        msi_set("contrast", saved["msi_contrast"])
         try:
             os.unlink(CONTRAST_SAVE)
         except OSError:
@@ -150,7 +204,7 @@ def backlight_up():
     if saved.get("laptop"):
         subprocess.run(["brightnessctl", "-q", "set", saved["laptop"]], capture_output=True)
     if saved.get("msi"):
-        subprocess.run(["python3", MSI, "set", saved["msi"]], capture_output=True)
+        msi_set("brightness", saved["msi"])
     if saved.get("kbd"):
         subprocess.run(["brightnessctl", "-d", KBD, "-q", "set", saved["kbd"]],
                        capture_output=True)
@@ -171,9 +225,141 @@ def dim(level):
     print(screen_gamma.apply_state())
 
 
+# 17.10.2026, просьба: «только один раз нажатие засчитывалось… экраны должны полностью
+# гаснуть, вместе с подсветкой клавы». «Погасить» в боте больше не яркость (DDC MSI
+# терял контраст), а питание мониторов через niri. Яркость и контраст не трогаются —
+# возвращать нечего. Файл OFF — признак «погашено кнопкой»: пока он есть, второе
+# «off» не делает ничего.
+# Пользователь: включать — ТОЛЬКО из бота, не от касания. niri будит мониторы от любого
+# ввода, и выключить это нельзя (питание в IPC не видно), поэтому «hold» каждые
+# 0,25 с снова гасит их через сокет niri. Чтобы касание не мелькнуло картинкой,
+# под выключенным питанием ещё гамма в чёрное и подсветка ноутбука в 0.
+RUN = os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
+OFF = os.path.join(RUN, "jarvis-screens-off.json")
+HOLD_EVERY = 0.25
+
+
+def _niri_sock():
+    s = os.environ.get("NIRI_SOCKET")
+    if s and os.path.exists(s):
+        return s
+    socks = sorted(f for f in os.listdir(RUN) if f.startswith("niri.wayland-1.") and f.endswith(".sock"))
+    return os.path.join(RUN, socks[0]) if socks else None
+
+
+def hold_off():
+    import socket
+    req = b'{"Action":{"PowerOffMonitors":{}}}\n'
+    while os.path.exists(OFF):
+        path = _niri_sock()
+        if path:
+            try:
+                with socket.socket(socket.AF_UNIX) as so:
+                    so.settimeout(2)
+                    so.connect(path)
+                    so.sendall(req)
+                    so.recv(256)
+            except OSError:
+                pass
+        time.sleep(HOLD_EVERY)
+    return 0
+
+
+def _niri(action):
+    env = dict(os.environ)
+    if _niri_sock():
+        env["NIRI_SOCKET"] = _niri_sock()
+    env.setdefault("WAYLAND_DISPLAY", "wayland-1")
+    return subprocess.run(["niri", "msg", "action", action], env=env, capture_output=True,
+                          timeout=5).returncode == 0, env
+
+
+def screens_off():
+    if os.path.exists(OFF):
+        print("экраны уже погашены")
+        return 2
+    saved = {}
+    r = subprocess.run(["brightnessctl", "-d", KBD, "-m"], capture_output=True, text=True)
+    kbd = r.stdout.strip().split(",") if r.stdout.strip() else []
+    if r.returncode == 0 and len(kbd) > 4 and kbd[2].isdigit() and int(kbd[2]) > 0:
+        saved["kbd"] = kbd[2]
+        subprocess.run(["brightnessctl", "-d", KBD, "-q", "set", "0"], capture_output=True)
+    razer_down(saved)
+    r = subprocess.run(["brightnessctl", "-m"], capture_output=True, text=True)
+    cur = r.stdout.strip().splitlines()[0].split(",") if r.stdout.strip() else []
+    if r.returncode == 0 and len(cur) > 4 and cur[2] != "0":
+        saved["laptop"] = cur[2]
+        subprocess.run(["brightnessctl", "-q", "set", "0"], capture_output=True)
+    screen_gamma.set_dim("deep")
+    screen_gamma.apply_state()
+    ok, env = _niri("power-off-monitors")
+    with open(OFF, "w") as f:                    # до запуска hold: он живёт, пока файл есть
+        json.dump(saved, f)
+    w = subprocess.Popen([os.path.abspath(__file__), "hold"], env=env, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    saved["watcher"] = w.pid
+    with open(OFF, "w") as f:
+        json.dump(saved, f)
+    log("off %s niri=%s" % (json.dumps(saved), ok))
+    return 0
+
+
+def screens_on():
+    try:
+        with open(OFF) as f:
+            saved = json.load(f)
+        os.unlink(OFF)
+    except (OSError, ValueError):
+        saved = {}
+    pid = saved.get("watcher")                   # сперва снять hold, иначе он погасит снова
+    try:
+        if pid and "idle_dim" in open("/proc/%d/cmdline" % pid).read():
+            os.kill(pid, 15)
+    except (OSError, ValueError):
+        pass
+    time.sleep(HOLD_EVERY)
+    ok, _ = _niri("power-on-monitors")
+    if saved.get("laptop"):
+        subprocess.run(["brightnessctl", "-q", "set", saved["laptop"]], capture_output=True)
+    screen_gamma.set_dim("off")
+    screen_gamma.apply_state()
+    if saved.get("kbd"):
+        subprocess.run(["brightnessctl", "-d", KBD, "-q", "set", saved["kbd"]], capture_output=True)
+    razer_up(saved)
+    if os.path.exists(BACKLIGHT_SAVE) or os.path.exists(CONTRAST_SAVE):
+        backlight_up()                           # пока было темно, успел сработать простой
+        dim("off")
+    log("on %s niri=%s" % (json.dumps(saved), ok))
+    return 0
+
+
+def state():
+    if os.path.exists(OFF):
+        return "off"
+    return "dim" if os.path.exists(BACKLIGHT_SAVE) else "on"
+
+
 def main():
     what = (sys.argv[1:] or ["dim"])[0]
+    if what == "state":
+        print(state())
+        return 0
+    if what == "hold":
+        return hold_off()
+    # Одно затемнение/возврат за раз: «Включить» сразу после «Погасить» иначе успевал
+    # раньше, чем deep дописал память (DDC монитора — секунды), и экран гас насовсем.
+    import fcntl
+    lock = open(os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "idle-dim.lock"), "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    if what == "off":
+        return screens_off()
+    if what == "on":
+        return screens_on()
+    if os.path.exists(OFF):                      # и restore тоже: включает только бот (on)
+        print("экраны выключены кнопкой — до «Включить» в боте ничего не трогаю")
+        return 0
     if what == "restore":
+        log("restore " + json.dumps(_load_saved()))
         backlight_up()
         dim("off")
         return 0
@@ -190,8 +376,13 @@ def main():
         print("смотрят видео (%s) — приглушение пропущено" % v)
         return 0
     if what == "deep":
+        r = subprocess.run(["brightnessctl", "-m"], capture_output=True, text=True)
+        if os.path.exists(BACKLIGHT_SAVE) and ",0,0%," in r.stdout:
+            print("уже глубоко приглушено — повтор пропущен")   # второе deep не трогает ничего
+            return 0
         dim("deep")
         backlight_down()
+        log("deep " + json.dumps(_load_saved()))
         return 0
     dim("soft")
     return 0

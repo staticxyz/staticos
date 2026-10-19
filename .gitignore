@@ -33,3 +33,11 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+
+# Секреты hub/WhatsApp — никогда в репозиторий (15.10.2026)
+.config/hub/
+.local/share/wa/
+tfa.key
+tfa.json
+auth.log
+*.kdbx
