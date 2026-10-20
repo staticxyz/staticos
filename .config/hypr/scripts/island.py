@@ -700,6 +700,7 @@ class CallWatch:
         self.GLib, self.on_change = GLib, on_change
         self.calls = {}              # приложение → {ids, muted, icon, app, since, voice, vol}
         self.quiet = 0.0             # до этого времени OSD микрофона молчит (нажали кнопку в капсуле)
+        self.pin = None              # (muted, до) — нажатое держится, пока pactl применяет
         self.t = None
         self.busy = False
         try:
@@ -773,6 +774,13 @@ class CallWatch:
                 os.replace(CALLS_FILE + ".tmp", CALLS_FILE)
             except OSError:
                 pass
+        if self.pin:
+            want, until = self.pin
+            if time.monotonic() > until or all(c["muted"] == want for c in new.values()):
+                self.pin = None
+            else:                               # опрос успел раньше команды — не мигать назад
+                for c in new.values():
+                    c["muted"] = want
         sig = lambda d: {k: (v["muted"], tuple(v["ids"]), v["voice"], v["vol"]) for k, v in d.items()}
         changed = sig(new) != sig(self.calls)
         self.calls = new
@@ -782,18 +790,33 @@ class CallWatch:
     def toggle_mute(self):
         """Микрофон только в звонке (19.10.2026, просьба: «выключает микрофон желательно в
         звонке»): глушится поток записи Telegram/Discord, а не микрофон системы — остальные
-        программы его слышат. Включение снимает и общий mute, иначе звонок останется немым."""
+        программы его слышат. Включение снимает и общий mute, иначе звонок останется немым.
+        Кнопка меняется сразу, команды — в потоке (20.10.2026, просьба: «как будто с задержкой…
+        можно побыстрее?»: ждали pactl по очереди, 250 мс и полный опрос)."""
         muted = any(c["muted"] for c in self.calls.values())
         self.quiet = time.monotonic() + 1.5     # снятие общего mute — не повод для вспышки OSD
-        try:
-            if muted and any(c.get("gmute") for c in self.calls.values()):
-                subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "0"], timeout=3)
-            for c in self.calls.values():
-                for i in c["ids"]:
-                    subprocess.run(["pactl", "set-source-output-mute", str(i), "0" if muted else "1"], timeout=3)
-        except (OSError, subprocess.SubprocessError) as e:
-            log("toggle_mute:", e)
-        self.kick()
+        gmute = muted and any(c.get("gmute") for c in self.calls.values())
+        ids = [i for c in self.calls.values() for i in c["ids"]]
+        for c in self.calls.values():
+            c["muted"] = not muted
+            if muted:
+                c["gmute"] = False
+        self.pin = (not muted, time.monotonic() + 2)
+        self.on_change()
+
+        def run():
+            try:
+                if gmute:
+                    subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "0"], timeout=3)
+                procs = [subprocess.Popen(["pactl", "set-source-output-mute", str(i), "0" if muted else "1"])
+                         for i in ids]
+                for p in procs:
+                    p.wait(timeout=3)
+            except (OSError, subprocess.SubprocessError) as e:
+                log("toggle_mute:", e)
+            self.GLib.idle_add(lambda: self.kick() and False)
+        import threading
+        threading.Thread(target=run, daemon=True).start()
         return not muted
 
     def mic_volume(self, step):
@@ -1544,8 +1567,8 @@ def paint_dl(cr, x, top, w, h, dl, col, D):
 
 
 PILL_PX, PILL_GAP, PILL_PAD, PILL_MAX = 12, 6, 11, 280
-CALL_PAD = (9, 8)             # звонок: отступ слева до значка, справа — до кнопки микрофона
-CALL_GAP = 18                   # звонок: значок | время | микрофон — просторно, края прижаты (20.10.2026)
+CALL_PAD = (5, 5)             # звонок: отступ слева до значка, справа — до кнопки микрофона
+CALL_GAP = 26                   # звонок: значок | время | микрофон — просторно, края прижаты (20.10.2026)
 MUSIC_MAXW = 130
 
 
@@ -6252,8 +6275,7 @@ class App:
                 subprocess.Popen(["bash", REC_SH, what], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  start_new_session=True)
             elif kind == "call" and what == "mute" and self.calls:
-                import threading
-                threading.Thread(target=self.calls.toggle_mute, daemon=True).start()
+                self.calls.toggle_mute()                # кнопка — сразу, pactl — в потоке
             elif kind == "call" and what == "focus":
                 self.focus_call()
             elif kind == "timer" and what.startswith("stop:"):
