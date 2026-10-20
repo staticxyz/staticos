@@ -2986,19 +2986,19 @@ def paint_skeet_card(cr, x, w, h, kind, d, pages, col, a, ci):
     exe = PAGE_EXE.get(kind, "island.exe")
     ew = text_w(cr, exe, 8)
     # Вкладки стабильны (20.10.2026, просьба: «меняется расположение вкладок? Они должны быть
-    # стабильные»): ширина — по всем блокам из настроек и самому длинному имени .exe, а не по
-    # открытой странице (control.exe сужал вкладки). Живые без дела не рисуются и места не
-    # держат — ни пустых ячеек, ни разрыва («их не должно быть», «разделение тоже не очень»).
-    ids = TAB_IDS or [k for k, _dd in pages]
-    n = max(1, len(ids) + sum(1 for k, _dd in pages if k not in ids))
-    exw = max(text_w(cr, e, 8) for e in PAGE_EXE.values())
-    tw = max(20, min(30, int((w - 12 - exw - 24) / n)))
+    # стабильные»): живые без дела не рисуются и места не держат («их не должно быть»,
+    # «разделение тоже не очень»). Вкладки делят всю ширину ряда («не должно быть пустого
+    # пространства, расположи их равномерно по всей площади») — имя .exe поэтому не в ряду,
+    # а на рамке группы справа, напротив заголовка: от его длины ряд не зависит.
+    n = max(1, len(pages))
+    span = w - 12
+    edge = [int(x + 6 + round(i * span / n)) for i in range(n + 1)]
     line = sk_rgb(0.235, col)
     cr.rectangle(x + 6, sy + sh, w - 12, 1)
     cr.set_source_rgba(*line, a)
     cr.fill()
     for i, (k, _dd) in enumerate(pages):
-        tx = x + 6 + i * tw
+        tx, tw = edge[i], edge[i + 1] - edge[i]
         live = k in LIVE_TABS
         if i and live != (pages[i - 1][0] in LIVE_TABS):   # черта между живыми и инструментами
             cr.rectangle(tx, sy + 4, 1, sh - 8)
@@ -3029,7 +3029,6 @@ def paint_skeet_card(cr, x, w, h, kind, d, pages, col, a, ci):
         gy = int(sy + sh / 2) - (1 if live else 0)
         pix_glyph(cr, g, int(tx + tw / 2), gy, ink, ga) or put_glyph(cr, g, 16, int(tx + tw / 2), gy, ink, ga)
         hits.append(((tx, sy, tw, sh), ("page", i)))
-    put_text(cr, exe, 8, x + w - 12 - ew, sy + sh / 2, col["on_surface_variant"], 0.75 * a)
     # группа с заголовком на рамке
     gx, gy, gw = x + 10, SK_TOP + 6, w - 20
     gh = h - gy - 10
@@ -3051,6 +3050,10 @@ def paint_skeet_card(cr, x, w, h, kind, d, pages, col, a, ci):
         cr.set_source_rgba(*sk_rgb(0.075, col), a)
         cr.fill()
         put_text(cr, title, 8, gx + 12, gy + 1, col["on_surface"], 0.92 * a)
+        cr.rectangle(gx + gw - 16 - ew, gy - 1, ew + 8, 4)
+        cr.set_source_rgba(*sk_rgb(0.075, col), a)
+        cr.fill()
+        put_text(cr, exe, 8, gx + gw - 12 - ew, gy + 1, col["on_surface_variant"], 0.75 * a)
     # страница внутри группы
     _SK["on"] = True
     try:
