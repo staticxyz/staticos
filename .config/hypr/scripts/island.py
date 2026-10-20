@@ -5944,10 +5944,10 @@ class App:
     def pill_focus(self):
         """Что показывает живая нить: блок, открытый последним из тех, кому есть что показать
         (звонок, музыка, помидор, таймер, запись, котик), — если он сейчас идёт. Иначе — первое
-        дело по порядку страниц. Звонок важнее всего: начался — сразу он. None — часы."""
+        дело по порядку страниц. Звонок выходит вперёд, только когда начался (refresh → set_info);
+        открыли потом другой блок — показывается он (20.10.2026, просьба: «островок звонков не надо
+        делать приоритетным»). None — часы."""
         live = [k for k, _d in self.acts if k in PAGES]
-        if "call" in live:
-            return "call"
         info = self.info.split(":", 1)[0]
         if info in ("cat", "cc") and info in page_ids(self.conf):
             return info
@@ -5996,6 +5996,10 @@ class App:
         # (20.10.2026, просьба: «хочу заснять этот островок… это исключение только для записей
         # gif'ок»); страница записи с ▶ остаётся в карточке. Видео — как прежде.
         self.acts = [a for a in acts if not (a[0] == "rec" and a[1]["mode"] == "gif")]
+        in_call = any(k == "call" for k, _d in self.acts)
+        if in_call and not getattr(self, "in_call", False) and self.info.split(":", 1)[0] != "call":
+            self.set_info("call")                 # звонок начался — капсула сразу о нём
+        self.in_call = in_call
         self.pages = all_pages(self.conf, acts, self.clip, self.cat.s, self.shelf, self.sys_pages()) if on else []
         if self.flash and now >= self.flash["until"]:
             self.flash = None
@@ -6097,6 +6101,17 @@ class App:
         self.refresh()
         return False
 
+    def set_info(self, kind):
+        self.info = kind                          # живая нить теперь показывает этот блок
+        try:
+            with open(LAST_INFO, "w") as f:
+                f.write(kind)
+        except OSError:
+            pass
+        for isl in self.wins.values():
+            if isl.mode == "thread":
+                isl.go("thread")
+
     # — буфер обмена: снимки —
     def on_page(self, kind, page=None):
         if kind != "power":
@@ -6108,15 +6123,7 @@ class App:
         if kind in self.sys_ui:
             self.poll_sys(kind)
         if page is not None and kind in INFO_KINDS and kind != self.info.split(":", 1)[0]:
-            self.info = kind                      # живая нить теперь показывает этот блок
-            try:
-                with open(LAST_INFO, "w") as f:
-                    f.write(kind)
-            except OSError:
-                pass
-            for isl in self.wins.values():
-                if isl.mode == "thread":
-                    isl.go("thread")
+            self.set_info(kind)
         if page is not None and page_key(page) != self.last:   # листнули сами — запомнить
             self.last = page_key(page)
             try:
