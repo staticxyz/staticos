@@ -507,10 +507,11 @@ label.mi-accel {
 tooltip {
     background-color: %(surface)s; color: %(on_surface)s;
     border: 1px solid %(primary)s; border-radius: 8px;
+    padding: 2px;
 }
 tooltip label {
     font-family: '%(font)s', sans-serif; font-size: 16px; font-weight: normal;
-    padding: 2px 6px;
+    padding: 0 3px;
 }
 """
 
@@ -569,10 +570,11 @@ label.mi-accel {
 tooltip {
     background-color: %(xp_bg)s; color: %(on_surface)s;
     border: 1px solid %(xp_dark)s; border-radius: 0;
+    padding: 2px;
 }
 tooltip label {
     font-family: '%(font)s', sans-serif; font-size: 12px; font-weight: normal;
-    padding: 1px 4px;
+    padding: 0 3px;
 }
 """
 # Вид «Система» (15.10.2026, просьба: «адаптировать под стиль системы (то есть Skeet) и добавить
@@ -650,10 +652,11 @@ tooltip {
     background-color: %(bg)s; color: %(text)s;
     border: 1px solid %(line3)s; border-radius: 0;
     box-shadow: inset 0 0 0 1px %(line1)s;
+    padding: 2px;
 }
 tooltip label {
     font-family: '%(font)s', sans-serif; font-size: 12px; font-weight: normal;
-    padding: 2px 5px;
+    padding: 0 3px;
 }
 """
 CSS_BETA = """
@@ -697,10 +700,11 @@ label.mi-accel {
 tooltip {
     background-color: %(bg)s; color: %(text)s;
     border: 1px solid %(frame)s; border-radius: 0;
+    padding: 2px;
 }
 tooltip label {
     font-family: '%(font)s', sans-serif; font-size: 12px; font-weight: normal;
-    padding: 1px 4px;
+    padding: 0 3px;
 }
 """
 STYLES = ("xp", "classic", "system")

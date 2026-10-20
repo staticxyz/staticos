@@ -96,7 +96,11 @@ tells you what each file does and what starts it, without opening anything.
   pomodoro, timers with 5–60 min presets, music with a pixel cover and a block equalizer, a
   pixel cat that runs while something is going on (and shows synced lyrics instead), snapshots.
   Hover or click opens a card, the wheel flips pages, it reopens on the page you left.
-  Settings → Waybar → Island: «As the system» or iOS look.
+  System pages live right in the island: a control centre (night light, caffeine, power
+  profile), Wi-Fi and Bluetooth lists with connect/forget and a password field, power buttons
+  that ask before acting. File downloads show as a strip of filling squares, and «Back to
+  work» types a reminder in the old-terminal way after a long stretch of video or dotfile
+  tinkering. Settings → Waybar → Island: «As the system», Skeet or iOS look, thread brightness.
 
 ## More screenshots
 

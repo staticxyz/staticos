@@ -559,8 +559,8 @@ def draw_thread_look(cr, w, h, key, pal, look="auto"):
     c2 = cairo.Context(sub)
     island.font_opts(c2)
     if key == "pill":                       # ширина живой пилюли — по её содержимому
-        tw = island.pill_w(c2, [("music", P())], col)
-    island.paint(c2, {"w": tw, "h": th, "mode": "thread", "alpha": 1.0, "style": key, "ta": 0.6,
+        tw = island.pill_w(c2, [("music", P())], col, D)
+    island.paint(c2, {"w": tw, "h": th, "mode": "thread", "alpha": 1.0, "style": key, "ta": 0.8,
                       "acts": [("music", P())], "th": 8, "pages": (1, 0)}, col, D)
     k = min(1.0, (w - 8) / 150)
     cr.set_source_rgba(*col["surface_high"], 0.7)        # верх окна: зазор под нитью
@@ -1836,8 +1836,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
             background: none; border: none; box-shadow: none;
         }
         tooltip { background-color: %(surface_high)s; border: 1px solid %(line_strong)s;
-                  border-radius: 6px; }
-        tooltip label { color: %(on_surface)s; font-size: 12px; }
+                  border-radius: 6px; padding: 2px; }
+        tooltip label { color: %(on_surface)s; font-size: 12px; padding: 0 3px; }
 
         /* ── боковое меню: пункты и подпункты ── */
         .rail { background-color: %(rail)s; border-right: 1px solid %(line)s; padding: 10px 6px; }
@@ -5715,23 +5715,31 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "(в зазоре, окна не закрывает). Выключено — между событиями его нет вовсе.",
                  icon="\U000f0d3c", default=True)
         self.row(c, "Вид нити", icon="\U000f0d3c",
-                 hint="Линия или точки — тусклые, прогресс помидора или трека ярче, цветом дела. "
-                      "Живая — чёрная пилюля: звонок (длительность, микрофон щелчком), запись, "
-                      "помидор, таймер, музыка; в покое точка и часы. Над окнами под нить "
-                      "оставляется зазор: под линию меньше, под пилюлю больше. На мониторе, где "
-                      "верхний waybar всегда виден, нити и зазора нет. Котик — часы, кот и "
-                      "обложка с эквалайзером: кот бежит, пока занят терминал, играет музыка или "
-                      "идёт помидор, иначе спит; у песни с текстом вместо кота — строка песни. "
-                      "Звонку, записи и таймеру кот уступает место живой пилюли.",
-                 below=self.tiles([("line", "Линия"), ("dots", "Точки"), ("pill", "Живая"), ("cat", "Котик")],
+                 hint="Линия или точки — тихо: тусклая полоска, прогресс главного дела (сколько "
+                      "прошло у таймера, помидора, трека) ярче, цветом дела. Живая — пилюля в виде "
+                      "островка (Skeet, пиксельный, iOS…) с инфо того блока, который вы открывали последним: звонок, музыка, помидор, "
+                      "таймер, запись или котик (снимки, захват, фокус и настройки не считаются). "
+                      "Начался звонок — сразу он. Над окнами под нить оставляется зазор: под линию "
+                      "меньше, под пилюлю больше. На мониторе, где верхний waybar всегда виден, "
+                      "нити и зазора нет.",
+                 below=self.tiles([("line", "Линия"), ("dots", "Точки"), ("pill", "Живая")],
                                   conf.get("thread_style", "line"),
                                   lambda cr, w, h, k, pal: draw_thread_look(cr, w, h, k, pal,
                                                                             conf.get("design", "auto")),
-                                  lambda k: put("thread_style", k), per_row=4, height=44))
+                                  lambda k: put("thread_style", k), per_row=3, height=44))
         self.row(c, "Яркость нити", self.segments(
-                     [("0.2", "Еле"), ("0.35", "Тускло"), ("0.5", "Средне"), ("0.75", "Ярко")],
-                     "%.2g" % float(conf.get("thread_alpha", 0.35)), lambda k: put("thread_alpha", k)),
-                 "Насколько заметна нить в покое.", icon="\U000f00df", default="0.35")
+                     [("0.2", "Low"), ("0.8", "High")],
+                     "0.2" if float(conf.get("thread_alpha", 0.8)) < 0.3 else "0.8",
+                     lambda k: put("thread_alpha", k)),
+                 "Насколько заметна нить в покое: Low — тускло, High — ярко "
+                 "(и у линии, и у капсулы).", icon="\U000f00df", default="0.8")
+        self.row(c, "Индикаторы в островке", self.pill(conf.get("osd", True), lambda on: put("osd", on)),
+                 "Громкость, микрофон и яркость показываются в островке полоской вместо шторки "
+                 "eww. Выключено — как раньше, шторкой.", icon="\U000f057e", default=True)
+        self.row(c, "Ночное притемнение", self.pill(conf.get("night_dim", True),
+                                                    lambda on: put("night_dim", on)),
+                 "С 22:00 до 7:00 островок притушен, под курсором — в полную яркость.",
+                 icon="\U000f0594", default=True)
         self.row(c, "Раскрывать наведением", self.pill(conf.get("hover", True), lambda on: put("hover", on)),
                  "Навели на нить — островок раскрывается, увели — сворачивается. Выключено — "
                  "только щелчком.", icon="\U000f01e5", default=True)
@@ -5794,15 +5802,17 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 ctl.pack_start(self.pill(state[k], lambda on, k=k: toggle(k, on)), False, False, 6)
                 rows[k] = self.row(box, title, ctl, desc + (" Видна, только пока идёт." if live == "live" else ""),
                                    icon=glyphs.get(k))
-        self.row(c, "Новый трек — раскрыть", self.pill(conf.get("track_pop", False),
+        self.row(c, "Новый трек — показать", self.pill(conf.get("track_pop", True),
                                                        lambda on: put("track_pop", on)),
-                 "Смена трека раскрывает островок на пару секунд. Выключено — только нить "
-                 "(уведомление о треке остаётся как было).", icon="\U000f0f66", default=False)
+                 "Сменилась песня — островок на 5 секунд показывает её название. Выключено — "
+                 "только нить (уведомление о треке остаётся как было).", icon="\U000f0f66",
+                 default=True)
         self.row(c, "Держать раскрытым", self.segments(
-                     [("1.5", "1,5 с"), ("2.5", "2,5 с"), ("4.0", "4 с"), ("6.0", "6 с")],
+                     [("0.7", "0,7 с"), ("1.5", "1,5 с"), ("2.5", "2,5 с"), ("4.0", "4 с"), ("6.0", "6 с")],
                      "%.1f" % float(conf.get("pop_sec", 2.5)), lambda k: put("pop_sec", k)),
-                 "Сколько островок показывает событие (начало записи, конец помидора), прежде чем "
-                 "сжаться в нить.", icon="\U000f051b", default="2.5")
+                 "Сколько раскрытый островок держится, когда курсор ушёл с него, и сколько "
+                 "показывает событие (начало записи, конец помидора), прежде чем сжаться в нить. "
+                 "То же — на странице островка «Настройки».", icon="\U000f051b", default="2.5")
 
     # Applications: Neovim, ЭЛТ в Zen, дашборд, карточки на столе
     def page_apps(self):

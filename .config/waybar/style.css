@@ -176,11 +176,12 @@ tooltip {
     background-color: alpha(@background, 0.95);
     border: 1px solid @primary;
     border-radius: 12px;
+    padding: 2px;
 }
 
 tooltip label {
     color: @foreground;
-    padding: 6px;
+    padding: 0 3px;
 }
 
 /* Cava эквалайзер. @vivid, а не @primary: primary в тёмной схеме Material

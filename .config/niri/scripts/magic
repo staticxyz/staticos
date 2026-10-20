@@ -16,6 +16,11 @@
 # стол того же монитора, чтобы клавиша никогда не оставляла в кармане запертым.
 
 set -e
+# Помидор «programming» — в карман и из него не ходим: стол закреплён
+# (scripts/pomo_lock.py, 20.10.2026; пользователь уходил частыми Alt+Q к Telegram).
+case "${1:-toggle}" in
+    toggle|take) "$HOME/.local/bin/pomo" locked >/dev/null 2>&1 && exit 0 ;;
+esac
 NAME=""   # значок Telegram — это и имя стола, и его подпись в баре
 MEM="${XDG_RUNTIME_DIR:-/tmp}/niri-magic-from"
 

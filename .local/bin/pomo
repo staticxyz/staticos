@@ -513,7 +513,8 @@ cmd_ask() {
     fi
     set -f; set -- $pick; set +f
     [ $# -gt 0 ] || return 0
-    if parse_dur "$1" >/dev/null; then
+    last=; for a do last=$a; done
+    if parse_dur "$1" >/dev/null || { [ $# -gt 1 ] && case $last in *[!0-9]*) parse_dur "$last" >/dev/null ;; *) false ;; esac; }; then
         out=$("$SELF" "$@" 2>&1) || { notify 'Не понял время' "$out" normal; return 1; }
     else
         case $1 in
@@ -522,6 +523,18 @@ cmd_ask() {
         "$SELF" start "$@" >/dev/null
     fi
     return 0
+}
+
+# Замок стола на помидор «programming» (20.10.2026): ставит и держит сторож
+# scripts/pomo_lock.py, здесь — только проверка для обёрток (ws-step, Ctrl+Q).
+# Отметка верна, пока отрезок тот же и идёт: пауза, перерыв, стоп снимают замок сами.
+cmd_locked() {
+    [ -s "$RUN/ws-lock" ] || return 1
+    read -r lb ls lw _ < "$RUN/ws-lock" || return 1
+    load
+    [ "$phase" = work ] && [ "$paused" -eq 0 ] && [ "$began" = "$lb" ] && [ "$started" = "$ls" ] \
+        && [ "$(date +%s)" -lt $(( started + duration )) ] || return 1
+    printf '%s\n' "$lw"
 }
 
 # ---------------- вывод ----------------
@@ -718,10 +731,24 @@ case $cmd in
     ring)             lock; cmd_ring ;;
     [0-9]*)           lock; cmd_custom "$cmd" "$@" ;;
     ask|menu)         cmd_ask ;;
+    locked)           cmd_locked ;;
     status|st)        cmd_status "$@" ;;
     watch|w)          cmd_watch ;;
     log|stats)        cmd_log "$@" ;;
     edit)             mkdir -p "${CONF%/*}"; ${EDITOR:-vi} "$CONF" ;;
     help|-h|--help)   cmd_help ;;
-    *) printf 'Неизвестная команда: %s\n\n' "$cmd" >&2; cmd_help >&2; exit 1 ;;
+    *)
+        # «programming 45m» = «45m programming» (15.10.2026, просьба: «задом наперёд я мог
+        # тоже создавать в Pomo»). Последнее слово — длительность с единицей (45m, 1ч20м):
+        # голое число в конце («глава 2») остаётся частью названия.
+        last=$cmd; for a do last=$a; done
+        if [ $# -gt 0 ] && case $last in *[!0-9]*) true ;; *) false ;; esac \
+                && parse_dur "$last" >/dev/null; then
+            n=$#; i=1; set -- "$cmd" "$@"
+            for a do [ $i -le $n ] && set -- "$@" "$a"; i=$((i + 1)); done
+            shift $((n + 1))
+            lock; cmd_custom "$last" "$@"
+        else
+            printf 'Неизвестная команда: %s\n\n' "$cmd" >&2; cmd_help >&2; exit 1
+        fi ;;
 esac

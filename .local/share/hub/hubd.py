@@ -298,7 +298,7 @@ def announce_away(c):
     подправится под состояние (sync_messages): «Время вышло», «остановлен». fired_tg —
     метка «уже присылал»: при срабатывании fire() всё равно пришлёт «Время вышло»."""
     rows = c.execute("SELECT i.*, l.name AS list FROM items i JOIN lists l ON l.id=i.list_id "
-                     "WHERE i.status='open' AND i.kind='timer' AND i.source='widget' AND "
+                     "WHERE i.status='open' AND i.kind='timer' AND i.source IN ('widget','island') AND "
                      "i.due>? AND i.fired_tg IS NULL", (H.now() + 5,)).fetchall()
     if not rows or pc_present():
         return

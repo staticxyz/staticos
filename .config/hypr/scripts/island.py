@@ -35,6 +35,10 @@ LOCK = os.path.join(RUN, "jarvis-island.lock")
 SOCK = os.path.join(RUN, "jarvis-island.sock")
 CONF = os.path.expanduser("~/.config/hypr/state/island.json")
 LAST = os.path.expanduser("~/.config/hypr/state/island-last")
+# последний открытый блок, которому есть что показать в «Живой» нити (звонок, музыка, помидор,
+# таймер, запись, котик); снимки, захват, фокус, настройки его не меняют (20.10.2026, пользователь)
+LAST_INFO = os.path.expanduser("~/.config/hypr/state/island-last-info")
+INFO_KINDS = ("call", "music", "pomo", "timer", "rec", "nudge", "cat", "cc")
 LOG = os.path.join(RUN, "island.log")
 REC = os.path.join(RUN, "jarvis-rec")
 POMO = os.path.join(RUN, "pomo", "state")
@@ -48,34 +52,60 @@ DEFAULTS = {
     "thread_always": True,   # нить и без дел (точка с часами): страницы островка всегда под рукой
     # Страницы островка по порядку (Настройки → Waybar → «Страницы островка»); порядок = и
     # приоритет: первое идущее дело показывает живая нить.
-    "pages": "call,music,pomo,timer,rec,cat,clip,capture,focus",
-    "rev": 3,                # версия списка страниц: 3 — добавлен «Котик» (20.10.2026)
+    "pages": "call,music,pomo,timer,rec,nudge,cat,cc,clip,tools,wifi,bt,power,prefs",
+    "rev": 8,                # версия настроек: 3 — «Котик», 4 — «Настройки», 5 — «Полка», трек 5 с, 6 — «Пора к делу»,
+                             # 7 — «Центр», Wi-Fi, Bluetooth, Питание (20.10.2026), 8 — «Центр» за котиком
+    "nudge_min": 45.0,       # «Пора к делу»: столько минут подряд видео или дотфайлов — первое напоминание
+    "nudge_every": 20.0,     # дальше — раз в столько минут, другой фразой
+    "downloads": True,       # загрузки/отправка — панель под живой капсулой (island_dl.py)
     # Поверх окон: зазора над окнами нет (край как по системе), островок рисуется поверх
     # всего; в играх всё равно прячется (19.10.2026: «Поверх окон… Кроме игр»).
     "overlay": False,
-    "track_pop": False,      # смена трека раскрывает компакт (иначе — уведомление swaync)
-    "pop_sec": 2.5,          # сколько держится компакт после события
+    "track_pop": True,       # смена трека: название в компакте на 5 с (TRACK_POP_S)
+    "osd": True,             # громкость, микрофон, яркость — индикатором в островке, без шторки eww
+    "night_dim": True,       # ночью (NIGHT) островок притушен
+    "bubble": True,          # пузырь ▶ рядом с нитью, пока музыка на паузе
+    "pop_sec": 2.5,          # сколько держится раскрытым: после ухода курсора и после события
     "design": "auto",        # вид: auto — как стиль системы (Default/Skeet/Beta), ios
-    "thread_style": "line",  # нить: line — линия, dots — точки, pill — капсула с часами, cat — котик
-    "thread_alpha": 0.35,    # насколько видна нить (0.15–0.8): «тусклее, чтобы был незаметным»
+    "thread_style": "line",  # нить: line — линия, dots — точки, pill — живая (последний блок с инфо)
+    "thread_alpha": 0.8,     # яркость нити: 0.2 Low, 0.8 High (TA_LEVELS)
     "hover": True,           # раскрывать наведением (иначе — щелчком)
     "video_hide": False,     # при видео в фокусе нить не видна (19.10.2026: «пока что убери»)
 }
 
-CW, CH = 560, 232            # холст постоянного размера: размер поверхности не меняется
-THREAD_W, THREAD_H, COMPACT_H, CARD_W, CARD_H = 132, 4, 34, 420, 120
-CARD_HK = {"clip": 212, "timer": 150}   # своя высота страницы: снимки — два ряда, у таймера — ряд отрезков
+# Холст постоянного размера: размер поверхности не меняется. 232 → 264 (20.10.2026, просьба:
+# «где края? снизу островка») — Skeet-карточка снимков 212 + 36 = 248 px срезалась снизу.
+# 264 → 420 (20.10.2026): «Ещё…» у Wi-Fi/Bluetooth раскрывает весь список вниз
+CW, CH = 560, 420
+THREAD_W, THREAD_H, EASE_H, CARD_W, CARD_H = 132, 4, 34, 420, 120
+TA_LEVELS = (0.2, 0.8)
+# 20.10.2026, просьба: «переименуй на Low Mid High…», затем «опять Mid и High ничем не
+# отличаются… тогда оставляй 2 кнопки Low High». Линия на Mid уже почти непрозрачна (0.84),
+# ярче полной непрозрачности не сделать — ступеней две: Low притушает и линию, и капсулу,
+# High — нить целиком, без прозрачности.
+HARD_SHADOW = 5           # тень раскрытого островка — как у виджетов (desktop_widgets.SHADOW)
+CARD_HK = {"clip": 212, "shelf": 212,   # своя высота страницы: снимки и полка — два ряда по четыре
+           "music": 150,                # музыка: обложка слева и эквалайзер внизу (20.10.2026)
+           "cc": 150, "wifi": 150, "bt": 150,
+           "prefs": 148}                # настройки: четыре ряда (с 20.10.2026 и яркость нити)   # «Центр»: аватар, система, три плитки; сети и устройства — списком
+MUSIC_COVER = 48                        # обложка карточки музыки: 24×24 крупными пикселями ×2
+MUSIC_EQ = (4, 4, 24)                   # эквалайзер карточки: рядов, квадратик px, место под него px
+SK_TOP, SK_EXTRA = 30, 36  # Skeet: радуга и вкладки над рамкой группы; карточка на столько выше
 ANIM_MS = 300
 HOVER_MS, LEAVE_MS = 140, 650   # задержка раскрытия наведением и сворачивания после ухода курсора
+HOVER_CTL_MS = 550              # то же над капсулой, которой можно управлять (колесо, ЛКМ)
 HOVER_PAD = 18                  # зона наведения вокруг нити (сама нить 3 px — в неё не попасть)
 THREAD_Y = 5                    # нить на 5 px ниже края (было 2 — «опусти чуть-чуть», 19.10.2026)
 PILL_W, PILL_H = 74, 24         # нить-капсула (20→24, 19.10.2026: «больше пространства между верхом и низом»)
+# компакт (запись, событие, индикатор) — высотой с мини-островок, 34→24 (20.10.2026, просьба:
+# «сохраняло размер мини островка… а то влезает в окно снизу»); раскрытые карточки — как были
+COMPACT_H = PILL_H
 # Зазор между окнами и нитью: добавка к верхнему краю niri (niri_compositor.py island_space).
 # Края окон = 8 px. Капсула 24 px → +28 (по 6 px воздуха сверху и снизу); линии/точкам чуть
 # меньше, но не впритык (19.10.2026: «для линии поменьше, но не прям сильно меньше»): +17 —
 # линия 3 px ровно посередине, по 11 px над и под ней.
 SPACE = {"line": 17, "dots": 17, "pill": 28, "cat": 28}
-PILLS = ("pill", "cat")         # нити-капсулы: своя высота и ширина по содержимому
+PILLS = ("pill", "cat", "ccp")  # нити-капсулы: своя высота и ширина по содержимому (ccp — «Центр»)
 NIRI_COMP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "niri_compositor.py")
 
 
@@ -148,14 +178,39 @@ def sync_space(c):
                        capture_output=True, timeout=10)
     except (OSError, ValueError, subprocess.SubprocessError) as e:
         log("sync_space:", e)
-PAUSED_KEEP = 30             # музыка на паузе держится нитью столько секунд
+PAUSED_KEEP = 60             # музыка на паузе держится нитью столько секунд (30→60, 20.10.2026:
+                             # «исчезает слишком быстро, если ничего не играет»)
+TRACK_POP_S = 5.0            # название нового трека в компакте (20.10.2026: «на 5 секунд»)
+NIGHT = (22, 7)              # ночное притемнение: с 22:00 до 07:00
+NIGHT_A = {"thread": 0.6, "compact": 0.75, "card": 0.9}
+G_SUN = "\U000f00df"         # яркость (mdi brightness-6)
+VOL_STEP, SEEK_S = 5, 5      # колесо на капсуле: громкость ±5 %, Shift+колесо — перемотка ±5 с
+OSD_FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-island.osd")
+# мониторы, где островок сейчас сам показывает строку песни — там нижняя панель (xpbar) её не
+# дублирует (20.10.2026, просьба: «если вверху и так отображается текст — не показывать снизу»)
+LYR_FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-island-lyrics")
+_LYR = {"on": False}            # paint: нарисована полоса строки песни (капсула котика, карточка)
+_CAT = {"s": None}              # paint: состояние кота (обложка, cava) — карточке музыки
+EWW_VOL_OPEN = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "eww-vol.open")
 
 G_PREV, G_PLAY, G_PAUSE, G_NEXT, G_STOP = "\U000f04ae", "\U000f040a", "\U000f03e4", "\U000f04ad", "\U000f04db"
 G_POMO, G_BREAK, G_NOTE, G_REC, G_SKIP = "\U000f051f", "\U000f0176", "\U000f075a", "\U000f044a", "\U000f0661"
 G_MIC, G_MIC_OFF, G_TIMER, G_CLIP, G_PICK = "\U000f036c", "\U000f036d", "\U000f051b", "\U000f0192", "\U000f020a"
+G_TOOLS = "\U000f09ac"                 # md-toolbox; в островке — пикселями (PIX_BMP)
 G_SHOT, G_MEMO, G_OPEN, G_CALL, G_BOARD = "\U000f019e", "\U000f039a", "\U000f03cc", "\U000f03f2", "\U000f014c"
 G_TG, G_DISCORD = "", "\U000f066f"
 
+G_PLUS, G_COG = "\U000f0415", "\U000f0493"
+G_NUDGE = "\U000f018d"                # md-console; в островке — пикселями (PIX_BMP)
+# «Пора к делу» (20.10.2026, просьба: «если просидел долго за видео или опять настраиваю
+# дотфайлы — сверху плашка… текст слева направо, как в старых терминалах»). Янтарь старых
+# мониторов — не из палитры обоев; рамка мигает NUDGE_BLINK_S, потом фраза печатается по буквам.
+NUDGE_RGB = (1.0, 0.71, 0.2)
+NUDGE_POLL_S = 10
+NUDGE_BLINK_S, NUDGE_CHAR_S, NUDGE_HOLD_S = 1.0, 0.045, 6.0
+DL_POLL_S, DL_FRAME_MS, DL_DONE_S = 2, 90, 1.5   # загрузки: опрос, кадр «бегущих» клеток, «готово»
+DL_W, DL_H, DL_PAD, DL_SQ, DL_SQ_GAP = 300, 50, 12, 6, 2   # панель загрузки под капсулой: клетки 6 px
+BAR_UP_S = 6.0               # верхний бар показан: островок прячется на столько с последней вести
 G_VOL, G_VOL_OFF, G_WAVE = "\U000f057e", "\U000f0581", "\U000f0e4e"
 
 # Страницы островка: id → (название, что на ней, вид). Вид: live — есть, только пока дело
@@ -168,18 +223,29 @@ PAGES = {
     "call":    ("Звонок", "Telegram/Discord: длительность, микрофон звонка, громкость; голосовое — живая волна", "live"),
     "music":   ("Музыка", "где играет (YouTube, Яндекс Музыка…), время, громкость приложения", "live"),
     "pomo":    ("Помидор", "сколько осталось, задача, пауза, пропуск, стоп", "live"),
-    "timer":   ("Таймер", "готовые 5–60 минут или своё время; идущие таймеры hub", "always"),
+    "timer":   ("Таймер", "идущие таймеры hub; «+» — ещё один, с виджетом timer.exe, как из Telegram", "always"),
     "rec":     ("Запись экрана", "время записи, пауза, стоп", "live"),
+    "nudge":   ("Пора к делу", "долго за видео или дотфайлами в редакторе — фраза печатается в островке; внутри — сколько сидите", "live"),
     "clip":    ("Снимки из буфера", "последние картинки: перетащить в чат или поиск, щелчок — скопировать", "static"),
-    "capture": ("Захват", "запись экрана, пипетка, снимок", "static"),
-    "focus":   ("Фокус", "заметка и помидор", "static"),
+    "tools":   ("Инструменты", "запись экрана, пипетка, снимок, заметка, помидор", "static"),
     "cat":     ("Котик", "бегает, пока занят терминал, играет музыка или идёт помидор; песня с текстом — караоке", "static"),
+    "prefs":   ("Настройки", "вид островка, вид и яркость нити, сколько держать раскрытым — прямо в островке", "static"),
+    "shelf":   ("Полка", "бросьте файл на островок — полежит здесь; щелчок — открыть, перетащить — куда угодно", "static"),
+    "cc":      ("Центр", "аватар и ник, система и uptime; Кофеин (ПКМ — с Таурином), Ночной свет (ПКМ — спектр), Баланс/Мощность (ПКМ — Экономия); свёрнутый — Сторож, день недели, кофеин", "static"),
+    "wifi":    ("Wi-Fi", "вкл/выкл, сети: щелчок — кнопки (подключить, пароль, отключить, забыть); «Ещё…» — весь список", "static"),
+    "bt":      ("Bluetooth", "вкл/выкл, устройства: щелчок — кнопки (подключить, отключить, забыть); «Ещё…» — поиск новых", "static"),
+    "power":   ("Питание", "блокировка, выход, сон, перезагрузка, выключение (с подтверждением)", "static"),
 }
-PAGE_GLYPH = {"call": G_CALL, "rec": G_REC, "pomo": G_POMO, "timer": G_TIMER, "music": G_NOTE,
-              "clip": G_CLIP, "capture": G_SHOT, "focus": G_MEMO, "cat": "\U000f011b"}
+SYS_PAGES = ("cc", "wifi", "bt", "power")   # системные страницы (island_sys.py), 20.10.2026
+SYS_POLL = ("cc", "wifi", "bt", "pill", "radio")   # что опрашивается (pill — капсула «Центра», radio — значки вкладок)
+PAGE_GLYPH = {"call": G_CALL, "rec": G_REC, "nudge": G_NUDGE, "pomo": G_POMO, "timer": G_TIMER, "music": G_NOTE,
+              "clip": G_CLIP, "tools": G_TOOLS, "cat": "\U000f011b",
+              "prefs": G_COG, "shelf": "\U000f024b", "cc": "\U000f0521", "wifi": "\U000f05a9", "bt": "\U000f00af",
+              "power": "\U000f0425"}
 PAGE_EXE = {"call": "call.exe", "music": "music.exe", "pomo": "pomo.exe", "timer": "timer.exe",
-            "rec": "rec.exe", "clip": "clip.exe", "capture": "capture.exe", "focus": "focus.exe",
-            "cat": "cat.exe"}
+            "rec": "rec.exe", "nudge": "nudge.exe", "clip": "clip.exe", "tools": "tools.exe",
+            "cat": "cat.exe", "prefs": "island.exe", "shelf": "shelf.exe", "cc": "control.exe",
+            "wifi": "wifi.exe", "bt": "bluetooth.exe", "power": "power.exe"}
 # Инструменты блоков: id, значок, подпись, команда (запуск через niri — отдельным процессом).
 CAPTURE = [
     ("rec", G_REC, "Запись", ["bash", os.path.join(HERE, "rec_area.sh")]),
@@ -191,6 +257,14 @@ FOCUS = [
     ("pomo", G_POMO, "Помидор", [os.path.expanduser("~/.local/bin/pomo"), "ask"]),
 ]
 TOOLS = CAPTURE + FOCUS
+# Свой цвет у каждого инструмента (20.10.2026, просьба: «покрась в подходящие цвета, точку
+# записи в красный»). Не из палитры обоев — смысл цвета не должен меняться с обоями.
+# Вкладки Skeet: блоки, что выходят в нить (живые), — цветные с полоской снизу; инструменты —
+# серые (20.10.2026, просьба: «хочу различать блоки информационного блока и просто вкладки»).
+# «Центр» — тоже живой: свёрнутый островок показывает его капсулу (20.10.2026)
+LIVE_TABS = ("call", "rec", "pomo", "timer", "music", "nudge", "cat", "cc")
+TOOL_RGB = {"rec": (0.94, 0.28, 0.28), "pick": (0.78, 0.55, 0.98), "shot": (0.36, 0.78, 0.96),
+            "note": (0.98, 0.82, 0.30), "pomo": (0.98, 0.45, 0.30)}
 TIMER_PRESETS = (5, 10, 15, 25, 45, 60)            # минуты: щелчок — сразу таймер hub
 CALL_GREEN = (0.30, 0.82, 0.46)
 
@@ -217,11 +291,13 @@ def load_conf():
             d.update({k: v[k] for k in v if k in DEFAULTS})
     except (OSError, ValueError):
         pass
-    # 19.10.2026: «Инструменты» разделены на «Захват» и «Фокус»; видов осталось два
+    # 20.10.2026: «Захват» и «Фокус» снова одна страница «Инструменты» (просьба: «блоки Захват
+    # и Фокус можешь объединить в одну») — на месте первой из двух
     pg = [x.strip() for x in str(d["pages"]).split(",")]
-    if "tools" in pg:
-        i = pg.index("tools")
-        pg[i:i + 1] = [x for x in ("capture", "focus") if x not in pg]
+    if "capture" in pg or "focus" in pg:
+        i = min(pg.index(x) for x in ("capture", "focus") if x in pg)
+        pg = [x for x in pg[:i] if x != "tools"] + ["tools"] + \
+             [x for x in pg[i:] if x not in ("capture", "focus", "tools")]
         d["pages"] = ",".join(pg)
     if d["design"] not in ("auto", "ios"):
         d["design"] = "auto"
@@ -235,6 +311,72 @@ def load_conf():
             save_conf(d)
         except OSError:
             pass
+    if raw.get("rev", 0) < 4 and raw:           # 20.10.2026: страница «Настройки», нить-котик → живая
+        pg = [x.strip() for x in str(d["pages"]).split(",")]
+        if "prefs" not in pg:
+            d["pages"] = ",".join(pg + ["prefs"])
+        if d["thread_style"] == "cat":          # котик теперь — часть живой нити: её последний блок
+            d["thread_style"] = "pill"
+            if not _read(LAST_INFO).strip():
+                try:
+                    with open(LAST_INFO, "w") as f:
+                        f.write("cat")
+                except OSError:
+                    pass
+        d["rev"] = 4
+        try:
+            save_conf(d)
+        except OSError:
+            pass
+    if raw.get("rev", 0) < 5 and raw:           # 20.10.2026: «Полка» после снимков, трек на 5 с
+        pg = [x.strip() for x in str(d["pages"]).split(",")]
+        if "shelf" not in pg:
+            pg.insert(pg.index("clip") + 1 if "clip" in pg else len(pg), "shelf")
+            d["pages"] = ",".join(pg)
+        d["track_pop"] = True
+        d["rev"] = 5
+        try:
+            save_conf(d)
+        except OSError:
+            pass
+    if raw.get("rev", 0) < 6 and raw:           # 20.10.2026: «Пора к делу» — после записи, перед котиком
+        pg = [x.strip() for x in str(d["pages"]).split(",")]
+        if "nudge" not in pg:
+            pg.insert(pg.index("cat") if "cat" in pg else len(pg), "nudge")
+            d["pages"] = ",".join(pg)
+        d["rev"] = 6
+        try:
+            save_conf(d)
+        except OSError:
+            pass
+    if raw.get("rev", 0) < 7 and raw:           # 20.10.2026: «Центр», Wi-Fi, Bluetooth, Питание — перед настройками
+        pg = [x.strip() for x in str(d["pages"]).split(",")]
+        new = [x for x in SYS_PAGES if x not in pg]
+        if new:
+            i = pg.index("prefs") if "prefs" in pg else len(pg)
+            d["pages"] = ",".join(pg[:i] + new + pg[i:])
+        d["rev"] = 7
+        try:
+            save_conf(d)
+        except OSError:
+            pass
+    if raw.get("rev", 0) < 8 and raw:           # 20.10.2026: «Центр» — между котиком и буфером
+        pg = [x.strip() for x in str(d["pages"]).split(",")]
+        if "cc" in pg and "cat" in pg:
+            pg.remove("cc")
+            pg.insert(pg.index("cat") + 1, "cc")
+            d["pages"] = ",".join(pg)
+        d["rev"] = 8
+        try:
+            save_conf(d)
+        except OSError:
+            pass
+    if d["thread_style"] not in ("line", "dots", "pill"):
+        d["thread_style"] = "pill" if d["thread_style"] == "cat" else "line"
+    try:                                        # две ступени: Low / High (TA_LEVELS)
+        d["thread_alpha"] = 0.2 if float(d["thread_alpha"]) < 0.3 else 0.8
+    except (TypeError, ValueError):
+        d["thread_alpha"] = 0.8
     return d
 
 
@@ -395,7 +537,12 @@ class Music:
             if was == "Playing" and p.status != "Playing":
                 self.paused_at[p.name] = time.monotonic()
         if "Metadata" in props:
-            p.meta = dict(props["Metadata"] or {})
+            meta = dict(props["Metadata"] or {})
+            # браузер на паузе/перемотке шлёт метаданные без длины — та же песня, длину помним
+            if not meta.get("mpris:length") and p.meta.get("mpris:length") \
+                    and str(meta.get("xesam:title") or "").strip() == p.title:
+                meta["mpris:length"] = p.meta["mpris:length"]
+            p.meta = meta
 
     def on_owner(self, _c, _s, _p, _i, _sig, params):
         name, _old, new = params.unpack()
@@ -439,6 +586,33 @@ class Music:
         now = time.monotonic()
         recent = [p for p in ps if p.status == "Paused" and now - self.paused_at.get(p.name, -1e9) < PAUSED_KEEP]
         return max(recent, key=lambda p: self.paused_at.get(p.name, 0)) if recent else None
+
+    def paused_player(self, keep=None):
+        """Плеер, поставленный на паузу последним (не дольше keep с назад), — если ничто не играет."""
+        ps = [p for p in self.players.values() if p.title and not p.ignored()]
+        if any(p.status == "Playing" for p in ps):
+            return None
+        now, keep = time.monotonic(), keep or BUBBLE_KEEP
+        recent = [p for p in ps if p.status == "Paused" and now - self.paused_at.get(p.name, -1e9) < keep]
+        return max(recent, key=lambda p: self.paused_at.get(p.name, 0)) if recent else None
+
+    def player(self):
+        """Кем управлять с капсулы: играющий, иначе недавно поставленный на паузу."""
+        return self.current() or self.paused_player()
+
+    def seek(self, p, sec):
+        try:
+            self.bus.call(p.name, self.PATH, self.IFACE, "Seek", self.GLib.Variant("(x)", (int(sec * 1e6),)),
+                          None, self.Gio.DBusCallFlags.NONE, 800, None, None)
+        except Exception as e:
+            log("mpris seek", e)
+
+    def pid(self, p):
+        try:
+            return int(self.call("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                                 "GetConnectionUnixProcessID", self.GLib.Variant("(s)", (p.name,)), "(u)")[0])
+        except Exception:
+            return None
 
     def command(self, p, method):
         try:
@@ -691,7 +865,7 @@ def read_timers():
 
 
 CLIP_DIR = os.path.join(os.path.expanduser("~/.cache/jarvis-island"), "clip")
-CLIP_N = 4
+CLIP_N = 8                 # 20.10.2026: «почему всего 4 снимка помещаются?» — сетка 4×2
 
 
 def list_clip_images():
@@ -724,6 +898,31 @@ def clip_file(cid, fmt):
     return path
 
 
+SHELF = os.path.expanduser("~/.config/hypr/state/island-shelf.json")
+SHELF_N = 8
+IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg")
+G_FILE, G_FOLDER, G_X = "\U000f0214", "\U000f024b", "\U000f0156"
+
+
+def shelf_load():
+    """Полка: пути файлов, свежие первыми; пропавшие с диска — мимо."""
+    try:
+        v = json.load(open(SHELF))
+    except (OSError, ValueError):
+        return []
+    return [p for p in v if isinstance(p, str) and os.path.exists(p)][:SHELF_N] if isinstance(v, list) else []
+
+
+def shelf_save(paths):
+    try:
+        os.makedirs(os.path.dirname(SHELF), exist_ok=True)
+        with open(SHELF + ".tmp", "w") as f:
+            json.dump(paths[:SHELF_N], f, ensure_ascii=False)
+        os.replace(SHELF + ".tmp", SHELF)
+    except OSError as e:
+        log("shelf:", e)
+
+
 def prune_clip(keep):
     try:
         for f in os.listdir(CLIP_DIR):
@@ -735,7 +934,7 @@ def prune_clip(keep):
 
 # ─────────────────────────── что показывать ───────────────────────────
 
-def activities(conf, music, calls=None, timers=None):
+def activities(conf, music, calls=None, timers=None, nudge=None):
     """[(вид, данные)] идущих дел — в порядке страниц из настроек (он же приоритет)."""
     out = []
     for p in page_ids(conf):
@@ -757,10 +956,12 @@ def activities(conf, music, calls=None, timers=None):
             m = music.current()
             if m:
                 out.append(("music", m))
+        elif p == "nudge" and nudge:
+            out.append(("nudge", nudge))
     return out
 
 
-def all_pages(conf, acts, clip, cat=None):
+def all_pages(conf, acts, clip, cat=None, shelf=None, sysd=None):
     """Страницы карточки по порядку настроек: идущие дела + постоянные (таймер, буфер,
     захват, фокус). Таймер есть всегда: без таймеров на нём только готовые отрезки."""
     out = []
@@ -774,6 +975,12 @@ def all_pages(conf, acts, clip, cat=None):
             out.append(("clip", clip))
         elif p == "cat":
             out.append(("cat", cat))
+        elif p == "shelf":
+            out.append(("shelf", shelf))
+        elif p == "prefs":
+            out.append(("prefs", {k: conf[k] for k in ("design", "thread_style", "thread_alpha", "pop_sec")}))
+        elif p in ("cc", "wifi", "bt", "power"):
+            out.append((p, (sysd or {}).get(p)))
         else:
             out.append((p, None))
     return out
@@ -795,6 +1002,8 @@ def timer_rem(t):
 
 def act_line(kind, d):
     """(значок, текст, цвет-ключ) для компакта."""
+    if kind == "nudge":
+        return (G_NUDGE, d.get("text") or "Пора к делу", "nudge")
     if kind == "rec":
         return (G_PAUSE if d["paused"] else "●", "%s  %s" % (mmss(d["sec"]), "пауза" if d["paused"] else d["mode"]), "error")
     if kind == "pomo":
@@ -822,6 +1031,8 @@ def act_line(kind, d):
 
 
 def progress(kind, d):
+    if kind == "flash":                         # индикатор громкости/яркости: уровень 0…1
+        return d.get("pr")
     if kind == "pomo" and d["dur"]:
         return 1 - d["rem"] / d["dur"]
     if kind == "music" and d.length:
@@ -841,6 +1052,12 @@ def colors():
     rgb = lambda h: tuple(int(h.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
     c = {k: rgb(v) for k, v in p.items()}
     c["bg"] = rgb(popup_theme.bar_bg())
+    # чистый акцент обоев — им красятся рамки виджетов (desktop_widgets.load_theme); 20.10.2026,
+    # Просьба: «сравни рамки островка и виджета, не хватает акцентной цветности» (было primary)
+    try:
+        c["vivid"] = rgb(open(os.path.expanduser("~/.cache/matugen/vivid.txt")).read().strip())
+    except (OSError, ValueError):
+        c["vivid"] = c["primary"]
     return c
 
 
@@ -881,7 +1098,7 @@ def design(name, style="default"):
 def top_of(D, h, ty=THREAD_Y):
     """Отступ сверху: нить — ty под краем (посередине до окон, thread_y), раскрытый островок —
     на gap (вырез без gap висит вплотную); между ними — плавно по высоте."""
-    k = max(0.0, min(1.0, (h - THREAD_H) / max(1, COMPACT_H - THREAD_H)))
+    k = max(0.0, min(1.0, (h - THREAD_H) / max(1, EASE_H - THREAD_H)))
     return ty + (max(D["gap"], ty) - ty) * k if D["gap"] else ty * (1 - k)
 
 
@@ -995,6 +1212,8 @@ def font_opts(cr):
 def compact_w(cr, kind, d, extra, D=None):
     icon, text, _c = act_line(kind, d)
     use_font(D)
+    if kind == "nudge":                         # ширина под всю фразу сразу — пока печатается, не растёт
+        return max(150, min(CW - 60, 36 + text_w(cr, text, 13 if D and D.get("ios") else 8) + 26))
     if D and D.get("ios"):
         return max(150, min(CW - 60, 18 + text_w(cr, text, 13) + 10 + COMPACT_H + 12 * extra))
     return max(150, min(CW - 60, 16 + 16 + 10 + text_w(cr, text, 8) + 16 + 12 * extra))
@@ -1033,17 +1252,38 @@ def paint(cr, st, col, D):
         return []
     use_font(D)
     font_opts(cr)
+    _CAT["s"] = st.get("cat")
     x = (CW - w) / 2
     ty = st.get("ty", THREAD_Y)
     top = top_of(D, h, ty)
-    style = eff_style(st.get("style"), st.get("acts"))
-    if st["mode"] == "thread" and style == "cat":
-        return paint_cat_pill(cr, x, ty, w, h, st, col, D)
-    if st["mode"] == "thread" and style == "pill":
-        return paint_pill(cr, x, ty, w, h, st, col)
-    if st["mode"] == "thread" and h <= THREAD_H + 2:
-        paint_thread(cr, x, top, w, st, col, D)
-        return []
+    style = eff_style(st.get("style"), st.get("pk"))
+    dl = st.get("dl") if st["mode"] == "thread" and st.get("ta", 1) > 0.01 else None
+    if dl and style not in PILLS:               # загрузка — всегда капсулой: тонкой нити не хватит места
+        style = "pill"
+    if st["mode"] == "thread" and (style in PILLS or h <= THREAD_H + 2):
+        cr.push_group()
+        ph, PD = h, D
+        if dl and h > PILL_H:
+            ph, PD = float(PILL_H), dict(D, shadow=None)   # тень — одна, у всей капсулы с панелью
+            dl_hits = paint_dl(cr, x, ty, w, h, dl, col, D)
+        if style == "cat":
+            hits = paint_cat_pill(cr, x, ty, w, ph, st, col, PD)
+        elif style == "ccp":
+            hits = paint_cc_pill(cr, x, ty, w, ph, st, col, PD)
+        elif style == "pill":
+            hits = paint_pill(cr, x, ty, w, ph, st, col, PD)
+        else:
+            paint_thread(cr, x, top, w, st, col, D)
+            hits = []
+        if dl and h > PILL_H:
+            hits = hits + dl_hits
+        # пузырь ▶ рядом с нитью убран (20.10.2026, просьба: «никаких отдельных кнопок рядом
+        # с островком, я имел в виду кнопки внутри островка»)
+        pat = cr.pop_group()
+        ta = st.get("ta", 0.8)
+        cr.set_source(pat)
+        cr.paint_with_alpha(0.55 if style in PILLS and 0 < ta < 0.3 else 1.0)
+        return hits
     cr.save()
     cr.translate(0, top)
     if D["shadow"] == "soft" and h > 6:
@@ -1054,11 +1294,12 @@ def paint(cr, st, col, D):
             cr.set_source_rgba(0, 0, 0, al)
             cr.fill()
             cr.restore()
-    elif D["shadow"] == "hard" and h > 6:
+    elif D["shadow"] == "hard" and h > 6:      # жёсткая тень, как у виджетов (SHADOW 5, bg×0.25)
+        sh = HARD_SHADOW if h > COMPACT_H + 4 else 3
         cr.save()
-        cr.translate(3, 3)
+        cr.translate(sh, sh)
         pill_path(cr, x, w, h, D)
-        cr.set_source_rgba(0, 0, 0, 0.55)
+        cr.set_source_rgba(*(c * 0.25 for c in col["bg"]), 0.72)
         cr.fill()
         cr.restore()
     pill_path(cr, x, w, h, D)
@@ -1117,12 +1358,14 @@ def paint(cr, st, col, D):
             cr.rectangle(x + 4, h - 2, (w - 8) * pr, 1)
             cr.set_source_rgba(*col["primary"], 0.8 * a)
             cr.fill()
+    elif mode == "compact" and kind == "nudge":
+        paint_nudge_compact(cr, x, w, h, d, col, a, D)
     elif mode == "compact" and D.get("ios"):
         ios_compact(cr, x, w, h, kind, d, acts, col, a)
     elif mode == "compact":
         icon, text, ck = act_line(kind, d)
         mid = h / 2
-        put_text(cr, icon, 16, x + 14, mid, ck_rgb(ck, col), a)
+        pix_glyph(cr, icon, x + 22, mid, ck_rgb(ck, col), a) or put_text(cr, icon, 16, x + 14, mid, ck_rgb(ck, col), a)
         put_text(cr, text, 8, x + 38, mid, col["on_surface"], a, maxw=w - 38 - 14 - 12 * (len(acts) - 1))
         for i, (k, _dd) in enumerate(acts[1:3]):
             c = act_color(k, col)
@@ -1130,12 +1373,22 @@ def paint(cr, st, col, D):
             cr.set_source_rgba(*c, a)
             cr.fill()
         pr = progress(kind, d)
-        if pr is not None:
+        if pr is not None and kind == "flash":  # индикатор: дорожка и уровень толще, ровно в пиксели
+            bw = int(w - 24)
+            cr.rectangle(int(x + 12), int(h - 5), bw, 2)
+            cr.set_source_rgba(*col["on_surface"], 0.18 * a)
+            cr.fill()
+            cr.rectangle(int(x + 12), int(h - 5), int(bw * max(0.0, min(1.0, pr))), 2)
+            cr.set_source_rgba(*col["primary"], a)
+            cr.fill()
+        elif pr is not None:
             cr.rectangle(x + 12, h - 3, (w - 24) * pr, 1)
             cr.set_source_rgba(*col["primary"], 0.7 * a)
             cr.fill()
     elif D.get("ios"):
         hits = paint_card_ios(cr, x, w, h, kind, d, pages, col, a, (len(pages), ci))
+    elif D.get("line"):
+        hits = paint_skeet_card(cr, x, w, h, kind, d, pages, col, a, ci)
     else:
         hits = paint_card(cr, x, w, h, kind, d, pages, col, a, ci)
     cr.restore()
@@ -1147,7 +1400,7 @@ def paint_thread(cr, x, top, w, st, col, D):
     """Нить: ровная сглаженная линия или точки, тусклая (thread_alpha). Прогресс помидора или
     трека — та же линия ярче, цветом дела. ta=0 — спрятана (видео), наведение проявляет."""
     import cairo
-    a = st.get("ta", 0.35)
+    a = st.get("ta", 0.8)
     if a <= 0.01:
         return
     cr.save()
@@ -1162,7 +1415,7 @@ def paint_thread(cr, x, top, w, st, col, D):
         for i, k in enumerate(("primary", "secondary", "tertiary")):
             base.add_color_stop_rgba(i / 2, *col[k], a)
     else:                                               # акцент обоев, не серый (19.10.2026, пользователь)
-        base = cairo.SolidPattern(*col["primary"], min(0.85, a * 2.4))
+        base = cairo.SolidPattern(*col["primary"], min(1.0, a * 2.4))
         lit_c = tuple(v + (1 - v) * 0.45 for v in acc)  # прогресс светлее основы, иначе сливается
     y = top + THREAD_H / 2
     if st.get("style") == "dots":
@@ -1193,6 +1446,94 @@ def paint_thread(cr, x, top, w, st, col, D):
     cr.restore()
 
 
+DL_ARROW = ("..##..", "..##..", "..##..", "######", ".####.", "..##..")   # ↓ пикселями; ↑ — он же сверху вниз
+
+
+def dl_name(dl):
+    if dl.get("up"):
+        return "%s — отправка" % dl["name"]
+    return dl.get("name") or "загрузка"
+
+
+def paint_dl(cr, x, top, w, h, dl, col, D):
+    """Загрузка или отправка (island_dl.py) — панель под живой капсулой, одним телом с ней.
+    20.10.2026, пользователь (по образцу окна «Загрузки»): «квадратные полоски, которые заполняются;
+    название, чтобы знать, что именно загружается или выгружается; снизу — сколько процентов,
+    сколько из скольки, скорость и сколько осталось». Всего неизвестно (Telegram, curl, отправка) —
+    по клеткам бежит отрезок. Щелчок по панели — папка файла."""
+    import cairo
+    import island_dl
+    ios = bool(D.get("ios"))
+    cr.save()
+    cr.set_antialias(cairo.ANTIALIAS_GOOD if ios else cairo.ANTIALIAS_NONE)
+    if ios:                                         # тело: капсула сверху + панель — одно
+        r = PILL_H / 2
+        cr.new_path()
+        cr.arc(x + w - r, top + r, r, -math.pi / 2, 0)
+        cr.arc(x + w - r, top + h - r, r, 0, math.pi / 2)
+        cr.arc(x + r, top + h - r, r, math.pi / 2, math.pi)
+        cr.arc(x + r, top + r, r, math.pi, 3 * math.pi / 2)
+        cr.close_path()
+        cr.set_source_rgba(0.02, 0.02, 0.03, 0.92)
+        cr.fill_preserve()
+        cr.set_line_width(1)
+        cr.set_source_rgba(1, 1, 1, 0.08)
+        cr.stroke()
+    else:
+        pill_shape(cr, x, top, w, h, col, D)
+    a0, ah = top + PILL_H, h - PILL_H
+    if ah < DL_H * 0.8 or w < DL_W * 0.8:           # панель ещё раскрывается — пусто
+        cr.restore()
+        return []
+    cr.rectangle(x, a0, w, ah)
+    cr.clip()
+    acc, on, var = col["primary"], col["on_surface"], col["on_surface_variant"]
+    if ios:
+        on = var = (1, 1, 1)
+    x0, x1 = x + DL_PAD, x + w - DL_PAD
+    if not ios:
+        x0, x1 = int(x0), int(x1)
+    # 1. значок ↓/↑ и имя (+ ещё N справа)
+    y1 = int(a0 + 11)
+    up = bool(dl.get("up"))
+    for j, row in enumerate(DL_ARROW):
+        rr = j if not up else len(DL_ARROW) - 1 - j
+        for i, ch in enumerate(row):
+            if ch == "#":
+                cr.rectangle(x0 + i, y1 - 3 + rr, 1, 1)
+    cr.set_source_rgba(*acc, 1)
+    cr.fill()
+    more = "+%d" % (dl["n"] - 1) if dl.get("n", 1) > 1 else ""
+    mw = text_w(cr, more, 8) if more else 0
+    put_text(cr, dl_name(dl), 8, x0 + 11, y1, on, 0.95, maxw=x1 - x0 - 11 - (mw + 8 if mw else 0))
+    if more:
+        put_text(cr, more, 8, x1 - mw, y1, var, 0.6)
+    # 2. клетки
+    sq, gap = DL_SQ, DL_SQ_GAP
+    n = max(1, int((x1 - x0 + gap) // (sq + gap)))
+    sx = x0 + int((x1 - x0 - (n * (sq + gap) - gap)) / 2)
+    y2 = int(a0 + 22)
+    pr = 1.0 if dl.get("done") else dl.get("pr")
+    if pr is not None:
+        lit = set(range(int(n * max(0.0, min(1.0, pr)) + 1e-6)))
+    else:                                           # бегущий отрезок из 5 клеток
+        run = 5
+        head = int(time.monotonic() * 14) % (n + run)
+        lit = set(range(max(0, head - run), min(n, head)))
+    for i in range(n):
+        cr.rectangle(sx + i * (sq + gap), y2, sq, sq)
+        if i in lit:
+            cr.set_source_rgba(*acc, 1)
+        else:
+            cr.set_source_rgba(*on, 0.13)
+        cr.fill()
+    # 3. цифры: «72% · 1 КБ из 1 КБ · 0 КБ/с · ещё 4 с»
+    txt = "готово" if dl.get("done") else island_dl.stats(dl)
+    put_text(cr, txt, 8, x0, int(a0 + 39), var, 0.8, maxw=x1 - x0)
+    cr.restore()
+    return [((x, a0, w, ah), ("dl", "open"))]
+
+
 PILL_PX, PILL_GAP, PILL_PAD, PILL_MAX = 12, 6, 11, 280
 MUSIC_MAXW = 130
 
@@ -1200,9 +1541,10 @@ MUSIC_MAXW = 130
 def pill_parts(acts, col):
     """Живая капсула (19.10.2026, просьба: «если телеграм звонок активный — значок тг,
     длительность и статус микро с возможностью нажать… если музыка — её»): главное дело
-    (первая живая страница по порядку настроек) крупно, остальные — точками справа; дел нет —
-    точка и часы. [(вид, значение, цвет)]: g — значок, t — текст, mic — кнопка микрофона,
-    bars — полоски музыки, dot — точка слева, sdot — точка другого дела."""
+    (последний открытый блок с инфо, иначе первое по порядку настроек); дел нет — точка и часы.
+    Точек других дел справа больше нет (20.10.2026, просьба: «что это за точка справа? Может
+    уберем ее?»). [(вид, значение, цвет)]: g — значок, t — текст, mic — кнопка микрофона,
+    bars — полоски музыки, dot — точка слева."""
     live = [a for a in acts if a[0] in PAGES]
     on = col["on_surface"] if col else (1, 1, 1)
     if not live:
@@ -1220,16 +1562,106 @@ def pill_parts(acts, col):
     elif kind == "timer" and d["list"]:
         parts = [("g", G_TIMER, c), ("t", mmss(timer_rem(d["list"][0])), None)]
     elif kind == "music":
-        parts = [("bars", d.status == "Playing", c), ("tm", d.title or "—", None)]
+        # 20.10.2026, просьба: «вместо иконки — иконку приложения, откуда звук: YouTube — ютуба,
+        # Яндекс Музыка — её»). Строка песни — только у котика; здесь название и время, как у
+        # трека или видео («оставляем как было… просто название и продолжительность»).
+        app = player_app(d)
+        parts = [("app", app, c) if app else ("bars", d.status == "Playing", c), ("tm", d.title or "—", None)]
+        # время есть всегда — ширина капсулы не прыгает на паузе и перемотке (20.10.2026, просьба:
+        # «должно быть в одном положении всегда»)
+        parts.append(("tt", "%s / %s" % (mmss(d.position()), mmss(d.length) if d.length else "--:--"), None))
+    elif kind == "nudge":
+        parts = [("g", G_NUDGE, NUDGE_RGB), ("t", mmss(nudge_sec(d)), None)]
     else:
         icon, text, ck = act_line(kind, d)
         parts = [("g", icon, c), ("t", text, None)]
-    for k, _d in live[1:3]:
-        parts.append(("sdot", None, act_color(k, col) if col else on))
     return parts
 
 
-def pill_text(cr, text, maxw=None):
+# Откуда звук → значок (имя в теме значков; youtube — свой пиксельный)
+APP_BY_SITE = (("youtube.com", "youtube"), ("youtu.be", "youtube"), ("music.yandex", "yandexmusic"),
+               ("open.spotify", "spotify-launcher"), ("soundcloud", "soundcloud"), ("twitch.tv", "twitch"))
+APP_BY_PROC = {"yandexmusic": "yandexmusic", "spotify": "spotify-launcher", "zen-bin": "zen-browser",
+               "zen": "zen-browser", "firefox": "firefox", "helium": "helium-browser",
+               "chromium": "chromium", "telegram-deskto": "org.telegram.desktop", "Telegram": "org.telegram.desktop",
+               "mpv": "mpv", "vlc": "vlc", "youtube-music-d": "youtube-music-desktop-app"}
+YT_BMP = ("..############..", ".##############.", "################", "######WW########",
+          "######WWWW######", "######WWWWWW####", "######WWWWWW####", "######WWWW######",
+          "######WW########", "################", ".##############.", "..############..")
+_APPICON = {}
+
+
+def player_app(p):
+    """Имя значка приложения плеера: сначала по адресу (вкладка браузера), иначе по процессу
+    (pid в имени шины MPRIS: chromium.instance123, firefox.instance_1_123)."""
+    url = str((getattr(p, "meta", None) or {}).get("xesam:url") or "")
+    for site, icon in APP_BY_SITE:
+        if site in url:
+            return icon
+    name = getattr(p, "name", "") or ""
+    if name in _APPICON:
+        return _APPICON[name]
+    import re
+    m = re.search(r"instance(?:_\d+_)?(\d+)$", name)
+    comm = ""
+    if m:
+        try:
+            comm = open("/proc/%s/comm" % m.group(1)).read().strip()
+        except OSError:
+            pass
+    else:
+        comm = name.rsplit(".", 1)[-1]
+    icon = APP_BY_PROC.get(comm)
+    if icon is None and m is None:
+        icon = APP_BY_PROC.get(name.split(".")[3] if name.count(".") >= 3 else "")
+    if icon and icon != "youtube" and app_pixbuf(icon) is None:
+        icon = None
+    _APPICON[name] = icon
+    return icon
+
+
+def app_pixbuf(icon):
+    if ("pb", icon) not in _APPICON:
+        pb = None
+        try:
+            import gi
+            gi.require_version("Gtk", "3.0")
+            from gi.repository import Gtk
+            pb = Gtk.IconTheme.get_default().load_icon(icon, 16, Gtk.IconLookupFlags.FORCE_SIZE)
+        except Exception:
+            pb = None
+        _APPICON[("pb", icon)] = pb
+    return _APPICON[("pb", icon)]
+
+
+def draw_app_icon(cr, icon, x, y, a=1.0):
+    """Значок 16×16 без сглаживания (пиксельные значки темы Jarvis-Pixel); YouTube — свой."""
+    import cairo
+    if icon == "youtube":
+        for r, row in enumerate(YT_BMP):
+            for c, ch in enumerate(row):
+                if ch != ".":
+                    cr.rectangle(x + c, y + 2 + r, 1, 1)
+                    cr.set_source_rgba(*((1, 1, 1) if ch == "W" else (1.0, 0.0, 0.2)), a)
+                    cr.fill()
+        return
+    pb = app_pixbuf(icon)
+    if pb is None:
+        return
+    from gi.repository import Gdk
+    cr.save()
+    Gdk.cairo_set_source_pixbuf(cr, pb, x, y)
+    cr.get_source().set_filter(cairo.FILTER_NEAREST)
+    cr.paint_with_alpha(a)
+    cr.restore()
+
+
+# Время трека в живой капсуле — тем же шрифтом, но тусклее и с отступом от названия
+# (20.10.2026, просьба: мелкие цифры 3×5 — «слишком мелко», «просто небольшое пространство»)
+TT_GAP = 6
+
+
+def pill_text(cr, text, maxw=None, px=None):
     """Текст капсулы: Inter SemiBold, цифры одной ширины (секунды не дёргают капсулу)."""
     import gi
     gi.require_version("Pango", "1.0")
@@ -1239,7 +1671,7 @@ def pill_text(cr, text, maxw=None):
     keep, FONT = FONT, "Inter"
     cr.save()
     font_opts(cr)                                # сглаженный, даже если вид пиксельный
-    lay = layout(cr, text, PILL_PX)
+    lay = layout(cr, text, px or PILL_PX)
     cr.restore()
     FONT = keep
     fd = lay.get_font_description()
@@ -1257,7 +1689,26 @@ def pill_text(cr, text, maxw=None):
     return lay
 
 
-def part_w(cr, p):
+def pill_ios(D):
+    """Капсула как в iOS (чёрная, Inter) — только при виде «iOS». 20.10.2026, просьба: «вид
+    таймера похож на стиль ios, хотя выбран системный» — до этого она была такой при любом виде."""
+    return D is None or bool(D.get("ios"))
+
+
+def pill_lay(cr, text, maxw=None, D=None, glyph=False, px=None):
+    """Надпись капсулы: iOS — Inter (pill_text), иначе шрифт системы, как у капсулы котика."""
+    if pill_ios(D):
+        return pill_text(cr, text, maxw, px)
+    from gi.repository import Pango
+    use_font(D)
+    lay = layout(cr, text, 16 if glyph else 8)
+    if maxw:
+        lay.set_width(int(maxw * Pango.SCALE))
+        lay.set_ellipsize(Pango.EllipsizeMode.END)
+    return lay
+
+
+def part_w(cr, p, D=None):
     k, v, _c = p
     if k == "dot":
         return 6
@@ -1265,19 +1716,62 @@ def part_w(cr, p):
         return 5
     if k == "bars":
         return 10
+    if k == "app":
+        return 16
+    if k == "g" and v == G_NUDGE and not pill_ios(D):
+        return len(PIX_BMP[G_NUDGE][0])
+    if k == "tt":                       # место под самое широкое время этой длины: 00:00 / 00:00
+        right = v.split(" / ")[-1]
+        ref = re.sub(r"\d", "0", right if ":" in right and right[0] != "-" else "00:00")
+        return TT_GAP + max(pill_lay(cr, v, None, D).get_pixel_size()[0],
+                            pill_lay(cr, ref + " / " + ref, None, D).get_pixel_size()[0])
     if k == "mic":
         return 18
-    return pill_text(cr, v, MUSIC_MAXW if k == "tm" else None).get_pixel_size()[0]
+    return pill_lay(cr, v, MUSIC_MAXW if k == "tm" else None, D, k == "g").get_pixel_size()[0]
 
 
-def pill_w(cr, acts, col=None):
+def pill_w(cr, acts, col=None, D=None):
     parts = pill_parts(acts, col)
-    w = 2 * PILL_PAD + sum(part_w(cr, p) for p in parts) + PILL_GAP * (len(parts) - 1)
+    w = 2 * PILL_PAD + sum(part_w(cr, p, D) for p in parts) + PILL_GAP * (len(parts) - 1)
     return float(max(PILL_W, min(PILL_MAX, int(math.ceil(w / 2.0)) * 2)))
 
 
-def paint_pill(cr, x, top, w, h, st, col):
-    """Нить-капсула: чёрная капсула с живым содержимым (pill_parts). Видна целиком, без
+def pill_edge(col):
+    """Рамка капсул (живая нить, котик, компакт): тусклый акцент обоев. 20.10.2026, просьба: «сделай рамки ещё чуть тусклее» — было primary на 45 % в фон при 0.9."""
+    return (*mix_rgb(col["primary"], col["bg"], 0.62), 0.8)
+
+
+def pill_shape(cr, x, top, w, h, col, D):
+    """Тело капсулы: iOS — чёрная скруглённая; иначе — прямоугольник цвета системы с тусклой
+    акцентной рамкой (как у капсулы котика)."""
+    import cairo
+    ios = pill_ios(D)
+    cr.set_antialias(cairo.ANTIALIAS_GOOD if ios else cairo.ANTIALIAS_NONE)
+    cr.new_path()
+    if ios:
+        r = h / 2
+        cr.arc(x + w - r, top + r, r, -math.pi / 2, math.pi / 2)
+        cr.arc(x + r, top + r, r, math.pi / 2, 3 * math.pi / 2)
+        cr.close_path()
+        cr.set_source_rgba(0.02, 0.02, 0.03, 0.92)
+    else:
+        if D and D.get("shadow") == "hard":    # тень 3 px вправо-вниз, как у виджетов
+            cr.rectangle(x + 3, top + 3, w, h)
+            cr.set_source_rgba(*(c * 0.25 for c in col["bg"]), 0.72)
+            cr.fill()
+        cr.rectangle(x, top, w, h)
+        cr.set_source_rgba(*fill_rgba(D, col)[:3], 0.94)
+    cr.fill_preserve()
+    cr.set_line_width(1 if ios else 2)
+    if ios:
+        cr.set_source_rgba(1, 1, 1, 0.08)
+    else:
+        cr.set_source_rgba(*pill_edge(col))
+    cr.stroke()
+
+
+def paint_pill(cr, x, top, w, h, st, col, D=None):
+    """Нить-капсула с живым содержимым (pill_parts) в виде D. Видна целиком, без
     «тусклости». Возвращает щелчковые зоны (кнопка микрофона звонка)."""
     import cairo
     import gi
@@ -1286,66 +1780,260 @@ def paint_pill(cr, x, top, w, h, st, col):
     hits = []
     if st.get("ta", 1) <= 0.01 or w < 4 or h < 2:
         return hits
+    ios = pill_ios(D)
     cr.save()
-    cr.set_antialias(cairo.ANTIALIAS_GOOD)
+    pill_shape(cr, x, top, w, h, col, D)
     r = h / 2
-    cr.new_path()
-    cr.arc(x + w - r, top + r, r, -math.pi / 2, math.pi / 2)
-    cr.arc(x + r, top + r, r, math.pi / 2, 3 * math.pi / 2)
-    cr.close_path()
-    cr.set_source_rgba(0.02, 0.02, 0.03, 0.92)
-    cr.fill_preserve()
-    cr.set_line_width(1)
-    cr.set_source_rgba(1, 1, 1, 0.08)
-    cr.stroke()
+    ink = (1, 1, 1) if ios else col["on_surface"]
     parts = pill_parts(st["acts"], col)
-    need = 2 * PILL_PAD + sum(part_w(cr, p) for p in parts) + PILL_GAP * (len(parts) - 1)
+    need = 2 * PILL_PAD + sum(part_w(cr, p, D) for p in parts) + PILL_GAP * (len(parts) - 1)
     if w >= min(need, PILL_MAX) * 0.85 and h >= PILL_H * 0.6:   # пока капсула растёт — пусто
         cr.rectangle(x, top, w, h)
         cr.clip()
         cx = x + max(PILL_PAD, (w - need) / 2 + PILL_PAD)
         cy = top + r
+        if not ios:
+            cx = float(int(cx))
         for p in parts:
             k, v, c = p
-            pw = part_w(cr, p)
-            if k in ("dot", "sdot"):
+            pw = part_w(cr, p, D)
+            if k in ("dot", "sdot") and not ios:          # пиксельный квадратик
+                cr.rectangle(int(cx + pw / 2 - 2), int(cy - 2), 4, 4)
+                cr.set_source_rgba(*(c if c != (1, 1, 1) else ink), 1)
+                cr.fill()
+            elif k in ("dot", "sdot"):
                 cr.arc(cx + pw / 2, cy, 2.6 if k == "dot" else 2.0, 0, 2 * math.pi)
                 cr.set_source_rgba(*c, 1 if k == "dot" else 0.8)
                 cr.fill()
+            elif k == "g" and v == G_NUDGE and not ios:
+                pix_glyph(cr, v, int(cx + pw / 2), int(cy), c or ink, 1)
+            elif k == "g" and v == G_PAUSE and not ios:
+                # пауза пикселями: глиф MDI без сглаживания на 8 px ложился криво (20.10.2026,
+                # Просьба: «иконка паузы кривенькая, когда pomo на паузе»)
+                x0, y0 = int(cx + pw / 2) - 3, int(cy) - 4
+                cr.rectangle(x0, y0, 2, 8)
+                cr.rectangle(x0 + 4, y0, 2, 8)
+                cr.set_source_rgba(*(c or ink), 1)
+                cr.fill()
+            elif k == "app":
+                playing = st["acts"][0][1].status == "Playing" if st["acts"] else True
+                draw_app_icon(cr, v, int(cx), int(cy - 8), 1.0 if playing else 0.35)   # 0.5→0.35, 20.10
             elif k == "bars":
                 hs = (5, 9, 6) if v else (3, 3, 3)
                 for i, bh in enumerate(hs):
-                    cr.rectangle(cx + i * 4, cy + 4.5 - bh, 2, bh)
+                    cr.rectangle(int(cx) + i * 4, int(cy + 4.5 - bh), 2, bh)
                 cr.set_source_rgba(*c, 1)
                 cr.fill()
             elif k == "mic":
                 mc = (1.0, 0.36, 0.36) if v else CALL_GREEN
-                cr.arc(cx + 9, cy, 8.5, 0, 2 * math.pi)
+                if ios:
+                    cr.arc(cx + 9, cy, 8.5, 0, 2 * math.pi)
+                else:
+                    cr.rectangle(int(cx), int(cy - 8), 18, 16)
                 cr.set_source_rgba(*mc, 0.22)
                 cr.fill()
-                lay = pill_text(cr, G_MIC_OFF if v else G_MIC)
+                lay = pill_lay(cr, G_MIC_OFF if v else G_MIC, None, D, True)
                 gw, gh = lay.get_pixel_size()
                 cr.move_to(cx + 9 - gw / 2, cy - gh / 2)
                 cr.set_source_rgba(*mc, 1)
                 PangoCairo.show_layout(cr, lay)
                 hits.append(((cx - 3, 0, pw + 6, top + h + 4), ("call", "mute")))
             else:
-                lay = pill_text(cr, v, MUSIC_MAXW if k == "tm" else None)
+                lay = pill_lay(cr, v, MUSIC_MAXW if k == "tm" else None, D, k == "g")
                 tw, th = lay.get_pixel_size()
-                cr.move_to(cx, cy - th / 2)
-                cr.set_source_rgba(*(c or (1, 1, 1)), 1 if k == "g" else 0.92)
+                tx = cx + (TT_GAP if k == "tt" else 0)
+                cr.move_to(tx, cy - th / 2 if ios else int(cy - th / 2))
+                cr.set_source_rgba(*(c or ink), 1 if k == "g" else 0.5 if k == "tt" else 0.92)
                 PangoCairo.show_layout(cr, lay)
             cx += pw + PILL_GAP
     cr.restore()
     return hits
 
 
+BUBBLE_GAP = 6
+BUBBLE_KEEP = 600            # пузырь ▶ у нити держится, пока пауза не дольше 10 минут
+
+
+def bubble_box(x, ty, w, h, style):
+    """(x, y, сторона) пузыря ▶ справа от нити/капсулы."""
+    s = PILL_H if style in PILLS else 18
+    return (x + w + BUBBLE_GAP, max(0.0, ty + h / 2 - s / 2), s)
+
+
+def paint_bubble(cr, x, ty, w, h, st, col, D):
+    """Пузырь ▶ у нити, пока музыка на паузе (20.10.2026, пользователь одобрил из списка идей
+    AngelOS): щелчок — играть дальше. Вид — как у капсулы: iOS круглый чёрный, иначе квадрат
+    цвета системы с тусклой акцентной рамкой."""
+    import cairo
+    if not st.get("bubble") or w < 4:
+        return []
+    bx, by, s = bubble_box(x, ty, w, h, eff_style(st.get("style"), st.get("pk")))
+    ios = pill_ios(D)
+    cr.save()
+    if ios:
+        cr.set_antialias(cairo.ANTIALIAS_GOOD)
+        cr.arc(bx + s / 2, by + s / 2, s / 2, 0, 2 * math.pi)
+        cr.set_source_rgba(0.02, 0.02, 0.03, 0.92)
+        cr.fill_preserve()
+        cr.set_line_width(1)
+        cr.set_source_rgba(1, 1, 1, 0.08)
+        cr.stroke()
+    else:
+        bx, by = int(bx), int(by)
+        pill_shape(cr, bx, by, s, s, col, D)
+    lay = pill_lay(cr, G_PLAY, None, D, True)
+    gw, gh = lay.get_pixel_size()
+    import gi
+    gi.require_version("PangoCairo", "1.0")
+    from gi.repository import PangoCairo
+    cr.move_to(int(bx + (s - gw) / 2) + (0 if ios else 1), int(by + (s - gh) / 2))
+    cr.set_source_rgba(*act_color("music", col), 1)
+    PangoCairo.show_layout(cr, lay)
+    cr.restore()
+    return [((bx - 3, 0, s + 6, by + s + 4), ("music", "Play"))]
+
+
+# Значки инструментов пикселями ('#' — точка), 20.10.2026, просьба: «остальные тоже нарисуй
+# пикселями, надо сохранять пиксельный стиль». Пипетка, рамка снимка, лист заметки, часы помидора.
+PIX_BMP = {
+    G_PICK: (
+        "........###.",
+        ".......#####",
+        "....#..#####",
+        ".....#######",
+        "......####..",
+        ".....##.#...",
+        "....##......",
+        "...##.......",
+        "..##........",
+        ".##.........",
+        "#...........",
+    ),
+    G_SHOT: (
+        "...##.........",
+        "...##.........",
+        "...##.........",
+        "###########...",
+        "###########...",
+        "...##....##...",
+        "...##....##...",
+        "...##....##...",
+        "...##....##...",
+        "...###########",
+        "...###########",
+        ".........##...",
+        ".........##...",
+        ".........##...",
+    ),
+    G_MEMO: (
+        "######....",
+        "######.#..",
+        "######.##.",
+        "######.###",
+        "##########",
+        "##########",
+        "##......##",
+        "##########",
+        "##......##",
+        "##########",
+        "##########",
+        "##########",
+    ),
+    G_TOOLS: (                  # ящик с инструментами — значок вкладки «Инструменты»
+        ".....####.....",
+        "....######....",
+        "....##..##....",
+        "##############",
+        "##############",
+        "##..........##",
+        "##....##....##",
+        "######..######",
+        "##....##....##",
+        "##..........##",
+        "##############",
+        "##############",
+    ),
+    G_POMO: (
+        "##########",
+        ".########.",
+        "..######..",
+        "...####...",
+        "....##....",
+        "....##....",
+        "...#..#...",
+        "..#....#..",
+        ".#..##..#.",
+        ".#.####.#.",
+        ".########.",
+        "##########",
+    ),
+}
+
+
+def put_glyph(cr, glyph, px, cx, cy, rgb, a):
+    """Значок по центру ВИДИМЫХ пикселей (ink), а не рамки шрифта: у глифов MDI рамка шире
+    рисунка, и put_text(center=True) сдвигал их в квадратике (20.10.2026)."""
+    import gi
+    gi.require_version("PangoCairo", "1.0")
+    from gi.repository import PangoCairo
+    lay = layout(cr, glyph, px)
+    ink, _log = lay.get_pixel_extents()
+    if ink.width <= 0 or ink.height <= 0:
+        return put_text(cr, glyph, px, cx, cy, rgb, a, center=True)
+    cr.move_to(int(round(cx - ink.width / 2)) - ink.x, int(round(cy - ink.height / 2)) - ink.y)
+    cr.set_source_rgba(*rgb, a)
+    PangoCairo.show_layout(cr, lay)
+    return ink.width
+
+
+PIX_BMP[G_NUDGE] = ("############", "#..........#", "#.#........#", "#..#.......#", "#...#......#",
+                    "#..#.......#", "#.#..####..#", "#..........#", "############")
+
+
+def pix_glyph(cr, glyph, cx, cy, rgb, a):
+    """Значки плеера пикселями по целой сетке. 20.10.2026, просьба: «кнопка паузы кривая» —
+    глиф MDI без сглаживания при дробном центре давал полоски 2 и 3 px. → нарисован ли."""
+    if glyph == G_PAUSE:
+        px = [(0, 0, 3, 10), (6, 0, 3, 10)]
+    elif glyph == G_PLAY:
+        px = [(i, i, 1, 11 - 2 * i) for i in range(6)]
+    elif glyph == G_STOP:
+        px = [(0, 0, 8, 8)]
+    elif glyph in (G_REC, "●"):          # круг 10×10 ступеньками («точка записи кривая»)
+        px = [(3, 0, 4, 1), (1, 1, 8, 1), (0, 2, 10, 6), (1, 8, 8, 1), (3, 9, 4, 1)]
+    elif glyph == G_NEXT:
+        px = [(i, i, 1, 9 - 2 * i) for i in range(5)] + [(5, 0, 2, 9)]
+    elif glyph == G_PREV:
+        px = [(0, 0, 2, 9)] + [(6 - i, i, 1, 9 - 2 * i) for i in range(5)]
+    elif glyph in PIX_BMP:
+        px = [(x, y, 1, 1) for y, row in enumerate(PIX_BMP[glyph]) for x, c in enumerate(row) if c == "#"]
+    else:
+        return False
+    w = max(x + pw for x, _y, pw, _h in px)
+    h = max(y + ph for _x, y, _w, ph in px)
+    x0, y0 = int(round(cx)) - w // 2, int(round(cy)) - h // 2
+    for x, y, pw, ph in px:
+        cr.rectangle(x0 + x, y0 + y, pw, ph)
+    cr.set_source_rgba(*rgb, a)
+    cr.fill()
+    return True
+
+
 def button(cr, cx, cy, glyph, col, a, hits, action, big=False):
+    if _SK["on"]:
+        bw, bh = (34, 24) if big else (28, 22)
+        bx, by = int(cx - bw / 2), int(cy - bh / 2)
+        sk_box(cr, bx, by, bw, bh, col, a, big)
+        pix_glyph(cr, glyph, bx + bw // 2, by + bh // 2, sk_ink(col, big), a) or \
+            put_text(cr, glyph, 16, bx + bw // 2, by + bh / 2, sk_ink(col, big), a, center=True)
+        hits.append(((bx, by, bw, bh), action))
+        return
     r = 14 if big else 11
     cr.arc(cx, cy, r, 0, 2 * math.pi)
     cr.set_source_rgba(*(col["primary"] if big else col["surface_high"]), a * (1 if big else 0.9))
     cr.fill()
-    put_text(cr, glyph, 16, cx, cy, col["on_primary"] if big else col["on_surface"], a, center=True)
+    ink = col["on_primary"] if big else col["on_surface"]
+    pix_glyph(cr, glyph, cx, cy, ink, a) or put_text(cr, glyph, 16, cx, cy, ink, a, center=True)
     hits.append(((cx - r, cy - r, 2 * r, 2 * r), action))
 
 
@@ -1354,7 +2042,7 @@ def paint_card(cr, x, w, h, kind, d, acts, col, a, card_i):
     pad = 18
     icon, text, ck = act_line(kind, d)
     # страницы: квадратики сверху справа цветом дела, щелчок переключает (колесо — тоже)
-    for i, (k, _dd) in enumerate(acts if len(acts) > 1 else []):
+    for i, (k, _dd) in enumerate(acts if len(acts) > 1 and not _SK["on"] else []):
         c = act_color(k, col)
         bx = x + w - pad - 6 - (len(acts) - 1 - i) * 14
         cr.rectangle(bx, 14, 6, 6)
@@ -1364,15 +2052,32 @@ def paint_card(cr, x, w, h, kind, d, acts, col, a, card_i):
     if kind == "cat":
         paint_cat_card(cr, x, w, h, d, col, a, hits, False)
         return hits
-    if kind in ("clip", "capture", "focus"):
+    if kind == "shelf":
+        paint_shelf(cr, x, w, h, d, col, a, hits, False)
+        return hits
+    if kind in SYS_PAGES:
+        paint_sys(cr, x, w, h, kind, d, col, a, hits, False)
+        return hits
+    if kind in ("clip", "tools"):
         (paint_clip if kind == "clip" else paint_tools)(cr, x, w, h, d if kind == "clip" else kind, col, a, hits, False)
         return hits
     pr = progress(kind, d)
-    by = h - 26 - (32 if kind == "timer" else 0)     # у таймера снизу ряд готовых отрезков
+    by = h - 26 - (MUSIC_EQ[2] if kind == "music" else 0)
     if kind == "music":
-        put_text(cr, G_NOTE, 16, x + pad + 8, 30, ck_rgb(ck, col), a, center=True)
-        put_text(cr, d.title or "—", 16, x + pad + 26, 28, col["on_surface"], a, maxw=w - 2 * pad - 26 - 50)
-        put_text(cr, d.artist or d.identity, 8, x + pad + 26, 46, col["on_surface_variant"], 0.85 * a, maxw=w - 2 * pad - 26)
+        # 20.10.2026, просьба: «квадратик с обложкой, будь то видео или трек» и «эквалайзер в самом
+        # низу, на всю длину, невысокий». Обложка слева (щелчок — пауза), квадратики cava под кнопками.
+        cat = _CAT["s"] or {}
+        cs, cy0 = MUSIC_COVER, 12
+        draw_cover(cr, x + pad, cy0, cs, cat, col, a)
+        if cat.get("art24") is None:
+            put_text(cr, G_NOTE, 16, x + pad + cs / 2, cy0 + cs / 2, ck_rgb(ck, col), a, center=True)
+        hits.append(((x + pad, cy0, cs, cs), ("music", "PlayPause")))
+        tx = x + pad + cs + 12
+        put_text(cr, d.title or "—", 16, tx, 28, col["on_surface"], a, maxw=x + w - pad - tx - (0 if _SK["on"] else 50))
+        lk = like_btn(cr, x + w - pad - 5, 48, cat, col, a, hits)
+        put_text(cr, d.artist or d.identity, 8, tx, 48, col["on_surface_variant"], 0.85 * a,
+                 maxw=x + w - pad - tx - (22 if lk else 0))
+        music_eq(cr, x + pad, h - 10, w - 2 * pad, cat, col, a, d.status == "Playing")
         if pr is not None:
             put_text(cr, mmss(d.position()), 8, x + pad, by, col["on_surface_variant"], 0.8 * a)
             put_text(cr, mmss(d.length), 8, x + w - pad - text_w(cr, mmss(d.length), 8), by, col["on_surface_variant"], 0.8 * a)
@@ -1390,7 +2095,7 @@ def paint_card(cr, x, w, h, kind, d, acts, col, a, card_i):
         button(cr, c + 36, by, G_SKIP, col, a, hits, ("pomo", "skip"))
         button(cr, c + 66, by, G_STOP, col, a, hits, ("pomo", "stop"))
     elif kind == "rec":
-        put_text(cr, "●", 16, x + pad + 6, 34, col["error"], a, center=True)
+        pix_glyph(cr, "●", x + pad + 6, 34, col["error"], a)
         put_text(cr, mmss(d["sec"]), 24, x + pad + 22, 34, col["on_surface"], a)
         put_text(cr, ("Пауза · " if d["paused"] else "Идёт запись · ") + d["mode"], 8, x + pad, 56,
                  col["on_surface_variant"], 0.85 * a, maxw=w - 2 * pad)
@@ -1413,53 +2118,787 @@ def paint_card(cr, x, w, h, kind, d, acts, col, a, card_i):
         put_text(cr, t["text"] + more, 8, x + pad, 56, col["on_surface_variant"], 0.85 * a, maxw=w - 2 * pad)
         c = x + w - pad - 50
         button(cr, c, by, G_STOP, col, a, hits, ("timer", "stop:%d" % t["id"]), big=True)
-        button(cr, c + 36, by, G_OPEN, col, a, hits, ("timer", "open"))
+        button(cr, c + 36, by, G_PLUS, col, a, hits, ("timer", "add"))
     elif kind == "timer":
         put_text(cr, G_TIMER, 16, x + pad + 8, 32, ck_rgb(ck, col), a, center=True)
         put_text(cr, "Таймер", 16, x + pad + 26, 30, col["on_surface"], a)
-        put_text(cr, "Сколько поставить? Щелчок — сразу идёт, звенит hub.", 8, x + pad, 62,
+        put_text(cr, "«+» — новый таймер: виджет timer.exe на столе, звенит hub.", 8, x + pad, 62,
                  col["on_surface_variant"], 0.85 * a, maxw=w - 2 * pad)
-        button(cr, x + w - pad - 14, 30, G_OPEN, col, a, hits, ("timer", "open"))
+        button(cr, x + w - pad - 14, by, G_PLUS, col, a, hits, ("timer", "add"), big=True)
+    elif kind == "nudge":
+        paint_nudge(cr, x, w, h, d, col, a, False)
+    elif kind == "prefs":
+        paint_prefs(cr, x, w, h, d, col, a, hits, False)
     else:
         put_text(cr, icon, 16, x + pad + 8, h / 2, ck_rgb(ck, col), a, center=True)
         put_text(cr, text, 16, x + pad + 26, h / 2, col["on_surface"], a, maxw=w - 2 * pad - 26)
-    if pr is not None:
+    if pr is not None and _SK["on"]:          # Skeet: полоса-ползунок в рамке, градиент акцента
+        sk_slider(cr, x + pad, by - 25, w - 2 * pad, 6, pr, col, a)
+    elif pr is not None:
         cr.rectangle(x + pad, by - 22, w - 2 * pad, 2)
         cr.set_source_rgba(*col["surface_high"], a)
         cr.fill()
         cr.rectangle(x + pad, by - 22, (w - 2 * pad) * pr, 2)
         cr.set_source_rgba(*col["primary"], a)
         cr.fill()
-    if kind == "timer":
-        paint_presets(cr, x + pad, h - 34, w - 2 * pad, col, a, hits, False)
     return hits
 
 
-def paint_presets(cr, x, y, w, col, a, hits, ios):
-    """Готовые отрезки таймера 5–60 минут и «Своё…» (19.10.2026, просьба: «сразу с готовым
-    пресетом или с выбором собственного времени»)."""
-    items = [(("%d м" if ios else "%d мин") % m, "start:%d" % m) for m in TIMER_PRESETS] + [("Своё…", "ask")]
-    gap, bh = 6, 22
-    bw = (w - gap * (len(items) - 1)) / len(items)
-    for i, (label, what) in enumerate(items):
-        bx = int(x + i * (bw + gap))            # целые пиксели: пиксельный шрифт не размывается
-        if ios:
-            rrect(cr, bx, y, bw, bh, bh / 2)
-            cr.set_source_rgba(1, 1, 1, (0.2 if what == "ask" else 0.1) * a)
+PREFS = (("design", "Вид", (("auto", "Как система"), ("ios", "iOS"))),
+         ("thread_style", "Нить", (("line", "Линия"), ("dots", "Точки"), ("pill", "Живая"))),
+         ("thread_alpha", "Яркость", (("0.2", "Low"), ("0.8", "High"))),   # как в Настройках (20.10.2026)
+         ("pop_sec", "Держать", (("0.7", "0,7 с"), ("1.5", "1,5 с"), ("2.5", "2,5 с"), ("4.0", "4 с"),
+                                 ("6.0", "6 с"))))
+
+
+def paint_prefs(cr, x, w, h, d, col, a, hits, ios):
+    """Страница «Настройки» (20.10.2026, просьба: «зайдя в островок, сразу можем переключить и
+    стиль островка, и вид линии»): ряды отрезков — вид, нить, её яркость, сколько держать раскрытым.
+    Щелчок пишет настройку (island.py set), как Настройки → Waybar."""
+    d = d or {}
+    pad = 18
+    fg = (1, 1, 1) if ios else col["on_surface"]
+    dim = (0.7, 0.7, 0.74) if ios else col["on_surface_variant"]
+    lw = 64
+    if _SK["on"]:                             # в рамке группы — по центру
+        bh, step = 22, 30
+        y = int((h - (len(PREFS) * step - (step - bh))) / 2)
+    else:                                     # под точками страниц сверху справа
+        bh, step = 20, 27
+        y = 34
+    for key, label, opts in PREFS:
+        cur = d.get(key)
+        if key == "pop_sec":
+            cur = "%.1f" % float(cur or 2.5)
+        elif key == "thread_alpha":
+            cur = "0.2" if float(cur if cur is not None else 0.8) < 0.3 else "0.8"
+        put_text(cr, label, 12 if ios else 8, x + pad, y + bh / 2, dim, 0.9 * a)
+        gx, gw = x + pad + lw, w - 2 * pad - lw
+        gap = 6
+        bw = (gw - gap * (len(opts) - 1)) / len(opts)
+        for i, (k, name) in enumerate(opts):
+            bx = int(gx + i * (bw + gap))
+            ww = int(gx + (i + 1) * bw + i * gap) - bx
+            on = k == cur
+            if _SK["on"]:
+                sk_box(cr, bx, y, ww, bh, col, a, on)
+                ink = sk_ink(col, on)
+            elif ios:
+                rrect(cr, bx, y, ww, bh, bh / 2)
+                cr.set_source_rgba(1, 1, 1, (0.85 if on else 0.1) * a)
+                cr.fill()
+                ink = (0.05, 0.05, 0.05) if on else fg
+            else:
+                cr.rectangle(bx, y, ww, bh)
+                cr.set_source_rgba(*(col["primary"] if on else col["surface_high"]), 0.9 * a)
+                cr.fill()
+                ink = col["on_primary"] if on else fg
+            put_text(cr, name, 11 if ios else 8, bx + ww // 2, y + bh / 2, ink, a, maxw=ww - 4, center=True)
+            hits.append(((bx, y, ww, bh), ("prefs", "%s=%s" % (key, k))))
+        y += step
+
+
+# ─────────── «Центр», Wi-Fi, Bluetooth, Питание (20.10.2026) ───────────
+# Просьба: «аналог Центра управления из waybar… Кофеин (ЛКМ), Кофеин + Таурин (ПКМ) — одна
+# кнопка; Ночной свет (ЛКМ), спектр по ПКМ; Баланс/Мощность (ЛКМ), Экономия (ПКМ) — одна
+# кнопка; круглая аватарка и ник как в «Пуске»; если влезает — система и uptime. Wifi,
+# Bluetooth, Питание» (питание — по образцу: замок, выход | сон, перезагрузка, выключение).
+# Опрос и команды — island_sys.py (потоками, см. App.poll_sys); здесь только рисование.
+G_COFFEE, G_NIGHT = "\U000f0176", "\U000f0594"
+G_PROFILE = {"performance": "\U000f04c5", "balanced": "\U000f0f85", "power-saver": "\U000f0f86"}
+PROFILE_RU = {"performance": "Мощность", "balanced": "Баланс", "power-saver": "Экономия"}
+G_WIFI, G_WIFI_OFF, G_BT, G_BT_OFF = "\U000f05a9", "\U000f05aa", "\U000f00af", "\U000f00b2"
+G_WIFI_LV = ("\U000f091f", "\U000f0922", "\U000f0925", "\U000f0928")
+G_LOCKED = "\U000f033e"
+DEV_GLYPH = (("headset", "\U000f02cb"), ("headphone", "\U000f02cb"), ("audio", "\U000f02cb"),
+             ("mouse", "\U000f037d"), ("keyboard", "\U000f030c"), ("phone", "\U000f011c"),
+             ("computer", "\U000f0322"), ("watch", "\U000f0897"))
+POWER_BTNS = (("lock", "\U000f033e", "Замок"), ("logout", "\U000f0343", "Выход"), None,
+              ("suspend", "\U000f0904", "Сон"), ("reboot", "\U000f0709", "Рестарт"),
+              ("shutdown", "\U000f0425", "Выкл."))
+SPEC_N = 21                     # спектр ночного света: клеток (теплота 0, 5 … 100)
+_AV = {}
+
+
+def kelvin_rgb(k):
+    """Цвет света k кельвинов (приближение Таннера Хелланда) — клетки спектра."""
+    t = k / 100.0
+    r = 1.0 if t <= 66 else min(1.0, 329.698727446 * (t - 60) ** -0.1332047592 / 255)
+    g = (99.4708025861 * math.log(t) - 161.1195681661) / 255 if t <= 66 else \
+        288.1221695283 * (t - 60) ** -0.0755148492 / 255
+    b = 1.0 if t >= 66 else 0.0 if t <= 19 else (138.5177312231 * math.log(t - 10) - 305.0447927307) / 255
+    return tuple(max(0.0, min(1.0, v)) for v in (r, g, b))
+
+
+def warmth_k(w):
+    return int(6500 - (6500 - 2800) * max(0, min(100, w)) / 100)
+
+
+def sys_chip(cr, x, y, w, h, on, col, a, ios, R=None, tone=None):
+    """Плашка страниц системы в любом виде: Skeet — sk_box, iOS — капсула, иначе плашка
+    акцентом (вкл) или серая. tone — другой цвет «включено» (таурин — tertiary, как в Центре
+    управления бара). → цвет надписи на ней."""
+    if _SK["on"]:
+        sk_box(cr, x, y, w, h, col, a, on)
+        if on and tone:                         # полоска снизу — тоном, а не акцентом
+            cr.rectangle(x + 2, y + h - 4, w - 4, 2)
+            cr.set_source_rgba(*tone, a)
             cr.fill()
-            fg = (1, 1, 1)
+        cr.new_path()
+        return tuple(c * 0.78 + 0.22 for c in tone) if on and tone else sk_ink(col, on)
+    if ios:
+        rrect(cr, x, y, w, h, min(h / 2, 12) if R is None else R)
+        if on and tone:
+            cr.set_source_rgba(*mix_rgb(tone, (1, 1, 1), 0.2), 0.92 * a)
         else:
-            cr.rectangle(bx, y, bw, bh)
-            cr.set_source_rgba(*col["surface_high"], 0.9 * a)
+            cr.set_source_rgba(1, 1, 1, (0.85 if on else 0.12) * a)
+        cr.fill()
+        return (0.05, 0.05, 0.05) if on else (1, 1, 1)
+    rrect(cr, x, y, w, h, R or 0)
+    cr.set_source_rgba(*((tone or col["primary"]) if on else col["surface_high"]), 0.9 * a)
+    cr.fill()
+    return (col["on_tertiary"] if tone else col["on_primary"]) if on else col["on_surface"]
+
+
+def sys_hl(col, ios):
+    """Выделенное в списке (своя сеть, подключённое): светлый акцент, как надписи Skeet."""
+    return mix_rgb(col["primary"], (1, 1, 1), 0.45) if ios else sk_ink(col, True)
+
+
+def draw_avatar(cr, x, y, size, path, col, a):
+    """Круглая аватарка из готовой картинки (island_sys.avatar_png) с тонким кольцом."""
+    import cairo
+    surf = None
+    if path:
+        try:
+            mt = os.path.getmtime(path)
+            if _AV.get(path, (None,))[0] != mt:
+                _AV[path] = (mt, cairo.ImageSurface.create_from_png(path))
+            surf = _AV[path][1]
+        except (OSError, cairo.Error):
+            surf = None
+    cr.new_path()
+    cr.arc(x + size / 2, y + size / 2, size / 2, 0, 2 * math.pi)
+    if surf:
+        cr.save()
+        cr.clip()
+        sc = size / max(1, surf.get_width())
+        cr.translate(x, y)
+        cr.scale(sc, sc)
+        cr.set_source_surface(surf, 0, 0)
+        cr.paint_with_alpha(a)
+        cr.restore()
+    else:
+        cr.set_source_rgba(*col["surface_high"], a)
+        cr.fill()
+    cr.new_path()
+    cr.arc(x + size / 2, y + size / 2, size / 2 + 1, 0, 2 * math.pi)
+    cr.set_line_width(1.5)
+    cr.set_source_rgba(*(sk_rgb(0.235, col) if _SK["on"] else col["primary"]), 0.9 * a)
+    cr.stroke()
+
+
+def paint_cc(cr, x, w, h, d, col, a, hits, ios):
+    """«Центр»: аватар и ник (как в «Пуске»), uptime, справа CPU/температура/память; ниже
+    три плитки. ПКМ по плитке — второе действие (Таурин, спектр, Экономия)."""
+    d = d or {}
+    pad = 18
+    fg = (1, 1, 1) if ios else col["on_surface"]
+    dim = (0.7, 0.7, 0.74) if ios else col["on_surface_variant"]
+    f8, f16 = (11, 15) if ios else (8, 16)
+    top = 16 if _SK["on"] else 14             # Skeet: ниже заголовка группы на рамке
+    av = 40
+    draw_avatar(cr, x + pad, top, av, d.get("avatar"), col, a)
+    nx = x + pad + av + 12
+    name = d.get("name") or ""
+    # ник — как label.user в «Пуске»: Skeet — светлый акцент с тенью 1 px, иначе светлый с тенью
+    nick = sk_ink(col, True) if _SK["on"] else fg
+    put_text(cr, name, f16, nx + 1, top + 13, (0, 0, 0), 0.55 * a, maxw=w / 2 - av)
+    put_text(cr, name, f16, nx, top + 12, nick, a, maxw=w / 2 - av)
+    if d.get("uptime"):
+        put_text(cr, "uptime " + d["uptime"], f8, nx, top + 31, dim, 0.85 * a, maxw=w / 2 - av)
+    # система — справа, под точками страниц (в Skeet их нет — выше)
+    ry = top + (12 if _SK["on"] else 24 if ios else 22)
+    rows = []
+    if d.get("cpu") is not None:
+        rows.append("CPU %d%%" % d["cpu"] + (" · %d°" % round(d["temp"]) if d.get("temp") else ""))
+    if d.get("mem") is not None:
+        rows.append("RAM %.1f / %.0f ГиБ" % (d["mem"], d["mem_total"]))
+    for i, t in enumerate(rows):
+        put_text(cr, t, f8, x + w - pad - text_w(cr, t, f8), ry + i * 15, dim, 0.85 * a)
+    ty = top + av + 12
+    th = 48
+    if d.get("spec"):
+        paint_spectrum(cr, x + pad, ty, w - 2 * pad, th, d, col, a, hits, ios)
+    else:
+        prof = d.get("profile") or "balanced"
+        caf, tau = d.get("caffeine"), d.get("taurine")
+        # 20.10.2026, просьба: «между Кофеином и Кофеин + Таурином нет визуальной разницы» —
+        # как в Центре управления бара: таурин — третьим цветом палитры, подпись «+ Таурин»
+        # и молния рядом с чашкой
+        tiles = (("caf", G_COFFEE, "Кофеин", "+ Таурин" if tau else "Вкл" if caf else "Выкл", bool(caf)),
+                 ("night", G_NIGHT, "Ночной свет",
+                  ("%d K" % warmth_k(d.get("warmth", 65))) if d.get("night") else "Выкл", bool(d.get("night"))),
+                 ("prof", G_PROFILE.get(prof, G_PROFILE["balanced"]), PROFILE_RU.get(prof, prof or "—"),
+                  "Профиль", prof != "balanced"))
+        gap = 8
+        tw = (w - 2 * pad - 2 * gap) / 3
+        for i, (tid, g, title, sub, on) in enumerate(tiles):
+            bx = int(x + pad + i * (tw + gap))
+            bw = int(x + pad + (i + 1) * tw + i * gap) - bx
+            taur = tid == "caf" and tau
+            ink = sys_chip(cr, bx, ty, bw, th, on, col, a, ios, R=14 if ios else 0,
+                           tone=col["tertiary"] if taur else None)
+            if d.get("loading"):
+                ink = dim
+            put_glyph(cr, g, 16, bx + 18, ty + th / 2, ink, a)
+            put_text(cr, title, f8, bx + 34, ty + th / 2 - 8, ink, a, maxw=bw - 38)
+            put_text(cr, sub, f8, bx + 34, ty + th / 2 + 8, ink, (0.95 if taur else 0.7) * a, maxw=bw - 38)
+            if taur:                            # молния у правого края плитки
+                draw_bitmap(cr, CC_BOLT, int(bx + bw - 8 - len(CC_BOLT[0])),
+                            int(ty + th / 2 - len(CC_BOLT) / 2), 1, ink, a)
+            hits.append(((bx, ty, bw, th), ("cc", tid)))
+    hint = "ПКМ по спектру или «Готово» — закрыть" if d.get("spec") else \
+        "ПКМ: Кофеин + Таурин · спектр · Экономия"
+    put_text(cr, hint, f8, x + w / 2, ty + th + 14, dim, 0.5 * a, center=True)
+
+
+def paint_spectrum(cr, x, y, w, h, d, col, a, hits, ios):
+    """Спектр ночного света (ПКМ по плитке): клетки 6500 → 2800 K, щелчок — эта теплота
+    (и ночной свет включается); «Готово» и ПКМ — обратно к плиткам."""
+    f8 = 11 if ios else 8
+    fg = (1, 1, 1) if ios else col["on_surface"]
+    cur = int(d.get("warmth", 65))
+    put_text(cr, "Ночной свет · %s" % ("%d K" % warmth_k(cur) if d.get("night") else "выкл"), f8, x, y + 7, fg, 0.9 * a)
+    bw = 60
+    ink = sys_chip(cr, x + w - bw, y - 2, bw, 18, False, col, a, ios)
+    put_text(cr, "Готово", f8, x + w - bw / 2, y + 7, ink, a, center=True)
+    hits.append(((x + w - bw, y - 2, bw, 18), ("cc", "spec")))
+    cw = w / SPEC_N
+    sel = round(cur / 5) if d.get("night") else -1
+    cy = y + 22
+    for i in range(SPEC_N):
+        cx = int(x + i * cw)
+        sw = int(x + (i + 1) * cw) - cx - 3
+        rrect(cr, cx, cy, sw, 20, 5 if ios else 0)
+        cr.set_source_rgba(*kelvin_rgb(warmth_k(i * 5)), 0.95 * a)
+        cr.fill()
+        if i == sel:
+            cr.rectangle(cx - 1.5, cy - 1.5, sw + 3, 23)
+            cr.set_line_width(2)
+            cr.set_source_rgba(*fg, a)
+            cr.stroke()
+        hits.append(((cx, cy - 2, sw + 3, 24), ("cc", "warm:%d" % (i * 5))))
+
+
+def dev_glyph(dev):
+    k = (dev.get("kind") or "").lower()
+    n = dev.get("name", "").lower()
+    for key, g in DEV_GLYPH:
+        if key in k:
+            return g
+    if any(s in n for s in ("pods", "buds", "head", "наушн")):
+        return DEV_GLYPH[0][1]
+    return G_BT
+
+
+SYS_RH, SYS_SELP = 22, 48       # строка списка Wi-Fi/Bluetooth; панель кнопок под выбранной строкой
+SYS_MORE_H = 380                # «Ещё…»: страница вытягивается вниз до стольки, дальше — колесом
+
+
+def sys_key(kind, it):
+    return it["ssid"] if kind == "wifi" else it["mac"]
+
+
+def sys_items(kind, d):
+    d = d or {}
+    return ((d.get("nets") if kind == "wifi" else d.get("devs")) or []) if d.get("on") else []
+
+
+def sys_list_h(kind, d, sk):
+    """Высота страницы Wi-Fi/Bluetooth: обычная — CARD_HK (+ панель выбранной строки); с «Ещё…» —
+    весь список, но не выше SYS_MORE_H."""
+    d = d or {}
+    items = sys_items(kind, d)
+    sel = SYS_SELP if d.get("sel") and any(sys_key(kind, it) == d["sel"] for it in items) else 0
+    if not d.get("more"):
+        return CARD_HK[kind] + sel
+    ry = (16 if sk else 36) + 22 + 8
+    return max(CARD_HK[kind] + sel, min(SYS_MORE_H, ry + max(3, len(items)) * SYS_RH + sel + 10))
+
+
+def paint_sys_list(cr, x, w, h, kind, d, col, a, hits, ios):
+    """Wi-Fi и Bluetooth (20.10.2026, просьба: «всё должно быть в островке и только»): сверху
+    вкл/выкл, сводка и «Ещё…» — страница вытягивается вниз со всем списком (Wi-Fi пересканирует,
+    Bluetooth ищет новые). Щелчок по строке ничего не включает — под ней раскрываются кнопки,
+    как в окнах бара: Подключиться / Отключиться / Забыть (в два щелчка), у новой сети с
+    паролем — поле пароля."""
+    d = d or {}
+    pad = 18
+    wifi = kind == "wifi"
+    fg = (1, 1, 1) if ios else col["on_surface"]
+    dim = (0.7, 0.7, 0.74) if ios else col["on_surface_variant"]
+    hl = sys_hl(col, ios)
+    f8 = 11 if ios else 8
+    top = 16 if _SK["on"] else 36
+    on = bool(d.get("on"))
+    more = bool(d.get("more"))
+    g = (G_WIFI if on else G_WIFI_OFF) if wifi else (G_BT if on else G_BT_OFF)
+    bw, bh = 76, 22
+    ink = sys_chip(cr, x + pad, top, bw, bh, on, col, a, ios)
+    put_glyph(cr, g, 16, x + pad + 15, top + bh / 2, ink, a)
+    put_text(cr, "Вкл" if on else "Выкл", f8, x + pad + 30, top + bh / 2, ink, a)
+    hits.append(((x + pad, top, bw, bh), (kind, "power")))
+    mw = 72
+    mx = x + w - pad - mw
+    if on:
+        ink = sys_chip(cr, mx, top, mw, bh, more, col, a, ios)
+        put_text(cr, "Свернуть" if more else "Ещё…", f8, mx + mw / 2, top + bh / 2, ink, a, center=True)
+        hits.append(((mx, top, mw, bh), (kind, "more")))
+    items = sys_items(kind, d)
+    if d.get("loading"):
+        summary = "…"
+    elif not on:
+        summary = "выключен"
+    elif d.get("scan"):
+        summary = "обновляю список…" if wifi else "ищу новые устройства…"
+    elif wifi:
+        cur = next((n for n in items if n["in_use"]), None)
+        summary = (cur["ssid"] + (" · " + d["ip"] if d.get("ip") else "")) if cur else "не подключено"
+    else:
+        nc = sum(1 for x_ in items if x_["conn"])
+        summary = "подключено: %d" % nc if nc else "нет подключённых"
+    sx = x + pad + bw + 10
+    put_text(cr, summary, f8, sx, top + bh / 2, fg, 0.9 * a, maxw=mx - 10 - sx)
+    ry, rh = top + bh + 8, SYS_RH
+    keys = [sys_key(kind, it) for it in items]
+    sel = d.get("sel") if d.get("sel") in keys else None
+    selp = SYS_SELP if sel is not None else 0
+    n = max(0, int((h - 6 - ry - selp) // rh))
+    off = 0
+    if more and len(items) > n:
+        off = max(0, min(int(d.get("off", 0)), len(items) - n))
+    busy = d.get("busy")
+    if on and not items and not d.get("loading"):
+        put_text(cr, ("Сетей не видно — «Ещё…» обновит список" if wifi else
+                      "Нет сопряжённых — «Ещё…» найдёт новые") if not d.get("scan") else "…",
+                 f8, x + w / 2, ry + rh, dim, 0.7 * a, center=True)
+    y, prev = ry, False
+    for j, it in enumerate(items[off:off + n]):
+        key = sys_key(kind, it)
+        here = key == sel
+        if here:                                # выбранная строка с кнопками — общей подложкой
+            cr.rectangle(x + pad - 6, y, w - 2 * pad + 12, rh + SYS_SELP)
+            cr.set_source_rgba(*((1, 1, 1) if ios else sk_rgb(0.16, col) if _SK["on"] else col["surface_high"]),
+                               (0.07 if ios else 0.9 if _SK["on"] else 0.55) * a)
             cr.fill()
-            if what == "ask":
-                cr.rectangle(bx + 0.5, y + 0.5, bw - 1, bh - 1)
-                cr.set_line_width(1)
-                cr.set_source_rgba(*col["primary"], 0.7 * a)
-                cr.stroke()
-            fg = col["on_surface"]
-        put_text(cr, label, 8, int(bx + bw / 2), y + bh / 2, fg, a, maxw=bw - 4, center=True)
-        hits.append(((bx, y, bw, bh), ("timer", what)))
+        elif j and not prev:                    # черта между строками (не под панелью кнопок)
+            cr.rectangle(x + pad, y, w - 2 * pad, 1)
+            cr.set_source_rgba(*dim, 0.12 * a)
+            cr.fill()
+        if wifi:
+            act = it["in_use"]
+            gl = G_WIFI_LV[min(3, it["signal"] // 25)]
+            name = it["ssid"]
+            right = "подключено" if act else "сохранена" if it["known"] else ""
+        else:
+            act = it["conn"]
+            gl = dev_glyph(it)
+            name = it["name"]
+            right = ("подключено" + (" · " + it["batt"] if it.get("batt") else "")) if act else \
+                "сопряжено" if it.get("pair", True) else "новое"
+        if busy == key:
+            right = {"connect": "подключаю…", "disconnect": "отключаю…", "forget": "забываю…"}.get(
+                d.get("busy_what"), "…")
+        c = hl if act else fg
+        put_glyph(cr, gl, 16, x + pad + 8, y + rh / 2, c, a if act else 0.8 * a)
+        rw = text_w(cr, right, f8) if right else 0
+        lock = wifi and it["secured"] and not it["known"] and not act
+        put_text(cr, name, f8, x + pad + 24, y + rh / 2, c, a, maxw=w - 2 * pad - 24 - rw - (30 if lock else 14))
+        if right:
+            put_text(cr, right, f8, x + w - pad - rw, y + rh / 2, hl if act else dim, (0.9 if act else 0.6) * a)
+        if lock:
+            put_glyph(cr, G_LOCKED, 16, x + w - pad - rw - 12, y + rh / 2, dim, 0.6 * a)
+        hits.append(((x + pad, y, w - 2 * pad, rh), (kind, "sel:" + key)))
+        y += rh
+        if here:
+            paint_sys_sel(cr, x + pad, y, w - 2 * pad, kind, it, d, col, a, hits, ios)
+            y += SYS_SELP
+        prev = here
+    if more and len(items) > n > 0:             # полоса прокрутки у правого края
+        th_ = h - 6 - ry
+        bar = max(16, th_ * n / len(items))
+        by = ry + (th_ - bar) * off / max(1, len(items) - n)
+        cr.rectangle(x + w - pad + 8, by, 2, bar)
+        cr.set_source_rgba(*dim, 0.45 * a)
+        cr.fill()
+
+
+def sys_buttons(kind, it, d):
+    """Кнопки выбранной строки: [(действие, надпись, главная)], как в окнах бара."""
+    ask = d.get("ask") == sys_key(kind, it)
+    forget = ("forget", "Точно забыть?" if ask else "Забыть", False)
+    if kind == "wifi":
+        if it["in_use"]:
+            return [("disconnect", "Отключиться", False), forget]
+        if it["known"]:
+            return [("connect", "Подключиться", True), forget]
+        return [("connect", "Подключиться", True)]
+    if it["conn"]:
+        return [("disconnect", "Отключиться", False), forget]
+    if it.get("pair", True):
+        return [("connect", "Подключиться", True), forget]
+    return [("connect", "Сопрячь и подключить", True)]
+
+
+def paint_sys_sel(cr, x, y, w, kind, it, d, col, a, hits, ios):
+    """Под выбранной строкой: подпись (сигнал/защита или адрес/заряд, либо ответ команды) и
+    кнопки; у новой сети с паролем — поле пароля (щелчок — ввод с клавиатуры, Enter —
+    подключиться, Esc — отмена)."""
+    f8 = 11 if ios else 8
+    fg = (1, 1, 1) if ios else col["on_surface"]
+    dim = (0.7, 0.7, 0.74) if ios else col["on_surface_variant"]
+    key = sys_key(kind, it)
+    msg = d.get("msg")
+    if msg and msg[0] == key:
+        cap, cc, ca = msg[1], (sys_hl(col, ios) if msg[2] else (1.0, 0.45, 0.45) if ios else col["error"]), 1.0
+    elif kind == "wifi":
+        cap = "сигнал %d%% · %s" % (it["signal"], "защищена" if it["secured"] else "открытая") + \
+            (" · пароль сохранён" if it["known"] else "")
+        cc, ca = dim, 0.75
+    else:
+        cap = it["mac"] + (" · заряд " + it["batt"] if it.get("batt") else "") + \
+            ("" if it.get("pair", True) else " · сначала сопряжение")
+        cc, ca = dim, 0.75
+    put_text(cr, cap, f8, x + 24, y + 8, cc, ca * a, maxw=w - 30)
+    by, bh = y + 18, 22
+    busy = d.get("busy") == key
+    btns = sys_buttons(kind, it, d)
+    need_pw = kind == "wifi" and it["secured"] and not it["known"] and not it["in_use"]
+    bx = x + w
+    for act, label, main in reversed(btns):     # кнопки — справа налево
+        bwid = max(84, int(text_w(cr, label, f8)) + 22)
+        bx -= bwid
+        ask = act == "forget" and d.get("ask") == key
+        ink = sys_chip(cr, bx, by, bwid, bh, main and not busy, col, a, ios)
+        if ask:
+            ink = (1.0, 0.45, 0.45) if ios else col["error"]
+        put_text(cr, label, f8, bx + bwid / 2, by + bh / 2, ink, (0.45 if busy else 1.0) * a, center=True)
+        if not busy:
+            hits.append(((bx, by, bwid, bh), (kind, "btn:" + act)))
+        bx -= 8
+    if need_pw:                                 # поле пароля — слева от «Подключиться»
+        fx, fw = x + 24, bx - x - 24
+        editing = d.get("pw_on")
+        if _SK["on"]:
+            sk_box(cr, fx, by, fw, bh, col, a, editing)
+        else:
+            rrect(cr, fx, by, fw, bh, 11 if ios else 0)
+            cr.set_source_rgba(*((1, 1, 1) if ios else col["bg"]), (0.1 if ios else 0.9) * a)
+            cr.fill_preserve()
+            cr.set_line_width(1.5 if editing else 1)
+            cr.set_source_rgba(*(col["primary"] if editing else dim), (0.9 if editing else 0.3) * a)
+            cr.stroke()
+        pw = d.get("pw") or ""
+        if pw:
+            shown = "•" * len(pw)
+            tw = text_w(cr, shown, f8)
+            put_text(cr, shown, f8, fx + 8, by + bh / 2, fg, a, maxw=fw - 18)
+        else:
+            tw = 0
+            put_text(cr, "пароль — щёлкните и вводите" if not editing else "", f8, fx + 8, by + bh / 2,
+                     dim, 0.55 * a, maxw=fw - 16)
+        if editing:                             # каретка
+            cr.rectangle(fx + 8 + min(tw, fw - 18) + 1, by + 5, 1.5 if ios else 2, bh - 10)
+            cr.set_source_rgba(*(col["primary"] if not ios else (1, 1, 1)), a)
+            cr.fill()
+        hits.append(((fx, by, fw, bh), (kind, "pw")))
+
+
+def paint_sys(cr, x, w, h, kind, d, col, a, hits, ios):
+    if kind == "cc":
+        paint_cc(cr, x, w, h, d, col, a, hits, ios)
+    elif kind == "power":
+        paint_power(cr, x, w, h, d, col, a, hits, ios)
+    else:
+        paint_sys_list(cr, x, w, h, kind, d, col, a, hits, ios)
+
+
+POWER_ASK = {"logout": ("Выйти из системы?", "Выйти"), "suspend": ("Уйти в сон?", "Уснуть"),
+             "reboot": ("Перезагрузить компьютер?", "Перезагрузить"),
+             "shutdown": ("Выключить компьютер?", "Выключить")}
+
+
+def paint_power(cr, x, w, h, d, col, a, hits, ios):
+    """Питание по образцу пользователя: квадратные кнопки — замок, выход | сон, перезагрузка,
+    выключение. Замок — сразу; остальное сперва спрашивает здесь же (20.10.2026, просьба: «пусть
+    сначала спросит подтверждение… гармонично с системой»): значок, вопрос, «Отмена» и «Да»."""
+    d = d or {}
+    pad = 12
+    fg = (1, 1, 1) if ios else col["on_surface"]
+    red = (0.96, 0.4, 0.4)
+    if not _SK["on"]:
+        put_glyph(cr, PAGE_GLYPH["power"], 16, x + pad + 14, 17, fg, 0.6 * a)
+        put_text(cr, "Питание", 12 if ios else 8, x + pad + 26, 17, fg, 0.6 * a)
+    ask = d.get("ask")
+    if ask in POWER_ASK:
+        q, yes = POWER_ASK[ask]
+        g = next(b[1] for b in POWER_BTNS if b and b[0] == ask)
+        f = 12 if ios else 8
+        cy = int(h / 2 - (14 if _SK["on"] else 8))
+        qw = text_w(cr, q, 16 if not ios else 15)
+        gx = int(x + (w - qw - 28) / 2)
+        put_glyph(cr, g, 16, gx + 8, cy, red if ask == "shutdown" else fg, a)
+        put_text(cr, q, 16 if not ios else 15, gx + 28, cy, fg, a)
+        bw, bh, gap = 112, 24, 12
+        by = cy + 18
+        bx = int(x + (w - 2 * bw - gap) / 2)
+        ink = sys_chip(cr, bx, by, bw, bh, False, col, a, ios)
+        put_text(cr, "Отмена", f, bx + bw / 2, by + bh / 2, ink, a, center=True)
+        hits.append(((bx, by, bw, bh), ("power", "no")))
+        bx += bw + gap
+        ink = sys_chip(cr, bx, by, bw, bh, True, col, a, ios)
+        put_text(cr, yes, f, bx + bw / 2, by + bh / 2, red if ask == "shutdown" and _SK["on"] else ink, a,
+                 center=True)
+        hits.append(((bx, by, bw, bh), ("power", "yes:" + ask)))
+        return
+    bs, gap, sep = 44, 12, 26
+    btns = [b for b in POWER_BTNS if b]
+    total = len(btns) * bs + (len(btns) - 2) * gap + sep
+    bx = int(x + (w - total) / 2)
+    by = int(h / 2 - bs / 2 - (6 if _SK["on"] else 2))
+    for b in POWER_BTNS:
+        if b is None:                           # черта между «уйти» и «выключить»
+            sx = bx - gap + sep // 2
+            cr.rectangle(sx, by + 10, 1, bs - 20)
+            cr.set_source_rgba(*fg, 0.25 * a)
+            cr.fill()
+            bx += sep - gap
+            continue
+        pid, g, label = b
+        ink = sys_chip(cr, bx, by, bs, bs, False, col, a, ios, R=14 if ios else 10)
+        put_glyph(cr, g, 16, bx + bs / 2, by + bs / 2, red if pid == "shutdown" else ink, a)
+        put_text(cr, label, 11 if ios else 8, bx + bs / 2, by + bs + 11, fg, 0.6 * a, center=True)
+        hits.append(((bx, by, bs, bs + 18), ("power", pid)))
+        bx += bs + gap
+
+
+# ─────────────── Skeet: карточка как меню gamesense (20.10.2026) ───────────────
+# Просьба: «дизайн самого островка не нравится, адаптируй к более похожему стилю Skeet».
+# Приметы (память skeet-settings-skin): рамка слоями 1 #0a0a0a · 1 #3c3c3c · 3 #282828 ·
+# 1 #3c3c3c, фон #131313 с точками, радуга палитры сверху, вкладки со значками (выбранная
+# светлее и сливается с полем), группа с заголовком на рамке, кнопки-плашки, ползунок
+# градиентом акцента. Серые — с лёгким оттенком гаммы обоев, как у Настроек в Skeet.
+_SK = {"on": False}             # рисуем содержимое внутри Skeet-карточки (кнопки, ползунки)
+_SK_DOTS = {}
+
+
+def sk_rgb(v, col, k=0.22):
+    return tuple(v * (1 - k) + c * k * min(1.0, v * 6) for c in col["bg"])
+
+
+def sk_box(cr, x, y, w, h, col, a, accent=False):
+    """Кнопка Skeet — как button.seg в Настройках: кромка #0a0a0a, внутренняя линия #303030,
+    градиент #242424 → #1b1b1b. Выбранная не заливается (20.10.2026, просьба: «уже не похоже
+    на стиль Skeet, кнопки не те») — та же плашка, полоска акцента снизу, текст акцентом
+    (цвет текста — sk_ink)."""
+    import cairo
+    cr.rectangle(x, y, w, h)
+    cr.set_source_rgba(*sk_rgb(0.04, col, 0.03), a)
+    cr.fill()
+    cr.rectangle(x + 1, y + 1, w - 2, h - 2)
+    cr.set_source_rgba(*sk_rgb(0.188, col, 0.08), a)
+    cr.fill()
+    g = cairo.LinearGradient(0, y + 2, 0, y + h - 2)
+    g.add_color_stop_rgba(0, *sk_rgb(0.141, col, 0.05), a)
+    g.add_color_stop_rgba(1, *sk_rgb(0.106, col, 0.05), a)
+    cr.rectangle(x + 2, y + 2, w - 4, h - 4)
+    cr.set_source(g)
+    cr.fill()
+    if accent:
+        cr.rectangle(x + 2, y + h - 4, w - 4, 2)
+        cr.set_source_rgba(*col["primary"], a)
+        cr.fill()
+
+
+def sk_ink(col, on):
+    """Текст кнопки Skeet: выбранная — светлый акцент (acc_l), иначе серый #929292."""
+    if on:
+        return tuple(c * 0.78 + 0.22 for c in col["primary"])
+    return sk_rgb(0.573, col, 0.10)
+
+
+def sk_slider(cr, x, y, w, h, pr, col, a):
+    import cairo
+    cr.rectangle(x, y, w, h)
+    cr.set_source_rgba(*sk_rgb(0.04, col), a)
+    cr.fill()
+    cr.rectangle(x + 1, y + 1, w - 2, h - 2)
+    cr.set_source_rgba(*sk_rgb(0.15, col), a)
+    cr.fill()
+    if pr and pr > 0:
+        p = col["primary"]
+        g = cairo.LinearGradient(0, y + 1, 0, y + h - 1)
+        g.add_color_stop_rgba(0, *p, a)
+        g.add_color_stop_rgba(1, *(c * 0.6 for c in p), a)
+        cr.rectangle(x + 1, y + 1, (w - 2) * min(1.0, pr), h - 2)
+        cr.set_source(g)
+        cr.fill()
+
+
+def sk_dots(rgb=None):
+    """Точечный узор фона Skeet: плитка 4×4. Без цвета — одна светлая точка; с цветом — точки
+    (0,0) и (2,2) этим цветом, как у виджетов (desktop_widgets.draw_skeet)."""
+    import cairo
+    key = rgb or "pat"
+    if key not in _SK_DOTS:
+        s = cairo.ImageSurface(cairo.FORMAT_ARGB32, 4, 4)
+        c = cairo.Context(s)
+        c.rectangle(0, 0, 1, 1)
+        if rgb:
+            c.rectangle(2, 2, 1, 1)
+            c.set_source_rgb(*rgb)
+        else:
+            c.set_source_rgba(1, 1, 1, 0.035)
+        c.fill()
+        pat = cairo.SurfacePattern(s)
+        pat.set_extend(cairo.EXTEND_REPEAT)
+        if rgb:                                  # обои сменились — прежний узор не нужен
+            for k in [k for k in _SK_DOTS if k != "pat"]:
+                del _SK_DOTS[k]
+        _SK_DOTS[key] = pat
+    return _SK_DOTS[key]
+
+
+def sk_g(level, col, t=0.05):
+    """Серый Skeet с примесью акцента — формула skeet_colors() виджетов и Настроек."""
+    return mix_rgb((level / 255.0,) * 3, col.get("vivid", col["primary"]), t)
+
+
+def sk_frame(cr, x, w, h, col, a):
+    """Рамка окна gamesense и поле с точками; y=0 — верх карточки. Слои — как у виджетов
+    Skeet (desktop_widgets.draw_skeet): светлая акцентная 1, средняя 3, светлая 1, почти чёрная 1.
+    20.10.2026, просьба: «вокруг островка не хватает акцентных линий, как в виджетах»."""
+    import cairo
+    line1 = mix_rgb(sk_g(0x3c, col, 0.08), col.get("vivid", col["primary"]), 0.45)
+    o = 0
+    for rgb, t in ((line1, 1), (sk_g(0x28, col, 0.06), 3), (line1, 1), (sk_g(0x0a, col, 0.03), 1)):
+        cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+        cr.rectangle(x + o, o, w - 2 * o, h - 2 * o)
+        cr.rectangle(x + o + t, o + t, w - 2 * (o + t), h - 2 * (o + t))
+        cr.set_source_rgba(*rgb, a)
+        cr.fill()
+        o += t
+    cr.set_fill_rule(cairo.FILL_RULE_WINDING)
+    cr.rectangle(x + 6, 6, w - 12, h - 12)
+    cr.set_source_rgba(*sk_g(0x13, col), a)      # фон и точки — как у виджета (bg, dot)
+    cr.fill_preserve()
+    cr.save()
+    cr.translate(x + 6, 6)
+    cr.set_source(sk_dots(sk_g(0x18, col)))
+    cr.restore()
+    cr.fill()
+    # радуга палитры: верхний пиксель ярко, второй — притушен (как у gamesense)
+    g = cairo.LinearGradient(x + 6, 0, x + w - 6, 0)
+    for i, k in enumerate(("vivid", "tertiary", "secondary")):
+        g.add_color_stop_rgba(i / 2, *col.get(k, col["primary"]), a)
+    cr.rectangle(x + 6, 6, w - 12, 1)
+    cr.set_source(g)
+    cr.fill()
+    cr.save()
+    cr.rectangle(x + 6, 7, w - 12, 1)
+    cr.clip()
+    cr.set_source(g)
+    cr.paint_with_alpha(0.45)
+    cr.restore()
+
+
+def paint_skeet_card(cr, x, w, h, kind, d, pages, col, a, ci):
+    """Карточка Skeet: рамка gamesense, радуга, вкладки страниц со значками (щелчок —
+    страница), имя .exe справа, группа с названием страницы; внутри — обычная страница
+    (paint_card) с кнопками-плашками и ползунком."""
+    hits = []
+    sk_frame(cr, x, w, h, col, a)
+    # вкладки
+    sy, sh = 8, SK_TOP - 8
+    cr.rectangle(x + 6, sy, w - 12, sh)
+    cr.set_source_rgba(*sk_rgb(0.047, col), a)
+    cr.fill()
+    exe = PAGE_EXE.get(kind, "island.exe")
+    ew = text_w(cr, exe, 8)
+    n = max(1, len(pages))
+    tw = max(20, min(30, int((w - 12 - ew - 24) / n)))
+    line = sk_rgb(0.235, col)
+    cr.rectangle(x + 6, sy + sh, w - 12, 1)
+    cr.set_source_rgba(*line, a)
+    cr.fill()
+    for i, (k, _dd) in enumerate(pages):
+        tx = x + 6 + i * tw
+        on = i == ci
+        live = k in LIVE_TABS
+        if i and live != (pages[i - 1][0] in LIVE_TABS):   # черта между живыми и инструментами
+            cr.rectangle(tx, sy + 4, 1, sh - 8)
+            cr.set_source_rgba(*sk_rgb(0.30, col), a)
+            cr.fill()
+        if on:
+            cr.rectangle(tx, sy, tw, sh + 1)
+            cr.set_source_rgba(*sk_rgb(0.075, col), a)
+            cr.fill()
+            for lx in (tx, tx + tw - 1):
+                cr.rectangle(lx, sy, 1, sh + 1)
+            cr.set_source_rgba(*line, a)
+            cr.fill()
+        g = PAGE_GLYPH.get(k, "?")
+        if live:
+            # 20.10: неактивные заметно тусклее — иначе цветные значки спорят с открытой вкладкой
+            ink, ga = tab_rgb(k, col), (a if on else 0.32 * a)
+            cr.rectangle(tx + 4, sy + sh - 2, tw - 8, 2)
+            cr.set_source_rgba(*ink, ga if on else 0.22 * a)
+            cr.fill()
+        else:
+            # 20.10.2026, просьба: «неактивные стали слишком тусклыми» — без притушения 0.6, чуть светлее
+            ink, ga = (col["on_surface"] if on else sk_rgb(0.42, col)), a
+            lvl = (_dd or {}).get("radio") if k in ("wifi", "bt") else None
+            if lvl:                             # включён — приглушённый акцент, подключён — яркий
+                ink = radio_rgb(lvl, col)
+        gy = int(sy + sh / 2) - (1 if live else 0)
+        pix_glyph(cr, g, int(tx + tw / 2), gy, ink, ga) or put_glyph(cr, g, 16, int(tx + tw / 2), gy, ink, ga)
+        hits.append(((tx, sy, tw, sh), ("page", i)))
+    put_text(cr, exe, 8, x + w - 12 - ew, sy + sh / 2, col["on_surface_variant"], 0.75 * a)
+    # группа с заголовком на рамке
+    gx, gy, gw = x + 10, SK_TOP + 6, w - 20
+    gh = h - gy - 10
+    if gh > 8:
+        cr.rectangle(gx, gy, gw, gh)
+        cr.set_source_rgba(*sk_rgb(0.04, col), a)
+        cr.fill()
+        cr.rectangle(gx + 1, gy + 1, gw - 2, gh - 2)
+        cr.set_source_rgba(*sk_rgb(0.196, col), a)
+        cr.fill()
+        cr.rectangle(gx + 2, gy + 2, gw - 4, gh - 4)
+        cr.set_source_rgba(*sk_rgb(0.086, col), a)
+        cr.fill()
+        title = {"clip": "Снимки из буфера · перетащите в чат", "prefs": "Настройки островка",
+                 "shelf": "Полка · бросьте файл на островок", "cc": "Центр управления"}.get(
+            kind, PAGES.get(kind, ("",))[0])
+        tt = text_w(cr, title, 8)
+        cr.rectangle(gx + 8, gy - 1, tt + 8, 4)
+        cr.set_source_rgba(*sk_rgb(0.075, col), a)
+        cr.fill()
+        put_text(cr, title, 8, gx + 12, gy + 1, col["on_surface"], 0.92 * a)
+    # страница внутри группы
+    _SK["on"] = True
+    try:
+        cr.save()
+        cr.translate(0, SK_TOP)
+        cr.rectangle(gx + 2, gy + 2 - SK_TOP, gw - 4, gh - 4)
+        cr.clip()
+        inner = paint_card(cr, x + 4, w - 8, h - SK_TOP - 6, kind, d, pages, col, a, ci)
+        cr.restore()
+    finally:
+        _SK["on"] = False
+    hits += [((hx, hy + SK_TOP, hw, hh), act) for (hx, hy, hw, hh), act in inner]
+    return hits
 
 
 def ring(cr, cx, cy, r, pr, rgb, a, lw):
@@ -1481,13 +2920,122 @@ def ring(cr, cx, cy, r, pr, rgb, a, lw):
 def act_color(k, col):
     if k == "call":
         return CALL_GREEN
+    if k == "nudge":
+        return NUDGE_RGB
     return col["error"] if k == "rec" else col["secondary"] if k == "timer" else \
         col["tertiary"] if k == "music" else col["primary"]
 
 
+def radio_rgb(lvl, col):
+    """Значок вкладки Wi-Fi/Bluetooth (20.10.2026): 2 — подключено (яркий акцент обоев),
+    1 — только включено (тот же акцент, наполовину к серому неактивных вкладок)."""
+    v = col.get("vivid", col["primary"])
+    return v if lvl >= 2 else mix_rgb(sk_rgb(0.42, col), v, 0.5)
+
+
+def tab_rgb(k, col):
+    """Цвет вкладки живого блока: запись и помидор — как их инструменты, котик — акцент обоев."""
+    if k in ("rec", "pomo"):
+        return TOOL_RGB[k]
+    if k == "cat":
+        return col.get("vivid", col["primary"])
+    return act_color(k, col)
+
+
 def ck_rgb(ck, col):
     """Цвет-ключ act_line → rgb (звонок — свой зелёный, его нет в палитре)."""
-    return CALL_GREEN if ck == "call" else col[ck]
+    return CALL_GREEN if ck == "call" else NUDGE_RGB if ck == "nudge" else col[ck]
+
+
+def nudge_sec(d):
+    """Сколько подряд: счёт серии раз в NUDGE_POLL_S, между опросами — по часам, если всё ещё там."""
+    s = d.get("sec") or 0
+    if d.get("here") and d.get("t"):
+        s += max(0.0, min(30.0, time.monotonic() - d["t"]))
+    return s
+
+
+def nudge_phase(d):
+    """(напечатано букв, вспышка рамки, курсор виден): рамка мигает, потом фраза печатается
+    по буквам, курсор-блок мигает. Без t0 (страница, снимок) — фраза целиком."""
+    n = len(d.get("text") or "")
+    t0 = d.get("t0")
+    if t0 is None:
+        return n, False, int(time.time()) % 2 == 0
+    t = time.monotonic() - t0
+    typed = max(0, min(n, int((t - NUDGE_BLINK_S) / NUDGE_CHAR_S)))
+    return typed, t < NUDGE_BLINK_S and int(t / 0.15) % 2 == 0, typed < n or int(t / 0.5) % 2 == 0
+
+
+def paint_nudge_compact(cr, x, w, h, d, col, a, D):
+    """Компакт «Пора к делу»: значок терминала и фраза янтарём, печатается слева направо."""
+    ios = bool(D.get("ios"))
+    text = d.get("text") or ""
+    n, flash, cur = nudge_phase(d)
+    mid = h / 2
+    if flash:                                   # заметить, что появилась: рамка вспыхивает
+        pill_path(cr, x, w, h, D)
+        cr.set_line_width(4)
+        cr.set_source_rgba(*NUDGE_RGB, a)
+        cr.stroke()
+    if ios:
+        put_text(cr, G_NUDGE, 13, x + 20, mid, NUDGE_RGB, a, center=True)
+    else:
+        pix_glyph(cr, G_NUDGE, x + 20, mid, NUDGE_RGB, a)
+    px, tx = (13, x + 36) if ios else (8, x + 36)
+    shown = text[:n]
+    if shown:
+        put_text(cr, shown, px, tx, mid, NUDGE_RGB, a, maxw=w - 36 - 22)
+    if cur:
+        cw = min(text_w(cr, shown, px) if shown else 0, w - 36 - 22)
+        ch = 12 if ios else 8
+        cr.rectangle(int(tx + cw + 2), int(mid - ch / 2), 7 if ios else 6, ch)
+        cr.set_source_rgba(*NUDGE_RGB, (0.85 if ios else 1) * a)
+        cr.fill()
+
+
+def paint_nudge(cr, x, w, h, d, col, a, ios):
+    """Страница «Пора к делу»: сколько подряд и с какого часа, что это и сколько за день,
+    внизу — фраза в окошке терминала с мигающим курсором."""
+    d = d or {}
+    pad = 18
+    fg = (1, 1, 1) if ios else col["on_surface"]
+    dim = (0.7, 0.7, 0.74) if ios else col["on_surface_variant"]
+    big, small = (20, 12) if ios else (24, 8)
+    t = mmss(nudge_sec(d))
+    put_text(cr, t, big, x + pad, 32, fg, a)
+    since = time.strftime("%H:%M", time.localtime(d.get("start") or time.time()))
+    put_text(cr, "подряд · с " + since, small, x + pad + text_w(cr, t, big) + 10, 33, dim, 0.85 * a)
+    sub = [d.get("what") or ""]
+    if d.get("today"):
+        sub.append("сегодня " + mmss(d["today"]))
+    if not d.get("here") and d.get("kind") != "demo" and (d.get("away") or 0) >= 20:
+        sub.append("отошли %d мин" % max(1, int(d["away"] // 60)) if d["away"] >= 60 else "отошли")
+    put_text(cr, " · ".join(s for s in sub if s), small, x + pad, 56, dim, 0.85 * a, maxw=w - 2 * pad)
+    bx, by, bw, bh = int(x + pad), int(h - 40), int(w - 2 * pad), 26
+    if ios:
+        rrect(cr, bx, by, bw, bh, 8)
+        cr.set_source_rgba(0, 0, 0, 0.5 * a)
+        cr.fill_preserve()
+        cr.set_line_width(1)
+        cr.set_source_rgba(*NUDGE_RGB, 0.5 * a)
+        cr.stroke()
+    else:
+        cr.rectangle(bx, by, bw, bh)
+        cr.set_source_rgba(0, 0, 0, 0.55 * a)
+        cr.fill()
+        for r in ((bx, by, bw, 1), (bx, by + bh - 1, bw, 1), (bx, by, 1, bh), (bx + bw - 1, by, 1, bh)):
+            cr.rectangle(*r)
+        cr.set_source_rgba(*NUDGE_RGB, 0.6 * a)
+        cr.fill()
+    line = "> " + (d.get("text") or "Пора к делу")
+    put_text(cr, line, small, bx + 8, by + bh / 2, NUDGE_RGB, a, maxw=bw - 24)
+    if int(time.time()) % 2 == 0:
+        cw = min(text_w(cr, line, small), bw - 24)
+        ch = 12 if ios else 8
+        cr.rectangle(int(bx + 8 + cw + 2), int(by + bh / 2 - ch / 2), 7 if ios else 6, ch)
+        cr.set_source_rgba(*NUDGE_RGB, a)
+        cr.fill()
 
 
 def ios_compact(cr, x, w, h, kind, d, acts, col, a):
@@ -1528,7 +3076,15 @@ def paint_card_ios(cr, x, w, h, kind, d, acts, col, a, pages):
         paint_cat_card(cr, x, w, h, d, col, a, hits, True)
         ios_dots(cr, x, w, n, cur, a, hits)
         return hits
-    if kind in ("clip", "capture", "focus"):
+    if kind == "shelf":
+        paint_shelf(cr, x, w, h, d, col, a, hits, True)
+        ios_dots(cr, x, w, n, cur, a, hits)
+        return hits
+    if kind in SYS_PAGES:
+        paint_sys(cr, x, w, h, kind, d, col, a, hits, True)
+        ios_dots(cr, x, w, n, cur, a, hits)
+        return hits
+    if kind in ("clip", "tools"):
         (paint_clip if kind == "clip" else paint_tools)(cr, x, w, h, d if kind == "clip" else kind, col, a, hits, True)
         ios_dots(cr, x, w, n, cur, a, hits)
         return hits
@@ -1536,10 +3092,16 @@ def paint_card_ios(cr, x, w, h, kind, d, acts, col, a, pages):
     acc = ck_rgb(ck, col)
     pr = progress(kind, d)
     R = 38
-    if kind == "timer":                         # снизу ряд отрезков — остальное выше
-        paint_presets(cr, x + 18, h - 34, w - 36, col, a, hits, True)
-        h -= 32
-    cx, cy = x + 18 + R, h / 2
+    if kind == "nudge":
+        paint_nudge(cr, x, w, h, d, col, a, True)
+        ios_dots(cr, x, w, n, cur, a, hits)
+        return hits
+    if kind == "prefs":
+        paint_prefs(cr, x, w, h, d, col, a, hits, True)
+        ios_dots(cr, x, w, n, cur, a, hits)
+        return hits
+    eqh = MUSIC_EQ[2] if kind == "music" else 0
+    cx, cy = x + 18 + R, (h - eqh) / 2
     ring(cr, cx, cy, R, pr, acc if pr is not None else (1, 1, 1), a if pr is not None else 0.25 * a, 3)
     if kind == "music":
         mid_t = mmss(d.position()) if d.length else G_NOTE
@@ -1576,21 +3138,24 @@ def paint_card_ios(cr, x, w, h, kind, d, acts, col, a, pages):
     elif kind == "timer" and d["list"]:
         t = d["list"][0]
         title, sub = t["text"], ("ещё %d" % (len(d["list"]) - 1) if len(d["list"]) > 1 else "")
-        btns = [(G_STOP, ("timer", "stop:%d" % t["id"]), True), (G_OPEN, ("timer", "open"), False)]
+        btns = [(G_STOP, ("timer", "stop:%d" % t["id"]), True), (G_PLUS, ("timer", "add"), False)]
     elif kind == "timer":
-        title, sub, btns = "Таймер", "Сколько поставить? Звенит hub", [(G_OPEN, ("timer", "open"), False)]
+        title, sub, btns = "Таймер", "«+» — новый, с виджетом на столе", [(G_PLUS, ("timer", "add"), True)]
     else:
         title, sub, btns = text, "", []
     dots = 10 * n if n > 1 else 0
     put_text(cr, title, 15, tx, 26, (1, 1, 1), a, maxw=tw - dots - 6)
+    lk = kind == "music" and like_btn(cr, tx + tw - 5, 45, _CAT["s"], dict(col, on_surface_variant=(1, 1, 1)), a, hits)
     if sub:
-        put_text(cr, sub, 12, tx, 45, (1, 1, 1), 0.55 * a, maxw=tw)
+        put_text(cr, sub, 12, tx, 45, (1, 1, 1), 0.55 * a, maxw=tw - (22 if lk else 0))
     ios_dots(cr, x, w, n, cur, a, hits)
     if btns:
         gap, bh = 8, 28
         bw = (tw - gap * (len(btns) - 1)) / len(btns)
         for i, (g, act, prim) in enumerate(btns):
-            ios_button(cr, tx + i * (bw + gap), h - 20 - bh, bw, bh, g, acc, a, hits, act, prim)
+            ios_button(cr, tx + i * (bw + gap), h - 20 - eqh - bh, bw, bh, g, acc, a, hits, act, prim)
+    if kind == "music":
+        music_eq(cr, x + 18, h - 10, w - 36, _CAT["s"] or {}, col, a, d.status == "Playing")
     return hits
 
 
@@ -1624,8 +3189,9 @@ def paint_clip(cr, x, w, h, d, col, a, hits, ios):
     pad = 18
     fg = (1, 1, 1) if ios else col["on_surface"]
     px = 12 if ios else 8
-    put_text(cr, "Снимки из буфера · перетащите в чат", px, x + pad, 22 if ios else 17, fg, 0.6 * a,
-             maxw=w - 2 * pad - 80)
+    if not _SK["on"]:                         # в Skeet это заголовок рамки группы
+        put_text(cr, "Снимки из буфера · перетащите в чат", px, x + pad, 22 if ios else 17, fg, 0.6 * a,
+                 maxw=w - 2 * pad - 80)
     d = d or {}
     items = d.get("items") or []
     if not items:
@@ -1633,9 +3199,9 @@ def paint_clip(cr, x, w, h, d, col, a, hits, ios):
                  fg, 0.55 * a, center=True)
         return
     gap = 8
-    cols = 2                                  # сетка 2×2: два этажа (19.10.2026, пользователь)
+    cols = 4                                  # сетка 4×2: два этажа по четыре (20.10.2026)
     tw = (w - 2 * pad - gap * (cols - 1)) / cols
-    top = 34
+    top = 16 if _SK["on"] else 34
     th = (h - top - 14 - gap * (2 - 1)) / 2
     R = 8 if ios else 0
     for i, it in enumerate(items[:CLIP_N]):
@@ -1668,18 +3234,80 @@ def paint_clip(cr, x, w, h, d, col, a, hits, ios):
         hits.append(((bx, ty, tw, th), ("clip", it["id"])))
 
 
+def paint_shelf(cr, x, w, h, d, col, a, hits, ios):
+    """Страница «Полка» (20.10.2026, одобрено из списка AngelOS: «бросить файл на островок,
+    чтобы подержать его там»): плитки 4×2 — миниатюра картинки или значок и имя файла.
+    Щелчок — открыть, перетаскивание — файлом куда угодно, × — убрать с полки."""
+    pad = 18
+    fg = (1, 1, 1) if ios else col["on_surface"]
+    px = 12 if ios else 8
+    if not _SK["on"]:
+        put_text(cr, "Полка · бросьте файл на островок", px, x + pad, 22 if ios else 17, fg, 0.6 * a,
+                 maxw=w - 2 * pad - 80)
+    items = (d or {}).get("items") or []
+    if not items:
+        put_text(cr, "Перетащите файл на островок — он полежит здесь", px, x + w / 2, h / 2 + 10,
+                 fg, 0.55 * a, center=True)
+        return
+    gap, cols = 8, 4
+    tw = (w - 2 * pad - gap * (cols - 1)) / cols
+    top = 16 if _SK["on"] else 34
+    th = (h - top - 14 - gap) / 2
+    R = 8 if ios else 0
+    for i, it in enumerate(items[:SHELF_N]):
+        bx = round(x + pad + (i % cols) * (tw + gap))
+        ty = round(top + (i // cols) * (th + gap))
+        cr.save()
+        rrect(cr, bx, ty, tw, th, R)
+        cr.clip()
+        cr.set_source_rgba(*((1, 1, 1) if ios else col["surface_high"]), (0.08 if ios else 1) * a)
+        cr.paint()
+        sf = it.get("surf")
+        if sf is not None:
+            iw, ih = sf.get_width(), sf.get_height()
+            k = max(tw / iw, (th - 14) / ih)
+            cr.translate(bx + (tw - iw * k) / 2, ty + (th - 14 - ih * k) / 2)
+            cr.scale(k, k)
+            cr.set_source_surface(sf, 0, 0)
+            cr.paint_with_alpha(a)
+        cr.restore()
+        if sf is None:
+            put_text(cr, G_FOLDER if it.get("dir") else G_FILE, 16, bx + tw / 2, ty + (th - 14) / 2, fg,
+                     0.8 * a, center=True)
+        cr.rectangle(bx, ty + th - 14, tw, 14)       # подпись — по низу плитки
+        cr.set_source_rgba(*((0, 0, 0) if ios else col["bg"]), (0.55 if ios else 0.85) * a)
+        cr.fill()
+        put_text(cr, it["name"], 11 if ios else 8, bx + 4, ty + th - 7, fg, 0.9 * a, maxw=tw - 8)
+        if not ios:
+            cr.rectangle(bx + 0.5, ty + 0.5, tw - 1, th - 1)
+            cr.set_line_width(1)
+            cr.set_source_rgba(*col["outline_variant"], 0.8 * a)
+            cr.stroke()
+        xb = (bx + tw - 16, ty + 2, 14, 14)          # × — убрать с полки
+        cr.rectangle(*xb)
+        cr.set_source_rgba(*((0, 0, 0) if ios else col["bg"]), 0.7 * a)
+        cr.fill()
+        put_text(cr, G_X, 11 if ios else 8, xb[0] + 7, xb[1] + 7, fg, 0.85 * a, center=True)
+        hits.append(((xb[0] - 2, xb[1] - 2, 18, 18), ("shelf_rm", i)))
+        hits.append(((bx, ty, tw, th), ("shelf", i)))
+
+
 def paint_tools(cr, x, w, h, _d, col, a, hits, ios):
-    """Страница «Инструменты»: помидор, запись, таймер, заметка, пипетка, снимок, буфер."""
+    """Страница «Инструменты»: запись, пипетка, снимок, заметка, помидор — в один ряд."""
     pad = 12
     fg = (1, 1, 1) if ios else col["on_surface"]
     items = CAPTURE if _d == "capture" else FOCUS if _d == "focus" else TOOLS
-    put_text(cr, PAGES.get(_d, ("Инструменты",))[0], 12 if ios else 8, x + pad + 6, 22 if ios else 17, fg, 0.6 * a)
+    if not _SK["on"]:
+        put_text(cr, PAGES.get(_d, ("Инструменты",))[0], 12 if ios else 8, x + pad + 6, 22 if ios else 17, fg, 0.6 * a)
     n = len(items)
     cw = (w - 2 * pad) / n
     cy = h / 2 + 4
     for i, (tid, g, label, _cmd) in enumerate(items):
         cx = round(x + pad + cw * i + cw / 2)      # целые — пиксельный шрифт не мажется
-        if ios:
+        if _SK["on"]:
+            sk_box(cr, cx - 19, cy - 17, 38, 34, col, a, False)
+            cr.new_path()
+        elif ios:
             rrect(cr, cx - 19, cy - 19, 38, 38, 12)
             cr.set_source_rgba(1, 1, 1, 0.12 * a)
         else:
@@ -1687,7 +3315,8 @@ def paint_tools(cr, x, w, h, _d, col, a, hits, ios):
             cr.arc(cx, cy, 17, 0, 2 * math.pi)
             cr.set_source_rgba(*col["surface_high"], 0.9 * a)
         cr.fill()
-        put_text(cr, g, 16 if not ios else 15, cx, cy, fg, a, center=True)
+        pix_glyph(cr, g, cx, cy, TOOL_RGB.get(tid, fg), a) or \
+            put_glyph(cr, g, 16 if not ios else 15, cx, cy, TOOL_RGB.get(tid, fg), a)
         put_text(cr, label, 11 if ios else 8, cx, cy + 31, fg, 0.7 * a, center=True)
         hits.append(((cx - cw / 2, cy - 22, cw, 60), ("tool", tid)))
 
@@ -1729,8 +3358,29 @@ CAT_NAP = (
 )
 CAT_ZZ = ("####", "..#.", ".#..", "####")
 CAT_HEART = (".#.#.", "#####", "#####", ".###.", "..#..")
+# «Нравится» в карточке музыки (20.10.2026, просьба: «не вижу кнопки лайка»): полное — нравится
+LIKE_ON = (".##...##.", "####.####", "#########", "#########", ".#######.", "..#####..", "...###...", "....#....")
+LIKE_OFF = (".##...##.", "#..#.#..#", "#...#...#", "#.......#", ".#.....#.", "..#...#..", "...#.#...", "....#....")
+LIKE_RGB = (1.0, 0.36, 0.5)
+
+
+def like_btn(cr, cx, cy, cat, col, a, hits):
+    """Сердце «Нравится» (player_like.py): есть, только если плеер его умеет."""
+    st = (cat or {}).get("like")
+    if st not in ("liked", "not"):
+        return False
+    on = st == "liked"
+    bmp = LIKE_ON if on else LIKE_OFF
+    draw_bitmap(cr, bmp, int(cx) - 4, int(cy) - 4, 1, LIKE_RGB if on else col["on_surface_variant"],
+                a if on else 0.8 * a)
+    hits.append(((int(cx) - 10, int(cy) - 10, 20, 20), ("music", "like")))
+    return True
+CAT_NOTE = ("...########", "...########", "...#......#", "...#......#", "...#......#", "...#......#",
+            "...#......#", ".###....###", "####...####", "####...####", ".##.....##.")
 CAT_TOMATO = ("..##...", "...#...", ".#####.", "#######", "#######", "#######", ".#####.")
-CAT_BUSY = ("...#...", "#..#..#", ".#.#.#.", "..###..", ".#.#.#.", "#..#..#", "...#...")
+# Зверёк занятого терминала (20.10.2026): пиксельный, оранжевый; глаза вырезаны.
+CAT_BUSY = (".###########.", ".###########.", ".##.#####.##.", "#############", "#############",
+              "#############", ".###########.", "..#.#...#.#..", "..#.#...#.#..", "..#.#...#.#..")
 CAT_W, CAT_H = 20, 12
 CAT_FRAME_S = 0.14          # кадр бега (у angelOS 0.2 — нам бодрее)
 CAT_FRAME_MS = 140
@@ -1854,7 +3504,7 @@ def cat_parts(cr, cat, D=None):
     elif r == "pomo":
         parts.append(("pomo", 7 + 4 + text_w(cr, mmss(pomo_rem(cat["pomo"])), 8)))
     elif r == "busy":
-        parts.append(("busy", 7))
+        parts.append(("busy", len(CAT_BUSY[0])))
     else:
         parts.append(("date", text_w(cr, cat_date(), 8)))
     return parts
@@ -1889,6 +3539,33 @@ def draw_eq(cr, x, y, n, rows, blk, levels, col, a, playing):
             else:
                 cr.set_source_rgba(*col["on_surface_variant"], 0.16 * a)
             cr.fill()
+
+
+def music_eq(cr, x, bottom, w, cat, col, a, playing):
+    """Эквалайзер карточки музыки: невысокая полоса квадратиков на всю ширину, низом на bottom;
+    64 полосы cava растянуты на число столбцов."""
+    rows, blk, _sp = MUSIC_EQ
+    n = int((w + 1) // (blk + 1))
+    v = cat.get("eqw") or cat.get("eq8") or ()
+    m = len(v)
+    lv = []
+    # 20.10: зеркалом — басы в середине, высокие по краям (просьба: «чтобы в центре больше было
+    # и по бокам по чуть-чуть»; слева направо выглядело случайным)
+    half = (n - 1) / 2.0
+    for i in range(n if m else 0):
+        t = abs(i - half) / max(1.0, half) * (m - 1)
+        j = int(t)
+        lv.append(v[j] + (v[min(j + 1, m - 1)] - v[j]) * (t - j))
+    # 20.10: у cava на 64 полосы медиана ~0,24, и почти всё горело одним рядом («стоит на
+    # месте»). Растягиваем по самому громкому столбцу кадра и поднимаем тихие кривой.
+    # Середина весомее краёв (горка), соседи сглажены — без одиночных «случайных» столбиков.
+    lv = [u * (1 - 0.6 * (abs(i - half) / max(1.0, half)) ** 1.5) for i, u in enumerate(lv)]
+    lv = [(lv[max(0, i - 1)] + 2 * u + lv[min(len(lv) - 1, i + 1)]) / 4 for i, u in enumerate(lv)]
+    pk = max(lv or [0])
+    if pk > 0.02:
+        lv = [(u / max(pk, 0.3)) ** 0.7 for u in lv]
+    ex = int(x + (w - (n * (blk + 1) - 1)) / 2)
+    draw_eq(cr, ex, int(bottom - rows * (blk + 1) + 1), n, rows, blk, lv, col, a, playing)
 
 
 def mix_rgb(a, b, t):
@@ -1955,6 +3632,10 @@ def paint_cat_pill(cr, x, top, w, h, st, col, D):
         cr.arc(x + r, top + r, r, math.pi / 2, 3 * math.pi / 2)
         cr.close_path()
     else:
+        if D.get("shadow") == "hard":
+            cr.rectangle(x + 3, top + 3, w, h)
+            cr.set_source_rgba(*(c * 0.25 for c in col["bg"]), 0.72)
+            cr.fill()
         cr.rectangle(x, top, w, h)
     if ios:
         cr.set_source_rgba(0.02, 0.02, 0.03, 0.92)
@@ -1965,7 +3646,8 @@ def paint_cat_pill(cr, x, top, w, h, st, col, D):
     if ios:
         cr.set_source_rgba(1, 1, 1, 0.08)
     else:
-        cr.set_source_rgba(*border_rgba(D, col)[:3], 0.9) if D.get("border") else cr.set_source_rgba(1, 1, 1, 0.1)
+        # тусклый акцент обоев, не серый (20.10.2026, просьба: «серый выбивается от системы»)
+        cr.set_source_rgba(*pill_edge(col))
     cr.stroke()
     parts = cat_parts(cr, cat, D)
     need = 2 * CAT_PAD + sum(pw for _k, pw in parts) + CAT_GAP * (len(parts) - 1)
@@ -1993,6 +3675,7 @@ def paint_cat_pill(cr, x, top, w, h, st, col, D):
             elif k == "cat":
                 draw_cat(cr, int(cx), int(cy - CAT_H / 2), 1, cat, ink)
             elif k == "lyr":
+                _LYR["on"] = True
                 ly = lyric_now(cat)
                 if ly is None or not ly[0]:          # проигрыш: кот бежит посреди полосы
                     draw_cat(cr, int(cx + (pw - CAT_W) / 2), int(cy - CAT_H / 2), 1, cat, ink)
@@ -2009,9 +3692,100 @@ def paint_cat_pill(cr, x, top, w, h, st, col, D):
                 draw_bitmap(cr, CAT_TOMATO, int(cx), int(cy - 3.5), 1, act_color("pomo", col))
                 put_text(cr, mmss(pomo_rem(pm)), 8, cx + 11, cy, dim if pm["paused"] else ink, 0.95)
             elif k == "busy":
-                draw_bitmap(cr, CAT_BUSY, int(cx), int(cy - 3.5), 1, BUSY_ORANGE)
+                draw_bitmap(cr, CAT_BUSY, int(cx), int(cy - len(CAT_BUSY) / 2), 1, BUSY_ORANGE)
             elif k == "date":
                 put_text(cr, cat_date(), 8, cx, cy, dim, 0.9)
+    cr.restore()
+    return hits
+
+
+# Капсула «Центра» (20.10.2026, просьба: «когда захожу в этот блок и закрывается островок —
+# сверху маленькими иконками: Таурин/Кофеин+Таурин справа, причём по иконкам заметно, что
+# именно; это не должно менять размер островка; Сторож — слева, если включён; в центре день
+# недели»). Ширина постоянная (CC_PILL_W): значки встают в зарезервированные места.
+CC_CUP = ("...#..#....",
+          "..#..#.....",
+          "...#..#....",
+          "...........",
+          "########...",
+          "##########.",
+          "########..#",
+          "########..#",
+          "##########.",
+          ".######....")
+CC_BOLT = ("....###",
+           "...###.",
+           "..###..",
+           ".###...",
+           "#######",
+           "...###.",
+           "..###..",
+           ".###...",
+           ".##....",
+           "##.....")
+CC_GUARD = ("#########",             # щит «Сторожа» (20.10.2026: вместо будильника), левая половина залита
+            "#####...#",
+            "#####...#",
+            "#####...#",
+            "#####...#",
+            ".####..#.",
+            ".####..#.",
+            "..###.#..",
+            "...###...",
+            "....#....")
+MONTHS_SHORT = ("янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
+WEEKDAYS_FULL = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
+
+
+CC_PILL_W = 220                 # уже кота (CAT_MIN_W 270): «воскресенье 30 сен» и значки влезают (20.10.2026)
+
+
+def cc_pill_w():
+    return float(CC_PILL_W)
+
+
+def paint_cc_pill(cr, x, top, w, h, st, col, D):
+    """Слева — будильник Сторожа (если стережёт), в центре — день недели и дата, справа —
+    чашка (кофеин, акцентом) и молния (таурин, третьим цветом палитры — как плитка «Кофеин
+    + Таурин» в Центре управления бара)."""
+    import cairo
+    hits = []
+    if st.get("ta", 1) <= 0.01 or w < 4 or h < 2:
+        return hits
+    ios = bool(D.get("ios"))
+    cc = st.get("ccp") or {}
+    cr.save()
+    pill_shape(cr, x, top, w, h, col, D)
+    if w >= CC_PILL_W * 0.9 and h >= PILL_H * 0.6:
+        cr.set_antialias(cairo.ANTIALIAS_NONE)
+        cr.rectangle(x, top, w, h)
+        cr.clip()
+        ink = (1, 1, 1) if ios else col["on_surface"]
+        dim = (0.75, 0.75, 0.78) if ios else col["on_surface_variant"]
+        acc = mix_rgb(col["primary"], (1, 1, 1), 0.35) if ios else col["primary"]
+        # таурин — tertiary, но насыщеннее: в мягких палитрах он почти как акцент чашки
+        import colorsys
+        th_, tl_, ts_ = colorsys.rgb_to_hls(*col["tertiary"])
+        ter = colorsys.hls_to_rgb(th_, 0.72, max(ts_, 0.85))
+        cy = top + h / 2
+        if cc.get("guard"):
+            draw_bitmap(cr, CC_GUARD, int(x + CAT_PAD), int(cy - len(CC_GUARD) / 2), 1, acc, 0.95)
+        lt = time.localtime()
+        # справа от дня — дата («20 окт»), не время: часы и так в баре (20.10.2026, пользователь)
+        day, clock = WEEKDAYS_FULL[lt.tm_wday], "%d %s" % (lt.tm_mday, MONTHS_SHORT[lt.tm_mon - 1])
+        dw, gap = text_w(cr, day, 8), 8
+        cw = text_w(cr, clock, 8)
+        sx = x + (w - dw - gap - cw) / 2
+        put_text(cr, day, 8, int(sx), cy, ink, 0.95)
+        put_text(cr, clock, 8, int(sx + dw + gap), cy, dim, 0.9)
+        rx = x + w - CAT_PAD                    # справа налево: молния, чашка
+        if cc.get("taurine"):
+            rx -= len(CC_BOLT[0])
+            draw_bitmap(cr, CC_BOLT, int(rx), int(cy - len(CC_BOLT) / 2), 1, ter, 1.0)
+            rx -= 4
+        if cc.get("caffeine"):
+            rx -= len(CC_CUP[0])
+            draw_bitmap(cr, CC_CUP, int(rx), int(cy - len(CC_CUP) / 2), 1, acc, 1.0)
     cr.restore()
     return hits
 
@@ -2034,23 +3808,33 @@ def paint_cat_card(cr, x, w, h, cat, col, a, hits, ios):
     pets = cat.get("pets", 0)
     if pets:
         put_text(cr, "погладили %d" % pets, 8, x + pad, 100, dim, 0.8 * a)
-    # справа: обложка и квадратики
+    # справа: обложка и квадратики — столбец по центру по высоте (20.10.2026: «иконка прибита
+    # к верху, надо оцентровать»)
     p = cat.get("p")
     rx = x + w - pad - 48
-    if p is not None:
-        draw_cover(cr, int(rx), 26, 48, cat, col, a)
-        hits.append(((rx, 26, 48, 48), ("music", "PlayPause")))
-        draw_eq(cr, int(rx), 82, 8, 4, 5, cat.get("eq8") or (), col, a, p.status == "Playing")
+    if p is not None:                       # 20.10.2026: «квадратик убрать, вместо него иконку,
+        k = 3                               # что запущено» — обложка теперь в карточке музыки
+        bw, bh = len(CAT_NOTE[0]) * k, len(CAT_NOTE) * k
+        bx, y0 = int(rx + 24 - bw / 2), int((h - bh) / 2)
+        draw_bitmap(cr, CAT_NOTE, bx, y0, k, act_color("music", col), a if p.status == "Playing" else 0.45 * a)
+        hits.append(((bx, y0, bw, bh), ("cat", "music")))
     else:
         pm = cat.get("pomo")
         if pm:
-            draw_bitmap(cr, CAT_TOMATO, int(rx + 10), 26, 4, act_color("pomo", col), a)
-            put_text(cr, mmss(pomo_rem(pm)), 8, rx + 24, 70, fg, a, center=True)
+            y0 = int((h - (len(CAT_TOMATO) * 4 + 14)) / 2)
+            draw_bitmap(cr, CAT_TOMATO, int(rx + 10), y0, 4, act_color("pomo", col), a)
+            put_text(cr, mmss(pomo_rem(pm)), 8, rx + 24, y0 + len(CAT_TOMATO) * 4 + 10, fg, a, center=True)
         elif cat.get("busy"):
-            draw_bitmap(cr, CAT_BUSY, int(rx + 10), 26, 4, BUSY_ORANGE, a)
+            k = 3                               # 20.10.2026: «иконку клода чуть поменьше» (было 4)
+            bw, bh = len(CAT_BUSY[0]) * k, len(CAT_BUSY) * k
+            bx, y0 = int(rx + 24 - bw / 2), int((h - bh) / 2)
+            draw_bitmap(cr, CAT_BUSY, bx, y0, k, BUSY_ORANGE, a)
+            hits.append(((bx, y0, bw, bh), ("cat", "busy")))
     # посередине: строки песни или кот
     lx, lw = x + 128, w - 128 - 48 - pad - 14
     ly = lyric_now(cat) if cat.get("lines") else None
+    if cat.get("lines"):
+        _LYR["on"] = True
     if ly and ly[0]:
         draw_lyric(cr, lx, 40, lw, ly, dict(col, on_surface=fg), a, px=8, center=True)
         if ly[2]:
@@ -2075,7 +3859,7 @@ BUSY_MARKS = set("◐◓◑◒⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")   # так кон
 CAT_CAVA = """[general]
 framerate = 20
 autosens = 1
-bars = 8
+bars = 64
 lower_cutoff_freq = 40
 higher_cutoff_freq = 8000
 [input]
@@ -2093,19 +3877,23 @@ frame_delimiter = 10
 
 
 def cat_page_on(conf, isl):
-    """Кот виден на этом островке: капсула «Котик» или открыта его страница."""
+    """Кот виден на этом островке: капсула «Котик» или открыта его страница; и страница музыки —
+    ей нужны кадры эквалайзера."""
     if isl.mode == "thread" and isl.geo[0] > 4:
-        return eff_style(conf["thread_style"], isl.app.acts) == "cat"
+        return eff_style(conf["thread_style"], isl.app.pill_focus()) == "cat"
     if isl.mode == "card" and isl.app.pages:
-        return isl.app.pages[isl.card_i % len(isl.app.pages)][0] == "cat"
+        return isl.app.pages[isl.card_i % len(isl.app.pages)][0] in ("cat", "music")
     return False
 
 
-def eff_style(style, acts):
-    """Кот уступает капсулу звонку, записи и таймеру: им нужны свои цифры и кнопки."""
-    if style == "cat" and acts and acts[0][0] in ("call", "rec", "timer"):
-        return "pill"
-    return style
+def eff_style(style, focus):
+    """Чем рисовать нить: живая нить с последним блоком «Котик» — капсула котика (20.10.2026:
+    вида нити «Котик» больше нет, котик — один из блоков живой нити)."""
+    if style == "cat":
+        style = "pill"
+    if style == "pill" and focus == "cc":      # 20.10.2026: «Центр» — Сторож, день недели, кофеин
+        return "ccp"
+    return "cat" if style == "pill" and focus == "cat" else style
 
 
 class CatWatch:
@@ -2116,7 +3904,7 @@ class CatWatch:
     def __init__(self, app):
         self.app, self.GLib = app, app.GLib
         self.s = {"busy": False, "p": None, "pomo": None, "lines": None, "art8": None, "art24": None,
-                  "eq": [], "eq8": [], "pet_t": -99.0, "ran": 0, "pets": 0}
+                  "eq": [], "eq8": [], "eqw": [], "pet_t": -99.0, "ran": 0, "pets": 0}
         self.titles = {}             # id окна niri → заголовок
         self.poll_id = self.anim_id = None
         self.key = self.art_url = None
@@ -2136,7 +3924,7 @@ class CatWatch:
 
     def wanted(self):
         c = self.app.conf
-        return c["on"] and (c["thread_style"] == "cat" or "cat" in page_ids(c))
+        return c["on"] and ("cat" in page_ids(c) or "music" in page_ids(c))
 
     def sync(self):
         """Из refresh: опрос включается/выключается по настройкам, кадры — по виду."""
@@ -2185,6 +3973,7 @@ class CatWatch:
             pm["t"] = now
         s["pomo"] = pm
         self.track(p)
+        self.like_poll(p)
         if cat_awake(s):                     # «набегал за день»
             s["ran"] += min(5.0, now - self.last)
         self.last = now
@@ -2205,6 +3994,54 @@ class CatWatch:
             os.replace(tmp, CAT_STATS)
         except OSError as e:
             log("кот: статистика", e)
+
+    def like_poll(self, p):
+        """«Нравится» текущего трека (player_like.py): при смене трека (через 1,5 с — плеер
+        перерисовывает кнопку не сразу) и раз в 15 с, пока открыта страница музыки (лайк могли
+        поставить в самом плеере или F10)."""
+        if p is None:
+            self.like_key, self.s["like"] = None, None
+            return
+        k = (p.name, p.title)
+        now = time.monotonic()
+        new = k != getattr(self, "like_key", None)
+        if not new and (now - self.like_t < 15 or not any(
+                isl.mode == "card" and self.app.pages and
+                self.app.pages[isl.card_i % len(self.app.pages)][0] == "music" for isl in self.app.wins.values())):
+            return
+        if new:
+            self.s["like"] = None
+        self.like_key, self.like_t = k, now
+        import threading
+        threading.Thread(target=self.like_run, args=(k, "state", 1.5 if new else 0), daemon=True).start()
+
+    def like_toggle(self):
+        k = getattr(self, "like_key", None)
+        if not k or self.s.get("like") not in ("liked", "not"):
+            return
+        self.s["like"] = "not" if self.s["like"] == "liked" else "liked"     # сразу, ответ поправит
+        self.like_t = time.monotonic()
+        self.app.redraw_cat()
+        import threading
+        threading.Thread(target=self.like_run, args=(k, "toggle"), daemon=True).start()
+
+    def like_run(self, k, action, delay=0.0):
+        time.sleep(delay)
+        if k != self.like_key:
+            return
+        inst = k[0][len(Music.MPRIS):] if k[0].startswith(Music.MPRIS) else k[0]
+        try:
+            out = subprocess.run([sys.executable, os.path.join(HERE, "player_like.py"), action, inst],
+                                 capture_output=True, text=True, timeout=10).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            out = ""
+        if out in ("liked", "not", "unsupported"):
+            self.GLib.idle_add(lambda: self.set_like(k, out) and False)
+
+    def set_like(self, k, st):
+        if k == self.like_key and self.s.get("like") != st:
+            self.s["like"] = st
+            self.app.redraw_cat()
 
     def track(self, p):
         """Новый трек: строки песни (кэш lyrics_bar, иначе сами спросим через 6 с) и обложка."""
@@ -2242,6 +4079,7 @@ class CatWatch:
         if key == self.key:
             self.s["lines"] = lines or None
             self.app.redraw_cat(resize=True)
+            self.kick()
 
     def load_art(self, url):
         """Обложка → два маленьких PNG: 8×8 (капсула, крупные пиксели) и 24×24 (страница)."""
@@ -2308,7 +4146,9 @@ class CatWatch:
         for isl in vis:
             isl.draw_cat()
         fast = cat_awake(self.s) or self.s["lines"] or playing
-        self.anim_id = self.GLib.timeout_add(CAT_FRAME_MS if fast else 1000, self.frame)
+        music = playing and any(isl.mode == "card" and isl.app.pages and
+                                isl.app.pages[isl.card_i % len(isl.app.pages)][0] == "music" for isl in vis)
+        self.anim_id = self.GLib.timeout_add(60 if music else CAT_FRAME_MS if fast else 1000, self.frame)
         return False
 
     def start_cava(self):
@@ -2343,15 +4183,16 @@ class CatWatch:
         *lines, self.cava_buf = self.cava_buf.split(b"\n")
         for line in lines[-1:]:
             v = [int(x) / 1000.0 for x in line.strip().strip(b";").split(b";") if x.isdigit()]
-            if len(v) >= 8:
-                self.s["eq8"] = v[:8]
-                self.s["eq"] = [max(v[i], v[i + 1]) for i in range(0, 8, 2)]
+            if len(v) >= 64:
+                self.s["eqw"] = v[:64]
+                self.s["eq8"] = [max(v[i:i + 8]) for i in range(0, 64, 8)]
+                self.s["eq"] = [max(v[i:i + 16]) for i in range(0, 64, 16)]
         return True
 
     def stop_cava(self, watch=True):
         c, self.cava = self.cava, None
         self.cava_off = 0.0
-        self.s["eq"] = self.s["eq8"] = []
+        self.s["eq"] = self.s["eq8"] = self.s["eqw"] = []
         if not c:
             return
         if watch:
@@ -2402,6 +4243,171 @@ def pdeathsig():
     ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)
 
 
+class OsdWatch:
+    """Громкость, микрофон и яркость — индикатором в островке (20.10.2026, одобрено из списка
+    AngelOS: «всплывающие индикаторы громкости, микрофона и яркости прямо в островке»).
+    pactl subscribe будит (только события sink/source), уровень читается wpctl в потоке и
+    сравнивается с прежним — показывается лишь настоящее изменение. Яркость ноутбука —
+    uevent backlight (GUdev), MSI — файл ~/.cache/msi-brightness (monitor_brightness.py).
+    Пока открыта шторка микшера eww (eww-vol.open) или приглушает простой — молчит.
+    Файл OSD_FLAG (pid островка) говорит volume_manager.sh: шторку на клавишах не открывать."""
+    MSI = os.path.expanduser("~/.cache/msi-brightness")
+    DIM = os.path.expanduser("~/.cache/idle-backlight")
+    OFF = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-screens-off.json")
+
+    def __init__(self, app):
+        self.app, self.GLib = app, app.GLib
+        self.last = {}
+        self.t = None
+        self.busy = False
+        self.proc = None
+        self.dim_seen = (os.path.exists(self.DIM), 0.0)
+        self.flag()
+        import threading
+        threading.Thread(target=self.prime, daemon=True).start()
+        self.start()
+        self.watch_light()
+
+    def flag(self):
+        """Файл с pid островка, пока индикатор включён: volume_manager.sh не откроет шторку."""
+        try:
+            if self.app.conf["osd"]:
+                with open(OSD_FLAG, "w") as f:
+                    f.write(str(os.getpid()))
+            else:
+                os.remove(OSD_FLAG)
+        except OSError:
+            pass
+
+    def stop(self):
+        try:
+            os.remove(OSD_FLAG)
+        except OSError:
+            pass
+        if self.proc:
+            try:
+                self.proc.terminate()
+            except OSError:
+                pass
+
+    @staticmethod
+    def level(target):
+        try:
+            out = subprocess.run(["wpctl", "get-volume", target], capture_output=True, text=True,
+                                 timeout=2).stdout
+            return (round(float(out.split("Volume:")[1].split()[0]), 2), "[MUTED]" in out)
+        except (OSError, subprocess.SubprocessError, IndexError, ValueError):
+            return None
+
+    def prime(self):
+        self.last["sink"] = self.level("@DEFAULT_AUDIO_SINK@")
+        self.last["source"] = self.level("@DEFAULT_AUDIO_SOURCE@")
+
+    def start(self):
+        try:
+            self.proc = subprocess.Popen(["pactl", "subscribe"], stdout=subprocess.PIPE,
+                                         stderr=subprocess.DEVNULL, preexec_fn=pdeathsig)
+        except OSError:
+            self.GLib.timeout_add_seconds(5, lambda: self.start() and False)
+            return
+        ch = self.GLib.IOChannel.unix_new(self.proc.stdout.fileno())
+        self.GLib.io_add_watch(ch, self.GLib.PRIORITY_DEFAULT, self.GLib.IO_IN | self.GLib.IO_HUP, self.on_line)
+
+    def on_line(self, _ch, cond):
+        line = self.proc.stdout.readline() if not cond & self.GLib.IO_HUP else b""
+        if not line:
+            self.GLib.timeout_add_seconds(3, lambda: self.start() and False)
+            return False
+        if b"'change' on sink #" in line or b"'change' on source #" in line or b"on server" in line:
+            if self.t is None:
+                self.t = self.GLib.timeout_add(90, self.scan)
+        return True
+
+    def scan(self):
+        self.t = None
+        if self.busy:
+            self.t = self.GLib.timeout_add(90, self.scan)
+            return False
+        self.busy = True
+        import threading
+
+        def run():
+            now = {"sink": self.level("@DEFAULT_AUDIO_SINK@"), "source": self.level("@DEFAULT_AUDIO_SOURCE@")}
+            self.GLib.idle_add(lambda: self.done(now) and False)
+        threading.Thread(target=run, daemon=True).start()
+        return False
+
+    def done(self, now):
+        self.busy = False
+        for k in ("sink", "source"):
+            v, old = now[k], self.last.get(k)
+            self.last[k] = v
+            if v is None or old is None or v == old:
+                continue                        # смена устройства по умолчанию тоже даёт новое — пусть
+            if not self.app.conf["osd"] or os.path.exists(EWW_VOL_OPEN):
+                continue
+            pct, muted = int(round(v[0] * 100)), v[1]
+            if k == "sink":
+                self.app.osd(G_VOL_OFF if muted or not pct else G_VOL,
+                             "Звук  %d%%%s" % (pct, " · выкл" if muted else ""), 0 if muted else v[0])
+            else:
+                self.app.osd(G_MIC_OFF if muted else G_MIC,
+                             "Микрофон  %d%%%s" % (pct, " · выкл" if muted else ""), 0 if muted else v[0])
+
+    # — яркость —
+    def dimming(self):
+        """Яркость меняет простой (idle_dim) — не показывать: сейчас и 4 с после смены."""
+        d = os.path.exists(self.DIM) or os.path.exists(self.OFF)
+        if d != self.dim_seen[0]:
+            self.dim_seen = (d, time.monotonic())
+        return d or time.monotonic() - self.dim_seen[1] < 4
+
+    def watch_light(self):
+        try:
+            import gi
+            gi.require_version("GUdev", "1.0")
+            from gi.repository import GUdev
+            self.udev = GUdev.Client.new(["backlight"])
+            self.udev.connect("uevent", self.on_backlight)
+            self.bl = {d.get_sysfs_path(): self.bl_level(d) for d in self.udev.query_by_subsystem("backlight")}
+        except Exception as e:
+            log("osd: backlight недоступен:", e)
+        try:
+            self.msi_last = _read(self.MSI).strip()
+            self.msi_mon = self.app.Gio.File.new_for_path(self.MSI).monitor_file(
+                self.app.Gio.FileMonitorFlags.NONE, None)
+            self.msi_mon.connect("changed", self.on_msi)
+        except Exception as e:
+            log("osd: msi:", e)
+
+    @staticmethod
+    def bl_level(d):
+        try:
+            return d.get_sysfs_attr_as_int("brightness") / max(1, d.get_sysfs_attr_as_int("max_brightness"))
+        except Exception:
+            return None
+
+    def on_backlight(self, _c, action, dev):
+        if action != "change":
+            return
+        v = self.bl_level(dev)
+        old = self.bl.get(dev.get_sysfs_path())
+        self.bl[dev.get_sysfs_path()] = v
+        if v is None or old is None or abs(v - old) < 0.005 or self.dimming() or not self.app.conf["osd"]:
+            return
+        self.app.osd(G_SUN, "Яркость  %d%%" % round(v * 100), v, out="eDP-1")
+
+    def on_msi(self, _m, _f, _o, ev):
+        Gio = self.app.Gio
+        if ev not in (Gio.FileMonitorEvent.CHANGES_DONE_HINT, Gio.FileMonitorEvent.CREATED):
+            return
+        v = _read(self.MSI).strip()
+        old, self.msi_last = self.msi_last, v
+        if v == old or not v.isdigit() or self.dimming() or not self.app.conf["osd"]:
+            return
+        self.app.osd(G_SUN, "Яркость  %s%%" % v, int(v) / 100, out="DP-4")
+
+
 class Island:
     """Одна поверхность на монитор; общее состояние — у App."""
 
@@ -2410,7 +4416,9 @@ class Island:
         gi.require_version("Gtk", "3.0")
         gi.require_version("GtkLayerShell", "0.1")
         from gi.repository import Gdk, Gtk, GtkLayerShell
-        self.app, self.output = app, output
+        self.app, self.output, self.monitor = app, output, monitor
+        self.scrims = []                 # слои «щелчок мимо — свернуть», пока карточка раскрыта
+        self.in_rect = None              # (x, y, w, h) входной области островка на поверхности
         self.mode = "none"
         self.geo = (0.0, 0.0)            # текущие w, h
         self.anim = None                 # {from, to, t0, back}
@@ -2425,6 +4433,9 @@ class Island:
         self.press = None                # (x, y, действие) — нажатие на снимок буфера
         self.dragging = False
         self.ptr = (-1, -1)
+        self.ctl_used = False            # крутили/жали капсулу — наведение не раскрывает до ухода
+        self.scroll_acc = 0.0            # тачпад: доли щелчка колеса копятся
+        self.bub = False                 # пузырь ▶ показан — входная зона шире
         w = self.win = Gtk.Window()
         w.set_title(NAMESPACE)
         w.set_app_paintable(True)
@@ -2444,8 +4455,10 @@ class Island:
         w.set_resizable(False)
         w.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK |
                      Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.ENTER_NOTIFY_MASK |
-                     Gdk.EventMask.LEAVE_NOTIFY_MASK | Gdk.EventMask.SCROLL_MASK)
+                     Gdk.EventMask.LEAVE_NOTIFY_MASK | Gdk.EventMask.SCROLL_MASK |
+                     Gdk.EventMask.KEY_PRESS_MASK)
         w.connect("draw", self.on_draw)
+        w.connect("key-press-event", lambda _w, e: self.app.pw_key(e))   # только пароль Wi-Fi
         w.connect("button-press-event", self.on_click)
         w.connect("button-release-event", self.on_release)
         w.connect("motion-notify-event", self.on_motion)
@@ -2456,6 +4469,13 @@ class Island:
         w.connect("enter-notify-event", self.on_enter)
         w.connect("leave-notify-event", self.on_leave)
         w.connect("realize", lambda *_: self.set_input())
+        # полка: файл, брошенный на островок, ложится на страницу «Полка»
+        from gi.repository import Gtk as _Gtk
+        w.drag_dest_set(_Gtk.DestDefaults.MOTION | _Gtk.DestDefaults.DROP, [], Gdk.DragAction.COPY)
+        w.drag_dest_add_uri_targets()
+        w.connect("drag-motion", self.on_drop_motion)
+        w.connect("drag-leave", self.on_drop_leave)
+        w.connect("drag-data-received", self.on_drop)
 
     def place(self):
         from gi.repository import GtkLayerShell
@@ -2478,13 +4498,21 @@ class Island:
         if mode == "none":
             return (0.0, 0.0)
         if mode == "thread":
-            style = eff_style(self.app.conf["thread_style"], self.app.acts)
+            style = eff_style(self.app.conf["thread_style"], self.app.pill_focus())
+            if self.app.dl and style not in PILLS:
+                style = "pill"
             if style in PILLS:
                 import cairo
                 cr = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1))
                 if style == "cat":
-                    return (cat_w(cr, self.app.cat.s, self.design()), float(PILL_H))
-                return (pill_w(cr, self.app.acts, self.app.col), float(PILL_H))
+                    w = cat_w(cr, self.app.cat.s, self.design())
+                elif style == "ccp":
+                    w = cc_pill_w()
+                else:
+                    w = pill_w(cr, self.app.pill_acts(), self.app.col, self.design())
+                if self.app.dl:                 # загрузка — панель под капсулой
+                    return (max(w, float(DL_W)), float(PILL_H + DL_H))
+                return (w, float(PILL_H))
             return thread_size(self.app.conf["thread_style"])
         if mode == "compact":
             acts = self.app.ordered(0)          # и одна вспышка без дел (flash) — компакт
@@ -2497,7 +4525,8 @@ class Island:
         pages = self.app.pages
         if not pages:
             return (0.0, 0.0)
-        return (float(CARD_W), float(CARD_HK.get(pages[self.card_i % len(pages)][0], CARD_H)))
+        sk = SK_EXTRA if self.design().get("line") else 0      # Skeet: радуга и вкладки сверху
+        return (float(CARD_W), float(self.app.card_h(pages[self.card_i % len(pages)][0], bool(sk)) + sk))
 
     def go(self, mode):
         to = self.target(mode)
@@ -2509,6 +4538,7 @@ class Island:
         self.mode = mode
         self.anim = {"from": self.geo, "to": to, "t0": None, "back": grow and mode != "thread" and not keep,
                      "keep": keep}
+        self.cover(mode == "card")
         if to != (0.0, 0.0) and not self.win.get_visible():
             self.win.show_all()
         self.win.add_tick_callback(self.tick)
@@ -2550,6 +4580,7 @@ class Island:
             self.set_input()
             if self.mode == "none":
                 self.win.hide()
+                self.app.lyr_seen(self.output, False)
             return False
         return True
 
@@ -2564,21 +4595,87 @@ class Island:
         y = int(top_of(self.design(), h, ty))
         if w < 2 or h < 1:
             r = cairo.Region()
-        elif self.mode == "thread" and self.app.conf["thread_style"] in PILLS:
+        elif self.mode == "thread" and (self.app.conf["thread_style"] in PILLS or self.app.dl):
             r = cairo.Region(cairo.RectangleInt(x - 6, 0, int(w) + 12, ty + int(h) + 4))
+            if self.bub:
+                r.union(cairo.RectangleInt(x + int(w), 0, BUBBLE_GAP + PILL_H + 8, ty + int(h) + 6))
         elif self.mode == "thread" and h <= THREAD_H + 2:   # в 3-px линию не попасть — зона шире
             r = cairo.Region(cairo.RectangleInt(x - HOVER_PAD, 0, int(w) + 2 * HOVER_PAD, y + int(h) + 8))
+            if self.bub:
+                r.union(cairo.RectangleInt(x + int(w), 0, BUBBLE_GAP + 26, ty + 30))
         else:
             r = cairo.Region(cairo.RectangleInt(x, y, int(math.ceil(w)), int(math.ceil(h))))
         gw.input_shape_combine_region(r, 0, 0)
+        e = r.get_extents()
+        rect = (e.x, e.y, e.width, e.height)
+        self.in_rect = rect
+
+    def cover(self, on):
+        """Раскрытая карточка: прозрачные слои во весь каждый монитор (scrim_layer.Scrim, как у
+        меню), щелчок по ним — свернуть. 20.10.2026, просьба: «если хочу закрыть его быстро —
+        кликнуть куда угодно вне островка». Слои выше островка, поэтому на его месте в их
+        входной области дыра; при перетаскивании снимка слоёв нет — иначе не бросить в чат."""
+        from gi.repository import GtkLayerShell
+        if not on or self.dragging:
+            for s in self.scrims:
+                s.destroy()
+            if self.scrims:
+                GtkLayerShell.set_layer(self.win, GtkLayerShell.Layer.TOP)
+            self.scrims = []
+            return
+        if self.scrims:
+            return
+        # 20.10.2026: была дыра во входной области слоя под островок — но островок встаёт под
+        # верхним баром, а слой от края экрана, и дыра съезжала: щелчки и колесо по карточке
+        # ловил слой («по клику на блоки не работает»). Теперь островок на время — OVERLAY.
+        GtkLayerShell.set_layer(self.win, GtkLayerShell.Layer.OVERLAY)
+        try:
+            from gi.repository import Gdk, GLib
+            from scrim_layer import Scrim
+            disp = Gdk.Display.get_default()
+            for i in range(disp.get_n_monitors()):
+                # 20.10.2026, просьба: «после закрытия кликом при наведении больше не
+                # раскрывается». Закрытие по НАЖАТИЮ уничтожало слой посреди щелчка — GTK
+                # оставался с неявным захватом мыши на мёртвом окне и не слал островку
+                # enter/leave. Теперь — по отпусканию, а сам слой убирается после, в простое.
+                s = Scrim(disp.get_monitor(i), NAMESPACE + "-catch", lambda: None)
+                s.add_events(Gdk.EventMask.BUTTON_RELEASE_MASK)
+                s.connect("button-release-event", lambda *_a: GLib.idle_add(self.click_away) and True)
+                s.show_all()
+                self.scrims.append(s)
+        except Exception as e:
+            log("слой «щелчок мимо»: %s" % e)
+
+    def click_away(self):
+        if self.mode != "card" or self.dragging:
+            return False
+        self.app.pw_stop()                      # щелчок мимо — ввод пароля закончен
+        if self.leave_t:
+            from gi.repository import GLib
+            GLib.source_remove(self.leave_t)
+            self.leave_t = None
+        self.app.pop_until = 0
+        self.collapse()
+        return False
 
     def on_draw(self, _w, cr):
         font_opts(cr)
         st = {"w": self.geo[0], "h": self.geo[1], "mode": self.mode, "alpha": self.alpha,
-              "acts": self.app.ordered(0), "th": self.app.th, "ty": self.ty(),
+              "acts": self.app.pill_acts() if self.mode == "thread" else self.app.ordered(0),
+              "th": self.app.th, "ty": self.ty(), "pk": self.app.pill_focus(),
               "pages": self.app.pages, "card_i": self.card_i, "style": self.app.conf["thread_style"],
-              "ta": self.thread_alpha(), "cat": self.app.cat.s}
+              "ta": self.thread_alpha(), "cat": self.app.cat.s,
+              "dl": self.app.dl if self.mode == "thread" else None,
+              "ccp": self.app.sys.get("pill") if self.mode == "thread" else None}
+        night = NIGHT_A.get(self.mode) if self.app.night() and not self.hovered else None
+        if night:                               # ночное притемнение — всё нарисованное разом
+            cr.push_group()
+        _LYR["on"] = False
         self.hits = paint(cr, st, self.app.col, self.design())
+        self.app.lyr_seen(self.output, _LYR["on"] and self.mode != "none")
+        if night:
+            cr.pop_group_to_source()
+            cr.paint_with_alpha(night)
         return True
 
     def thread_alpha(self):
@@ -2609,11 +4706,42 @@ class Island:
         self.app.pop_until = 0
         if "clip" in page_ids(self.app.conf):   # снимки грузятся заранее, пока карточка раскрывается
             self.app.load_clip()
+        self.app.sys_reset()
+        if pages and pages[self.card_i % len(pages)][0] in self.app.sys_ui:
+            self.app.poll_sys(pages[self.card_i % len(pages)][0])
+        if self.design().get("line") and {"wifi", "bt"} & set(page_ids(self.app.conf)):
+            self.app.poll_sys("radio")          # цвет значков вкладок Wi-Fi/Bluetooth
         self.go("card")
 
+    def controls(self):
+        """Капсула управляет плеером/микрофоном: живая нить (или котик) свёрнута, и есть чем."""
+        if self.mode != "thread" or self.app.conf["thread_style"] not in PILLS:
+            return False
+        return bool(self.app.call_on() or (self.app.music and self.app.music.player()))
+
+    def ctl_touch(self):
+        """Капсулой управляют — отложенное раскрытие наведением отменить до ухода курсора."""
+        from gi.repository import GLib
+        self.ctl_used = True
+        if self.open_t:
+            GLib.source_remove(self.open_t)
+            self.open_t = None
+
     def on_click(self, _w, e):
+        from gi.repository import Gdk
+        if e.type != Gdk.EventType.BUTTON_PRESS:
+            # двойной щелчок GTK досылает лишним событием (2BUTTON_PRESS) — переключатель
+            # срабатывал второй раз: «кнопки на миллисекунду включаются и выключаются» (20.10.2026)
+            return True
         kind = self.app.acts[0][0] if self.app.acts else None
         if e.button == 3:
+            act = self.hit_at(e.x, e.y) if self.mode == "card" else None
+            if act and act[0] in SYS_PAGES:     # ПКМ по плитке «Центра» — второе действие
+                self.app.sys_do(act, 3)
+                return True
+            if self.mode == "thread" and self.app.pages:   # свёрнута: ПКМ раскрывает (ЛКМ — пауза)
+                self.open_card()
+                return True
             self.app.pop_until = 0
             self.go("thread" if self.app.want_thread(self.output) else "none")
             return True
@@ -2623,6 +4751,11 @@ class Island:
         if e.button != 1:
             return True
         act = self.hit_at(e.x, e.y)
+        if act is None and self.controls() and self.app.pill_focus() == "music":
+            # 20.10.2026, просьба: «на свёрнутой капсуле… ЛКМ — пауза»
+            self.ctl_touch()
+            self.app.do(("music", "PlayPause"))
+            return True
         if self.mode in ("thread", "compact") and act is None:
             self.open_card()
             return True
@@ -2641,6 +4774,8 @@ class Island:
         elif act[0] == "clip":                  # щелчок или перетаскивание — решит отпускание
             self.press = (e.x, e.y, act)
             self.app.clip_prepare(act[1])
+        elif act[0] == "shelf":
+            self.press = (e.x, e.y, act)
         else:
             self.app.do(act, self.card_i)
         return True
@@ -2661,19 +4796,68 @@ class Island:
         # движение падало с AttributeError (stderr — /dev/null), и снимок не перетаскивался
         if not self.win.drag_check_threshold(int(p[0]), int(p[1]), int(e.x), int(e.y)):
             return False
-        path = self.app.clip_path(p[2][1])
+        if p[2][0] == "shelf":
+            it = self.app.shelf_item(p[2][1])
+            path = it["path"] if it and os.path.exists(it["path"]) else None
+        else:
+            path = self.app.clip_path(p[2][1])
         if not path:
             return False
         self.drag_path = path
         self.dragging = True
+        self.cover(False)
         tl = Gtk.TargetList.new([])
         tl.add_uri_targets(0)
         self.win.drag_begin_with_coordinates(tl, Gdk.DragAction.COPY, 1, e, int(e.x), int(e.y))
         return True
 
+    def shelf_i(self):
+        return next((i for i, p in enumerate(self.app.pages) if p[0] == "shelf"), None)
+
+    def on_drop_motion(self, _w, ctx, _x, _y, t):
+        """Чужой файл над островком — раскрыть на «Полке»."""
+        from gi.repository import GLib
+        if self.dragging:
+            return False
+        i = self.shelf_i()
+        if i is None:
+            return False
+        if self.leave_t:
+            GLib.source_remove(self.leave_t)
+            self.leave_t = None
+        if self.mode != "card" or self.card_i != i:
+            self.card_i = i
+            self.app.pop_until = 0
+            self.go("card")
+        return True
+
+    def on_drop_leave(self, *_a):
+        from gi.repository import GLib
+        if self.mode == "card" and not self.hovered and not self.leave_t:
+            self.leave_t = GLib.timeout_add(self.keep_ms(), self.collapse)
+
+    def on_drop(self, _w, ctx, _x, _y, sel, _info, t):
+        from gi.repository import GLib, Gtk
+        if self.dragging or self.shelf_i() is None:
+            return
+        paths = [GLib.filename_from_uri(u)[0] for u in sel.get_uris() or [] if u.startswith("file://")]
+        if paths:
+            self.app.shelf_add(paths)
+            self.card_i = self.shelf_i() or 0
+            self.go("card")
+        if self.leave_t:
+            GLib.source_remove(self.leave_t)
+        self.leave_t = GLib.timeout_add(self.keep_ms() + 1500, self.collapse)
+
     def on_drag_begin(self, _w, ctx):
         """Под курсором — уменьшенный снимок."""
         from gi.repository import Gtk
+        if self.press and self.press[2][0] == "shelf":
+            it = self.app.shelf_item(self.press[2][1])
+            pb = it.get("pb") if it else None
+            if pb is not None:
+                Gtk.drag_set_icon_pixbuf(ctx, pb, pb.get_width() // 2, pb.get_height() // 2)
+            return
         it = self.app.clip_item(self.press[2][1]) if self.press else None
         pb = it.get("pb") if it else None
         if pb is not None:
@@ -2686,13 +4870,25 @@ class Island:
         from gi.repository import GLib
         self.dragging = False
         self.press = None
+        self.cover(self.mode == "card")
         if not self.hovered and self.mode == "card":
             if self.leave_t:
                 GLib.source_remove(self.leave_t)
-            self.leave_t = GLib.timeout_add(LEAVE_MS, self.collapse)
+            self.leave_t = GLib.timeout_add(self.keep_ms(), self.collapse)
+
+    def keep_ms(self):
+        """Сколько карточка держится после ухода курсора: «Держать раскрытым» (pop_sec).
+        20.10.2026, просьба: «меняю его и всё равно с одной длительностью закрывается» — раньше
+        тут были зашиты 0,65 с (наведение) и 2,2 с (щелчок), а pop_sec правил только события."""
+        try:
+            return int(max(0.3, float(self.app.conf["pop_sec"])) * 1000)
+        except (TypeError, ValueError):
+            return LEAVE_MS
 
     def on_scroll(self, _w, e):
-        """Колесо листает страницы; над нитью/компактом — раскрывает карточку."""
+        """Колесо листает страницы; над нитью/компактом — раскрывает карточку. Громкость и
+        перемотка колесом по капсуле убраны (20.10.2026, просьба: «хочу нормально скроллить, чтобы
+        переходить по блокам»)."""
         from gi.repository import Gdk
         n = len(self.app.pages)
         if not n:
@@ -2707,6 +4903,8 @@ class Island:
         if self.mode != "card":
             self.open_card()
             return True
+        if self.app.sys_scroll(self.app.pages[self.card_i % n][0], step, bool(self.design().get("line"))):
+            return True                         # раскрытый список Wi-Fi/Bluetooth листается колесом
         now = time.monotonic()
         if now - getattr(self, "scroll_t", 0) < 0.25:   # тачпад шлёт пачку — одна страница за жест
             return True
@@ -2727,7 +4925,10 @@ class Island:
             self.leave_t = None
         hidden = self.thread_alpha() == 0.0
         self.hovered = True
-        if self.mode in ("thread", "compact") and self.app.conf["hover"] and not self.open_t:
+        if self.app.night():
+            self.win.queue_draw()               # ночью под курсором — в полную яркость
+        if self.mode in ("thread", "compact") and self.app.conf["hover"] and not self.open_t \
+                and not self.ctl_used:
             if hidden:
                 self.win.queue_draw()
             self.open_t = GLib.timeout_add(HOVER_MS + (260 if hidden else 0), self.hover_open)
@@ -2747,25 +4948,167 @@ class Island:
         if e.detail == Gdk.NotifyType.INFERIOR:
             return False
         self.hovered = False
+        self.ctl_used = False
+        self.scroll_acc = 0.0
         if self.open_t:
             GLib.source_remove(self.open_t)
             self.open_t = None
+        if self.app.night():
+            self.win.queue_draw()
         if self.mode != "card":
             self.win.queue_draw()
             return False
         if self.leave_t:
             GLib.source_remove(self.leave_t)
-        self.leave_t = GLib.timeout_add(LEAVE_MS if self.opened_by_hover else 2200, self.collapse)
+        self.leave_t = GLib.timeout_add(self.keep_ms(), self.collapse)
         return False
 
     def collapse(self):
         self.leave_t = None
         if self.dragging:                       # снимок ещё тащат — карточку держать
             return False
+        if self.app.sys_editing():              # вводят пароль Wi-Fi — курсор мог уйти
+            return False
         self.opened_by_hover = False
         if self.mode == "card":
             self.go("thread" if self.app.want_thread(self.output) else "none")
         return False
+
+
+class NudgeWatch:
+    """«Пора к делу» (island_nudge.py): раз в NUDGE_POLL_S с — что в фокусе (опрос в потоке:
+    niri, ps, экранное время); серия дольше nudge_min минут — фраза печатается в компакте, потом
+    раз в nudge_every минут — другая. Ничего не закрывает — только показывает."""
+
+    def __init__(self, app):
+        import island_nudge
+        self.N, self.app = island_nudge, app
+        self.streaks = island_nudge.Streaks()
+        self.kind = None             # что было в фокусе при последнем опросе
+        self.busy = False
+        app.GLib.timeout_add_seconds(NUDGE_POLL_S, self.poll)
+
+    def mins(self):
+        c = self.app.conf
+        try:
+            return max(1.0, float(c["nudge_min"])) * 60, max(1.0, float(c["nudge_every"])) * 60
+        except (TypeError, ValueError):
+            return DEFAULTS["nudge_min"] * 60, DEFAULTS["nudge_every"] * 60
+
+    def poll(self):
+        if self.busy or not self.app.conf["on"] or "nudge" not in page_ids(self.app.conf):
+            return True
+        self.busy = True
+        import threading
+        threading.Thread(target=self.run, daemon=True).start()
+        return True
+
+    def run(self):
+        try:
+            smp = self.N.sample()
+        except Exception as e:
+            log("nudge:", e)
+            smp = {"locked": False, "kind": None}
+        self.app.GLib.idle_add(self.done, smp)
+
+    def done(self, smp):
+        self.busy = False
+        before = self.current() is None
+        min_s, every_s = self.mins()
+        fire = self.streaks.tick(smp, min_s, every_s)
+        self.kind = smp.get("kind")
+        if fire:
+            self.app.nudge_fire(fire)
+        elif before != (self.current() is None):
+            self.app.refresh()
+        return False
+
+    def current(self):
+        min_s, _e = self.mins()
+        k = self.streaks.active(min_s)
+        if not k:
+            return None
+        d = dict(self.streaks.s[k], kind=k, here=k == self.kind)
+        d["t0"] = self.app.nudge_t0 if self.app.nudge_kind == k else None
+        return d
+
+    def demo(self, text=None):
+        """island.py nudge [ТЕКСТ] — показать напоминание сейчас (серия «Проверка», уходит за минуту)."""
+        min_s, _e = self.mins()
+        self.streaks.s["demo"] = {"sec": min_s, "away": self.N.BREAK_S - 60, "level": 1, "next": 1e12,
+                                  "start": time.time() - min_s, "text": text or self.N.phrase("any", 0),
+                                  "what": "Проверка", "today": None, "t": time.monotonic()}
+        self.app.nudge_fire("demo")
+
+
+class DlWatch:
+    """Загрузки (island_dl.py): раз в DL_POLL_S с — замер в потоке (папка «Загрузки», Steam,
+    curl/wget/yt-dlp, pacman). Пока что-то качается — app.dl, полоска в живой капсуле; у
+    «бегущей» — свои кадры раз в DL_FRAME_MS, только на мониторах с нитью."""
+
+    def __init__(self, app):
+        import island_dl
+        self.M, self.app = island_dl, app
+        self.d = island_dl.Downloads()
+        self.busy = self.anim = False
+        self.done_until = 0.0
+        app.GLib.timeout_add_seconds(DL_POLL_S, self.poll)
+
+    def poll(self):
+        if self.busy:
+            return True
+        if not (self.app.conf["on"] and self.app.conf["downloads"]):
+            if self.app.dl:
+                self.app.dl = None
+                self.app.refresh()
+            return True
+        self.busy = True
+        import threading
+        threading.Thread(target=self.run, daemon=True).start()
+        return True
+
+    def run(self):
+        try:
+            items = self.d.scan()
+        except Exception as e:
+            log("загрузки:", e)
+            items = []
+        self.app.GLib.idle_add(self.done, items)
+
+    def done(self, items):
+        self.busy = False
+        was = self.app.dl
+        now = time.monotonic()
+        dl = self.M.summary(items)
+        if dl:
+            self.done_until = 0.0
+        elif was and not was.get("done"):              # закончилась — полная полоска на миг
+            self.done_until = now + DL_DONE_S
+            dl = dict(was, done=True)
+        elif was and was.get("done") and now < self.done_until:
+            dl = was
+        if (dl is None) != (was is None):
+            log("загрузка:", "%s (%d)" % (dl["name"], dl["n"]) if dl and not dl.get("done") else "готово" if dl
+                else "нет")
+        self.app.dl = dl
+        if (dl is None) != (was is None):
+            self.app.refresh()                          # нить могла появиться или уйти
+        else:
+            self.app.redraw()
+        if dl and dl.get("pr") is None and not dl.get("done") and not self.anim:
+            self.anim = True
+            self.app.GLib.timeout_add(DL_FRAME_MS, self.frame)
+        return False
+
+    def frame(self):
+        dl = self.app.dl
+        if not dl or dl.get("pr") is not None or dl.get("done"):
+            self.anim = False
+            return False
+        for isl in self.app.wins.values():
+            if isl.mode == "thread":
+                isl.win.queue_draw()
+        return True
 
 
 class App:
@@ -2784,12 +5127,26 @@ class App:
         self.timers = []
         self.timer_poll = None
         self.clip = {"items": [], "loading": False}
+        self.shelf = {"items": []}
+        self.shelf_set(shelf_load())
+        self.sys = {}                # «Центр», Wi-Fi, Bluetooth: последнее состояние (island_sys.py)
+        self.sys_ui = {"cc": {}, "wifi": {}, "bt": {}, "power": {}}   # спектр, выбранное, вопрос питания
+        self.sys_polling = set()
+        self.sys_again = set()       # просили опросить, пока шёл прежний опрос
+        self.sys_gen = {}            # номер последнего действия: опрос, начатый раньше, отбрасывается
+        self.sys_pin = {}            # {k: {поле: (нажатое, до)}} — держать, пока команда применяется
+        self.sys_ticks = 0
+        self.sys_timer = None
         self.clip_t = 0.0
         self.bar_outs = set()        # мониторы с постоянным верхним waybar — без нити
         self.space_t = None
         self.sig = None              # (вид, фаза) главного дела — смена = событие
         self.pop_until = 0.0
-        self.flash = None            # {"text","icon","until"}
+        self.flash = None            # {"text","icon","until"[,"pr","out"]}
+        self.track_sig = None        # (плеер, название) играющего трека — смена = название на 5 с
+        self.pop_kind = None         # чьё событие раскрыло компакт (music — трек вперёд)
+        self.vol = {"q": 0, "busy": False, "cache": None}   # колесо громкости: очередь и потоки плеера
+        self.osdw = None
         self.focus_out = None
         self.overview = False
         self.game = False
@@ -2804,7 +5161,22 @@ class App:
             log("mpris недоступен:", e)
             self.music = None
         self.cat = CatWatch(self)
+        self.nudge_t0 = self.nudge_kind = None      # последнее напоминание: когда и о чём
+        self.nudge_anim_on = False
+        self.bar_up = {}                            # монитор → до когда показан верхний бар (top_bar.py)
+        self.dl = None                              # загрузка сейчас (DlWatch): {"n", "pr", "rate", "name"}
+        try:
+            self.dlw = DlWatch(self)
+        except Exception as e:
+            log("загрузки недоступны:", e)
+            self.dlw = None
+        try:
+            self.nudgew = NudgeWatch(self)
+        except Exception as e:
+            log("nudge недоступен:", e)
+            self.nudgew = None
         self.last = _read(LAST).strip()          # страница, на которой остановились
+        self.info = _read(LAST_INFO).strip()     # последний блок с инфо — его показывает живая нить
         self.monitors = []
         for path in (REC, os.path.dirname(POMO), os.path.dirname(CONF), os.path.expanduser("~/.cache/matugen"),
                      os.path.expanduser("~/.config/waybar/looks")):
@@ -2824,6 +5196,10 @@ class App:
         self.clock_tick()
         self.sources()
         self.update_bars()
+        try:
+            self.osdw = OsdWatch(self)
+        except Exception as e:
+            log("osd:", e)
         self.rebuild()
 
     def sources(self):
@@ -2837,6 +5213,415 @@ class App:
         if "timer" in ids and self.timer_poll is None:
             self.poll_timers()
             self.timer_poll = self.GLib.timeout_add_seconds(3, self.poll_timers)
+        if any(p in SYS_PAGES for p in ids) and self.sys_timer is None:
+            self.sys_timer = self.GLib.timeout_add_seconds(3, self.sys_tick)
+
+    # — «Центр», Wi-Fi, Bluetooth (20.10.2026): опрос только пока такая страница раскрыта —
+    def sys_pages(self):
+        out = {k: dict(self.sys.get(k) or {"loading": True}, **self.sys_ui.get(k, {}))
+               for k in ("cc", "wifi", "bt")}
+        out["power"] = dict(self.sys_ui["power"])
+        for k in ("wifi", "bt"):
+            out[k]["radio"] = (self.sys.get("radio") or {}).get(k)
+        return out
+
+    def skeet_card_open(self):
+        return any(isl.mode == "card" and isl.design().get("line") for isl in self.wins.values())
+
+    def card_h(self, kind, sk):
+        """Высота страницы карточки: Wi-Fi/Bluetooth растут вниз (кнопки выбранной строки, «Ещё…»)."""
+        if kind in ("wifi", "bt"):
+            return sys_list_h(kind, dict(self.sys.get(kind) or {}, **self.sys_ui[kind]), sk)
+        return CARD_HK.get(kind, CARD_H)
+
+    def resize_cards(self):
+        for isl in self.wins.values():
+            if isl.mode == "card":
+                isl.go("card")
+
+    def sys_reset(self):
+        """Карточку открыли заново — без хвостов прошлого раза: вопрос питания, раскрытые списки,
+        выбранная строка, пароль. Идущее подключение (busy) остаётся."""
+        self.pw_stop()
+        self.sys_ui["cc"].pop("spec", None)
+        self.sys_ui["power"].pop("ask", None)
+        for k in ("wifi", "bt"):
+            for f in ("more", "sel", "ask", "off", "pw", "msg"):
+                self.sys_ui[k].pop(f, None)
+
+    def sys_scroll(self, kind, step, sk):
+        """Колесо по раскрытому списку («Ещё…») листает его; у края — страницы, но не тем же
+        движением колеса (0,5 с тишины), иначе список проскакивал бы в соседний блок."""
+        ui = self.sys_ui.get(kind)
+        if kind not in ("wifi", "bt") or not ui.get("more"):
+            return False
+        d = dict(self.sys.get(kind) or {}, **ui)
+        items = sys_items(kind, d)
+        selp = SYS_SELP if d.get("sel") in [sys_key(kind, it) for it in items] else 0
+        top = 16 if sk else 36
+        n = max(1, int((self.card_h(kind, sk) - 6 - (top + 30) - selp) // SYS_RH))
+        hi = max(0, len(items) - n)
+        off = max(0, min(int(ui.get("off", 0)), hi))
+        new = max(0, min(off + step, hi))
+        now = time.monotonic()
+        if new == off:
+            return now - ui.get("off_t", 0) < 0.5
+        ui["off"], ui["off_t"] = new, now
+        self.redraw()
+        return True
+
+    def sys_open(self):
+        """Какая системная страница сейчас раскрыта (на любом мониторе) — её и опрашивать."""
+        for isl in self.wins.values():
+            if isl.mode == "card" and self.pages:
+                k = self.pages[isl.card_i % len(self.pages)][0]
+                if k in self.sys_ui:
+                    return k
+        return None
+
+    def sys_tick(self):
+        if not any(p in SYS_PAGES for p in page_ids(self.conf)) or not self.conf["on"]:
+            self.sys_timer = None
+            return False
+        k = self.sys_open()
+        if k:
+            self.poll_sys(k)
+        self.sys_ticks += 1
+        if self.sys_ticks % 2 == 0 and eff_style(self.conf["thread_style"], self.pill_focus()) == "ccp" \
+                and any(isl.mode == "thread" for isl in self.wins.values()):
+            self.poll_sys("pill")               # капсула «Центра»: кофеин, таурин, Сторож — раз в 6 с
+        if self.sys_ticks % 2 == 1 and k not in ("wifi", "bt") and self.skeet_card_open() \
+                and {"wifi", "bt"} & set(page_ids(self.conf)):
+            self.poll_sys("radio")              # значки вкладок Wi-Fi/Bluetooth — раз в 6 с
+        return True
+
+    def poll_sys(self, k):
+        """Состояние страницы k — в потоке (nmcli, bluetoothctl, busctl), ответ в цикл GTK.
+        Опрос, начатый до последнего действия, состояние не пишет (sys_gen): старое не перебивает
+        уже показанное новое — кнопки не мигают (20.10.2026, просьба: «на миллисекунду
+        включается и выключается»). Просьба во время опроса — ещё один опрос после него."""
+        if k not in SYS_POLL:
+            return
+        if k in self.sys_polling:
+            self.sys_again.add(k)
+            return
+        self.sys_polling.add(k)
+        gen = self.sys_gen.get(k, 0)
+        new = bool(self.sys_ui.get(k, {}).get("more"))
+        import threading
+
+        def run():
+            st = None
+            try:
+                import island_sys
+                if k == "cc":
+                    st = island_sys.cc_state()
+                    st["avatar"] = island_sys.avatar_png(40)
+                elif k == "wifi":
+                    st = island_sys.wifi_state()
+                elif k == "bt":
+                    st = island_sys.bt_state(new=new)
+                elif k == "radio":
+                    st = island_sys.radio_state()
+                else:
+                    st = island_sys.pill_state()
+            except Exception as e:
+                log("island_sys", k, e)
+            self.GLib.idle_add(lambda: self.sys_set(k, st, gen) and False)
+        threading.Thread(target=run, daemon=True).start()
+
+    def sys_set(self, k, st, gen=None):
+        self.sys_polling.discard(k)
+        if k in self.sys_again:
+            self.sys_again.discard(k)
+            self.GLib.idle_add(lambda: self.poll_sys(k) and False)
+        if st is None or gen is not None and gen != self.sys_gen.get(k, 0):
+            return
+        now = time.monotonic()
+        pins = self.sys_pin.get("cc" if k == "pill" else k) or {}
+        for f, (v, until) in list(pins.items()):
+            if now < until and st.get(f) != v:
+                st[f] = v                       # команда ещё применяется — держим нажатое
+            elif k != "pill":
+                pins.pop(f)
+        if k == "radio":                        # значки вкладок Wi-Fi/Bluetooth в карточке Skeet
+            if st != self.sys.get("radio"):
+                self.sys["radio"] = st
+                self.refresh()
+                self.redraw()
+            return
+        self.sys[k] = st
+        if k in ("wifi", "bt"):                 # полный опрос страницы — заодно и значок вкладки
+            self.radio_set(k, st)
+        if k == "cc":                           # капсула «Центра» — из того же состояния
+            self.sys["pill"] = {f: st.get(f) for f in ("caffeine", "taurine", "guard")}
+        if k in ("cc", "pill"):
+            for isl in self.wins.values():
+                if isl.mode == "thread":
+                    isl.win.queue_draw()
+        if self.sys_open() == k:
+            self.refresh()
+            self.resize_cards()
+            self.redraw()
+
+    def radio_set(self, k, st):
+        on = bool(st.get("on"))
+        conn = any(x.get("in_use") if k == "wifi" else x.get("conn") for x in sys_items(k, st))
+        self.sys["radio"] = dict(self.sys.get("radio") or {}, **{k: 2 if on and conn else 1 if on else 0})
+
+    def sys_bg(self, kind, fn, *args, after=None):
+        """Команда island_sys в потоке; опросы, начатые до неё, больше не в счёт."""
+        import threading
+        self.sys_gen[kind] = self.sys_gen.get(kind, 0) + 1
+        if kind == "cc":
+            self.sys_gen["pill"] = self.sys_gen.get("pill", 0) + 1
+
+        def run():
+            res = None
+            try:
+                res = fn(*args)
+            except Exception as e:
+                log("island_sys", kind, fn.__name__, e)
+            self.GLib.idle_add(lambda: self.sys_done(kind, after, res) and False)
+        threading.Thread(target=run, daemon=True).start()
+
+    def sys_pin_set(self, kind, **kw):
+        until = time.monotonic() + 4
+        self.sys_pin.setdefault(kind, {}).update({f: (v, until) for f, v in kw.items()})
+
+    def sys_do(self, act, button=1):
+        """Действие системной страницы: ЛКМ (1) или ПКМ (3). Видно сразу: состояние меняется
+        заранее и держится, пока опрос не согласится (sys_pin); команда — в потоке."""
+        import island_sys
+        kind, what = act
+        if kind == "power":
+            ui = self.sys_ui["power"]
+            if button != 1:
+                return
+            if what == "lock":                  # замок — сразу, как Super+O
+                self.collapse_all()
+                island_sys.power("lock")
+                return
+            if what in POWER_ASK:               # остальное — сперва «точно?» (20.10.2026)
+                ui["ask"] = what
+            elif what == "no":
+                ui.pop("ask", None)
+            elif what.startswith("yes:") and what[4:] in POWER_ASK:
+                ui.pop("ask", None)
+                self.collapse_all()
+                island_sys.power(what[4:])
+                return
+            self.refresh()
+            self.redraw()
+            return
+        ui = self.sys_ui[kind]
+        st = self.sys.get(kind)
+        if st is None:
+            return
+        if kind == "cc":
+            if what == "spec" or what.startswith("warm:") and button == 3 or what == "night" and button == 3:
+                ui["spec"] = not ui.get("spec")
+            elif what.startswith("warm:"):
+                v = int(what[5:])
+                st.update(night=True, warmth=v)
+                self.sys_pin_set("cc", night=True, warmth=v)
+                self.sys_bg("cc", island_sys.warmth, v)
+            elif what == "night":
+                st["night"] = not st.get("night")
+                self.sys_pin_set("cc", night=st["night"])
+                self.sys_bg("cc", island_sys.night, st["night"])
+            elif what == "caf":
+                snap = dict(st)
+                if button == 1:
+                    st["caffeine"] = not st.get("caffeine")
+                    st["taurine"] = bool(st.get("taurine") and st["caffeine"])
+                else:
+                    st["taurine"] = not st.get("taurine")
+                    st["caffeine"] = bool(st["caffeine"] or st["taurine"])
+                self.sys_pin_set("cc", caffeine=st["caffeine"], taurine=st["taurine"])
+                self.sys["pill"] = dict(self.sys.get("pill") or {}, caffeine=st["caffeine"], taurine=st["taurine"])
+                self.sys_bg("cc", island_sys.caffeine, button, snap)
+            elif what == "prof":
+                cur = st.get("profile")
+                st["profile"] = ("performance" if cur == "balanced" else "balanced") if button == 1 else \
+                    ("balanced" if cur == "power-saver" else "power-saver")
+                self.sys_pin_set("cc", profile=st["profile"])
+                self.sys_bg("cc", island_sys.profile, button)
+            else:
+                return
+        elif button != 1:
+            return
+        elif what == "power":
+            st["on"] = not st.get("on")
+            self.sys_pin_set(kind, on=st["on"])
+            if not st["on"]:
+                self.pw_stop()
+                for f in ("more", "sel", "ask", "off", "scan"):
+                    ui.pop(f, None)
+            self.sys_gen["radio"] = self.sys_gen.get("radio", 0) + 1   # прежний опрос значков не в счёт
+            self.radio_set(kind, st)
+            self.sys_bg(kind, island_sys.wifi_power if kind == "wifi" else island_sys.bt_power, st["on"])
+        elif what == "more":
+            # 20.10.2026, просьба: «на кнопку Ещё островок растянется именно в этом блоке вниз и
+            # покажет весь список» — окна бара больше не открываются
+            ui["more"] = not ui.get("more")
+            ui.pop("off", None)
+            ui.pop("ask", None)
+            if ui["more"]:
+                ui["scan"] = True
+                if kind == "wifi":
+                    self.sys_bg(kind, island_sys.wifi_state, True, after="scan")
+                else:
+                    self.sys_bg(kind, lambda: (island_sys.bt_scan(), island_sys.bt_state(new=True))[1],
+                                after="scan")
+            else:
+                ui.pop("scan", None)
+                if kind == "bt":                # найденные новые — только в раскрытом списке
+                    st["devs"] = [d_ for d_ in st.get("devs") or [] if d_.get("pair", True)]
+                    if ui.get("sel") not in [d_["mac"] for d_ in st["devs"]]:
+                        ui.pop("sel", None)
+        elif what.startswith("sel:"):
+            # щелчок по строке — только кнопки под ней (как в окнах бара), повторный — свернуть
+            key = what[4:]
+            self.pw_stop()
+            for f in ("ask", "msg", "pw"):
+                ui.pop(f, None)
+            if ui.get("sel") == key:
+                ui.pop("sel", None)
+            else:
+                ui["sel"] = key
+        elif what == "pw":
+            self.pw_start()
+        elif what.startswith("btn:"):
+            self.sys_btn(kind, what[4:])
+            return
+        else:
+            return
+        self.refresh()
+        self.resize_cards()
+        self.redraw()
+
+    def sys_btn(self, kind, act):
+        """Кнопки выбранной сети/устройства: подключиться (новой сети — с паролем), отключиться,
+        забыть — вторым щелчком в течение 3 с, как в окнах бара."""
+        import island_sys
+        ui = self.sys_ui[kind]
+        key = ui.get("sel")
+        it = next((x for x in sys_items(kind, self.sys.get(kind) or {}) if sys_key(kind, x) == key), None)
+        if it is None or ui.get("busy"):
+            return
+        if act == "forget" and ui.get("ask") != key:
+            ui["ask"] = key
+
+            def reset():
+                if ui.get("ask") == key:
+                    ui.pop("ask", None)
+                    self.redraw()
+                return False
+            self.GLib.timeout_add(3000, reset)
+            self.redraw()
+            return
+        ui.pop("ask", None)
+        args = (act, it)
+        if kind == "wifi":
+            pw = ""
+            if act == "connect" and it["secured"] and not it["known"]:
+                pw = ui.get("pw") or ""
+                if not pw:
+                    ui["msg"] = (key, "Сначала введите пароль", False)
+                    self.pw_start()
+                    return
+            args += (pw,)
+        self.pw_stop()
+        ui["busy"], ui["busy_what"] = key, act
+        ui.pop("msg", None)
+        self.sys_bg(kind, island_sys.wifi_do if kind == "wifi" else island_sys.bt_do, *args, after="btn:" + key)
+        self.redraw()
+
+    def sys_done(self, k, after=None, res=None):
+        ui = self.sys_ui[k]
+        if after == "scan":
+            ui.pop("scan", None)
+            if isinstance(res, dict) and ui.get("more"):   # «Свернуть» успели нажать — не нужно
+                self.sys_set(k, res)
+            return
+        if after and after.startswith("btn:"):
+            key = after[4:]
+            ok, text = res if isinstance(res, tuple) else (False, "не получилось")
+            ui.pop("busy", None)
+            ui.pop("busy_what", None)
+            m = ui["msg"] = (key, text, ok)
+            if ok:
+                ui.pop("pw", None)
+
+            def clear():
+                if ui.get("msg") is m:
+                    ui.pop("msg", None)
+                    self.redraw()
+                return False
+            self.GLib.timeout_add(5000, clear)
+            self.redraw()
+        else:
+            ui.pop("busy", None)
+        # кофеин и профиль применяются не мгновенно — опрос чуть позже (а пока держит sys_pin)
+        self.GLib.timeout_add(500, lambda: self.poll_sys(k) and False)
+
+    # — пароль новой сети Wi-Fi: клавиатура у островка только на время ввода —
+    def sys_editing(self):
+        return bool(self.sys_ui["wifi"].get("pw_on"))
+
+    def pw_start(self):
+        from gi.repository import GtkLayerShell
+        self.sys_ui["wifi"]["pw_on"] = True
+        for isl in self.wins.values():
+            if isl.mode == "card":
+                GtkLayerShell.set_keyboard_mode(isl.win, GtkLayerShell.KeyboardMode.EXCLUSIVE)
+                if isl.leave_t:
+                    self.GLib.source_remove(isl.leave_t)
+                    isl.leave_t = None
+        self.redraw()
+
+    def pw_stop(self):
+        if not self.sys_ui["wifi"].pop("pw_on", None):
+            return
+        from gi.repository import GtkLayerShell
+        for isl in self.wins.values():
+            GtkLayerShell.set_keyboard_mode(isl.win, GtkLayerShell.KeyboardMode.NONE)
+        self.redraw()
+
+    def pw_key(self, e):
+        """Ввод пароля: буквы, BackSpace, Ctrl+U — стереть, Ctrl+V — вставить, Enter —
+        подключиться, Esc — закончить ввод."""
+        if not self.sys_editing():
+            return False
+        from gi.repository import Gdk
+        ui = self.sys_ui["wifi"]
+        name = Gdk.keyval_name(e.keyval) or ""
+        ctrl = bool(e.state & Gdk.ModifierType.CONTROL_MASK)
+        pw = ui.get("pw") or ""
+        if name == "Escape":
+            self.pw_stop()
+            return True
+        if name in ("Return", "KP_Enter"):
+            self.sys_btn("wifi", "connect")
+            return True
+        if name == "BackSpace":
+            ui["pw"] = pw[:-1]
+        elif ctrl and name.lower() == "u":
+            ui["pw"] = ""
+        elif ctrl and name.lower() == "v":
+            try:
+                t = subprocess.run(["wl-paste", "-n"], capture_output=True, text=True, timeout=2).stdout
+            except (OSError, subprocess.SubprocessError):
+                t = ""
+            ui["pw"] = (pw + t.strip("\r\n"))[:63]
+        elif not ctrl:
+            u = Gdk.keyval_to_unicode(e.keyval)
+            if u and chr(u).isprintable():
+                ui["pw"] = (pw + chr(u))[:63]
+        ui.pop("msg", None)
+        self.redraw()
+        return True
 
     def poll_timers(self):
         if "timer" not in page_ids(self.conf) or not self.conf["on"]:
@@ -2879,6 +5664,7 @@ class App:
     # — мониторы —
     def rebuild(self):
         for isl in self.wins.values():
+            isl.cover(False)
             isl.win.destroy()
         self.wins = {}
         outs = niri_json("outputs") or {}
@@ -2908,6 +5694,8 @@ class App:
         if p == CONF:
             self.conf = load_conf()
             self.sources()
+            if self.osdw:
+                self.osdw.flag()
         elif os.path.basename(p) in ("panels.json", "top-bar", "current.jsonc"):
             for isl in self.wins.values():          # бар «при наведении» включили/выключили
                 isl.place()
@@ -2941,6 +5729,20 @@ class App:
             self.update_bars()
             for isl in self.wins.values():
                 isl.place()
+        elif d.get("cmd") == "bar":            # top_bar.py: верхний бар «при наведении» показан/спрятан
+            now = time.monotonic()
+            before = {o for o, t in self.bar_up.items() if t > now}
+            for o in d.get("outs") or ():
+                if d.get("shown"):
+                    self.bar_up[o] = now + BAR_UP_S
+                else:
+                    self.bar_up.pop(o, None)
+            if before == {o for o, t in self.bar_up.items() if t > now}:
+                return True
+        elif d.get("cmd") == "nudge":
+            if self.nudgew:
+                self.nudgew.demo(d.get("phrase") or None)
+            return True
         elif d.get("text"):
             self.flash = {"text": str(d["text"]), "icon": str(d.get("icon") or ""),
                           "until": time.monotonic() + float(d.get("ttl") or self.conf["pop_sec"])}
@@ -3054,8 +5856,35 @@ class App:
         return True
 
     # — состояние —
+    def pill_focus(self):
+        """Что показывает живая нить: блок, открытый последним из тех, кому есть что показать
+        (звонок, музыка, помидор, таймер, запись, котик), — если он сейчас идёт. Иначе — первое
+        дело по порядку страниц. Звонок важнее всего: начался — сразу он. None — часы."""
+        live = [k for k, _d in self.acts if k in PAGES]
+        if "call" in live:
+            return "call"
+        info = self.info.split(":", 1)[0]
+        if info in ("cat", "cc") and info in page_ids(self.conf):
+            return info
+        if info in live:
+            return info
+        return live[0] if live else None
+
+    def pill_acts(self):
+        """Дела для живой нити: блок pill_focus — первым."""
+        acts = self.ordered(0)
+        f = self.pill_focus()
+        i = next((n for n, (k, _d) in enumerate(acts) if k == f), None)
+        if i:
+            acts.insert(0, acts.pop(i))
+        return acts
+
     def ordered(self, i=0):
         acts = list(self.acts)
+        if self.pop_kind in ("music", "nudge") and time.monotonic() < self.pop_until:
+            j = next((n for n, (k, _d) in enumerate(acts) if k == self.pop_kind), None)
+            if j:
+                acts.insert(0, acts.pop(j))
         if self.flash and time.monotonic() < self.flash["until"] and i == 0:
             acts.insert(0, ("flash", self.flash))
         if 0 < i < len(acts):
@@ -3067,38 +5896,56 @@ class App:
         постоянного верхнего бара."""
         if not self.conf["thread"] or out in self.bar_outs:
             return False
-        return bool(self.acts) or (self.conf["thread_always"] and bool(self.pages))
+        if self.conf["on"] and self.info.split(":", 1)[0] == "cc" and "cc" in page_ids(self.conf) \
+                and self.conf["thread_style"] in ("pill", "cat"):
+            return True                         # капсула «Центра» видна и без дел (20.10.2026)
+        return bool(self.acts) or bool(self.dl) or (self.conf["thread_always"] and bool(self.pages))
 
     def refresh(self, *_a):
         now = time.monotonic()
         on = self.conf["on"]
         calls = self.calls.calls if self.calls and "call" in page_ids(self.conf) else {}
-        self.acts = activities(self.conf, self.music, calls, self.timers) if on else []
-        self.pages = all_pages(self.conf, self.acts, self.clip, self.cat.s) if on else []
+        nudge = self.nudgew.current() if self.nudgew and "nudge" in page_ids(self.conf) else None
+        acts = activities(self.conf, self.music, calls, self.timers, nudge) if on else []
+        # запись GIF островок не показывает ни в нити, ни всплытием — ни на паузе, ни при старте
+        # (20.10.2026, просьба: «хочу заснять этот островок… это исключение только для записей
+        # gif'ок»); страница записи с ▶ остаётся в карточке. Видео — как прежде.
+        self.acts = [a for a in acts if not (a[0] == "rec" and a[1]["mode"] == "gif")]
+        self.pages = all_pages(self.conf, acts, self.clip, self.cat.s, self.shelf, self.sys_pages()) if on else []
         if self.flash and now >= self.flash["until"]:
             self.flash = None
         # событие: появилось новое главное дело, сменилась фаза помидора, пауза, трек, микрофон
         sig = None
         if self.acts:
             k, d = self.acts[0]
-            sig = (k, d["phase"] if k == "pomo" else d["paused"] if k == "rec" else
+            sig = (k, d["level"] if k == "nudge" else d["phase"] if k == "pomo" else d["paused"] if k == "rec" else
                    d["muted"] if k == "call" else d["list"][0]["id"] if k == "timer" else
-                   (d.title if self.conf["track_pop"] else "", d.status))
+                   "")      # музыка: пауза/play компакт не раскрывают (20.10.2026, просьба: «каждый раз,
+                                 # когда ставлю на паузу, островок сверху меняется — лучше не надо»)
+        # новый трек: название в компакте на TRACK_POP_S, музыка — первой (даже за помидором)
+        tsig = next(((d.name, d.title) for k, d in self.acts if k == "music" and d.status == "Playing"), None)
+        if tsig != self.track_sig:
+            if tsig and self.track_sig and tsig[1] != self.track_sig[1] and self.conf["track_pop"]:
+                self.pop_until = max(self.pop_until, now + TRACK_POP_S)
+                self.pop_kind = "music"
+            self.track_sig = tsig
         if sig != self.sig:
             if sig is not None and (self.sig is None or sig[0] != self.sig[0] or sig[1:] != self.sig[1:]):
                 if not (sig[0] == "music" and self.sig and self.sig[0] == "music"
                         and sig[1] == self.sig[1] and not self.conf["track_pop"]):
-                    self.pop_until = now + self.conf["pop_sec"]
+                    self.pop_until = max(self.pop_until, now + self.conf["pop_sec"])
             self.sig = sig
         hidden = self.game or self.overview or not on
         tg = self.targets()
         for out, isl in self.wins.items():
-            if hidden or out not in tg:
+            if hidden or out not in tg or (self.bar_up.get(out, 0) > now and isl.mode != "card"):
                 mode = "none"
             elif isl.mode == "card" and self.pages:
                 mode = "card"
-            elif now < self.pop_until and (self.acts or self.flash):
-                mode = "compact"
+            elif now < self.pop_until and (self.acts or self.flash) and not (
+                    self.flash and self.flash.get("out") and self.flash["out"] != out
+                    and out in self.wins and self.flash["out"] in self.wins):
+                mode = "compact"                # индикатор яркости — только на своём мониторе
             else:
                 mode = "thread" if self.want_thread(out) else "none"
             isl.go(mode)
@@ -3116,16 +5963,47 @@ class App:
         waits = []
         if now < self.pop_until:
             waits.append(self.pop_until - now + 0.02)
-        ticking = self.conf["thread_style"] == "pill" and self.acts and \
-            self.acts[0][0] in ("call", "rec", "pomo", "timer")
+        pa = self.pill_acts() if self.conf["thread_style"] == "pill" else []
+        ticking = bool(pa) and pa[0][0] in ("call", "rec", "pomo", "timer", "nudge") and self.pill_focus() != "cat"
         if (modes & {"compact", "card"} and self.pages) or ("thread" in modes and ticking):
             waits.append(1.0 - (time.time() % 1.0) + 0.01)
         elif "thread" in modes:
             waits.append(15.0)
         if self.music and any(p.status == "Paused" for p in self.music.players.values()):
             waits.append(5.0)
+        up = [t for t in self.bar_up.values() if t > now]
+        if up:                                      # сторож бара пропал — островок вернётся сам
+            waits.append(min(up) - now + 0.05)
+        if "thread" in modes and pa and pa[0][0] == "music" and pa[0][1].status == "Playing" \
+                and pa[0][1].length and self.pill_focus() != "cat":
+            # время трека в капсуле: перерисовка на смене его секунды (часы с ним не совпадают —
+            # раньше секунды «подлагивали»)
+            waits.append(1.0 - (pa[0][1].position() % 1.0) + 0.03)
         if waits:
             self.timer = self.GLib.timeout_add(int(min(waits) * 1000), self._tick)
+
+    def nudge_fire(self, kind):
+        """Пора напомнить: компакт с фразой — рамка вспыхивает, потом печать по буквам."""
+        st = (self.nudgew.streaks.s.get(kind) if self.nudgew else None) or {}
+        self.nudge_kind, self.nudge_t0 = kind, time.monotonic()
+        n = len(st.get("text") or "")
+        self.pop_until = max(self.pop_until, self.nudge_t0 + NUDGE_BLINK_S + n * NUDGE_CHAR_S + NUDGE_HOLD_S)
+        self.pop_kind = "nudge"
+        log("пора к делу:", kind, mmss(st.get("sec") or 0), st.get("text"))
+        self.refresh()
+        if not self.nudge_anim_on:
+            self.nudge_anim_on = True
+            self.GLib.timeout_add(40, self.nudge_anim)
+
+    def nudge_anim(self):
+        """Кадры печати и курсора, пока компакт с напоминанием раскрыт."""
+        if self.pop_kind != "nudge" or time.monotonic() >= self.pop_until:
+            self.nudge_anim_on = False
+            return False
+        for isl in self.wins.values():
+            if isl.mode == "compact":
+                isl.win.queue_draw()
+        return True
 
     def _tick(self):
         self.timer = None
@@ -3134,8 +6012,24 @@ class App:
 
     # — буфер обмена: снимки —
     def on_page(self, kind, page=None):
+        if kind != "power":
+            self.sys_ui["power"].pop("ask", None)
+        if kind != "wifi":
+            self.pw_stop()
         if kind == "clip" and "clip" in page_ids(self.conf):
             self.load_clip()
+        if kind in self.sys_ui:
+            self.poll_sys(kind)
+        if page is not None and kind in INFO_KINDS and kind != self.info.split(":", 1)[0]:
+            self.info = kind                      # живая нить теперь показывает этот блок
+            try:
+                with open(LAST_INFO, "w") as f:
+                    f.write(kind)
+            except OSError:
+                pass
+            for isl in self.wins.values():
+                if isl.mode == "thread":
+                    isl.go("thread")
         if page is not None and page_key(page) != self.last:   # листнули сами — запомнить
             self.last = page_key(page)
             try:
@@ -3189,6 +6083,41 @@ class App:
         self.refresh()
         self.redraw()
 
+    # — полка —
+    def shelf_set(self, paths):
+        import gi
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf
+        old = {it["path"]: it for it in self.shelf.get("items") or []}
+        items = []
+        for p in paths[:SHELF_N]:
+            if p in old:
+                items.append(old[p])
+                continue
+            it = {"path": p, "name": os.path.basename(p.rstrip("/")) or p, "dir": os.path.isdir(p),
+                  "surf": None, "pb": None}
+            if p.lower().endswith(IMG_EXT):
+                try:
+                    pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(p, 240, 180, True)
+                    it["surf"] = self.Gdk.cairo_surface_create_from_pixbuf(pb, 1, None)
+                    it["pb"] = GdkPixbuf.Pixbuf.new_from_file_at_scale(p, 96, 96, True)
+                except Exception as e:
+                    log("shelf thumb", p, e)
+            items.append(it)
+        self.shelf = {"items": items}
+
+    def shelf_add(self, paths):
+        cur = [it["path"] for it in self.shelf["items"]]
+        new = [p for p in paths if os.path.exists(p)]
+        self.shelf_set(new + [p for p in cur if p not in new])
+        shelf_save([it["path"] for it in self.shelf["items"]])
+        self.refresh()
+        self.redraw()
+
+    def shelf_item(self, i):
+        items = self.shelf.get("items") or []
+        return items[i] if isinstance(i, int) and 0 <= i < len(items) else None
+
     def clip_item(self, cid):
         return next((it for it in self.clip.get("items") or [] if it["id"] == cid), None)
 
@@ -3205,15 +6134,21 @@ class App:
                          stderr=subprocess.DEVNULL, start_new_session=True)
 
     def collapse_all(self):
+        self.pw_stop()
         for isl in self.wins.values():
             if isl.mode == "card":
                 isl.collapse()
 
     def do(self, act, card_i=0):
         kind, what = act
+        if kind in SYS_PAGES:
+            self.sys_do(act, 1)
+            return
         try:
-            if kind == "music":
-                p = self.music.current() if self.music else None
+            if kind == "music" and what == "like":
+                self.cat.like_toggle()
+            elif kind == "music":
+                p = self.music.player() if self.music else None
                 if p:
                     self.music.command(p, what)
             elif kind == "pomo":
@@ -3235,18 +6170,57 @@ class App:
                 subprocess.Popen(["hub", "timer", what.split(":", 1)[1]], stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL, start_new_session=True)
                 self.GLib.timeout_add(600, lambda: self.poll_timers() and False)
-            elif kind == "timer" and what == "ask":
+            elif kind == "timer" and what in ("add", "ask"):
                 self.collapse_all()
                 self.spawn([sys.executable, os.path.abspath(__file__), "timer-ask"])
-            elif kind == "timer" and what == "open":
-                self.collapse_all()
-                self.spawn(["hub-open"])
+            elif kind == "prefs":
+                # 20.10.2026: раньше в conf ложилась строка («0» — истина для да/нет), а `island.py
+                # set` следом слал reload — островок перерисовывался дважды и мигал. Теперь
+                # значение разбирается как у `set` и пишется здесь же; зазор niri — в потоке.
+                k, v = str(what).split("=", 1)
+                dv = DEFAULTS[k]
+                self.conf[k] = (v.lower() in ("1", "on", "true", "yes", "да")) if isinstance(dv, bool) else \
+                    float(v) if isinstance(dv, float) else v
+                c = load_conf()
+                c[k] = self.conf[k]
+                try:
+                    save_conf(c)
+                except OSError as e:
+                    log("prefs", e)
+                if k in ("on", "thread", "thread_style", "overlay", "monitor"):
+                    import threading
+                    threading.Thread(target=sync_space, args=(dict(c),), daemon=True).start()
+                    for isl in self.wins.values():
+                        isl.place()
+                self.refresh()
+                for isl in self.wins.values():
+                    if isl.mode in ("thread", "card"):
+                        isl.go(isl.mode)
+                self.redraw()
             elif kind == "clip" and str(what).isdigit():
                 subprocess.Popen(["sh", "-c", "cliphist decode %s | wl-copy" % what],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
                 self.clip["copied"] = what
                 self.redraw()
                 self.GLib.timeout_add(1200, lambda: (self.clip.pop("copied", None), self.redraw()) and False)
+            elif kind == "dl":                  # панель загрузки — папка, где лежит файл
+                path = (self.dl or {}).get("path") or ""
+                d = path if os.path.isdir(path) else os.path.dirname(path)
+                if not os.path.isdir(d):
+                    import island_dl
+                    d = island_dl.download_dir()
+                self.spawn(["xdg-open", d])
+            elif kind == "shelf":
+                it = self.shelf_item(what)
+                if it:
+                    self.spawn(["xdg-open", it["path"]])
+            elif kind == "shelf_rm":
+                it = self.shelf_item(what)
+                if it:
+                    self.shelf_set([x["path"] for x in self.shelf["items"] if x is not it])
+                    shelf_save([x["path"] for x in self.shelf["items"]])
+                    self.refresh()
+                    self.redraw()
             elif kind == "tool":
                 self.tool(what)
             elif kind == "cat" and what == "pet":
@@ -3300,6 +6274,114 @@ class App:
             return
         self.spawn(argv)
 
+    def night(self):
+        if not self.conf["night_dim"]:
+            return False
+        h = time.localtime().tm_hour
+        return h >= NIGHT[0] or h < NIGHT[1]
+
+    def lyr_seen(self, out, on):
+        """Где строка песни видна сверху — файл LYR_FLAG (по монитору в строке) для xpbar."""
+        outs = getattr(self, "lyr_outs", set())
+        new = (outs | {out}) if on else (outs - {out})
+        if new == outs and hasattr(self, "lyr_outs"):
+            return
+        self.lyr_outs = new
+        try:
+            if new:
+                with open(LYR_FLAG + ".tmp", "w") as f:
+                    f.write("\n".join(sorted(new)) + "\n")
+                os.replace(LYR_FLAG + ".tmp", LYR_FLAG)
+            elif os.path.exists(LYR_FLAG):
+                os.unlink(LYR_FLAG)
+        except OSError as e:
+            log("lyr flag:", e)
+
+    def osd(self, icon, text, pr, out=None):
+        """Индикатор в компакте: значок, подпись, полоса уровня; out — только на этом мониторе."""
+        self.flash = {"text": text, "icon": icon, "pr": max(0.0, min(1.0, float(pr))), "out": out,
+                      "until": time.monotonic() + 1.4}
+        self.pop_kind = None
+        if not any(isl.mode == "card" for isl in self.wins.values()):
+            self.pop_until = self.flash["until"]
+        self.refresh()
+
+    def call_on(self):
+        return bool(self.calls and self.calls.calls and "call" in page_ids(self.conf))
+
+    def mic_step(self, step):
+        import threading
+        threading.Thread(target=self.calls.mic_volume, args=(step,), daemon=True).start()
+
+    def seek(self, sec):
+        p = self.music.player() if self.music else None
+        if p:
+            self.music.seek(p, sec)
+            pos = max(0, p.position() + sec)
+            self.osd(G_NOTE, "%s  %s" % (mmss(pos), p.title or ""), pos / p.length if p.length else 0)
+
+    def player_volume(self, step):
+        """Громкость самого плеера (его потоков PipeWire), не всей системы. Нажатия копятся,
+        в поток уходит один разбор за раз; потоки плеера помнятся 5 с."""
+        p = self.music.player() if self.music else None
+        if not p:
+            return
+        v = self.vol
+        c = v["cache"]
+        if not c or c["name"] != p.name or time.monotonic() - c["t"] > 5:
+            v["cache"] = {"name": p.name, "t": 0.0, "pid": self.music.pid(p), "sids": None, "pct": None,
+                          "words": set((p.identity or p.name.rsplit(".", 1)[-1]).lower().split()), "p": p}
+        v["q"] += step
+        if v["busy"]:
+            return
+        v["busy"] = True
+        import threading
+        threading.Thread(target=self._vol_worker, daemon=True).start()
+
+    def _vol_worker(self):
+        v = self.vol
+        while True:
+            step, v["q"] = v["q"], 0
+            if not step:
+                v["busy"] = False
+                return
+            c = v["cache"]
+            try:
+                res = self._vol_apply(c, step)
+            except Exception as e:
+                log("player_volume:", e)
+                res = None
+            if res is not None:
+                self.GLib.idle_add(lambda r=res, c=c: self.osd(G_VOL, "%s  %d%%" % (
+                    c["p"].identity or "Плеер", r), r / 100) and False)
+
+    def _vol_apply(self, c, step):
+        if c["sids"] is None or time.monotonic() - c["t"] > 5:
+            import app_volume as AV
+            ss = AV.streams()
+            kin = AV.family(c["pid"]) if c["pid"] else set()
+            sids = [s[0] for s in ss if s[2] and s[2] in kin]
+            if not sids:
+                sids = [s[0] for s in ss if c["words"] & set(s[3])]
+            c["sids"], c["t"], c["pct"] = sids, time.monotonic(), None
+        if c["sids"]:
+            if c["pct"] is None:
+                lv = OsdWatch.level(str(c["sids"][0]))
+                c["pct"] = int(round(lv[0] * 100)) if lv else 100
+            c["pct"] = max(0, min(100, c["pct"] + step))
+            for sid in c["sids"]:
+                subprocess.run(["wpctl", "set-volume", str(sid), "%d%%" % c["pct"]], timeout=3)
+            c["t"] = time.monotonic()
+            return c["pct"]
+        # потоков не нашли — громкость MPRIS (у браузера это регулятор на странице)
+        p, V = c["p"], self.GLib.Variant
+        cur = self.music.call(p.name, Music.PATH, "org.freedesktop.DBus.Properties", "Get",
+                              V("(ss)", (Music.IFACE, "Volume")), "(v)")[0]
+        new = max(0.0, min(1.0, float(cur) + step / 100))
+        self.music.call(p.name, Music.PATH, "org.freedesktop.DBus.Properties", "Set",
+                        V("(ssv)", (Music.IFACE, "Volume", V("d", new))), None)
+        return int(round(new * 100))
+
     def push_flash(self, text, icon=""):
         self.flash = {"text": text, "icon": icon, "until": time.monotonic() + self.conf["pop_sec"] + 1}
         self.pop_until = self.flash["until"]
@@ -3311,15 +6393,27 @@ class App:
 
 
 def timer_ask():
-    """«Своё…» на странице таймера: rofi с подсказками; «25», «1ч30», «90с», «10 чай» (после
-    времени — название). Запускает hub timer."""
-    hint = "\n".join(["%d" % m for m in TIMER_PRESETS] + ["1ч", "1ч30", "90с"])
+    """«+» на странице таймера: то же окно Timer.exe, что у виджетов (preset_ask.py --ask, как
+    desktop_widgets.ask_timer) — 20.10.2026, просьба: «должно было появиться привычное окно
+    таймера», а открывался голый rofi. Ввод как там: «work 25m», «limit 5h», «07:30», слова
+    в любом порядке; голое число — минуты. Пункт hub с источником island — виджет timer.exe
+    на столе появляется сам, как у таймера из Telegram."""
+    import datetime
+    quick = ["5m", "10m", "15m", "25m", "45m", "1h"]
     try:
-        out = subprocess.run(["rofi", "-dmenu", "-i", "-p", "Таймер", "-mesg",
-                              "минуты числом, «1ч30», «90с»; после времени — название"],
-                             input=hint, capture_output=True, text=True, timeout=300).stdout.strip()
+        r = subprocess.run(["python3", os.path.join(HERE, "preset_ask.py"), "--ask", "Timer.exe",
+                            "название и время: work 25m, limit 5h, 07:30", "Быстро",
+                            "Enter — запустить · Esc — отмена", *quick],
+                           capture_output=True, text=True, timeout=600)
+        out = r.stdout.strip() if r.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError):
-        return 1
+        r, out = None, ""
+    if r is None or r.returncode not in (0, 1):  # окна нет (сбой) — прежний rofi
+        try:
+            out = subprocess.run(["rofi", "-dmenu", "-i", "-p", "Таймер"], input="\n".join(quick),
+                                 capture_output=True, text=True, timeout=300).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return 1
     if not out:
         return 0
     sys.path.insert(0, os.path.expanduser("~/.local/share/hub"))
@@ -3327,15 +6421,27 @@ def timer_ask():
         import hublib as H
     except ImportError:
         return 1
-    words = out.split()
-    for n in range(len(words), 0, -1):          # самое длинное начало, похожее на время
-        if H.parse_duration(" ".join(words[:n])):
-            dur, name = "".join(words[:n]), " ".join(words[n:])
-            break
-    else:
+    secs, name = 0, []
+    for w in out.split():
+        m = re.fullmatch(r"(\d{1,2}):(\d{2})", w)
+        d = H.parse_duration(w)
+        if m:                                   # «07:30» — до ближайших таких часов
+            now = datetime.datetime.now()
+            t = now.replace(hour=int(m[1]) % 24, minute=int(m[2]) % 60, second=0, microsecond=0)
+            secs += int(((t if t > now else t + datetime.timedelta(days=1)) - now).total_seconds())
+        elif d:
+            secs += d
+        else:
+            name.append(w)
+    if not secs:
         subprocess.run(["notify-send", "-a", "Таймер", "Таймер", "Не понял время: " + out])
         return 1
-    return subprocess.run(["hub", "timer", dur] + ([name] if name else []), stdout=subprocess.DEVNULL).returncode
+    try:
+        H.start_timer(H.connect(), secs, " ".join(name), "island")
+    except Exception as e:
+        subprocess.run(["notify-send", "-a", "Таймер", "Таймер", "Не поставил: %s" % e])
+        return 1
+    return 0
 
 
 def run():
@@ -3367,10 +6473,11 @@ def run():
     glib_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, lambda: (Gtk.main_quit(), False)[1])
     log("запущен, pid", os.getpid())
     Gtk.main()
-    try:
-        os.unlink(SOCK)
-    except OSError:
-        pass
+    for path in (SOCK, OSD_FLAG, LYR_FLAG):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
     return 0
 
 
@@ -3459,6 +6566,8 @@ def main(argv):
         return 0 if ok else 1
     if cmd == "timer-ask":
         return timer_ask()
+    if cmd == "nudge":                       # показать «Пора к делу» сейчас (проверка)
+        return 0 if send({"cmd": "nudge", "phrase": " ".join(argv[1:])}) else 1
     if cmd == "get":
         c = load_conf()
         print(json.dumps(c, ensure_ascii=False) if len(argv) < 2 else c.get(argv[1], ""))

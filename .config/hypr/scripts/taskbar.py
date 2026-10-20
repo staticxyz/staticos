@@ -353,6 +353,15 @@ def my_workspace():
     return next((w for w in wss if w.get("output") == out and w.get("is_active")), None)
 
 
+def _pomo_locked():
+    """Помидор «programming» — окна не закрываются (pomo_lock.py, 20.10.2026)."""
+    try:
+        import pomo_lock
+        return pomo_lock.locked() is not None
+    except Exception:
+        return False
+
+
 def action(cmd):
     ws = my_workspace()
     if not ws:
@@ -361,7 +370,7 @@ def action(cmd):
     mine = window_order(ws, wins)
     here = ws.get("active_window_id")
     if cmd == "close":
-        if here is not None:
+        if here is not None and not _pomo_locked():
             request({"Action": {"CloseWindow": {"id": here}}})
         return 0
     if not mine:

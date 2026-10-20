@@ -106,12 +106,13 @@ binds {
     Mod+End  { focus-column-last; }
 
     // ─── Фокус: столы по вертикали ───
-    Mod+K { focus-workspace-up; }
-    Mod+J { focus-workspace-down; }
-    Mod+Up   { focus-workspace-up; }
-    Mod+Down { focus-workspace-down; }
-    Mod+Page_Up   { focus-workspace-up; }
-    Mod+Page_Down { focus-workspace-down; }
+    // Через ws-step: во время помидора «programming» шаг молчит (scripts/pomo_lock.py, 20.10.2026)
+    Mod+K hotkey-overlay-title="Стол выше" { spawn-sh "~/.config/niri/scripts/ws-step up"; }
+    Mod+J hotkey-overlay-title="Стол ниже" { spawn-sh "~/.config/niri/scripts/ws-step down"; }
+    Mod+Up   hotkey-overlay-title="Стол выше" { spawn-sh "~/.config/niri/scripts/ws-step up"; }
+    Mod+Down hotkey-overlay-title="Стол ниже" { spawn-sh "~/.config/niri/scripts/ws-step down"; }
+    Mod+Page_Up   hotkey-overlay-title="Стол выше" { spawn-sh "~/.config/niri/scripts/ws-step up"; }
+    Mod+Page_Down hotkey-overlay-title="Стол ниже" { spawn-sh "~/.config/niri/scripts/ws-step down"; }
 
     // ─── Фокус: окна внутри колонки (стопка) — вертикаль с CTRL ───
     Mod+Ctrl+K { focus-window-up; }
@@ -316,8 +317,8 @@ binds {
     // (просьба пользователя 19.09.2026; столы остались на H / L)
     Mod+WheelScrollDown { focus-column-right; }
     Mod+WheelScrollUp   { focus-column-left; }
-    Mod+Ctrl+WheelScrollDown cooldown-ms=150 { focus-workspace-down; }
-    Mod+Ctrl+WheelScrollUp   cooldown-ms=150 { focus-workspace-up; }
+    Mod+Ctrl+WheelScrollDown cooldown-ms=150 hotkey-overlay-title="Стол ниже" { spawn-sh "~/.config/niri/scripts/ws-step down"; }
+    Mod+Ctrl+WheelScrollUp   cooldown-ms=150 hotkey-overlay-title="Стол выше" { spawn-sh "~/.config/niri/scripts/ws-step up"; }
 
     // ─── Снимки экрана ───
     // Print — родной экран выбора niri: область, окно или монитор,

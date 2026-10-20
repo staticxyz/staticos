@@ -88,6 +88,18 @@ BRIDGE = {
 }
 
 
+# 20.10.2026, просьба: «всплывающие подсказки чуть компактнее — все». Breeze даёт
+# подсказке 4 px полей, программы добавляют ещё 2–6 px у надписи. gtk.css грузится
+# с приоритетом USER и перебивает CSS программ, а colors.css пересобираем мы сами
+# (gtk.css иногда переписывает kded6) — поэтому общее правило живёт здесь.
+TOOLTIP = ("/* Подсказки компактнее (20.10.2026). */\n"
+           "tooltip { padding: 2px; }\n"
+           "tooltip label { padding: 0 3px; }\n"
+           # у коробки внутри подсказки GTK зашиты поля 6 px (gtktooltipwindow.ui, свойства
+           # margin, CSS их не обнуляет) — без этого правила подсказка почти не сжималась
+           "tooltip > box { margin: -4px; }\n")
+
+
 def read(path):
     try:
         with open(path, encoding="utf-8") as f:
@@ -126,7 +138,8 @@ def main():
            + base.rstrip("\n") + "\n\n"
            + mat.rstrip("\n") + "\n\n"
            + "/* Мостик: имена Breeze, которых matugen не генерирует. */\n"
-           + "\n".join(bridge) + "\n")
+           + "\n".join(bridge) + "\n\n"
+           + TOOLTIP)
 
     if read(TARGET) == out:
         # Тот же текст — подменять нечего: лишний rename заставил бы каждое

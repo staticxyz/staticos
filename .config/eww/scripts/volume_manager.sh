@@ -17,6 +17,12 @@ now_ms() { date +%s%3N; }
 cancel_timer() { echo hold > "$DEADLINE"; }
 
 show_and_timeout() {
+    # 20.10.2026: громкость показывает островок (island.py, OsdWatch; файл — его pid, пока
+    # «Индикаторы в островке» включены). Шторку не открывать; уже открытую — держать как раньше.
+    # Наведение на край (show_and_timeout hover) открывает всегда — островок только про клавиши.
+    if [ "$1" != hover ] && [ ! -e "$OPEN" ] && pid=$(cat "$RUN/jarvis-island.osd" 2>/dev/null) && kill -0 "$pid" 2>/dev/null; then
+        return 0
+    fi
     echo $(( $(now_ms) + 2000 )) > "$DEADLINE"
     (
         flock -n 9 || exit 0          # сторож уже работает — он увидит новый срок
@@ -76,7 +82,7 @@ case "$1" in
         else
             target sink
         fi
-        show_and_timeout
+        show_and_timeout hover
         ;;
     cancel)
         cancel_timer

@@ -147,7 +147,18 @@ def niri(*args):
         return None
 
 
+def _pomo_locked():
+    """Помидор «programming» — окна не закрываются (pomo_lock.py, 20.10.2026)."""
+    try:
+        import pomo_lock
+        return pomo_lock.locked() is not None
+    except Exception:
+        return False
+
+
 def action(*args):
+    if args[:1] == ("close-window",) and _pomo_locked():
+        return
     subprocess.Popen(["niri", "msg", "action", *args],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -650,11 +661,11 @@ def main():
     menu separator { background-color: %(outline_variant)s; min-height: 1px; margin: 4px 6px; }
     tooltip {
         background-color: %(surface)s; color: %(on_surface)s;
-        border: 1px solid %(primary)s; border-radius: 8px;
+        border: 1px solid %(primary)s; border-radius: 8px; padding: 2px;
     }
     tooltip label {
         font-family: 'JetBrainsMono Nerd Font', sans-serif; font-size: 16px;
-        font-weight: normal; padding: 2px 6px;
+        font-weight: normal; padding: 0 3px;
     }
     """, focus_bg=popup_theme.rgba(pal["primary"], "0.16"))
     provider = Gtk.CssProvider()

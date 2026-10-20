@@ -77,7 +77,7 @@ AREAS = [
         cursor_colors.py cursor_shake.py cursor_theme.py bit_cursor.py
         tri_cursor.py skeet_cursor.py jarvis_pebble.py yamikai_wall.py"""),
     ("Уведомления и звуки интерфейса", "✉", """
-        notif_style.py track_notify.py island.py dnd_sounds.py auto_dnd.py ui_sound.py
+        notif_style.py track_notify.py island.py island_dl.py island_nudge.py island_sys.py dnd_sounds.py auto_dnd.py ui_sound.py
         ui_sound_retro.py ui_sound_watch.py layout_osd notif-look notify-send"""),
     # Панели
     ("Бар: устройство", "▔", """
@@ -110,7 +110,7 @@ AREAS = [
         alt_tab.py alt_tab.sh ribbon_center.py mouse_focus.py mouse_wait_release.py
         window_fx.py wm.py hot_corners.py
         pip_place.py ws_layout.py mousepad_place.py colexpand colwidth floattoggle magic
-        move_all no_self_maximize.py pair_center.py winreset ws_insert close-or-clipboard
+        move_all no_self_maximize.py pair_center.py winreset ws_insert ws-step close-or-clipboard
         dashboard shell-switch shell-do ws-anim"""),
     ("Настройки и справка", "⚙", """
         settings_app.py niri_state.py niri_compositor.py keybinds_sheet.py binds_edit.py smart_search.py exe_frame.py close_cap.py scrim_layer.py menu_one.py app_list.py
@@ -170,7 +170,7 @@ AREAS = [
     ("Экранное время и нагрузка", "◔", """
         screentime.py screentime_daemon.py appmem jtop"""),
     ("Discipline и hub", "⏱", """
-        routine_app.py focus_mode.py alarm discipline routine pomo hub hub-open rem dict wa tfa jchat jchat-tg jchat-wa"""),
+        routine_app.py focus_mode.py pomo_lock.py alarm discipline routine pomo hub hub-open rem dict wa tfa jchat jchat-tg jchat-wa"""),
     ("Будильник", "⏰", """
         wake_alarm.py jarvis-rtc-wake.sh wake_overlay.py wake-alarm"""),
     # Служебное

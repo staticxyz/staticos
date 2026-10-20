@@ -1273,7 +1273,7 @@ def command(c, cmd, arg, bot=None, chat=None):
         wid, new = H.add_word(c, term, tr)
         return ("Добавил: %s — %s" if new else "Обновил: %s — %s") % (term, tr), None
     if cmd in ("words", "dictionary"):
-        return words_panel(c, arg)
+        return words_panel(c, arg, full=True)   # список сразу (20.10.2026, просьба: «вбив /words, сразу не вижу список»)
     if cmd in ("delword", "wdel"):
         wid = parse_id(arg)
         if wid is None:

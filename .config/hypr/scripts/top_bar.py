@@ -652,6 +652,9 @@ if __name__ == "__main__":
                 self.shown = False
                 self.bad = 0
                 self.arrange()
+                self.tell_island()
+            elif self.shown:
+                self.tell_island()
             # Бар должен быть спрятан, а какой-то его экземпляр виден (после подключения
             # монитора, после сна…) — две проверки подряд (4 с, чтобы не поймать переход)
             # и перезапуск: все экземпляры стартуют спрятанными. Не чаще раза в 20 с.
@@ -692,7 +695,23 @@ if __name__ == "__main__":
                 return False
             self.shown = on
             self.arrange()
+            self.tell_island()
             return False
+
+        def tell_island(self):
+            """Бар показан — островок на этих мониторах прячется, бар лежит поверх (20.10.2026, просьба: «если открыт waybar, показывать его поверх островка — по центру бара не
+            нажать»). Островок в слое Overlay, бар — в Top, иначе его не перекрыть. Пока бар
+            показан, повтор каждые 2 с (sync): островок держит «спрятан» 6 с с последнего."""
+            outs = sorted({s.out for s in self.tops if s.out}) or ([WATCH_OUT] if WATCH_OUT else [])
+            try:
+                import socket
+                sk = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+                sk.sendto(json.dumps({"cmd": "bar", "outs": outs, "shown": self.shown}).encode(),
+                          os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()),
+                                       "jarvis-island.sock"))
+                sk.close()
+            except OSError:
+                pass
 
         def cancel(self):
             if self.timer:

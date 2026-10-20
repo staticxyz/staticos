@@ -2071,7 +2071,8 @@ def register(ns):
             opened = H.items(c, None, "open", "timer")
             for it in opened:
                 iid = it["id"]
-                if it["source"] != "tg" or iid in linked or iid in seen:
+                # из Telegram и из островка («+» на странице таймера, 20.10.2026)
+                if it["source"] not in ("tg", "island") or iid in linked or iid in seen:
                     continue
                 seen.add(iid)
                 if not it["due"] or it["due"] <= time.time() + 2:

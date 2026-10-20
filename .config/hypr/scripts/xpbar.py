@@ -196,6 +196,9 @@ TASK_W = 136             # ширина кнопки окна — наиболь
 TASK_MIN = 90            # окон много — кнопки сжимаются до этой ширины, дальше прокрутка (было 110)
 GLUE_SHOW = 4            # «вплотную»: сколько пикселей нижней рамки окна видно над панелью (2 → 4, 04.10.2026: «рамки вообще не вижу»)
 LYR_W = 470              # место под текст песни справа — постоянное, панель не пляшет
+ISLAND_LYR_FILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-island-lyrics")
+ISLAND_LYR = set()       # мониторы, где строку песни сейчас показывает островок
+BARS_KEEP = []           # живые Gio-мониторы файлов (иначе их соберёт сборщик мусора)
 LYRICS_MAX = 40          # знаков строки песни в панели — предел; на деле fit_lyrics() по ширине
 PREVIEW = 0.4            # строка появляется раньше, чем её начнут петь, с
                          # (0.8 — «переборщил со скоростью», 01.10.2026)
@@ -374,8 +377,8 @@ menu, .menu, .context-menu {
 }
 menuitem { font-family: %(font)s; font-size: 16px; padding: 5px 12px; border-radius: 5px; }
 menuitem:hover { background-color: %(surface_high)s; color: %(primary)s; }
-tooltip { background-color: %(surface)s; color: %(on_surface)s; border: 1px solid %(primary)s; border-radius: 6px; }
-tooltip label { font-family: %(font)s; font-size: 16px; font-weight: normal; padding: 2px 6px; }
+tooltip { background-color: %(surface)s; color: %(on_surface)s; border: 1px solid %(primary)s; border-radius: 6px; padding: 2px; }
+tooltip label { font-family: %(font)s; font-size: 16px; font-weight: normal; padding: 0 3px; }
 """
 
 _provider = None
@@ -448,6 +451,19 @@ SETTINGS_MODE_FILE = os.path.expanduser("~/.config/hypr/state/settings-mode")
 LOOKS = ("xp", "skeet", "beta", "dark")
 LOOK_COLS = {}           # вид → цвета для рисунков cairo (ручка, раскладка, искорка)
 WS_ACC = {}              # вид → (акцент, радиус) подсветки стола, что переезжает к новому квадрату
+
+
+def attn_color(acc, bg):
+    """Цвет «стол просит внимания» (20.10.2026, просьба: «покрась в более жёлто-оранжевый
+    кислотный, но не ярко, скорее тусклее, и чтобы сочеталось с гаммой обоев»).
+    Оттенок свой — жёлто-оранжевый 45°, а светлота и насыщенность берутся у акцента
+    обоев; чуть подмешан сам акцент и фон панели — так цвет и тусклый, и «из той же семьи»."""
+    import colorsys
+    _h, l, sat = colorsys.rgb_to_hls(*hex2rgb(acc))
+    l = min(max(l, 0.5), 0.6)
+    sat = min(max(sat * 0.75 + 0.2, 0.85), 1.0)
+    pure = rgb2hex(colorsys.hls_to_rgb(45 / 360, l, sat))
+    return mix(mix(pure, acc, 0.06), bg, 0.2)
 
 
 def look_choice():
@@ -744,11 +760,11 @@ def look_css(c):
     LOOK_COLS.clear()
     LOOK_COLS.update({
         "skeet": dict(acc=sk["acc"], acc_d=sk["acc_d"], bg=sk["bg"], st_hi=sk["acc_l"], grip=sk["line1"], grip_d=sk["line3"], lang_bg=sk["field"],
-                      lang_line=sk["line1"], lang_in=sk["line3"], lang_text=sk["acc_l"], radius=0),
+                      lang_line=sk["line1"], lang_in=sk["line3"], lang_text=sk["acc_l"], radius=0, dim=sk["dim"]),
         "beta": dict(acc=be["acc"], bg=be["bar"], st_hi=be["acc"], grip=be["line"], grip_d=None, lang_bg=be["field"],
-                     lang_line=be["line_strong"], lang_in=None, lang_text=be["text"], radius=0),
+                     lang_line=be["line_strong"], lang_in=None, lang_text=be["text"], radius=0, dim=be["dim"]),
         "dark": dict(acc=p["primary"], bg=c["base"], st_hi=p["primary"], grip=dk["line"], grip_d=None, lang_bg=p["surface_high"],
-                     lang_line=None, lang_in=None, lang_text=p["on_surface"], radius=4),
+                     lang_line=None, lang_in=None, lang_text=p["on_surface"], radius=4, dim=dk["dim"]),
     })
     return "".join(out)
 
@@ -783,15 +799,22 @@ def load_css():
     WS_ACC.clear()
     WS_ACC.update({"xp": (c["st_hi"], 3)})
     WS_ACC.update({k: (v["acc"], v.get("radius", 0)) for k, v in LOOK_COLS.items()})
+    # 20.10.2026: стол, что просит внимания, — свой жёлто-оранжевый (attn_color), а не акцент:
+    # акцентом уже подчёркнут текущий стол, и их было не различить
     for key, sel in [("xp", "window")] + [(k, "window.xpbar-win.look-" + k) for k in LOOK_COLS]:
-        css += ("@keyframes ws-urgent-%(k)s { from { box-shadow: inset 0 -2px alpha(%(c)s, 0.3); } "
-                "to { box-shadow: inset 0 0 0 1px %(c)s, inset 0 -3px %(c)s; } }\n"
-                "%(s)s button.ws.urgent { box-shadow: inset 0 -2px %(c)s; "
-                "animation: ws-urgent-%(k)s 0.9s ease-in-out 6 alternate; }\n"
+        bg = c["base"] if key == "xp" else LOOK_COLS[key]["bg"]
+        ink = c["text"] if key == "xp" else LOOK_COLS[key]["dim"]     # цвет неактивных столов
+        # 20.10.2026, вторая правка: заливка и рамка «слишком бросались в глаза» — квадрат не
+        # красится вовсе; цветом горит только значок стола, а черта снизу — едва заметная
+        # третья–пятая правки: «всё равно заметно… ближе к цвету остальных неактивных столов» —
+        # значок цвета неактивных столов с жёлто-оранжевым оттенком (40 %)
+        css += ("%(s)s button.ws.urgent label { color: %(d)s; }\n"
+                "%(s)s button.ws.urgent { box-shadow: inset 0 -2px alpha(%(a)s, 0.25); }\n"
                 "%(s)s button.ws label.wsnote { color: %(c)s; }\n"
                 "%(s)s button.ws label.wsnote.muted { color: alpha(%(c)s, 0.45); }\n"
                 "%(s)s button.ws.focused label.wsnote { color: inherit; }\n"
-                % dict(k=key, s=sel, c=WS_ACC[key][0]))
+                % dict(k=key, s=sel, c=WS_ACC[key][0], a=attn_color(WS_ACC[key][0], bg),
+                       d=mix(attn_color(WS_ACC[key][0], bg), ink, 0.6)))
     css += GLYPH_CSS
     prov = Gtk.CssProvider()
     prov.load_from_data(css.encode())
@@ -855,7 +878,18 @@ def shift_held():
     return False
 
 
+def _pomo_locked():
+    """Помидор «programming» — окна не закрываются (pomo_lock.py, 20.10.2026)."""
+    try:
+        import pomo_lock
+        return pomo_lock.locked() is not None
+    except Exception:
+        return False
+
+
 def action(*args):
+    if args[:1] == ("close-window",) and _pomo_locked():
+        return
     subprocess.Popen(["niri", "msg", "action", *args], stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL)
 
@@ -4012,6 +4046,12 @@ class XPBar(Gtk.Window):
 
     # ── текст песни ───────────────────────────────────────────────────────
     def set_lyrics(self, obj):
+        # строку уже показывает островок сверху на этом мониторе (живая нить, капсула котика) —
+        # здесь не дублировать (20.10.2026, пользователь); не видно сверху — показывать
+        if self.connector in ISLAND_LYR:
+            self.lyr_box.hide()
+            self.lyr.set_tooltip_text(None)
+            return
         if obj.get("text") is None and not obj.get("gap"):
             self.lyr_box.hide()
             self.lyr.set_tooltip_text(None)
@@ -4145,6 +4185,22 @@ def main():
         Lyrics(lyrics_sink)
     except Exception as e:
         print("xpbar: lyrics: %r" % e, file=sys.stderr)
+
+    # где строку песни показывает островок (island.py LYR_FLAG) — там не дублировать
+    def island_lyr(*_a):
+        try:
+            new = set(open(ISLAND_LYR_FILE).read().split())
+        except OSError:
+            new = set()
+        if new != ISLAND_LYR:
+            ISLAND_LYR.clear()
+            ISLAND_LYR.update(new)
+            for b in bars:
+                b.set_lyrics(seen["lyrics"] or {})
+    island_lyr()
+    lyr_mon = Gio.File.new_for_path(ISLAND_LYR_FILE).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+    lyr_mon.connect("changed", island_lyr)
+    BARS_KEEP.append(lyr_mon)
 
     # часы — на начало каждой минуты
     def tick_clock():
