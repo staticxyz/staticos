@@ -198,7 +198,7 @@ G_POMO, G_BREAK, G_NOTE, G_REC, G_SKIP = "\U000f051f", "\U000f0176", "\U000f075a
 G_MIC, G_MIC_OFF, G_TIMER, G_CLIP, G_PICK = "\U000f036c", "\U000f036d", "\U000f051b", "\U000f0192", "\U000f020a"
 G_TOOLS = "\U000f09ac"                 # md-toolbox; в островке — пикселями (PIX_BMP)
 G_SHOT, G_MEMO, G_OPEN, G_CALL, G_BOARD = "\U000f019e", "\U000f039a", "\U000f03cc", "\U000f03f2", "\U000f014c"
-G_TG, G_DISCORD = "", "\U000f066f"
+G_TG, G_DISCORD, G_WA = "", "\U000f066f", "\U000f05a3"
 
 G_PLUS, G_COG = "\U000f0415", "\U000f0493"
 G_NUDGE = "\U000f018d"                # md-console; в островке — пикселями (PIX_BMP)
@@ -220,7 +220,7 @@ G_VOL, G_VOL_OFF, G_WAVE = "\U000f057e", "\U000f0581", "\U000f0e4e"
 # с выбором собственного времени. Запись, Пипетка и Снимок в один общий блок. Заметку,
 # Помидор в отдельный блок» — вместо одной страницы «Инструменты» (tools) две: capture и focus.
 PAGES = {
-    "call":    ("Звонок", "Telegram/Discord: длительность, микрофон звонка, громкость; голосовое — живая волна", "live"),
+    "call":    ("Звонок", "Telegram/Discord/WhatsApp: длительность, микрофон звонка, громкость; голосовое — живая волна", "live"),
     "music":   ("Музыка", "где играет (YouTube, Яндекс Музыка…), время, громкость приложения", "live"),
     "pomo":    ("Помидор", "сколько осталось, задача, пауза, пропуск, стоп", "live"),
     "timer":   ("Таймер", "идущие таймеры hub; «+» — ещё один, с виджетом timer.exe, как из Telegram", "always"),
@@ -624,7 +624,8 @@ class Music:
 
 CALL_APPS = (("telegram", "Telegram", G_TG), ("ayugram", "Telegram", G_TG), ("64gram", "Telegram", G_TG),
              ("discord", "Discord", G_DISCORD), ("vesktop", "Discord", G_DISCORD),
-             ("webcord", "Discord", G_DISCORD), ("equibop", "Discord", G_DISCORD), ("legcord", "Discord", G_DISCORD))
+             ("webcord", "Discord", G_DISCORD), ("equibop", "Discord", G_DISCORD), ("legcord", "Discord", G_DISCORD),
+             ("zapzap", "WhatsApp", G_WA), ("whatsapp", "WhatsApp", G_WA), ("wasistlos", "WhatsApp", G_WA))
 
 
 CALLS_FILE = os.path.join(RUN, "jarvis-island-calls.json")
@@ -660,12 +661,17 @@ def scan_calls():
                                                      "node.name", "media.name", "application.id")).lower()
         if METER_NAME in hay:
             return None
+        # и командная строка родителя: ZapZap пишет микрофон из QtWebEngineProcess («Chromium
+        # input»), имя приложения есть только у его родителя (20.10.2026: звонок WhatsApp не виден)
         try:
             pid = int(pr.get("application.process.id") or 0)
-            if pid:
+            for _ in range(2):
+                if pid <= 1:
+                    break
                 hay += " " + open("/proc/%d/cmdline" % pid, "rb").read().replace(b"\0", b" ").decode(
                     "utf-8", "replace").lower()
-        except (OSError, ValueError):
+                pid = int(open("/proc/%d/stat" % pid).read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
             pass
         return next(((name, icon) for key, name, icon in CALL_APPS if key in hay), None)
     playing = {a[0] for a in (app_of(o.get("properties") or {}) for o in si if isinstance(si, list)) if a}
@@ -6233,10 +6239,11 @@ class App:
         self.GLib.timeout_add(250, lambda: self.refresh() and False)
 
     def focus_call(self):
-        """Окно звонка: Telegram или Discord — фокус через niri по app_id."""
+        """Окно звонка: Telegram, Discord или WhatsApp — фокус через niri по app_id."""
         names = [n.lower() for n in (self.calls.calls if self.calls else {})]
         keys = {"telegram": ("telegram", "ayugram", "64gram"), "discord": ("discord", "vesktop", "webcord",
-                                                                           "equibop", "legcord")}
+                                                                           "equibop", "legcord"),
+                "whatsapp": ("zapzap", "whatsapp", "wasistlos")}
         want = [k for n in names for k in keys.get(n, ())]
         for w in niri_json("windows") or []:
             app = (w.get("app_id") or "").lower()
