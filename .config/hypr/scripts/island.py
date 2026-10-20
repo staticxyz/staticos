@@ -699,6 +699,7 @@ class CallWatch:
     def __init__(self, GLib, on_change):
         self.GLib, self.on_change = GLib, on_change
         self.calls = {}              # приложение → {ids, muted, icon, app, since, voice, vol}
+        self.quiet = 0.0             # до этого времени OSD микрофона молчит (нажали кнопку в капсуле)
         self.t = None
         self.busy = False
         try:
@@ -783,6 +784,7 @@ class CallWatch:
         звонке»): глушится поток записи Telegram/Discord, а не микрофон системы — остальные
         программы его слышат. Включение снимает и общий mute, иначе звонок останется немым."""
         muted = any(c["muted"] for c in self.calls.values())
+        self.quiet = time.monotonic() + 1.5     # снятие общего mute — не повод для вспышки OSD
         try:
             if muted and any(c.get("gmute") for c in self.calls.values()):
                 subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "0"], timeout=3)
@@ -1542,7 +1544,8 @@ def paint_dl(cr, x, top, w, h, dl, col, D):
 
 
 PILL_PX, PILL_GAP, PILL_PAD, PILL_MAX = 12, 6, 11, 280
-CALL_GAP = 9                    # звонок: значок | время | микрофон — чуть просторнее (20.10.2026)
+CALL_PAD = (13, 12)             # звонок: отступ слева до значка, справа — до кнопки микрофона
+CALL_GAP = 12                   # звонок: значок | время | микрофон — чуть просторнее (20.10.2026)
 MUSIC_MAXW = 130
 
 
@@ -1753,8 +1756,40 @@ def part_w(cr, p, D=None):
         return 18
     lay = pill_lay(cr, v, MUSIC_MAXW if k == "tm" else None, D, k == "g")
     if k in ("g", "t") and not pill_ios(D):  # по видимой части: у MDI и пиксельных цифр поля
-        return lay.get_pixel_extents()[0].width
+        return lay_ink(lay)[1]
     return lay.get_pixel_size()[0]
+
+
+_INK = {}
+
+
+def lay_ink(lay):
+    """(x, ширина) закрашенных столбцов строки — по пикселям: у значков Nerd Font рамка
+    начертания бывает на пиксель шире видимого (WhatsApp: 14 вместо 13), и зазоры выходили
+    разные (20.10.2026). Кэш по тексту и шрифту."""
+    key = (lay.get_text(), lay.get_font_description().to_string() if lay.get_font_description() else "")
+    if key in _INK:
+        return _INK[key]
+    ie = lay.get_pixel_extents()[0]
+    res = (ie.x, ie.width)
+    try:
+        import cairo
+        from gi.repository import PangoCairo
+        w, h = max(1, ie.x + ie.width + 2), max(1, ie.y + ie.height + 2)
+        sf = cairo.ImageSurface(cairo.FORMAT_A8, w, h)
+        c = cairo.Context(sf)
+        font_opts(c)                            # как в капсуле: без сглаживания у пиксельного шрифта
+        PangoCairo.update_layout(c, lay)
+        PangoCairo.show_layout(c, lay)
+        sf.flush()
+        st, data = sf.get_stride(), bytes(sf.get_data())
+        cols = [x for x in range(w) if any(data[y * st + x] > 96 for y in range(h))]
+        if cols:
+            res = (cols[0], cols[-1] - cols[0] + 1)
+    except Exception:
+        pass
+    _INK[key] = res
+    return res
 
 
 def pill_gap(parts):
@@ -1763,9 +1798,16 @@ def pill_gap(parts):
     return CALL_GAP if any(p[0] == "mic" for p in parts) else PILL_GAP
 
 
+def pill_pads(parts):
+    """Поля капсулы (слева, справа). У звонка справа меньше: фон кнопки микрофона бледный, и
+    поле на глаз казалось шире левого (20.10.2026, просьба: «справа от иконки микрофона есть место,
+    как будто оно большое… сделай подлиннее»)."""
+    return CALL_PAD if any(p[0] == "mic" for p in parts) else (PILL_PAD, PILL_PAD)
+
+
 def pill_w(cr, acts, col=None, D=None):
     parts = pill_parts(acts, col)
-    w = 2 * PILL_PAD + sum(part_w(cr, p, D) for p in parts) + pill_gap(parts) * (len(parts) - 1)
+    w = sum(pill_pads(parts)) + sum(part_w(cr, p, D) for p in parts) + pill_gap(parts) * (len(parts) - 1)
     return float(max(PILL_W, min(PILL_MAX, int(math.ceil(w / 2.0)) * 2)))
 
 
@@ -1820,11 +1862,12 @@ def paint_pill(cr, x, top, w, h, st, col, D=None):
     ink = (1, 1, 1) if ios else col["on_surface"]
     parts = pill_parts(st["acts"], col)
     gap = pill_gap(parts)
-    need = 2 * PILL_PAD + sum(part_w(cr, p, D) for p in parts) + gap * (len(parts) - 1)
+    pl, pr_ = pill_pads(parts)
+    need = pl + pr_ + sum(part_w(cr, p, D) for p in parts) + gap * (len(parts) - 1)
     if w >= min(need, PILL_MAX) * 0.85 and h >= PILL_H * 0.6:   # пока капсула растёт — пусто
         cr.rectangle(x, top, w, h)
         cr.clip()
-        cx = x + max(PILL_PAD, (w - need) / 2 + PILL_PAD)
+        cx = x + max(pl, (w - need) / 2 + pl)
         cy = top + r
         if not ios:
             cx = float(int(cx))
@@ -1881,7 +1924,7 @@ def paint_pill(cr, x, top, w, h, st, col, D=None):
                     # глиф — с его видимого края; цифры времени — по середине начертания
                     # (по строке они сидели на пиксель выше значков)
                     ie = lay.get_pixel_extents()[0]
-                    tx -= ie.x
+                    tx -= lay_ink(lay)[0]
                     if k == "t":
                         ty_ = int(round(cy - ie.y - ie.height / 2))
                 cr.move_to(tx, ty_)
@@ -4392,7 +4435,7 @@ class OsdWatch:
             if k == "sink":
                 self.app.osd(G_VOL_OFF if muted or not pct else G_VOL,
                              "Звук  %d%%%s" % (pct, " · выкл" if muted else ""), 0 if muted else v[0])
-            else:
+            elif time.monotonic() >= getattr(self.app.calls, "quiet", 0):
                 self.app.osd(G_MIC_OFF if muted else G_MIC,
                              "Микрофон  %d%%%s" % (pct, " · выкл" if muted else ""), 0 if muted else v[0])
 
@@ -5961,9 +6004,11 @@ class App:
         if self.acts:
             k, d = self.acts[0]
             sig = (k, d["level"] if k == "nudge" else d["phase"] if k == "pomo" else d["paused"] if k == "rec" else
-                   d["muted"] if k == "call" else d["list"][0]["id"] if k == "timer" else
+                   d["list"][0]["id"] if k == "timer" else
                    "")      # музыка: пауза/play компакт не раскрывают (20.10.2026, просьба: «каждый раз,
-                                 # когда ставлю на паузу, островок сверху меняется — лучше не надо»)
+                                 # когда ставлю на паузу, островок сверху меняется — лучше не надо»);
+                                 # звонок: и кнопка микрофона тоже («не надо менять островок, когда я
+                                 # кликаю вкл/выкл микрофон», 20.10.2026) — видно по самой кнопке
         # новый трек: название в компакте на TRACK_POP_S, музыка — первой (даже за помидором)
         tsig = next(((d.name, d.title) for k, d in self.acts if k == "music" and d.status == "Playing"), None)
         if tsig != self.track_sig:
