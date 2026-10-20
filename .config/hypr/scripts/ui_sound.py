@@ -27,6 +27,7 @@
     timer     timer                                      таймер-виджет дозвонил
     notify    notify                  (выкл)             пришло уведомление
     windows   window-open, window-close   (выкл)         окно открылось / закрылось
+    winstate  minimize, unminimize, maximize, restore    свернуть / вернуть / развернуть (стопка)
     mouse     nav                     (выкл)             каждый щелчок левой кнопкой
 Кто шлёт: ui_sound_watch.py (устройства, батарея, окна, мышь, уведомления), auto_dnd.py
 (снимок), rec_area.sh, jarvis_lock.py, power_menu.py, xpbar.py, start_menu.py,
@@ -104,6 +105,12 @@ EVENTS = {
     "window-open": ("windows", ("Windows XP Restore.wav",), OX + "Oxygen-Window-Maximize.ogg"),
     "window-close": ("windows", ("Windows XP Minimize.wav",), OX + "Oxygen-Window-Minimize.ogg"),
     "nav": ("mouse", ("Windows Navigation Start.wav",), OC + "audio-volume-change.oga"),
+    # 21.10.2026, просьба: «звуки сворачивания, разворачивания окон как в Windows XP» — шлёт
+    # stack_bars.py (режим «стопка»); у XP на развернуть ⇄ обратно те же два файла
+    "minimize": ("winstate", ("Windows XP Minimize.wav",), OX + "Oxygen-Window-Minimize.ogg"),
+    "unminimize": ("winstate", ("Windows XP Restore.wav",), OX + "Oxygen-Window-Maximize.ogg"),
+    "maximize": ("winstate", ("Windows XP Restore.wav",), OX + "Oxygen-Window-Maximize.ogg"),
+    "restore": ("winstate", ("Windows XP Minimize.wav",), OX + "Oxygen-Window-Minimize.ogg"),
 }
 # группа → (подпись для Настроек, включена ли по умолчанию)
 GROUPS = {
@@ -114,6 +121,7 @@ GROUPS = {
     "timer": ("Таймер", True),
     "notify": ("Уведомления", False),
     "windows": ("Открытие и закрытие окон", False),
+    "winstate": ("Свернуть и развернуть окна", True),
     "mouse": ("Каждый щелчок мыши", False),
 }
 ALWAYS = {"timer"}            # звонит и в «Не беспокоить»

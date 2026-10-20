@@ -33,6 +33,7 @@ binds {
     Mod+Ctrl+Shift+P hotkey-overlay-title="Пароли (KeePassXC)" { spawn-sh "~/.local/bin/keepassxc"; }
     Mod+A hotkey-overlay-title="Раскладка стола: прокрутка → сетка → плавающие → подглядывание → три в ряд" { spawn-sh "python3 ~/.config/hypr/scripts/ws_layout.py cycle"; }
     Mod+Ctrl+A hotkey-overlay-title="Раскладка стола: прежняя" { spawn-sh "python3 ~/.config/hypr/scripts/ws_layout.py cycle back"; }
+    Mod+Ctrl+Shift+M hotkey-overlay-title="Стопка окон (hyprstack): вкл/выкл" { spawn-sh "python3 ~/.config/hypr/scripts/stack_mode.py toggle"; }
     // Калькулятор-переводчик — своё окно (translate_popup.py): rofi-calc не
     // умел показывать длинный перевод строками (23.09.2026). Повторное
     // нажатие закрывает (single_instance внутри).
@@ -96,8 +97,8 @@ binds {
     // Прежняя схема (J/K — колонки, H/L — столы) лежит в config.kdl.bak.vimaxes-*
 
     // ─── Фокус: колонки по горизонтали ───
-    Mod+H     { focus-column-left; }
-    Mod+L     { focus-column-right; }
+    Mod+H hotkey-overlay-title="Колонка влево (в стопке: окно слева, и свёрнутые)" { spawn-sh "~/.config/niri/scripts/hl-step left"; }
+    Mod+L hotkey-overlay-title="Колонка вправо (в стопке: окно справа, и свёрнутые)" { spawn-sh "~/.config/niri/scripts/hl-step right"; }
     Mod+Left  { focus-column-left; }
     Mod+Right { focus-column-right; }
 
@@ -107,8 +108,8 @@ binds {
 
     // ─── Фокус: столы по вертикали ───
     // Через ws-step: во время помидора «programming» шаг молчит (scripts/pomo_lock.py, 20.10.2026)
-    Mod+K hotkey-overlay-title="Стол выше" { spawn-sh "~/.config/niri/scripts/ws-step up"; }
-    Mod+J hotkey-overlay-title="Стол ниже" { spawn-sh "~/.config/niri/scripts/ws-step down"; }
+    Mod+K hotkey-overlay-title="Стол выше (в стопке: развернуть окно)" { spawn-sh "~/.config/niri/scripts/ws-step up jk"; }
+    Mod+J hotkey-overlay-title="Стол ниже (в стопке: свернуть окно)" { spawn-sh "~/.config/niri/scripts/ws-step down jk"; }
     Mod+Up   hotkey-overlay-title="Стол выше" { spawn-sh "~/.config/niri/scripts/ws-step up"; }
     Mod+Down hotkey-overlay-title="Стол ниже" { spawn-sh "~/.config/niri/scripts/ws-step down"; }
     Mod+Page_Up   hotkey-overlay-title="Стол выше" { spawn-sh "~/.config/niri/scripts/ws-step up"; }
@@ -229,7 +230,7 @@ binds {
     Mod+Period hotkey-overlay-title="Вынуть окно из колонки / Настройки" { spawn-sh "~/.config/niri/scripts/slashkey"; }
 
     // ─── Развернуть / полный экран / плавающее ───
-    Mod+F { fullscreen-window; }
+    Mod+F hotkey-overlay-title="Во весь экран (в стопке: развернуть окно)" { spawn-sh "~/.config/niri/scripts/fs-toggle"; }
     // Последний шаг SUPER+= в Hyprland — развернуть на всю рабочую область.
     Mod+Shift+F { maximize-column; }
     // Растянуть колонку на всё свободное место; повторно — исходный размер (scripts/colexpand).
@@ -277,7 +278,7 @@ binds {
     // ведёт SUPER+0 на цифровом блоке.
     Mod+0 hotkey-overlay-title="Сбросить размер окна" { spawn-sh "~/.config/niri/scripts/winreset"; }
     // SUPER+D — стол дашборда (05.10.2026; раньше — стол 10)
-    Mod+D repeat=false hotkey-overlay-title="Дашборд: фокус" { spawn-sh "~/.config/niri/scripts/dashboard focus"; }
+    Mod+D repeat=false hotkey-overlay-title="Свернуть все окна (стопка) / дашборд" { spawn-sh "python3 ~/.config/hypr/scripts/stack_mode.py superd"; }
 
     Mod+Shift+1 { move-column-to-workspace 1; }
     Mod+Shift+2 { move-column-to-workspace 2; }

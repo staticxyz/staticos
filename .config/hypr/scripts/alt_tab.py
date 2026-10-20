@@ -58,6 +58,8 @@ PIDF = os.path.join(RUN, "jarvis-alttab.pid")
 LOG = os.environ.get("JARVIS_ALTTAB_LOG") or os.path.expanduser("~/.cache/alt_tab.log")
 STYLE_FILE = os.path.expanduser("~/.config/hypr/state/alttab-style")
 HIDDEN_APPS = ("dash-",)            # окна «Dashboard» на первом столе — виджеты, не окна
+STACK_STATE = os.path.expanduser("~/.config/hypr/state/stack-mode.json")
+STACK_MIN_DESK = "\U000f05b0"   # стол свёрнутых окон стопки (stack_mode.MIN_NAME; у MSI + \u2060 в конце)
 MODE_FILE = os.path.expanduser("~/.config/hypr/state/alttab-mode")
 MODES = ("windows", "desks")
 TW = 240                 # ширина превью стола (19.10.2026: 192 → 240, «чтобы столы было лучше
@@ -157,6 +159,14 @@ def read_style():
         return v if v in STYLES else "default"
     except OSError:
         return "default"
+
+
+def stack_active():
+    """Режим «стопка» (stack_mode.py) включён?"""
+    try:
+        return '"active": true' in open(STACK_STATE).read()
+    except OSError:
+        return False
 
 
 def read_mode():
@@ -823,6 +833,8 @@ class Switcher:
     def open(self, step):
         # Открывается в последнем режиме (окна или столы, клавиша `), оба монитора сразу.
         self.mode = read_mode()         # могли сменить в Настройках → Misc
+        if stack_active():              # в стопке все окна на одном столе — только окна
+            self.mode = "windows"       # (21.10.2026), выбор в файле не трогаем
         if not self.build(step):
             log("окон нет — нечего показывать")
             return
@@ -1227,6 +1239,11 @@ class Switcher:
                 cmd = "niri msg action focus-monitor %s && %s" % (it["output"], cmd)
             subprocess.Popen(["sh", "-c", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return
+        if ((self.ws.get(it.get("workspace_id")) or {}).get("name") or "").rstrip("\u2060") == STACK_MIN_DESK:
+            # свёрнутое окно стопки (stack_mode.py) — вернуть на общий стол на прежнее место
+            subprocess.Popen([sys.executable, os.path.join(HERE, "stack_mode.py"), "unmin", str(it["id"])],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
         subprocess.Popen(["niri", "msg", "action", "focus-window", "--id", str(it["id"])],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -1296,6 +1313,8 @@ class Switcher:
     def toggle_mode(self):
         """` / ~ (на русской — ё): окна ↔ столы (19.10.2026). Выбор переходит на «то же
         место»: из окна — на его стол, со стола — на его активное окно."""
+        if stack_active():
+            return                             # в стопке столов нет — только окна
         cur = self.items[self.sel] if self.items else {}
         if self.mode == "windows":
             self.mode, keep = "desks", cur.get("workspace_id")

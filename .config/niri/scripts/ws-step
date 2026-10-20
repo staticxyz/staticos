@@ -1,5 +1,10 @@
 #!/bin/sh
 # Шаг по столам (Super+J/K, стрелки, Page_Up/Down, колесо). Во время помидора
 # «programming» ничего не делает — замок стола, scripts/pomo_lock.py (20.10.2026).
+# Второй аргумент jk — это Super+J/K: в стопке они сворачивают/разворачивают окно
+# (stack_mode.py key, 21.10.2026), столы не листают.
+if [ "$2" = jk ] && grep -q '"active": true' "$HOME/.config/hypr/state/stack-mode.json" 2>/dev/null; then
+    exec python3 "$HOME/.config/hypr/scripts/stack_mode.py" key "$1"
+fi
 "$HOME/.local/bin/pomo" locked >/dev/null 2>&1 && exit 0
 exec niri msg action "focus-workspace-$1"

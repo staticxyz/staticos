@@ -90,6 +90,21 @@ def get_mode():
     return _read(MODE, MODES, "always")
 
 
+def eff_mode():
+    """Общий режим с поправкой на стопку: «всегда» на её время — «при наведении»
+    (panels.stack_top). `top_bar.py get` показывает выбор как есть."""
+    m = get_mode()
+    if m == "always":
+        try:
+            sys.path.insert(0, HERE)
+            import panels
+            if panels.stack_top():
+                return "hover"
+        except Exception:
+            pass
+    return m
+
+
 def panels_mod():
     try:
         sys.path.insert(0, HERE)
@@ -103,7 +118,7 @@ def modes_in_use():
     """Режимы верхнего бара на мониторах: {выход: режим}; общий режим — {None: режим}."""
     pn = panels_mod()
     if pn is None:
-        return {None: get_mode()}
+        return {None: eff_mode()}
     d = pn.load()
     return {out: pn.top_for(out, d) for out in pn.top_outputs(d)}
 
@@ -260,7 +275,7 @@ def opacity_rule(mode=None):
         # панели по мониторам: у каждого бара свой класс (waybar_niri.per_output)
         body = rule("always", ".tb-always") + rule("hover", ".tb-hover")
     else:
-        mode = mode or get_mode()
+        mode = mode or eff_mode()
         body = rule("hover" if mode == "hover" else "always", "")
     body = body or "/* Пишет top_bar.py (opacity_rule): прозрачность — как у вида бара. */\n"
     try:
@@ -274,7 +289,7 @@ def opacity_rule(mode=None):
 
 
 def apply():
-    mode, ws = get_mode(), ws_place()
+    mode, ws = eff_mode(), ws_place()
     per = panels_mod() is not None
     opacity_rule(mode)
     blur_rule(mode)
@@ -385,7 +400,7 @@ elif sys.argv[1:]:
 elif panels_mod() is not None:
     spawn_watchers()          # автозапуск: по сторожу на монитор в режиме hover
     sys.exit(0)
-elif get_mode() != "hover" or daemon_pids():
+elif eff_mode() != "hover" or daemon_pids():
     sys.exit(0)
 
 if __name__ == "__main__":

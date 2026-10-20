@@ -60,6 +60,28 @@ tells you what each file does and what starts it, without opening anything.
   is gone; `config_map.py md` writes the same map to `~/.config/0-КАРТА.md`.
   The scan is cached until a file changes, so the window opens in about a quarter of a second.
 
+## Stack mode — `Ctrl+Shift+Super+M`
+
+![Stack mode](assets/stack-mode.png)
+
+<p align="center"><i>App list, Focus and Settings stacked over the desktop widgets, each with its own title bar and frame</i></p>
+
+One key turns niri's scrolling columns into ordinary overlapping windows, the way most desktops
+work, on every monitor at once. Press it again and every window goes back to its desk, column,
+size and tab exactly as before; widgets keep working either way.
+
+- **Own title bars and frames** in the system style (Default, Skeet or Beta): minimize, maximize,
+  close, drag by the bar (also across monitors), double-click to maximize, middle-click to
+  minimize, resize by the edges. The focused window casts a deeper shadow. staticOS windows hide
+  their own title bar so nothing is drawn twice.
+- **XP-style taskbar.** Minimized windows fly to their button and back; buttons can be dragged
+  and pinned (right-click → Pin), a pinned app stays as an icon when it has no window.
+- **Keys:** `Super+K` maximize / bring back the last minimized, `Super+J` minimize,
+  `Super+H/L` previous/next window including minimized ones, `Super+F` maximize instead of
+  fullscreen, `Super+D` minimize all / restore. Alt+Tab lists windows only.
+- While it is on, the top bar shows on hover, the island sits under the windows, window sounds
+  play on minimize and maximize, and it is all remembered for the next time.
+
 ## Highlights
 
 - **One palette everywhere.** Change the wallpaper and the bar, terminal, notifications,
@@ -69,6 +91,8 @@ tells you what each file does and what starts it, without opening anything.
 - **An alarm you cannot sleep through.** It stops only when you type a phrase, checks on you
   again later, and a daytime Watchman keeps you from dozing off. [How it works →](docs/alarm.md)
 - **Focus and pomodoro.** Block distracting sites and apps for a session, with a pomodoro on top.
+- **Stack mode** — `Ctrl+Shift+Super+M`. Overlapping windows with title bars, frames and an
+  XP-style taskbar on every monitor; press again and everything returns to its columns.
 - **App list** — `Super+Alt+T`. Programs and packages with versions, one-key rollback to an
   older version, hold, cleanup of package caches and logs, and a full system summary.
 - **Desktop widgets and an XP-style taskbar.** Clocks, player, weather, system monitor and more
@@ -144,6 +168,7 @@ Other distributions, options and removal: [docs/install.md](docs/install.md).
 | `Super+W` | Wallpaper (recolors everything) |
 | `Super+Alt+F` | Alarm, focus, pomodoro |
 | `Super+Alt+T` | App list |
+| `Ctrl+Shift+Super+M` | Stack mode: overlapping windows on/off |
 | `Super+Alt+V` | Clipboard |
 | `Super+C` | Calculator and translator |
 | `Super+Print` / `Shift+Print` | Annotated screenshot / copy text from screen |

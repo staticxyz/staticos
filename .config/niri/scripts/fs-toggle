@@ -1,0 +1,7 @@
+#!/bin/sh
+# Super+F. В режиме «стопка» — развернуть ⇄ обратно, как кнопка в полосе окна
+# (stack_mode.py key fs, 21.10.2026); иначе — полный экран niri, как было.
+if grep -q '"active": true' "$HOME/.config/hypr/state/stack-mode.json" 2>/dev/null; then
+    exec python3 "$HOME/.config/hypr/scripts/stack_mode.py" key fs
+fi
+exec niri msg action fullscreen-window

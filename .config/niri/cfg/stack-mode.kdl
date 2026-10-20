@@ -1,0 +1,15 @@
+// Пишет ~/.config/hypr/scripts/stack_mode.py (режим «стопка», Ctrl+Shift+Super+M).
+// Пробные окна самопроверки: открываются плавающими, jv-stacktest — на ноутбуке,
+// jv-stacktest-msi — на MSI.
+window-rule {
+    match app-id="^jv-stacktest$"
+    open-on-output "eDP-1"
+    open-floating true
+    open-focused false
+}
+window-rule {
+    match app-id="^jv-stacktest-msi$"
+    open-on-output "DP-4"
+    open-floating true
+    open-focused false
+}

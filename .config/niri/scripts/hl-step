@@ -1,0 +1,7 @@
+#!/bin/sh
+# Super+H/L. В режиме «стопка» — по окнам, и по свёрнутым тоже (stack_mode.py key,
+# 21.10.2026); иначе — колонка влево/вправо, как было.
+if grep -q '"active": true' "$HOME/.config/hypr/state/stack-mode.json" 2>/dev/null; then
+    exec python3 "$HOME/.config/hypr/scripts/stack_mode.py" key "$1"
+fi
+exec niri msg action "focus-column-$1"

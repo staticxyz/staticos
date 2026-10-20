@@ -63,7 +63,7 @@ DEFAULTS = {
     "overlay": False,
     "track_pop": True,       # смена трека: название в компакте на 5 с (TRACK_POP_S)
     "osd": True,             # громкость, микрофон, яркость — индикатором в островке, без шторки eww
-    "night_dim": True,       # ночью (NIGHT) островок притушен
+    "night_dim": False,      # ночью (NIGHT) островок притушен; 21.10.2026 выкл. по умолчанию (просьба: «становится прозрачным… убрать»)
     "bubble": True,          # пузырь ▶ рядом с нитью, пока музыка на паузе
     "pop_sec": 2.5,          # сколько держится раскрытым: после ухода курсора и после события
     "design": "auto",        # вид: auto — как стиль системы (Default/Skeet/Beta), ios
@@ -615,6 +615,15 @@ class Music:
                                  "GetConnectionUnixProcessID", self.GLib.Variant("(s)", (p.name,)), "(u)")[0])
         except Exception:
             return None
+
+    def raise_(self, p):
+        """MPRIS Raise — браузер сам выводит вкладку с плеером (Zen: MediaController::Focus)."""
+        try:
+            self.call(p.name, self.PATH, "org.mpris.MediaPlayer2", "Raise", None, None)
+            return True
+        except Exception as e:
+            log("mpris Raise", e)
+            return False
 
     def command(self, p, method):
         try:
@@ -2153,7 +2162,7 @@ def button(cr, cx, cy, glyph, col, a, hits, action, big=False):
     if _SK["on"]:
         bw, bh = (34, 24) if big else (28, 22)
         bx, by = int(cx - bw / 2), int(cy - bh / 2)
-        sk_box(cr, bx, by, bw, bh, col, a, big)
+        sk_box(cr, bx, by, bw, bh, col, a, big, ring=big)
         pix_glyph(cr, glyph, bx + bw // 2, by + bh // 2, sk_ink(col, big), a) or \
             put_text(cr, glyph, 16, bx + bw // 2, by + bh / 2, sk_ink(col, big), a, center=True)
         hits.append(((bx, by, bw, bh), action))
@@ -2240,6 +2249,9 @@ def paint_card(cr, x, w, h, kind, d, acts, col, a, card_i):
         button(cr, c - 40, by, G_PREV, col, a, hits, ("music", "Previous"))
         button(cr, c, by, G_PAUSE if d.status == "Playing" else G_PLAY, col, a, hits, ("music", "PlayPause"), big=True)
         button(cr, c + 40, by, G_NEXT, col, a, hits, ("music", "Next"))
+        # к источнику — окно и вкладка, где играет (21.10.2026, «раньше была кнопка… перешла
+        # именно на эту вкладку»; в player_popup она звалась «Источник»)
+        button(cr, c + 80, by, G_OPEN, col, a, hits, ("music", "source"))
     elif kind == "pomo":
         put_text(cr, mmss(d["rem"]), 24, x + pad, 34, col["on_surface"], a)
         sub = ("Фокус" if d["phase"] == "work" else "Перерыв") + (" · пауза" if d["paused"] else "") + \
@@ -2857,7 +2869,7 @@ def sk_rgb(v, col, k=0.22):
     return tuple(v * (1 - k) + c * k * min(1.0, v * 6) for c in col["bg"])
 
 
-def sk_box(cr, x, y, w, h, col, a, accent=False):
+def sk_box(cr, x, y, w, h, col, a, accent=False, ring=False):
     """Кнопка Skeet — как button.seg в Настройках: кромка #0a0a0a, внутренняя линия #303030,
     градиент #242424 → #1b1b1b. Выбранная не заливается (20.10.2026, просьба: «уже не похоже
     на стиль Skeet, кнопки не те») — та же плашка, полоска акцента снизу, текст акцентом
@@ -2875,7 +2887,12 @@ def sk_box(cr, x, y, w, h, col, a, accent=False):
     cr.rectangle(x + 2, y + 2, w - 4, h - 4)
     cr.set_source(g)
     cr.fill()
-    if accent:
+    if ring:                                    # кнопка-действие: акцент рамкой вокруг (21.10.2026,
+        cr.rectangle(x + 1.5, y + 1.5, w - 3, h - 3)   # Просьба: «линию сделай вокруг кнопки, а не снизу»)
+        cr.set_line_width(1)
+        cr.set_source_rgba(*col["primary"], a)
+        cr.stroke()
+    elif accent:
         cr.rectangle(x + 2, y + h - 4, w - 4, 2)
         cr.set_source_rgba(*col["primary"], a)
         cr.fill()
@@ -3241,21 +3258,22 @@ def paint_card_ios(cr, x, w, h, kind, d, acts, col, a, pages):
     подпись и кнопки-плашки; несколько дел — точки-страницы, листаются колесом."""
     hits = []
     n, cur = pages or (len(acts), 0)
+    kinds = [p[0] for p in acts]
     if kind == "cat":
         paint_cat_card(cr, x, w, h, d, col, a, hits, True)
-        ios_dots(cr, x, w, n, cur, a, hits)
+        ios_dots(cr, x, w, n, cur, a, hits, kinds)
         return hits
     if kind == "shelf":
         paint_shelf(cr, x, w, h, d, col, a, hits, True)
-        ios_dots(cr, x, w, n, cur, a, hits)
+        ios_dots(cr, x, w, n, cur, a, hits, kinds)
         return hits
     if kind in SYS_PAGES:
         paint_sys(cr, x, w, h, kind, d, col, a, hits, True)
-        ios_dots(cr, x, w, n, cur, a, hits)
+        ios_dots(cr, x, w, n, cur, a, hits, kinds)
         return hits
     if kind in ("clip", "tools"):
         (paint_clip if kind == "clip" else paint_tools)(cr, x, w, h, d if kind == "clip" else kind, col, a, hits, True)
-        ios_dots(cr, x, w, n, cur, a, hits)
+        ios_dots(cr, x, w, n, cur, a, hits, kinds)
         return hits
     icon, text, ck = act_line(kind, d)
     acc = ck_rgb(ck, col)
@@ -3263,11 +3281,11 @@ def paint_card_ios(cr, x, w, h, kind, d, acts, col, a, pages):
     R = 38
     if kind == "nudge":
         paint_nudge(cr, x, w, h, d, col, a, True)
-        ios_dots(cr, x, w, n, cur, a, hits)
+        ios_dots(cr, x, w, n, cur, a, hits, kinds)
         return hits
     if kind == "prefs":
         paint_prefs(cr, x, w, h, d, col, a, hits, True)
-        ios_dots(cr, x, w, n, cur, a, hits)
+        ios_dots(cr, x, w, n, cur, a, hits, kinds)
         return hits
     eqh = MUSIC_EQ[2] if kind == "music" else 0
     cx, cy = x + 18 + R, (h - eqh) / 2
@@ -3291,7 +3309,7 @@ def paint_card_ios(cr, x, w, h, kind, d, acts, col, a, pages):
         title, sub = d.title or "—", d.artist or d.identity
         btns = [(G_PREV, ("music", "Previous"), False),
                 (G_PAUSE if d.status == "Playing" else G_PLAY, ("music", "PlayPause"), True),
-                (G_NEXT, ("music", "Next"), False)]
+                (G_NEXT, ("music", "Next"), False), (G_OPEN, ("music", "source"), False)]
     elif kind == "pomo":
         title = ("Фокус" if d["phase"] == "work" else "Перерыв") + (" · пауза" if d["paused"] else "")
         sub = d["task"] or ""
@@ -3312,12 +3330,12 @@ def paint_card_ios(cr, x, w, h, kind, d, acts, col, a, pages):
         title, sub, btns = "Таймер", "«+» — новый, с виджетом на столе", [(G_PLUS, ("timer", "add"), True)]
     else:
         title, sub, btns = text, "", []
-    dots = 10 * n if n > 1 else 0
+    dots = IOS_TAB * n if n > 1 else 0
     put_text(cr, title, 15, tx, 26, (1, 1, 1), a, maxw=tw - dots - 6)
     lk = kind == "music" and like_btn(cr, tx + tw - 5, 45, _CAT["s"], dict(col, on_surface_variant=(1, 1, 1)), a, hits)
     if sub:
         put_text(cr, sub, 12, tx, 45, (1, 1, 1), 0.55 * a, maxw=tw - (22 if lk else 0))
-    ios_dots(cr, x, w, n, cur, a, hits)
+    ios_dots(cr, x, w, n, cur, a, hits, kinds)
     if btns:
         gap, bh = 8, 28
         bw = (tw - gap * (len(btns) - 1)) / len(btns)
@@ -3328,16 +3346,27 @@ def paint_card_ios(cr, x, w, h, kind, d, acts, col, a, pages):
     return hits
 
 
-def ios_dots(cr, x, w, n, cur, a, hits):
-    """Точки-страницы iOS сверху справа; щелчок — на страницу."""
+IOS_TAB = 16       # шаг значков-страниц iOS
+
+
+def ios_dots(cr, x, w, n, cur, a, hits, kinds=None):
+    """Страницы iOS сверху справа: значки блоков вместо точек (21.10.2026, просьба: «в версии
+    ios не хватает иконок вместо точек… сохрани стиль ios») — белые, открытая яркая, остальные
+    приглушены, как были точки. Неизвестный блок — точка. Щелчок — на страницу."""
     if n <= 1:
         return
+    step = IOS_TAB if kinds else 10
     for i in range(n):
-        dx = x + w - 18 - (n - 1 - i) * 10
-        cr.arc(dx, 26, 3, 0, 2 * math.pi)
-        cr.set_source_rgba(1, 1, 1, (0.9 if i == cur else 0.3) * a)
-        cr.fill()
-        hits.append(((dx - 5, 16, 10, 20), ("page", i)))
+        dx = x + w - 18 - (n - 1 - i) * step
+        ga = (0.95 if i == cur else 0.35) * a
+        g = PAGE_GLYPH.get(kinds[i]) if kinds and i < len(kinds) else None
+        if g:
+            put_glyph(cr, g, 11, dx, 26, (1, 1, 1), ga)
+        else:
+            cr.arc(dx, 26, 3, 0, 2 * math.pi)
+            cr.set_source_rgba(1, 1, 1, ga)
+            cr.fill()
+        hits.append(((dx - step / 2, 16, step, 20), ("page", i)))
 
 
 def rrect(cr, x, y, w, h, R):
@@ -4613,7 +4642,7 @@ class Island:
             w.set_visual(vis)
         GtkLayerShell.init_for_window(w)
         GtkLayerShell.set_namespace(w, NAMESPACE)
-        GtkLayerShell.set_layer(w, GtkLayerShell.Layer.TOP)
+        GtkLayerShell.set_layer(w, self.base_layer())
         GtkLayerShell.set_monitor(w, monitor)
         GtkLayerShell.set_anchor(w, GtkLayerShell.Edge.TOP, True)
         GtkLayerShell.set_exclusive_zone(w, 0)
@@ -4779,6 +4808,25 @@ class Island:
         rect = (e.x, e.y, e.width, e.height)
         self.in_rect = rect
 
+    @staticmethod
+    def base_layer():
+        """В стопке (stack_mode) островок — под окнами, слой BOTTOM: «окна должны уметь
+        перекрывать её, она только на рабочем столе» (21.10.2026, пользователь). Раскрытая карточка
+        всё равно поднимается в OVERLAY (cover)."""
+        from gi.repository import GtkLayerShell
+        try:
+            st = json.load(open(os.path.expanduser("~/.config/hypr/state/stack-mode.json")))
+            on = bool(st.get("active")) and st.get("socket") == os.path.basename(
+                os.environ.get("NIRI_SOCKET", ""))
+        except (OSError, ValueError):
+            on = False
+        return GtkLayerShell.Layer.BOTTOM if on else GtkLayerShell.Layer.TOP
+
+    def sync_layer(self):
+        from gi.repository import GtkLayerShell
+        if not self.scrims:
+            GtkLayerShell.set_layer(self.win, self.base_layer())
+
     def cover(self, on):
         """Раскрытая карточка: прозрачные слои во весь каждый монитор (scrim_layer.Scrim, как у
         меню), щелчок по ним — свернуть. 20.10.2026, просьба: «если хочу закрыть его быстро —
@@ -4789,7 +4837,7 @@ class Island:
             for s in self.scrims:
                 s.destroy()
             if self.scrims:
-                GtkLayerShell.set_layer(self.win, GtkLayerShell.Layer.TOP)
+                GtkLayerShell.set_layer(self.win, self.base_layer())
             self.scrims = []
             return
         if self.scrims:
@@ -5871,6 +5919,9 @@ class App:
             if os.path.basename(p) != "current.jsonc" and not self.space_t:
                 # зазор над окнами — только на мониторах без постоянного бара (один раз за пачку)
                 self.space_t = self.GLib.timeout_add(800, self.resync_space)
+        elif os.path.basename(p) == "stack-mode.json":
+            for isl in self.wins.values():
+                isl.sync_layer()
         elif p.startswith(os.path.expanduser("~/.cache/matugen")):
             self.col = colors()
         self.GLib.idle_add(lambda: self.refresh() and False)
@@ -6041,7 +6092,16 @@ class App:
             return info
         if info in live:
             return info
-        return live[0] if live else None
+        if live:
+            return live[0]
+        # блок закончился (видео закрыли — музыки нет), других дел нет — следующий по порядку
+        # страниц котик/«Центр», а не пустые часы (21.10.2026, просьба: «закрыл видео, и следующим
+        # блоком должен был быть кот, но… отобразился блок с Таймером»)
+        ids = page_ids(self.conf)
+        if info in ids:
+            n = ids.index(info)
+            return next((k for k in ids[n + 1:] + ids[:n] if k in ("cat", "cc")), None)
+        return None
 
     def pill_acts(self):
         """Дела для живой нити: блок pill_focus — первым."""
@@ -6333,6 +6393,8 @@ class App:
         try:
             if kind == "music" and what == "like":
                 self.cat.like_toggle()
+            elif kind == "music" and what == "source":
+                self.focus_music()
             elif kind == "music":
                 p = self.music.player() if self.music else None
                 if p:
@@ -6418,6 +6480,46 @@ class App:
         except OSError as e:
             log("действие", act, e)
         self.GLib.timeout_add(250, lambda: self.refresh() and False)
+
+    def focus_music(self):
+        """К источнику музыки (21.10.2026): плееру — MPRIS Raise (браузер переключает вкладку с
+        плеером), затем фокус niri на окно: по pid владельца шины вверх по родителям (как
+        player_popup.window_pid_for), из окон процесса — где заголовок уже с треком; не нашлось
+        по pid (XWayland) — по имени плеера в app_id/заголовке."""
+        p = self.music.player() if self.music else None
+        self.collapse_all()
+        if not p:
+            return
+        pid = self.music.pid(p)
+        raised = self.music.raise_(p)
+        key = p.name[len(Music.MPRIS):].split(".")[0].lower()
+        words = {key} | {x.lower() for x in (p.identity or "").split() if len(x) > 2}
+        title = (p.title or "").strip().lower()
+        import threading
+
+        def run():
+            if raised:
+                time.sleep(0.3)                 # заголовок окна успевает смениться на вкладку
+            wins = niri_json("windows") or []
+            own = {w.get("pid") for w in wins}
+            q = pid
+            while q and q > 1 and q not in own:
+                try:
+                    with open("/proc/%d/stat" % q) as f:
+                        q = int(f.read().rsplit(")", 1)[1].split()[1])
+                except (OSError, ValueError, IndexError):
+                    q = None
+            cand = [w for w in wins if q and w.get("pid") == q] or \
+                [w for w in wins if any(k and k in ("%s %s" % (w.get("app_id"), w.get("title"))).lower()
+                                        for k in words)]
+            if not cand:
+                log("music source: окно не найдено", p.name, pid)
+                return
+            w = next((w for w in cand if title and title in (w.get("title") or "").lower()), cand[0])
+            subprocess.Popen(["niri", "msg", "action", "focus-window", "--id", str(w["id"])],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        threading.Thread(target=run, daemon=True).start()
 
     def focus_call(self):
         """Окно звонка: Telegram, Discord или WhatsApp — фокус через niri по app_id."""

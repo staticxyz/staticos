@@ -443,6 +443,19 @@ def set_view(arg):
     return 0
 
 
+def stack_desk():
+    """Столы режима «стопка», пока он включён (stack_mode.py; с 21.10.2026 — по одному на
+    монитор): там окна плавающие по её правилам, раскладка стола не применяется."""
+    try:
+        import stack_mode
+        st = stack_mode.load_state()
+        if not stack_mode.active(st):
+            return set()
+        return {v.get("desk") for v in (st.get("outs") or {}).values()}
+    except Exception:
+        return set()
+
+
 def watch():
     last = {}
     prev_focus = {}                      # стол → окно, где был фокус на прошлом проходе
@@ -476,9 +489,10 @@ def watch():
                         _save(path, {k: v for k, v in _load(path).items() if k in alive})
                 sync_kdl(wss, modes, views)
                 fid = focused_window(wins)
+                stack = stack_desk()
                 for ws in wss:
                     mode = modes.get(str(ws["id"]))
-                    if not mode:
+                    if not mode or ws["id"] in stack:      # стол «стопки» — её порядки
                         last.pop(ws["id"], None)
                         continue
                     sig = (mode, signature(wins, ws["id"]), bool(ws.get("is_active")))

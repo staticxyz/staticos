@@ -94,6 +94,22 @@ SHIFTED = dict(zip("1234567890-=[];',./`", "!@#$%^&*()_+{}:\"<>?~"))
 
 # ── цвета ─────────────────────────────────────────────────────────────────────
 
+_STACK = [None, False]
+
+
+def stack_on():
+    """Режим «стопка» включён? Тогда ни «×», ни своей рамки: их рисует stack_bars.py
+    (21.10.2026, «дублируются кнопки», «двойная рамка»). Файл перечитывается при смене mtime."""
+    p = os.path.expanduser("~/.config/hypr/state/stack-mode.json")
+    try:
+        m = os.stat(p).st_mtime
+        if m != _STACK[0]:
+            _STACK[0], _STACK[1] = m, '"active": true' in open(p).read()
+    except OSError:
+        _STACK[0], _STACK[1] = None, False
+    return _STACK[1]
+
+
 def hexrgb(h, d=(0.5, 0.6, 1.0)):
     try:
         h = h.strip().lstrip("#")
@@ -467,6 +483,7 @@ def watch_label():
 
 # 09.10.2026: выключить Сторожа на день — только через такое «точно?». Каждый раз
 # другая фраза (просьба: «Бро, ты уверен? Ты можешь потерять целый день…»).
+WATCH_DOUBT_UNTIL = 16     # час, после которого фраза не показывается
 WATCH_DOUBTS = [
     "Бро, ты уверен? Можно потерять целый день — и шаг к мечте.",
     "Точно выключить? Один такой день легко становится тремя.",
@@ -857,6 +874,17 @@ class View:
 
     def draw_frame(self, p, w, h):
         c, cr = self.c, p.cr
+        if stack_on():
+            # В стопке рамку окна рисует stack_bars.py — своя была бы второй, внутри
+            # (21.10.2026, просьба: «двойную рамку в discipline»). Только фон.
+            p.rect(0, 0, w, h, c["bg"])
+            if c["frame"] == "skeet":
+                p.rgb(c["dot"])
+                for yy in range(2, h - 2, 4):
+                    for xx in range(2 + (yy // 4) % 2 * 2, w - 2, 4):
+                        cr.rectangle(xx, yy, 1, 1)
+                cr.fill()
+            return
         if c["frame"] == "skeet":
             # рамка слоями, как у gamesense: 1 светлая, 3 тёмные, 1 светлая, 1 чёрная;
             # у активного окна светлые линии — с акцентом и цветная полоска сверху,
@@ -936,8 +964,9 @@ class View:
                 p.rect(x, y + 17, w, 2, c["acc"] if self.active else c["line"])
             self.hits.append(((x - 4, y - 6, w + 8, 26), ("tab", t)))
             x += w + 20
-        p.text(x1, y, "×", c["dim"] if self.hover != "close" else c["text"], align="r")
-        self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
+        if not stack_on():
+            p.text(x1, y, "×", c["dim"] if self.hover != "close" else c["text"], align="r")
+            self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
 
     def tab_badge(self, t):
         if t == "alarm":
@@ -2135,6 +2164,10 @@ class RoutineWindow(Gtk.ApplicationWindow):
             return
         last = getattr(self, "_doubt", None)
         self._doubt = secrets.choice([x for x in WATCH_DOUBTS if x != last])
+        # 14.10.2026, просьба: уговоры «точно выключить Сторожа?» — только до 16:00;
+        # позже (Сторож до 18:00) — простой вопрос без фразы.
+        if time.localtime().tm_hour >= WATCH_DOUBT_UNTIL:
+            self._doubt = None
 
         def go():
             out = run_out(*cmd, "--reason", "на день, из Discipline", "--via", "discipline")

@@ -109,8 +109,8 @@ AREAS = [
     ("Окна и столы", "▢", """
         alt_tab.py alt_tab.sh ribbon_center.py mouse_focus.py mouse_wait_release.py
         window_fx.py wm.py hot_corners.py
-        pip_place.py ws_layout.py mousepad_place.py colexpand colwidth floattoggle magic
-        move_all no_self_maximize.py pair_center.py winreset ws_insert ws-step close-or-clipboard
+        pip_place.py ws_layout.py stack_mode.py stack_bars.py mousepad_place.py colexpand colwidth floattoggle magic
+        move_all no_self_maximize.py pair_center.py winreset ws_insert ws-step fs-toggle hl-step close-or-clipboard
         dashboard shell-switch shell-do ws-anim"""),
     ("Настройки и справка", "⚙", """
         settings_app.py niri_state.py niri_compositor.py keybinds_sheet.py binds_edit.py smart_search.py exe_frame.py close_cap.py scrim_layer.py menu_one.py app_list.py
@@ -360,6 +360,7 @@ CONFIGS = [
     ("~/.config/niri/cfg/blur.kdl", "Конфиг niri", "Размытие фона"),
     ("~/.config/niri/cfg/window-fx.kdl", "Конфиг niri", "Эффект окон — пишет window_fx.py"),
     ("~/.config/niri/cfg/ws-layout.kdl", "Конфиг niri", "Раскладка по столам — пишет ws_layout.py"),
+    ("~/.config/niri/cfg/stack-mode.kdl", "Конфиг niri", "Стопка окон: правило теста и анимации — пишет stack_mode.py"),
     ("~/.config/niri/cfg/waybar-blur.kdl", "Бар: устройство", "Размытие под баром — пишет top_bar.py"),
     ("~/.config/niri/cfg/look.kdl", "Стиль системы и шрифты", "Вид Minimalistic: без размытия под капсулой, тонкая белая рамка окон — пишет pixel_look.py"),
     ("~/.config/niri/cfg/rec-binds.kdl", "Снимки и запись экрана", "Клавиши на время записи — пишет rec_area.sh"),

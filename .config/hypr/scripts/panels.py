@@ -118,13 +118,51 @@ def global_bottom():
 def top_for(out, d=None):
     d = d or load()
     if not per_monitor(d):
-        return global_top()
-    v = (d["mon"].get(out) or {}).get("top")
-    return v if v in TOP_MODES else global_top()
+        v = global_top()
+    else:
+        v = (d["mon"].get(out) or {}).get("top")
+        v = v if v in TOP_MODES else global_top()
+    return "hover" if v == "always" and stack_top(out) else v
+
+
+def stack_top(out=None):
+    """Стопка (stack_mode.py) перевела верхний бар монитора из «всегда» в «при наведении»
+    (21.10.2026, просьба: «в режиме stack mode waybar переводить в режим При наведении, если
+    стоял режим Всегда, на обоих мониторах»). Мониторы — в st["top_hover"]; выбор в
+    panels.json не трогается — выход из стопки его вернёт. out=None — любой монитор."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import stack_mode
+        st = stack_mode.load_state()
+        need = st.get("top_hover") or []
+        return bool(need) and (out is None or out in need) and stack_mode.active(st)
+    except Exception:
+        return False
+
+
+def stack_panel(out):
+    """Режим «стопка» (stack_mode.py) включил на время нижнюю панель этого монитора: там
+    кнопки свёрнутых окон. Выбор в panels.json не трогается — выход из стопки его вернёт."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import stack_mode
+        st = stack_mode.load_state()
+        need = st.get("panel")
+        if need is True:                 # состояние до 21.10 — только ноутбук
+            need = ["eDP-1"]
+        return out in (need or []) and stack_mode.active(st)
+    except Exception:
+        return False
 
 
 def bottom_for(out, d=None):
     """Режим нижней панели на мониторе: None — общий (как раньше), иначе always|hover|off."""
+    if stack_panel(out):
+        return "always"
     d = d or load()
     if not per_monitor(d):
         return None

@@ -15,7 +15,7 @@ so the window follows the wallpaper like the rest of the desktop.
 
 Notes are stored per-day in ~/.local/share/calendar-notes.json.
 
-13.10.2026 (Просьба: «оформить под стиль системы (Skeet), с кнопками увеличить на весь
+13.10.2026 (просьба: «оформить под стиль системы (Skeet), с кнопками увеличить на весь
 экран и закрыть»): поверх matugen-оформления — вид стиля монитора (Default — окно XP,
 Skeet — gamesense, Beta — плоский), тот же, что у Настроек/Recorder/календаря XP-панели.
 Стиль — ~/.config/hypr/state/calendar-style (пишет system_style.py по монитору в фокусе),
@@ -44,6 +44,7 @@ import rec_style  # noqa: E402
 
 APP_ID = "dev.static.calendar"
 STYLE_FILE = os.path.expanduser("~/.config/hypr/state/calendar-style")
+STACK_STATE = os.path.expanduser("~/.config/hypr/state/stack-mode.json")
 STYLES = ("default", "skeet", "beta")
 TITLE_H = {"skeet": 28, "beta": 34, "default": 30}   # как у Recorder (rec_menu.geometry)
 NOTES_PATH = os.path.expanduser("~/.local/share/calendar-notes.json")
@@ -417,8 +418,11 @@ class CalendarWindow(Gtk.ApplicationWindow):
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         root.add_css_class("frame")
+        self.frame_box = root
         self.set_child(root)
-        root.append(self._titlebar())
+        self.title_bar = self._titlebar()
+        root.append(self.title_bar)
+        self.watch_stack()
         root.append(self._header())
 
         self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -502,6 +506,32 @@ class CalendarWindow(Gtk.ApplicationWindow):
         handle = Gtk.WindowHandle()
         handle.set_child(bar)
         return handle
+
+    def watch_stack(self):
+        """В режиме «стопка» заголовок с кнопками рисует stack_bars.py — свой прячется,
+        иначе две полосы подряд (21.10.2026)."""
+        self.sync_stack_title()
+        try:
+            self._stack_mon = Gio.File.new_for_path(STACK_STATE).get_parent().monitor_directory(
+                Gio.FileMonitorFlags.WATCH_MOVES, None)
+            self._stack_mon.connect("changed", lambda _m, f, *_a: f.get_basename() == "stack-mode.json"
+                                    and GLib.timeout_add(50, self.sync_stack_title))
+        except GLib.Error:
+            pass
+
+    def sync_stack_title(self):
+        try:
+            on = bool(json.load(open(STACK_STATE)).get("active"))
+        except (OSError, ValueError):
+            on = False
+        self.title_bar.set_visible(not on)
+        (self.frame_box.add_css_class if on else self.frame_box.remove_css_class)("in-stack")
+        if not getattr(self, "_stack_css", None):          # своя рамка — у stack_bars.py
+            self._stack_css = Gtk.CssProvider()
+            self._stack_css.load_from_string(".in-stack { border: none; border-radius: 0; box-shadow: none; }")
+            Gtk.StyleContext.add_provider_for_display(
+                Gdk.Display.get_default(), self._stack_css, Gtk.STYLE_PROVIDER_PRIORITY_USER + 10)
+        return False
 
     def apply_skin(self, style):
         C = cap_colors(style, skin_colors(style))

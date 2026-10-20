@@ -77,6 +77,22 @@ CRITICAL = re.compile(r"^(linux(-lts|-zen)?(-headers)?|linux-firmware.*|base|bas
 
 # ── мелочи ────────────────────────────────────────────────────────────────────
 
+_STACK = [None, False]
+
+
+def stack_on():
+    """Режим «стопка» включён? Тогда «×» не рисуется: закрывает полоса stack_bars.py
+    (21.10.2026, «дублируются кнопки»). Файл перечитывается только при смене mtime."""
+    p = os.path.expanduser("~/.config/hypr/state/stack-mode.json")
+    try:
+        m = os.stat(p).st_mtime
+        if m != _STACK[0]:
+            _STACK[0], _STACK[1] = m, '"active": true' in open(p).read()
+    except OSError:
+        _STACK[0], _STACK[1] = None, False
+    return _STACK[1]
+
+
 def sh(*cmd, timeout=10):
     try:
         return subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout).stdout
@@ -1081,8 +1097,9 @@ class View:
             if searching and int(time.monotonic() * 2) % 2 == 0:
                 p.rect(sx + 8 + tw + 1, y + 1, 6, 13, c["acc_l"])
             self.hits.append(((sx, y - 3, sw, 20), "search"))
-        p.text(x1, y, "×", c["text"] if self.hover == "close" else c["dim"], align="r")
-        self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
+        if not stack_on():
+            p.text(x1, y, "×", c["text"] if self.hover == "close" else c["dim"], align="r")
+            self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
 
     def draw_icon(self, p, gicon, x, y, size, fallback="package-x-generic"):
         pb = self.icons.get(gicon, size, fallback)

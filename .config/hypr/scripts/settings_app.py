@@ -989,6 +989,7 @@ def savage_get():
 # на месте. Обычный вид при этом не меняется: стили skeet привязаны к классу
 # .skeet корневой коробки, которого в обычном виде нет.
 SKIN_FILE = os.path.expanduser("~/.config/hypr/state/settings-skin")
+STACK_STATE = os.path.expanduser("~/.config/hypr/state/stack-mode.json")
 TITLE_H = 24               # полоса заголовка в духе XP
 # Раунд 6 (02.10.2026, решение пользователя): «Обычный» и «XP» — один вид Default в
 # двух режимах (Dark — бывший «Обычный», Light — бывший «XP»), плюс новый вид
@@ -1508,7 +1509,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._grip_overlay.add(self.outer)
         self.add(self._grip_overlay)
         self._grips = self.resize_grips(self._grip_overlay)
-        self.outer.pack_start(self.build_titlebar(), False, False, 0)
+        self.title_bar = self.build_titlebar()
+        self.outer.pack_start(self.title_bar, False, False, 0)
+        self.watch_stack()
         root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self.root = root
         self.outer.pack_start(root, True, True, 0)
@@ -2350,6 +2353,39 @@ class SettingsWindow(Gtk.ApplicationWindow):
         bar.connect("button-release-event", lambda *_a: setattr(self, "_press", None))
         self.connect("window-state-event", self.on_window_state)
         return bar
+
+    def watch_stack(self):
+        """В режиме «стопка» полосу заголовка с кнопками рисует stack_bars.py (со значком
+        отсюда) — своя прячется, иначе две полосы подряд (21.10.2026, просьба: «в окне
+        Настроек дублируются линии с кнопками»)."""
+        self.title_bar.set_no_show_all(True)
+        self.title_bar.show_all()
+        self.sync_stack_title()
+        try:
+            self._stack_mon = Gio.File.new_for_path(STACK_STATE).get_parent().monitor_directory(
+                Gio.FileMonitorFlags.WATCH_MOVES, None)
+            self._stack_mon.connect("changed", lambda _m, f, *_a: f.get_basename() == "stack-mode.json"
+                                    and GLib.timeout_add(50, self.sync_stack_title))
+        except GLib.Error:
+            pass
+
+    def sync_stack_title(self):
+        try:
+            on = bool(json.load(open(STACK_STATE)).get("active"))
+        except (OSError, ValueError):
+            on = False
+        if self.title_bar.get_visible() == on:
+            self.title_bar.set_visible(not on)
+        # и своя рамка (border / слои box-shadow skeet) — тоже, её рисует stack_bars.py
+        (self.outer.get_style_context().add_class if on else
+         self.outer.get_style_context().remove_class)("in-stack")
+        if not getattr(self, "_stack_css", None):
+            self._stack_css = Gtk.CssProvider()
+            self._stack_css.load_from_data(b".in-stack { border: none; border-radius: 0; box-shadow: none; }"
+                                          b".skeet.in-stack { background-position: 0 -10px, 0 -10px, 0 0; padding: 0; }")
+            Gtk.StyleContext.add_provider_for_screen(
+                Gdk.Screen.get_default(), self._stack_css, Gtk.STYLE_PROVIDER_PRIORITY_USER + 10)
+        return False
 
     # ── размер окна мышью ─────────────────────────────────────────────────
     EDGE_GRAB = 5                # толщина ручки у края, px
@@ -5736,10 +5772,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.row(c, "Индикаторы в островке", self.pill(conf.get("osd", True), lambda on: put("osd", on)),
                  "Громкость, микрофон и яркость показываются в островке полоской вместо шторки "
                  "eww. Выключено — как раньше, шторкой.", icon="\U000f057e", default=True)
-        self.row(c, "Ночное притемнение", self.pill(conf.get("night_dim", True),
+        self.row(c, "Ночное притемнение", self.pill(conf.get("night_dim", False),
                                                     lambda on: put("night_dim", on)),
                  "С 22:00 до 7:00 островок притушен, под курсором — в полную яркость.",
-                 icon="\U000f0594", default=True)
+                 icon="\U000f0594", default=False)
         self.row(c, "Раскрывать наведением", self.pill(conf.get("hover", True), lambda on: put("hover", on)),
                  "Навели на нить — островок раскрывается, увели — сворачивается. Выключено — "
                  "только щелчком.", icon="\U000f01e5", default=True)
