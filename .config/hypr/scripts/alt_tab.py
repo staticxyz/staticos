@@ -852,16 +852,20 @@ class Switcher:
         self.layout = read_layout()
         stack = self.layout == "stack"
         groups = []
-        for out in self.out_order():
-            if desks:
+        if desks:
+            for out in self.out_order():
                 xs = self.desks_of(out)
-            else:
-                xs = [w for w in self.windows.values()
-                      if not (w.get("app_id") or "").startswith(HIDDEN_APPS)
-                      and (self.ws.get(w.get("workspace_id")) or {}).get("output") == out]
-                xs.sort(key=lambda w: (not w.get("is_focused"), -ts(w)))
+                if xs:
+                    groups.append((out, xs))
+        else:
+            # 20.10.2026: «можно не разделять экраны, а сразу в общем списке показывать
+            # окна» — одна сетка на все мониторы по давности; монитор — в строке под сеткой
+            xs = [w for w in self.windows.values()
+                  if not (w.get("app_id") or "").startswith(HIDDEN_APPS)
+                  and (self.ws.get(w.get("workspace_id")) or {}).get("output")]
+            xs.sort(key=lambda w: (not w.get("is_focused"), -ts(w)))
             if xs:
-                groups.append((out, xs))
+                groups.append((None, xs))
         if not groups:
             return False
         self.items, self.groups = [], []
@@ -902,7 +906,7 @@ class Switcher:
         self.cols.set_orientation(Gtk.Orientation.VERTICAL if stack else Gtk.Orientation.HORIZONTAL)
         self.cols.set_spacing(10 if stack else 18)
         here = self.focused_output()
-        many = len(self.outs) > 1 or len(groups) > 1
+        many = desks and (len(self.outs) > 1 or len(groups) > 1)
         for out, idx, cols in self.groups:
             col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             col.set_valign(Gtk.Align.START)
