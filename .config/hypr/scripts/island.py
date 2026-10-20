@@ -788,28 +788,23 @@ class CallWatch:
             self.on_change()
 
     def toggle_mute(self):
-        """Микрофон только в звонке (19.10.2026, просьба: «выключает микрофон желательно в
-        звонке»): глушится поток записи Telegram/Discord, а не микрофон системы — остальные
-        программы его слышат. Включение снимает и общий mute, иначе звонок останется немым.
-        Кнопка меняется сразу, команды — в потоке (20.10.2026, просьба: «как будто с задержкой…
-        можно побыстрее?»: ждали pactl по очереди, 250 мс и полный опрос)."""
+        """Микрофон системы — как ЛКМ по микрофону в нижней панели (wpctl set-mute
+        @DEFAULT_AUDIO_SOURCE@): 20.10.2026, просьба: «сделаем на выключение микрофона, которая
+        работает в нижней панели» — раньше глушился только поток звонка, и ни приложение, ни
+        система этого не показывали. Включение снимает и старый mute потоков звонка.
+        Кнопка меняется сразу, команды — в потоке (20.10.2026: «как будто с задержкой…»)."""
         muted = any(c["muted"] for c in self.calls.values())
-        self.quiet = time.monotonic() + 1.5     # снятие общего mute — не повод для вспышки OSD
-        gmute = muted and any(c.get("gmute") for c in self.calls.values())
-        ids = [i for c in self.calls.values() for i in c["ids"]]
+        self.quiet = time.monotonic() + 1.5     # вспышка OSD «Микрофон · выкл» островок не меняет
+        ids = [i for c in self.calls.values() for i in c["ids"]] if muted else []
         for c in self.calls.values():
-            c["muted"] = not muted
-            if muted:
-                c["gmute"] = False
+            c["muted"] = c["gmute"] = not muted
         self.pin = (not muted, time.monotonic() + 2)
         self.on_change()
 
         def run():
             try:
-                if gmute:
-                    subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "0"], timeout=3)
-                procs = [subprocess.Popen(["pactl", "set-source-output-mute", str(i), "0" if muted else "1"])
-                         for i in ids]
+                procs = [subprocess.Popen(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "0" if muted else "1"])]
+                procs += [subprocess.Popen(["pactl", "set-source-output-mute", str(i), "0"]) for i in ids]
                 for p in procs:
                     p.wait(timeout=3)
             except (OSError, subprocess.SubprocessError) as e:
@@ -4801,13 +4796,12 @@ class Island:
 
     def open_card(self):
         """Раскрыть на странице, где остановились (19.10.2026, просьба: «запоминать последнюю
-        страницу»); звонок важнее — сразу на него. Нет такой страницы — главное дело, иначе первая."""
+        страницу»), и при звонке тоже (20.10.2026, просьба: «почему… сразу блок со звонками? А не
+        блок, в котором я был последний раз»). Нет такой страницы — главное дело, иначе первая."""
         acts = self.app.acts
         pages = self.app.pages
         keys = [page_key(p) for p in pages]
-        if acts and acts[0][0] == "call":
-            self.card_i = keys.index(page_key(acts[0]))
-        elif self.app.last in keys:
+        if self.app.last in keys:
             self.card_i = keys.index(self.app.last)
         else:
             self.card_i = next((i for i, p in enumerate(pages) if acts and p[0] == acts[0][0]), 0)
