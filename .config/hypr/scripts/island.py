@@ -2259,10 +2259,13 @@ def paint_card(cr, x, w, h, kind, d, acts, col, a, card_i):
     elif kind == "call":
         put_text(cr, d["icon"], 16, x + pad + 8, 30, CALL_GREEN, a, center=True)
         put_text(cr, d["app"] + " · звонок", 16, x + pad + 26, 28, col["on_surface"], a, maxw=w - 2 * pad - 26 - 70)
-        put_text(cr, mic_sub(d), 8, x + pad + 26, 46,
+        sub = mic_sub(d)
+        put_text(cr, sub, 8, x + pad + 26, 46,
                  col["error"] if d["muted"] else col["on_surface_variant"], 0.85 * a)
         if d.get("vol") is not None:
-            mic_slider(cr, x + pad, by - 25, w - 2 * pad, d, col, a, hits)
+            # короткая полоса в строке подписи, справа (20.10.2026, просьба: во всю ширину над
+            # временем она «выглядит как шкала длительности»)
+            mic_slider(cr, int(x + pad + 26 + text_w(cr, sub, 8) + 10), 43, 64, d, col, a, hits)
         put_text(cr, mmss(call_sec(d)), 24, x + pad, by, col["on_surface"], a)
         c = x + w - pad - 50
         button(cr, c, by, G_MIC_OFF if d["muted"] else G_MIC, col, a, hits, ("call", "mute"), big=True)
