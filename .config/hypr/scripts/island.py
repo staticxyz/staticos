@@ -702,6 +702,7 @@ class CallWatch:
         self.calls = {}              # приложение → {ids, muted, icon, app, since, voice, vol}
         self.quiet = 0.0             # до этого времени OSD микрофона молчит (нажали кнопку в капсуле)
         self.pin = None              # (muted, до) — нажатое держится, пока pactl применяет
+        self.vpin = None             # (громкость, до) — то же для ползунка микрофона
         self.t = None
         self.busy = False
         try:
@@ -782,6 +783,13 @@ class CallWatch:
             else:                               # опрос успел раньше команды — не мигать назад
                 for c in new.values():
                     c["muted"] = want
+        if self.vpin:
+            want, until = self.vpin
+            if time.monotonic() > until or all(c["vol"] == want for c in new.values()):
+                self.vpin = None
+            else:
+                for c in new.values():
+                    c["vol"] = want
         sig = lambda d: {k: (v["muted"], tuple(v["ids"]), v["voice"], v["vol"]) for k, v in d.items()}
         changed = sig(new) != sig(self.calls)
         self.calls = new
@@ -814,6 +822,23 @@ class CallWatch:
         import threading
         threading.Thread(target=run, daemon=True).start()
         return not muted
+
+    def set_mic_volume(self, v):
+        """Ползунок карточки: громкость микрофона системы — сразу на экране, wpctl — в потоке."""
+        self.quiet = time.monotonic() + 1.5     # OSD «Микрофон NN %» островок не трогает
+        for c in self.calls.values():
+            c["vol"] = v
+        self.vpin = (v, time.monotonic() + 2)
+        self.on_change()
+
+        def run():
+            try:
+                subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", "%.2f" % (v / 100)], timeout=3)
+            except (OSError, subprocess.SubprocessError) as e:
+                log("set_mic_volume:", e)
+            self.GLib.idle_add(lambda: self.kick() and False)
+        import threading
+        threading.Thread(target=run, daemon=True).start()
 
     def mic_volume(self, step):
         """Громкость микрофона колесом над кнопкой микрофона (до 100 %)."""
@@ -2141,6 +2166,31 @@ def button(cr, cx, cy, glyph, col, a, hits, action, big=False):
     hits.append(((cx - r, cy - r, 2 * r, 2 * r), action))
 
 
+def mic_sub(d):
+    """«Микрофон включён · 80 %» (20.10.2026, просьба: «можно здесь также показывать громкость
+    микрофона»)."""
+    t = "Микрофон выключен" if d["muted"] else "Микрофон включён"
+    return t + (" · %d %%" % d["vol"] if d.get("vol") is not None else "")
+
+
+def mic_slider(cr, x, y, w, d, col, a, hits):
+    """Громкость микрофона системы полосой; щелчок по ней ставит громкость (шаг 5 %)."""
+    pr = max(0.0, min(1.0, d["vol"] / 100))
+    ga = 0.45 * a if d["muted"] else a
+    if _SK["on"]:
+        sk_slider(cr, x, y, w, 6, pr, col, ga)
+    else:
+        cr.rectangle(x, y + 2, w, 2)
+        cr.set_source_rgba(*col["surface_high"], a)
+        cr.fill()
+        cr.rectangle(x, y + 2, w * pr, 2)
+        cr.set_source_rgba(*col["primary"], ga)
+        cr.fill()
+    seg = w / 20
+    for i in range(20):
+        hits.append(((x + i * seg, y - 6, seg, 18), ("call", "vol:%d" % ((i + 1) * 5))))
+
+
 def paint_card(cr, x, w, h, kind, d, acts, col, a, card_i):
     hits = []
     pad = 18
@@ -2209,8 +2259,10 @@ def paint_card(cr, x, w, h, kind, d, acts, col, a, card_i):
     elif kind == "call":
         put_text(cr, d["icon"], 16, x + pad + 8, 30, CALL_GREEN, a, center=True)
         put_text(cr, d["app"] + " · звонок", 16, x + pad + 26, 28, col["on_surface"], a, maxw=w - 2 * pad - 26 - 70)
-        put_text(cr, "Микрофон выключен" if d["muted"] else "Микрофон включён", 8, x + pad + 26, 46,
+        put_text(cr, mic_sub(d), 8, x + pad + 26, 46,
                  col["error"] if d["muted"] else col["on_surface_variant"], 0.85 * a)
+        if d.get("vol") is not None:
+            mic_slider(cr, x + pad, by - 25, w - 2 * pad, d, col, a, hits)
         put_text(cr, mmss(call_sec(d)), 24, x + pad, by, col["on_surface"], a)
         c = x + w - pad - 50
         button(cr, c, by, G_MIC_OFF if d["muted"] else G_MIC, col, a, hits, ("call", "mute"), big=True)
@@ -2931,34 +2983,24 @@ def paint_skeet_card(cr, x, w, h, kind, d, pages, col, a, ci):
     exe = PAGE_EXE.get(kind, "island.exe")
     ew = text_w(cr, exe, 8)
     # Вкладки стабильны (20.10.2026, просьба: «меняется расположение вкладок? Они должны быть
-    # стабильные»; пустые ячейки — «их не должно быть, если они не активны»): ширина — по всем
-    # блокам из настроек, живые без дела не рисуются, инструменты стоят с постоянного места —
-    # будто все живые на месте; появилась музыка — сдвигаются только живые соседи.
+    # стабильные»): ширина — по всем блокам из настроек и самому длинному имени .exe, а не по
+    # открытой странице (control.exe сужал вкладки). Живые без дела не рисуются и места не
+    # держат — ни пустых ячеек, ни разрыва («их не должно быть», «разделение тоже не очень»).
     ids = TAB_IDS or [k for k, _dd in pages]
     n = max(1, len(ids) + sum(1 for k, _dd in pages if k not in ids))
     exw = max(text_w(cr, e, 8) for e in PAGE_EXE.values())
     tw = max(20, min(30, int((w - 12 - exw - 24) / n)))
-    nlive = sum(1 for k in ids if k in LIVE_TABS)
-    slots, jl, jt = [], 0, nlive
-    for i, (k, _dd) in enumerate(pages):
-        if k in LIVE_TABS:
-            slots.append((k, i, jl))
-            jl += 1
-        else:
-            slots.append((k, i, jt))
-            jt += 1
     line = sk_rgb(0.235, col)
     cr.rectangle(x + 6, sy + sh, w - 12, 1)
     cr.set_source_rgba(*line, a)
     cr.fill()
-    if nlive and len(ids) > nlive:              # черта между живыми и инструментами — на своём месте
-        cr.rectangle(x + 6 + nlive * tw, sy + 4, 1, sh - 8)
-        cr.set_source_rgba(*sk_rgb(0.30, col), a)
-        cr.fill()
-    for k, i, j in slots:
-        tx = x + 6 + j * tw
+    for i, (k, _dd) in enumerate(pages):
+        tx = x + 6 + i * tw
         live = k in LIVE_TABS
-        _dd = pages[i][1]
+        if i and live != (pages[i - 1][0] in LIVE_TABS):   # черта между живыми и инструментами
+            cr.rectangle(tx, sy + 4, 1, sh - 8)
+            cr.set_source_rgba(*sk_rgb(0.30, col), a)
+            cr.fill()
         on = i == ci
         if on:
             cr.rectangle(tx, sy, tw, sh + 1)
@@ -3253,7 +3295,7 @@ def paint_card_ios(cr, x, w, h, kind, d, acts, col, a, pages):
         btns = [(G_PLAY if d["paused"] else G_PAUSE, ("rec", "pause"), True), (G_STOP, ("rec", "halt"), False)]
     elif kind == "call":
         title = d["app"] + " · звонок"
-        sub = "Микрофон выключен" if d["muted"] else "Микрофон включён"
+        sub = mic_sub(d)
         btns = [(G_MIC_OFF if d["muted"] else G_MIC, ("call", "mute"), True), (G_OPEN, ("call", "focus"), False)]
     elif kind == "timer" and d["list"]:
         t = d["list"][0]
@@ -6296,6 +6338,8 @@ class App:
                                  start_new_session=True)
             elif kind == "call" and what == "mute" and self.calls:
                 self.calls.toggle_mute()                # кнопка — сразу, pactl — в потоке
+            elif kind == "call" and what.startswith("vol:") and self.calls:
+                self.calls.set_mic_volume(int(what[4:]))
             elif kind == "call" and what == "focus":
                 self.focus_call()
             elif kind == "timer" and what.startswith("stop:"):
