@@ -5969,8 +5969,9 @@ class App:
         if info in ("cat", "cc") and info in page_ids(self.conf):
             return info
         if info == "timer" and "timer" in page_ids(self.conf):
-            # таймер — и без идущих отсчётов: «⏱ Таймер» (20.10.2026, просьба: «блок с таймером
-            # если я от него вышел, то он не показывается… а показывается островок со звонком»)
+            # таймер — и без идущих отсчётов: тогда часы, как в покое, а не звонок (20.10.2026,
+            # Просьба: «блок с таймером если я от него вышел… показывается островок со звонком»;
+            # «раньше вместо слова Таймер показывалось время… это должна была быть фича»)
             return info
         if info in live:
             return info
@@ -5982,8 +5983,8 @@ class App:
         f = self.pill_focus()
         i = next((n for n, (k, _d) in enumerate(acts) if k == f), None)
         if f == "timer" and i is None:
-            acts.insert(0, ("timer", {"list": []}))
-        elif i:
+            return []                           # отсчётов нет — точка и часы
+        if i:
             acts.insert(0, acts.pop(i))
         return acts
 
