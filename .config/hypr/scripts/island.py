@@ -1021,8 +1021,9 @@ def act_line(kind, d):
     if kind == "call" and d.get("voice"):
         return (G_MIC, "%s  голосовое сообщение" % mmss(call_sec(d)), "error")
     if kind == "call":
-        return (d["icon"], "%s  %s · микрофон %s" % (mmss(call_sec(d)), d["app"], "выкл" if d["muted"] else "вкл"),
-                "call")
+        # только длительность: приложение видно по значку, микрофон — по кнопке (20.10.2026,
+        # Просьба: «WhatsApp · микрофон вкл» — «это тоже не нужно показывать»)
+        return (d["icon"], mmss(call_sec(d)), "call")
     if kind == "timer" and not d["list"]:
         return (G_TIMER, "Таймер", "secondary")
     if kind == "timer":
@@ -1541,6 +1542,7 @@ def paint_dl(cr, x, top, w, h, dl, col, D):
 
 
 PILL_PX, PILL_GAP, PILL_PAD, PILL_MAX = 12, 6, 11, 280
+CALL_GAP = 9                    # звонок: значок | время | микрофон — чуть просторнее (20.10.2026)
 MUSIC_MAXW = 130
 
 
@@ -1611,10 +1613,14 @@ def player_app(p):
     m = re.search(r"instance(?:_\d+_)?(\d+)$", name)
     comm = ""
     if m:
-        try:
-            comm = open("/proc/%s/comm" % m.group(1)).read().strip()
-        except OSError:
-            pass
+        # номер в имени шины бывает чужим: Zen 20.10.2026 назвался instance_1_836936, а живёт
+        # pid 1273937 (значка в капсуле не было) — сперва спросить у D-Bus, чей это плеер
+        for pid in (bus_pid(name), m.group(1)):
+            try:
+                comm = open("/proc/%s/comm" % pid).read().strip()
+                break
+            except OSError:
+                pass
     else:
         comm = name.rsplit(".", 1)[-1]
     icon = APP_BY_PROC.get(comm)
@@ -1624,6 +1630,18 @@ def player_app(p):
         icon = None
     _APPICON[name] = icon
     return icon
+
+
+def bus_pid(name):
+    """pid владельца имени на сессионной шине (или None)."""
+    try:
+        from gi.repository import Gio, GLib
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        return int(bus.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                                 "GetConnectionUnixProcessID", GLib.Variant("(s)", (name,)),
+                                 GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 500, None).unpack()[0])
+    except Exception:
+        return None
 
 
 def app_pixbuf(icon):
@@ -1733,12 +1751,21 @@ def part_w(cr, p, D=None):
                             pill_lay(cr, ref + " / " + ref, None, D).get_pixel_size()[0])
     if k == "mic":
         return 18
-    return pill_lay(cr, v, MUSIC_MAXW if k == "tm" else None, D, k == "g").get_pixel_size()[0]
+    lay = pill_lay(cr, v, MUSIC_MAXW if k == "tm" else None, D, k == "g")
+    if k in ("g", "t") and not pill_ios(D):  # по видимой части: у MDI и пиксельных цифр поля
+        return lay.get_pixel_extents()[0].width
+    return lay.get_pixel_size()[0]
+
+
+def pill_gap(parts):
+    """Зазор между частями капсулы: у звонка шире (20.10.2026, просьба: «не ровная… добавь места
+    между элементами»)."""
+    return CALL_GAP if any(p[0] == "mic" for p in parts) else PILL_GAP
 
 
 def pill_w(cr, acts, col=None, D=None):
     parts = pill_parts(acts, col)
-    w = 2 * PILL_PAD + sum(part_w(cr, p, D) for p in parts) + PILL_GAP * (len(parts) - 1)
+    w = 2 * PILL_PAD + sum(part_w(cr, p, D) for p in parts) + pill_gap(parts) * (len(parts) - 1)
     return float(max(PILL_W, min(PILL_MAX, int(math.ceil(w / 2.0)) * 2)))
 
 
@@ -1792,7 +1819,8 @@ def paint_pill(cr, x, top, w, h, st, col, D=None):
     r = h / 2
     ink = (1, 1, 1) if ios else col["on_surface"]
     parts = pill_parts(st["acts"], col)
-    need = 2 * PILL_PAD + sum(part_w(cr, p, D) for p in parts) + PILL_GAP * (len(parts) - 1)
+    gap = pill_gap(parts)
+    need = 2 * PILL_PAD + sum(part_w(cr, p, D) for p in parts) + gap * (len(parts) - 1)
     if w >= min(need, PILL_MAX) * 0.85 and h >= PILL_H * 0.6:   # пока капсула растёт — пусто
         cr.rectangle(x, top, w, h)
         cr.clip()
@@ -1848,10 +1876,18 @@ def paint_pill(cr, x, top, w, h, st, col, D=None):
                 lay = pill_lay(cr, v, MUSIC_MAXW if k == "tm" else None, D, k == "g")
                 tw, th = lay.get_pixel_size()
                 tx = cx + (TT_GAP if k == "tt" else 0)
-                cr.move_to(tx, cy - th / 2 if ios else int(cy - th / 2))
+                ty_ = cy - th / 2 if ios else int(cy - th / 2)
+                if not ios and k in ("g", "t"):
+                    # глиф — с его видимого края; цифры времени — по середине начертания
+                    # (по строке они сидели на пиксель выше значков)
+                    ie = lay.get_pixel_extents()[0]
+                    tx -= ie.x
+                    if k == "t":
+                        ty_ = int(round(cy - ie.y - ie.height / 2))
+                cr.move_to(tx, ty_)
                 cr.set_source_rgba(*(c or ink), 1 if k == "g" else 0.5 if k == "tt" else 0.92)
                 PangoCairo.show_layout(cr, lay)
-            cx += pw + PILL_GAP
+            cx += pw + gap
     cr.restore()
     return hits
 
