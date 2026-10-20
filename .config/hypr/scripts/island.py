@@ -2930,32 +2930,34 @@ def paint_skeet_card(cr, x, w, h, kind, d, pages, col, a, ci):
     cr.fill()
     exe = PAGE_EXE.get(kind, "island.exe")
     ew = text_w(cr, exe, 8)
-    # у каждого блока из настроек своё место: живой без дела (музыка, помидор, запись) — пустая
-    # ячейка, а не дыра, иначе вкладки правее съезжали (20.10.2026, просьба: «меняется
-    # расположение вкладок? Они должны быть стабильные»)
-    slots = []
-    for pid in TAB_IDS or [k for k, _dd in pages]:
-        slots += [(pid, i) for i, (k, _dd) in enumerate(pages) if k == pid] or [(pid, None)]
-    slots += [(k, i) for i, (k, _dd) in enumerate(pages) if k not in TAB_IDS and TAB_IDS]
-    n = max(1, len(slots))
-    tw = max(20, min(30, int((w - 12 - ew - 24) / n)))
+    # Вкладки стабильны (20.10.2026, просьба: «меняется расположение вкладок? Они должны быть
+    # стабильные»; пустые ячейки — «их не должно быть, если они не активны»): ширина — по всем
+    # блокам из настроек, живые без дела не рисуются, инструменты стоят с постоянного места —
+    # будто все живые на месте; появилась музыка — сдвигаются только живые соседи.
+    ids = TAB_IDS or [k for k, _dd in pages]
+    n = max(1, len(ids) + sum(1 for k, _dd in pages if k not in ids))
+    exw = max(text_w(cr, e, 8) for e in PAGE_EXE.values())
+    tw = max(20, min(30, int((w - 12 - exw - 24) / n)))
+    nlive = sum(1 for k in ids if k in LIVE_TABS)
+    slots, jl, jt = [], 0, nlive
+    for i, (k, _dd) in enumerate(pages):
+        if k in LIVE_TABS:
+            slots.append((k, i, jl))
+            jl += 1
+        else:
+            slots.append((k, i, jt))
+            jt += 1
     line = sk_rgb(0.235, col)
     cr.rectangle(x + 6, sy + sh, w - 12, 1)
     cr.set_source_rgba(*line, a)
     cr.fill()
-    for j, (k, i) in enumerate(slots):
+    if nlive and len(ids) > nlive:              # черта между живыми и инструментами — на своём месте
+        cr.rectangle(x + 6 + nlive * tw, sy + 4, 1, sh - 8)
+        cr.set_source_rgba(*sk_rgb(0.30, col), a)
+        cr.fill()
+    for k, i, j in slots:
         tx = x + 6 + j * tw
         live = k in LIVE_TABS
-        if j and live != (slots[j - 1][0] in LIVE_TABS):   # черта между живыми и инструментами
-            cr.rectangle(tx, sy + 4, 1, sh - 8)
-            cr.set_source_rgba(*sk_rgb(0.30, col), a)
-            cr.fill()
-        if i is None:                           # блок сейчас пуст — место держит тусклый значок
-            g = PAGE_GLYPH.get(k, "?")
-            gy = int(sy + sh / 2) - (1 if live else 0)
-            ink = sk_rgb(0.22, col)
-            pix_glyph(cr, g, int(tx + tw / 2), gy, ink, a) or put_glyph(cr, g, 16, int(tx + tw / 2), gy, ink, a)
-            continue
         _dd = pages[i][1]
         on = i == ci
         if on:
