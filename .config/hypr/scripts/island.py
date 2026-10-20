@@ -5968,6 +5968,10 @@ class App:
         info = self.info.split(":", 1)[0]
         if info in ("cat", "cc") and info in page_ids(self.conf):
             return info
+        if info == "timer" and "timer" in page_ids(self.conf):
+            # таймер — и без идущих отсчётов: «⏱ Таймер» (20.10.2026, просьба: «блок с таймером
+            # если я от него вышел, то он не показывается… а показывается островок со звонком»)
+            return info
         if info in live:
             return info
         return live[0] if live else None
@@ -5977,7 +5981,9 @@ class App:
         acts = self.ordered(0)
         f = self.pill_focus()
         i = next((n for n, (k, _d) in enumerate(acts) if k == f), None)
-        if i:
+        if f == "timer" and i is None:
+            acts.insert(0, ("timer", {"list": []}))
+        elif i:
             acts.insert(0, acts.pop(i))
         return acts
 
@@ -6072,7 +6078,8 @@ class App:
         if now < self.pop_until:
             waits.append(self.pop_until - now + 0.02)
         pa = self.pill_acts() if self.conf["thread_style"] == "pill" else []
-        ticking = bool(pa) and pa[0][0] in ("call", "rec", "pomo", "timer", "nudge") and self.pill_focus() != "cat"
+        ticking = bool(pa) and pa[0][0] in ("call", "rec", "pomo", "timer", "nudge") and self.pill_focus() != "cat" \
+            and (pa[0][0] != "timer" or bool(pa[0][1]["list"]))
         if (modes & {"compact", "card"} and self.pages) or ("thread" in modes and ticking):
             waits.append(1.0 - (time.time() % 1.0) + 0.01)
         elif "thread" in modes:
