@@ -5766,8 +5766,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
         state = {k: k in on_ids for k in order}
         if order:
             self.section(v, "Страницы островка", "\U000f0e4e",
-                         "Колесо над раскрытым островком листает страницы в этом порядке. "
-                         "Живые — только пока идут; таймер, котик, снимки, захват и фокус — всегда.")
+                         "Порядок вкладок островка и колеса над ним; у живых — ещё и что капсула "
+                         "показывает первым. Живые — только пока идут, остальные — всегда.")
             pc = self.card(v)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             pc.pack_start(box, False, False, 0)
