@@ -42,7 +42,7 @@
 
 | Left sided | Centered minimal |
 |:-:|:-:|
-| ![Стопка окон, панель слева](assets/stack-mode-left.png) | ![Стопка окон, панель по центру и «Пуск»](assets/stack-mode-centered.png) |
+| ![Стопка окон, панель слева и «Пуск»](assets/stack-mode-left.png) | ![Стопка окон, панель по центру и «Пуск»](assets/stack-mode-centered.png) |
 | Панель задач как в XP: «Пуск» слева, у каждого окна кнопка с названием | Значки по центру и «Пуск» в духе Windows 11 |
 
 - **Свои полосы и рамки** в стиле системы (Default, Skeet или Beta). В полосе значок самой

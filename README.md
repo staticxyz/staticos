@@ -42,7 +42,7 @@ The bottom panel comes in two looks. Pick one in Settings → DE → Bottom pane
 
 | Left sided | Centered minimal |
 |:-:|:-:|
-| ![Stack mode, left-sided panel](assets/stack-mode-left.png) | ![Stack mode, centered panel with the Start menu](assets/stack-mode-centered.png) |
+| ![Stack mode, left-sided panel with the Start menu](assets/stack-mode-left.png) | ![Stack mode, centered panel with the Start menu](assets/stack-mode-centered.png) |
 | XP-style taskbar: Start on the left, a button with a title for every window | Icons in the middle and a Windows 11-style Start |
 
 - **Own title bars and frames** in the system style (Default, Skeet or Beta). Each bar has
