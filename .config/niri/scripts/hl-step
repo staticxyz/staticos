@@ -1,7 +1,19 @@
 #!/bin/sh
 # Super+H/L. В режиме «стопка» — по окнам, и по свёрнутым тоже (stack_mode.py key,
 # 21.10.2026); иначе — колонка влево/вправо, как было.
-if grep -q '"active": true' "$HOME/.config/hypr/state/stack-mode.json" 2>/dev/null; then
+# Второй аргумент move — Super+Ctrl+Alt+H/L: кнопка окна в фокусе на нижней панели левее/
+# правее (21.10.2026). В стопке — свой порядок панели (xpbar.py следит за файлом
+# xpbar-move); вне стопки панель идёт по колонкам — двигается колонка.
+stack=0
+grep -q '"active": true' "$HOME/.config/hypr/state/stack-mode.json" 2>/dev/null && stack=1
+if [ "$2" = move ]; then
+    if [ $stack = 1 ]; then
+        echo "$1 $(date +%s%N)" > "${XDG_RUNTIME_DIR:-/tmp}/xpbar-move"
+        exit 0
+    fi
+    exec niri msg action "move-column-$1"
+fi
+if [ $stack = 1 ]; then
     exec python3 "$HOME/.config/hypr/scripts/stack_mode.py" key "$1"
 fi
 exec niri msg action "focus-column-$1"

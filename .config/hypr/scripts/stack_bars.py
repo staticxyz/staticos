@@ -31,10 +31,11 @@ MIN_BMP = (".......", ".......", ".......", ".......", ".......", "#######", "##
 GAP = 2                       # между кнопками
 PAD = 6                       # от правого края полосы
 ICON = 16
-GRIP = 6                      # ручка размера: полоса за краем окна (21.10.2026, Просьба: «нельзя менять
+GRIP = 6                      # ручка размера: полоса за краем окна (21.10.2026, просьба: «нельзя менять
 GRIP_C = 14                   # размер окна через мышь» — у kitty и др. без CSD niri краёв не даёт); угол
 MIN_W, MIN_H = 240, 120
-CURSORS = {"l": "ew-resize", "r": "ew-resize", "b": "ns-resize", "bl": "nesw-resize", "br": "nwse-resize"}
+CURSORS = {"l": "ew-resize", "r": "ew-resize", "b": "ns-resize", "bl": "nesw-resize", "br": "nwse-resize",
+           "t": "ns-resize", "tl": "nwse-resize", "tr": "nesw-resize"}   # верх — с 21.10.2026
 ANIM_MS = 230                 # свернуть/вернуть: окно летит к кнопке нижней панели и обратно, как в XP
 REQ = os.path.expanduser("~/.cache/stack-anim-req")          # «min|unmin ID» от stack_mode.py (SIGUSR2)
 BTNS = os.path.expanduser("~/.cache/xpbar-buttons-%s.json")  # где кнопки окон — пишет xpbar
@@ -44,7 +45,7 @@ ANIM_MAX = 200                # развернуть ⇄ обратно: пол�
 # как у виджетов: Skeet 6 (1+3+1+1), Default 3 (XP), Beta 1. С 21.10 и у развёрнутых.
 FRAME = sm.FRAME
 SHADOW = {True: 9, False: 4}  # тень вправо-вниз: у окна в фокусе глубже — видно, какое ближе
-# Свои окна staticOS в стопке прячут свой заголовок (21.10.2026, Просьба: «дублируются линии с
+# Свои окна staticOS в стопке прячут свой заголовок (21.10.2026, просьба: «дублируются линии с
 # кнопками»), значок в полосе — тот же, что был у них слева сверху (глиф Nerd Font).
 APP_GLYPH = {"com.jarvis.settings": "\U000f0493"}
 GLYPH_FONT = "JetBrainsMono Nerd Font"
@@ -111,6 +112,13 @@ class Painter:
                     info = None
                 if info:
                     break
+            if not info and app_id:
+                # свои программы (com.jarvis.applist → jarvis-applist.desktop) находятся
+                # только по StartupWMClass — иначе в полосе запасной значок (21.10.2026,
+                # Просьба: «у них же есть иконки»); так же ищет xpbar.app_info
+                from gi.repository import Gio as G
+                info = next((a for a in G.AppInfo.get_all() if isinstance(a, Gio.DesktopAppInfo)
+                             and (a.get_startup_wm_class() or "").lower() == app_id.lower()), None)
             theme = Gtk.IconTheme.get_default()
             gi_icon = info.get_icon() if info else None
             ii = theme.lookup_by_gicon(gi_icon, ICON, Gtk.IconLookupFlags.FORCE_SIZE) if gi_icon else None
@@ -655,7 +663,7 @@ class OutBar:
         self.ghost.start(it, src, dst, done, ms)
 
     def toggle_max(self, wid, geom=None):
-        """Развернуть ⇄ обратно с полётом полосы, как в XP (21.10.2026, Просьба: «не хватает
+        """Развернуть ⇄ обратно с полётом полосы, как в XP (21.10.2026, просьба: «не хватает
         анимации во весь экран и обратно»): сперва полёт, потом окно встаёт на место."""
         it = next((i for i in self.items if i["id"] == wid), None)
         if not it or not self.visible:
@@ -668,8 +676,10 @@ class OutBar:
             F, BH = self.P.F, self.P.BH
             dst = [g[0] + ox - F, g[1] + oy - BH - F, g[2] + 2 * F, g[3] + BH + 2 * F]
         else:
+            # полёт туда же, где окно встанет: «Под островком» — ниже островка (21.10.2026)
             ww, wh = sm.work(self.st, self.out)
-            dst = [ox, oy, ww, wh]
+            t = sm.max_top(self.out)
+            dst = [ox, oy + t, ww, wh - t]
         ui_sound("restore" if g else "maximize")
         self.fly(it, [x + ox, y + oy, w, h], dst, lambda: sm.toggle_max(wid, geom), ANIM_MAX)
 
@@ -709,8 +719,8 @@ class OutBar:
                 tx, ty, tw, th = it["tile"]
                 if not it["maxed"]:              # рамка и ручки размера за ней
                     G, F = max(GRIP, it["F"]), it["F"]
-                    reg.union(cairo.RectangleInt(tx - G, it["y"] - F, tw + 2 * G,
-                                                 ty + th + G - it["y"] + F))
+                    reg.union(cairo.RectangleInt(tx - G, it["y"] - G, tw + 2 * G,
+                                                 ty + th + 2 * G - it["y"]))
                 reg.subtract(cairo.RectangleInt(tx, ty, tw, th))
                 reg.union(cairo.RectangleInt(it["x"], it["y"], it["w"], self.P.BH))
         self.win.input_shape_combine_region(reg)
@@ -747,6 +757,9 @@ class OutBar:
             if tx <= x < tx + tw and ty <= y < ty + th:
                 return None, None
             F = it["F"]
+            g = self.grip_at(it, x, y)               # края и углы, верх тоже — до полосы
+            if g:
+                return it, "rs:" + g
             if it["x"] - F <= x < it["x"] + it["w"] + F and it["y"] - F <= y < it["y"]:
                 return it, "title"                   # верх рамки над полосой
             if it["x"] <= x < it["x"] + it["w"] and it["y"] <= y < it["y"] + self.P.BH:
@@ -754,26 +767,27 @@ class OutBar:
                     if bx <= x < bx + self.P.s and by - 4 <= y < by + self.P.s + 4:
                         return it, name
                 return it, "title"
-            g = self.grip_at(it, x, y)
-            if g:
-                return it, "rs:" + g
         return None, None
 
     @staticmethod
     def grip_at(it, x, y):
-        """Край окна под курсором: l, r, b, bl, br — или None."""
+        """Край окна под курсором: l, r, t, b, tl, tr, bl, br — или None. Верх — над
+        полосой заголовка (21.10.2026, просьба: «со всех углов и краёв, а не только справа
+        снизу»), сама полоса по-прежнему таскает окно."""
         if it["maxed"]:
             return None
         tx, ty, tw, th = it["tile"]
         G = max(GRIP, it.get("F", 0))
-        if not (tx - G <= x < tx + tw + G and it["y"] <= y < ty + th + G):
+        if not (tx - G <= x < tx + tw + G and it["y"] - G <= y < ty + th + G):
             return None
-        l, r, b = x < tx, x >= tx + tw, y >= ty + th
+        l, r, b, t = x < tx, x >= tx + tw, y >= ty + th, y < it["y"]
         if (l or r) and y >= ty + th - GRIP_C:
             b = True
-        if b and not (l or r):
+        if (l or r) and y < it["y"] + GRIP_C:
+            t = True
+        if (b or t) and not (l or r):
             l, r = x < tx + GRIP_C, x >= tx + tw - GRIP_C
-        e = ("b" if b else "") + ("l" if l else "r" if r else "")
+        e = ("t" if t else "b" if b else "") + ("l" if l else "r" if r else "")
         return e or None
 
     def set_cursor(self, edge):
@@ -789,25 +803,29 @@ class OutBar:
         e, (x0, y0, tw0, th0), (w0, h0) = p["edge"], p["tile0"], p["size0"]
         dx, dy = int(ev.x - p["x"]), int(ev.y - p["y"])
         nw = max(MIN_W, w0 - dx if "l" in e else w0 + dx if "r" in e else w0)
-        nh = max(MIN_H, h0 + dy if "b" in e else h0)
+        nh = max(MIN_H, h0 + dy if "b" in e else h0 - dy if "t" in e else h0)
         nx = x0 + (w0 - nw) if "l" in e else x0
-        if (nw, nh, nx) == p.get("sent"):
+        ny = y0 + (h0 - nh) if "t" in e else y0
+        top = self.P.BH + self.P.F                 # полоса заголовка не уходит за верх
+        if ny < top:
+            nh, ny = max(MIN_H, nh - (top - ny)), top
+        if (nw, nh, nx, ny) == p.get("sent"):
             return
-        p["sent"] = (nw, nh, nx)
+        p["sent"] = (nw, nh, nx, ny)
         if nw != p.get("sw"):
             FAST.A("SetWindowWidth", id=p["id"], change={"SetFixed": nw})
             p["sw"] = nw
         if nh != p.get("sh"):
             FAST.A("SetWindowHeight", id=p["id"], change={"SetFixed": nh})
             p["sh"] = nh
-        if nx != p.get("sx", x0):
-            FAST.A("MoveFloatingWindow", id=p["id"], x={"SetFixed": nx}, y={"SetFixed": y0})
-            p["sx"] = nx
+        if (nx, ny) != (p.get("sx", x0), p.get("sy", y0)):
+            FAST.A("MoveFloatingWindow", id=p["id"], x={"SetFixed": nx}, y={"SetFixed": ny})
+            p["sx"], p["sy"] = nx, ny
         it = next((i for i in self.items if i["id"] == p["id"]), None)
         if it:
             bw, bh = tw0 - w0, th0 - h0          # рамка niri вокруг окна
-            it["tile"] = (nx, y0, nw + bw, nh + bh)
-            it["x"], it["w"] = nx, nw + bw
+            it["tile"] = (nx, ny, nw + bw, nh + bh)
+            it["x"], it["w"], it["y"] = nx, nw + bw, ny - self.P.BH
             self.set_input()
             self.win.queue_draw()
 
@@ -848,13 +866,13 @@ class OutBar:
             if str(p["id"]) in (self.st.get("max") or {}):
                 return True                  # развёрнутое не таскается (как в Windows)
             p["moved"] = True
-            # Место — от нажатия, без накопления (21.10.2026, Просьба: «лагает, как будто
+            # Место — от нажатия, без накопления (21.10.2026, просьба: «лагает, как будто
             # 60 герц»): запрос без ожидания ответа (FAST), полосу рисуем сразу сами,
             # события niri на время перетаскивания не перечитываются (Bars.refresh).
             x0, y0, tw, th = p["tile0"]
             F = self.P.F
             # Курсор ушёл на другой монитор — окно переезжает на его стол стопки и тянется
-            # дальше там (21.10.2026, Просьба: «не перетаскивается окно с монитора msi на ноут и
+            # дальше там (21.10.2026, просьба: «не перетаскивается окно с монитора msi на ноут и
             # наоборот»). События идут сюда же: нажатие держит слой, где тянуть начали.
             dst = self.cross(p, ev)
             b = self.mgr.bars.get(p.get("out", self.out)) or self
@@ -1197,7 +1215,7 @@ class Bars:
 
     def fullscreen_to_max(self, w, o):
         """В стопке «во весь экран» (Super+F, меню панели) закрыл бы и нижнюю панель, и
-        полосу с кнопками — вместо него окно разворачивается под полосой (21.10.2026, Просьба: «нижняя панель должна остаться и полоска с кнопками сверху тоже»)."""
+        полосу с кнопками — вместо него окно разворачивается под полосой (21.10.2026, просьба: «нижняя панель должна остаться и полоска с кнопками сверху тоже»)."""
         size = self.out_size.get(o)
         if not size or sm.wsize(w) != list(size) or (w.get("app_id") or "").startswith(NOFS):
             return False
@@ -1230,6 +1248,8 @@ class Bars:
         wss, wins = sm.query()
         if not wss or not sm.active(self.st):
             return False
+        if sm.heal(self.st, wss, wins):
+            wss, wins = sm.query()
         self.out_size = getattr(self, "out_size", {})
         for o in self.st.get("outs") or {}:
             if o not in self.out_size:

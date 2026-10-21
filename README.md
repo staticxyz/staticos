@@ -32,6 +32,52 @@ Every color comes from your wallpaper.
 
 <p align="center"><i>Settings: one window for bars, fonts, widgets, lock screen and more.</i></p>
 
+## Stack mode — `Ctrl+Shift+Super+M`
+
+One key turns niri's scrolling columns into ordinary overlapping windows, the way most desktops
+work, on every monitor at once. Press it again and every window goes back to its desk, column,
+size and tab exactly as before; widgets keep working either way.
+
+The bottom panel comes in two looks. Pick one in Settings → DE → Bottom panel look:
+
+| Left sided | Centered minimal |
+|:-:|:-:|
+| ![Stack mode, left-sided panel](assets/stack-mode-left.png) | ![Stack mode, centered panel with the Start menu](assets/stack-mode-centered.png) |
+| XP-style taskbar: Start on the left, a button with a title for every window | Icons in the middle and a Windows 11-style Start |
+
+- **Own title bars and frames** in the system style (Default, Skeet or Beta). Each bar has
+  the app's own icon and minimize, maximize and close buttons.
+  - Drag a window by its bar, also across monitors. Double-click maximizes it; middle-click
+    minimizes it.
+  - Resize a window by its edges.
+  - The focused window casts a deeper shadow.
+- **No buttons drawn twice.** staticOS windows, Telegram, Zen and Yandex Music hide their own
+  title buttons while stack mode is on and get them back when it is off.
+- **Left sided taskbar.** Minimized windows fly to their button and back.
+  - Buttons can be dragged and pinned (right-click → Pin).
+  - A pinned app stays as an icon when it has no window.
+- **Centered minimal taskbar.** Icons sit in the middle of the panel. The Start menu is modeled on
+  Windows 11 but kept compact.
+  - The menu has search, a grid of pinned apps, recommended apps (the ones you used most this
+    week) and an A–Z list of everything.
+  - Behind the menu is a frosted, blurred copy of the wallpaper, and its frame follows the
+    system style.
+  - Keyboard: arrows or `Ctrl+H/J/K/L` to move, `Enter` to launch.
+- **Settings follow the mode.** Options that only matter in stack mode show up only while it is on.
+- **Keys:**
+  - `Super+K` maximizes, or brings back the last minimized window.
+  - `Super+J` minimizes.
+  - `Super+H/L` go to the previous/next window, minimized ones included.
+  - `Super+F` maximizes instead of going fullscreen.
+  - `Super+D` minimizes all windows, or restores them.
+  - Alt+Tab lists windows only.
+- **While it is on:**
+  - the top bar shows on hover;
+  - the island sits under the windows;
+  - window sounds play on minimize and maximize.
+
+  All of this is remembered for the next time.
+
 ## Config map — `Super+Shift+Z`
 
 ![Config map](assets/config-map.png)
@@ -60,28 +106,6 @@ tells you what each file does and what starts it, without opening anything.
   is gone; `config_map.py md` writes the same map to `~/.config/0-КАРТА.md`.
   The scan is cached until a file changes, so the window opens in about a quarter of a second.
 
-## Stack mode — `Ctrl+Shift+Super+M`
-
-![Stack mode](assets/stack-mode.png)
-
-<p align="center"><i>App list, Focus and Settings stacked over the desktop widgets, each with its own title bar and frame</i></p>
-
-One key turns niri's scrolling columns into ordinary overlapping windows, the way most desktops
-work, on every monitor at once. Press it again and every window goes back to its desk, column,
-size and tab exactly as before; widgets keep working either way.
-
-- **Own title bars and frames** in the system style (Default, Skeet or Beta): minimize, maximize,
-  close, drag by the bar (also across monitors), double-click to maximize, middle-click to
-  minimize, resize by the edges. The focused window casts a deeper shadow. staticOS windows hide
-  their own title bar so nothing is drawn twice.
-- **XP-style taskbar.** Minimized windows fly to their button and back; buttons can be dragged
-  and pinned (right-click → Pin), a pinned app stays as an icon when it has no window.
-- **Keys:** `Super+K` maximize / bring back the last minimized, `Super+J` minimize,
-  `Super+H/L` previous/next window including minimized ones, `Super+F` maximize instead of
-  fullscreen, `Super+D` minimize all / restore. Alt+Tab lists windows only.
-- While it is on, the top bar shows on hover, the island sits under the windows, window sounds
-  play on minimize and maximize, and it is all remembered for the next time.
-
 ## Highlights
 
 - **One palette everywhere.** Change the wallpaper and the bar, terminal, notifications,
@@ -92,7 +116,8 @@ size and tab exactly as before; widgets keep working either way.
   again later, and a daytime Watchman keeps you from dozing off. [How it works →](docs/alarm.md)
 - **Focus and pomodoro.** Block distracting sites and apps for a session, with a pomodoro on top.
 - **Stack mode** — `Ctrl+Shift+Super+M`. Overlapping windows with title bars, frames and an
-  XP-style taskbar on every monitor; press again and everything returns to its columns.
+  a taskbar on every monitor (XP-style or centered with a Windows 11 Start); press again and
+  everything returns to its columns.
 - **App list** — `Super+Alt+T`. Programs and packages with versions, one-key rollback to an
   older version, hold, cleanup of package caches and logs, and a full system summary.
 - **Desktop widgets and an XP-style taskbar.** Clocks, player, weather, system monitor and more

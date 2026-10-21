@@ -175,7 +175,7 @@ ROW_ICONS = {
     "Дашборд": "\U000f056e",
     "Менять и в открытых": "\U000f018d",
     "Zen": "\U000f059f",
-    "Меню по правому клику на обоях": "\U000f035c",
+    "Меню ПКМ": "\U000f035c",
     "Яркость ноутбука": "\U000f00de",
     "Яркость MSI": "\U000f0379",
     "Подсветка клавиатуры": "\U000f030c",
@@ -348,15 +348,17 @@ def cursor_pixbuf(path, want=32):
 # Второй раунд того же дня: Waybar — одна страница, «Окна» — пункт Niri,
 # уведомления, питание и приложения — свои пункты, в Misc — экран и снимки.
 TREE = [
-    ("waybar", "\U000f1513", "Waybar", True, []),
-    ("fonts", "\U000f0284", "Design", True, []),
-    ("compositor", "\U000f0379", "Compositor", True, []),
-    ("apps", "\U000f003b", "Applications", True, []),
+    # 21.10.2026, просьба: Waybar → Compositor (лента niri + бары), Compositor → DE (стопка);
+    # значки Waybar и Applications поменялись местами; Design — предпоследним. Ключи прежние.
+    ("waybar", "\U000f003b", "Compositor", True, []),
+    ("compositor", "\U000f0379", "Desktop Environment (DE)", True, []),
+    ("apps", "\U000f1513", "Applications", True, []),
     ("visuals", "\U000f08b5", "Visuals", True, []),
     ("misc", "\U000f01d8", "Misc", True, []),
     # Binds (14.10.2026, просьба: «раздел для настроек биндов… чтобы каждый
     # пользователь мог настроить свои бинды. По умолчанию мои») — binds_edit.py.
     ("binds", "\U000f030c", "Binds", True, []),
+    ("fonts", "\U000f0284", "Design", True, []),
     ("config", "\U000f0493", "Config", True, []),
 ]
 # Страницы по порядку меню; пункт-родитель каждой; название каждой.
@@ -376,7 +378,9 @@ for _k, _i, _t, _own, _kids in TREE:
 PAGE_ALIASES = {"look": "waybar", "bar-shape": "waybar", "bar-geometry": "waybar",
                 "bottom": "waybar", "xp": "waybar", "notify": "misc", "power": "misc",
                 "shaders": "apps", "terminal": "apps",
-                "windows": "compositor", "visuals-windows": "compositor", "niri": "compositor",
+                "windows": "waybar", "visuals-windows": "waybar", "niri": "waybar",
+                # 21.10.2026: лента niri — на странице Compositor (waybar), стопка — DE
+                "stack": "compositor", "de": "compositor",
                 "shots": "misc", "screen": "visuals",
                 # 13.10.2026: Fonts → Design (и курсор там же), Cursors → Compositor
                 "cursor": "fonts", "design": "fonts",
@@ -990,6 +994,7 @@ def savage_get():
 # .skeet корневой коробки, которого в обычном виде нет.
 SKIN_FILE = os.path.expanduser("~/.config/hypr/state/settings-skin")
 STACK_STATE = os.path.expanduser("~/.config/hypr/state/stack-mode.json")
+MODE_PAGES = ("compositor", "waybar", "misc")   # страницы со строками only_in (Scroll/Stack)
 TITLE_H = 24               # полоса заголовка в духе XP
 # Раунд 6 (02.10.2026, решение пользователя): «Обычный» и «XP» — один вид Default в
 # двух режимах (Dark — бывший «Обычный», Light — бывший «XP»), плюс новый вид
@@ -1015,8 +1020,8 @@ BETA_GROUP_STARTS = {"apps", "misc"}
 # силуэт человека, Misc — шестерёнки. Остальным пунктам в skeet вкладок нет:
 # их маски — сплошные силуэты в той же манере (waybar, notify, xp, power, apps).
 SK_ICON_DIR = os.path.join(HERE, "skeet_icons")
-SK_ICONS = {"waybar": "waybar", "fonts": "skins", "compositor": "aim", "notify": "notify",
-            "xp": "xp", "power": "power", "apps": "rage", "visuals": "visuals",
+SK_ICONS = {"waybar": "rage", "fonts": "skins", "compositor": "aim", "notify": "notify",
+            "xp": "xp", "power": "power", "apps": "waybar", "visuals": "visuals",
             "misc": "misc", "binds": "binds", "config": "players"}
 SK_RAIL_W = 76             # колонка вкладок
 SK_TAB_H = 52              # высота вкладки (10 вкладок, значок ~40 px)
@@ -1047,6 +1052,23 @@ SK_SLIDER_W = 96         # 110 → 96 (13.10.2026): подпись слева н
 # Отступы бара — одна составная настройка «Отступы бара» (page_waybar).
 DEFAULTS = {
     "waybar": {
+        # лента niri (niri_cards) — с 21.10.2026 на этой странице
+        # «Шрифт и значки» (pixel_look.py) с 14.10.2026 на странице Config — в сброс не
+        # входит, как и «Стиль окон»
+        "Скругление окон": 4,                       # window_rounding.py DEFAULT
+        "Центрировать окно в фокусе": False,         # ribbon_center.py DEFAULT = "fit"
+        "Фокус следует за мышью": False,      # mouse_focus.py DEFAULT = "detached"
+        "Анимация окон": "off",      # window_fx.py get(): нет файла — off
+        # niri_compositor.py KEYS — значения, что стояли в конфиге на 13.10.2026
+        "Отступы между окнами": 16,
+        "Отступы от краёв экрана": 16,               # niri_compositor.py edge = gaps + struts
+        "Толщина рамки": 5,
+        "Стол дашборда": "terminal",                 # dashboard mode → terminal (нет файла dashboard-mode)
+        "Скорость анимаций": 1.0,
+        "Проходы": 3,
+        "Радиус": 5.0,
+        "Зерно": 0.01,
+        "Насыщенность": 1.5,
         "Скругление углов": 0,                  # bar_rounding.py; на странице — default=look_r
         "Рамка бара": 0,                             # bar_border.py: нет файла — off
         "Пиксельная кнопка «Пуск»": False,         # start_button.py DEFAULT = "nerd"
@@ -1055,18 +1077,8 @@ DEFAULTS = {
         "Новые значки в меню выключения": False,     # wlogout_icons.py status → "old"
         "Приклеить попапы к бару": False,            # popup_theme.attached(): нет флага
         "Масштаб центра управления": "medium",       # control_center.py: нет control-center-scale
-        "Меню по правому клику на обоях": True,             # desktop_menu.py: нет desktop-menu-off
-        "Вид меню ПКМ": "xp",                            # desktop_menu.py style → "xp"
-        "Меню программ": "jarvis",                   # state/launcher-look: нет файла — своё
-        "Форма панели": "dock",                      # bottom_bar.py get(): нет состояния и dock-off
-        "Появление": "always",                       # bottom_bar.py get_show()
-        "Верхний бар": "always",                     # top_bar.py get_mode(): нет файла — always
-        "Список столов": "top",                      # top_bar.py ws_place()
         "Фон бара": 88,                   # top_bar.py: как у вида бара (alpha 0.88)
         "Размытие под баром": True,                  # top_bar.py: нет флага bar-blur-off
-        "Окна у панели": "on",                       # bottom_bar.py get_gap()
-        "Тексты песен": True,                        # lyrics_bar.py: нет флага lyrics-off
-        "Окна в доке": "all",                        # dock.py get_mode()
     },
     "fonts": {
         "Применять и к открытым окнам": False,          # app_fonts.py scope() → "new"
@@ -1112,24 +1124,18 @@ DEFAULTS = {
         "Меню питания": "wlogout",   # power_view.py get()
         "Встряхнуть мышь — найти курсор": True,        # cursor_shake.py: нет флага -off
         "«Не беспокоить» во время записи": True,   # auto_dnd.py: нет флага -off
+        "Меню программ": "jarvis",                   # state/launcher-look: нет файла — своё
     },
-    "compositor": {
-        # «Шрифт и значки» (pixel_look.py) с 14.10.2026 на странице Config — в сброс не
-        # входит, как и «Стиль окон»
-        "Скругление окон": 4,                       # window_rounding.py DEFAULT
-        "Центрировать окно в фокусе": False,         # ribbon_center.py DEFAULT = "fit"
-        "Фокус следует за мышью": False,      # mouse_focus.py DEFAULT = "detached"
-        "Анимация окон": "off",      # window_fx.py get(): нет файла — off
-        # niri_compositor.py KEYS — значения, что стояли в конфиге на 13.10.2026
-        "Отступы между окнами": 16,
-        "Отступы от краёв экрана": 16,               # niri_compositor.py edge = gaps + struts
-        "Толщина рамки": 5,
-        "Стол дашборда": "terminal",                 # dashboard mode → terminal (нет файла dashboard-mode)
-        "Скорость анимаций": 1.0,
-        "Проходы": 3,
-        "Радиус": 5.0,
-        "Зерно": 0.01,
-        "Насыщенность": 1.5,
+    "compositor": {                                  # DE; «Развёрнутое окно», «Вид нижней панели» — default= в row
+        "Меню ПКМ": True,                            # desktop_menu.py: нет desktop-menu-off
+        "Вид меню ПКМ": "xp",                            # desktop_menu.py style → "xp"
+        "Верхний бар": "always",                     # top_bar.py get_mode(): нет файла — always
+        "Список столов": "top",                      # top_bar.py ws_place()
+        "Форма панели": "dock",                      # bottom_bar.py get(): нет состояния и dock-off
+        "Появление": "always",                       # bottom_bar.py get_show()
+        "Окна у панели": "on",                       # bottom_bar.py get_gap()
+        "Тексты песен": True,                        # lyrics_bar.py: нет флага lyrics-off
+        "Окна в доке": "all",                        # dock.py get_mode()
     },
 }
 # Группы звуков интерфейса: включена ли по умолчанию — ui_sound.py GROUPS.
@@ -1432,6 +1438,75 @@ def resolve_page(key):
     ведут на свою страницу, незнакомое — на первую."""
     key = PAGE_ALIASES.get(key, key)
     return key if key in PAGE_ORDER else PAGE_ORDER[0]
+
+
+class PopList:
+    """Выпадающий список кнопки выбора — поповер внутри окна с прокруткой, а не Gtk.Menu
+    (21.10.2026, пользователь прислал снимок: меню «Кнопки «Пуск»» из 18 пунктов у низа окна
+    раскрывалось вверх отдельным окном, вылезало за Настройки и обрезалось по краю
+    экрана). Поповер GTK3 рисуется в самом окне: не выше PICK_MAX_H, дальше прокрутка,
+    выбранный пункт отмечен и прокручен в вид. Для вызывающих — как меню: append(MenuItem),
+    show_all(); щелчок по пункту шлёт его «activate»."""
+    PICK_MAX_H = 300
+
+    def __init__(self, btn, label, width, skins):
+        self.label = label
+        self.pop = Gtk.Popover.new(btn)
+        self.pop.set_position(Gtk.PositionType.BOTTOM)
+        self.pop.get_style_context().add_class("binds-pop")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        bx = box.get_style_context()
+        for cls in ("binds-box", "pick-box") + tuple(skins):
+            bx.add_class(cls)
+        self.sw = Gtk.ScrolledWindow()
+        self.sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.width = max(120, width - 22)
+        self.list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.sw.add(self.list)
+        box.pack_start(self.sw, True, True, 0)
+        self.pop.add(box)
+        box.show_all()
+        self.buttons = []
+        btn.set_popover(self.pop)
+        self.pop.connect("show", self.on_show)
+
+    def append(self, item):
+        b = Gtk.Button()
+        b.set_relief(Gtk.ReliefStyle.NONE)
+        b.get_style_context().add_class("pick-item")
+        b.add(Gtk.Label(label=item.get_label(), xalign=0))
+        b.item = item                    # пункт меню живёт, пока жива кнопка
+
+        def go(_b):
+            self.pop.popdown()
+            item.activate()
+        b.connect("clicked", go)
+        self.list.pack_start(b, False, False, 0)
+        self.buttons.append(b)
+
+    def show_all(self):
+        # Размер прокрутки — явно: min-content-width/propagate-natural-height у
+        # ScrolledWindow без горизонтальной прокрутки не срабатывали (список
+        # выходил шириной 116 px и в две строки).
+        self.list.show_all()
+        nat = self.list.get_preferred_height()[1]
+        self.sw.set_size_request(self.width, min(nat, self.PICK_MAX_H))
+
+    def on_show(self, _pop):
+        cur = self.label.get_text()
+        mark = None
+        for b in self.buttons:
+            on = b.item.get_label() == cur
+            (b.get_style_context().add_class if on else b.get_style_context().remove_class)("on")
+            mark = b if on else mark
+        if mark is not None:
+            def scroll():
+                a = mark.get_allocation()
+                adj = self.sw.get_vadjustment()
+                adj.set_value(max(0, a.y - (adj.get_page_size() - a.height) / 2))
+                mark.grab_focus()
+                return False
+            GLib.idle_add(scroll)
 
 
 class SettingsWindow(Gtk.ApplicationWindow):
@@ -2016,6 +2091,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
         menu menuitem label { font-size: 16px; }
         menu menuitem:hover { background-color: %(primary)s; color: %(on_primary)s; }
         menu menuitem:hover label { color: %(on_primary)s; }
+        /* список кнопки выбора (PopList): рамка — у binds-box, пункты плоские */
+        box.pick-box { padding: 4px; }
+        button.pick-item { background: none; border: none; box-shadow: none; min-height: 0;
+                           padding: 3px 10px; border-radius: 4px; }
+        button.pick-item label { color: %(on_surface)s; }
+        button.pick-item.on label { color: %(primary)s; }
+        button.pick-item:hover, button.pick-item:focus { background-color: %(primary)s; }
+        button.pick-item:hover label, button.pick-item:focus label { color: %(on_primary)s; }
 
         /* Binds: окошко «нажмите сочетание» (поповер) — рамка как у окна стиля:
            сам поповер прозрачный, рисует коробка внутри (класс стиля на ней) */
@@ -2376,6 +2459,20 @@ class SettingsWindow(Gtk.ApplicationWindow):
             on = False
         if self.title_bar.get_visible() == on:
             self.title_bar.set_visible(not on)
+        seg = getattr(self, "_stack_seg", None)        # «Режим окон» в «Раскладке»
+        if seg is not None:
+            seg.select("stack" if on else "scroll")
+        # Режим сменился — страницы с настройками «только для Scroll/Stack» строятся заново
+        # (only_in, 21.10.2026): DE, Compositor, Misc. Первый вызов (при запуске) — нет.
+        if getattr(self, "_in_stack", None) is not None and self._in_stack != on:
+            for key in MODE_PAGES:
+                if self.stack.get_child_by_name(key) is not None:
+                    self.replace_page(key)
+        # и свои ручки размера: в стопке края держит stack_bars.py (снаружи окна), а свои
+        # 5 px лежали поверх полосы прокрутки справа — она не нажималась (21.10.2026)
+        self._in_stack = on
+        for g in getattr(self, "_grips", ()):
+            g.set_visible(not on and not getattr(self, "_maximized", False))
         # и своя рамка (border / слои box-shadow skeet) — тоже, её рисует stack_bars.py
         (self.outer.get_style_context().add_class if on else
          self.outer.get_style_context().remove_class)("in-stack")
@@ -2468,7 +2565,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def on_window_state(self, _w, ev):
         self._maximized = bool(ev.new_window_state & Gdk.WindowState.MAXIMIZED)
         for g in getattr(self, "_grips", ()):
-            g.set_visible(not self._maximized)
+            g.set_visible(not self._maximized and not getattr(self, "_in_stack", False))
         self.max_btn.get_child().set_text("\U000f05b2" if self._maximized else "\U000f05af")
         self.max_btn.set_tooltip_text("Восстановить" if self._maximized else "Развернуть")
         return False
@@ -2560,6 +2657,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
         .xpskin.binds-box { border: 1px solid %(ink2)s; border-radius: 0; }
         .xpskin label.binds-hint { color: %(ink2)s; }
         .xpskin label.binds-shown { color: %(ink)s; }
+        .xpskin button.pick-item { background-image: none; border-radius: 0; }
+        .xpskin button.pick-item label { color: %(ink)s; }
+        .xpskin button.pick-item.on label { color: %(ink)s; font-weight: bold; }
+        .xpskin button.pick-item:hover, .xpskin button.pick-item:focus {
+            background-image: linear-gradient(to bottom, %(sel)s, %(st_mid)s); }
+        .xpskin button.pick-item:hover label, .xpskin button.pick-item:focus label { color: %(text)s; }
         .xpskin entry.binds-entry {
             background-color: %(lighter)s; border: 1px solid %(ink2)s; border-radius: 0;
             color: %(ink)s; caret-color: %(ink)s;
@@ -2762,6 +2865,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
         .beta.binds-box { border: 1px solid %(line_strong)s; border-radius: 0; }
         .beta label.binds-hint { color: %(dim)s; }
         .beta label.binds-shown { color: %(acc_text)s; }
+        .beta button.pick-item { border-radius: 0; }
+        .beta button.pick-item label { color: %(text)s; }
+        .beta button.pick-item.on label { color: %(acc_text)s; }
+        .beta button.pick-item:hover, .beta button.pick-item:focus { background-color: %(acc)s; }
+        .beta button.pick-item:hover label, .beta button.pick-item:focus label { color: %(on_acc)s; }
         .beta label.binds-err { color: %(err)s; }
         .beta entry.binds-entry {
             background-color: %(field)s; border: 1px solid %(line_strong)s; border-radius: 0;
@@ -3137,6 +3245,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
         }
         .skeet label.binds-hint { color: %(text_dim)s; }
         .skeet label.binds-shown { font-size: 12px; color: %(acc_l)s; }
+        .skeet.rail-tip { padding: 3px 8px; }
+        .skeet button.pick-item { border-radius: 0; background-image: none; padding: 2px 8px; }
+        .skeet button.pick-item label { color: %(text)s; }
+        .skeet button.pick-item.on label { color: %(acc_l)s; }
+        .skeet button.pick-item:hover, .skeet button.pick-item:focus { background-color: %(field_l)s; }
+        .skeet button.pick-item:hover label, .skeet button.pick-item:focus label { color: %(acc_l)s; }
         .skeet label.binds-err { color: %(err)s; }
         .skeet entry.binds-entry {
             background-color: %(field)s; background-image: none; border: 1px solid %(line3)s;
@@ -3243,7 +3357,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
             ic.connect("draw", self.draw_sk_icon, b, SK_ICONS.get(key, "misc"))
             b.connect("state-flags-changed", lambda _b, _f, a=ic: a.queue_draw())
             b.add(ic)
-            b.set_tooltip_text(title)            # подпись пункта — подсказкой
+            # подпись пункта — своей плашкой справа от значка. Подсказка GTK под Wayland
+            # не растёт после показа: с «Misc» на «Applications» окно оставалось узким, и
+            # слово обрезалось с краёв (21.10.2026, просьба: «pplications», два раза).
+            # Поповер рисуется в самом окне и меряется заново при каждом показе.
+            self.rail_tip(b, title)
             target = key if own else kids[0][0]
             b.connect("clicked", lambda _b, k=target: self.select_page(k))
             tabs.pack_start(b, False, False, 0)
@@ -3257,6 +3375,40 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.skeet_top.pack_start(self.sk_left, True, True, 0)
         self.nav.connect("row-selected", lambda *_a: self.sync_skeet())
         return rail
+
+    def rail_tip(self, b, title):
+        """Подпись вкладки skeet при наведении: поповер справа, через 350 мс, без захвата."""
+        pop = Gtk.Popover.new(b)
+        pop.set_position(Gtk.PositionType.RIGHT)
+        pop.set_modal(False)
+        pop.set_transitions_enabled(False)
+        pop.get_style_context().add_class("binds-pop")
+        box = Gtk.Box()
+        for cls in ("binds-box", "rail-tip", "skeet"):
+            box.get_style_context().add_class(cls)
+        box.add(Gtk.Label(label=title))
+        box.show_all()
+        pop.add(box)
+        t = {"id": None}
+
+        def show():
+            t["id"] = None
+            pop.popup()
+            return False
+
+        def enter(*_a):
+            if t["id"] is None:
+                t["id"] = GLib.timeout_add(350, show)
+
+        def leave(*_a):
+            if t["id"] is not None:
+                GLib.source_remove(t["id"])
+                t["id"] = None
+            pop.popdown()
+        b.connect("enter-notify-event", enter)
+        b.connect("leave-notify-event", leave)
+        b.connect("clicked", leave)
+        b.connect("unmap", leave)
 
     def draw_sk_icon(self, area, cr, button, name):
         """Значок вкладки skeet: маска PNG, залитая цветом состояния — серый,
@@ -4236,8 +4388,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
         btn.get_style_context().add_class("fontpick")
         btn.set_direction(Gtk.ArrowType.DOWN)
         btn.add(box)
-        menu = Gtk.Menu()
-        btn.set_popup(menu)
+        menu = PopList(btn, label, width, [c for c in ("skeet", "beta", "xpskin")
+                                           if self.outer.get_style_context().has_class(c)])
         btn.set_size_request(width, -1)
         btn.est_width = width
         return btn, label, menu
@@ -4367,7 +4519,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
         threading.Thread(target=wait, daemon=True).start()
 
     def page_waybar(self):
-        scroll, v = self.page("Waybar", "Форма верхней панели, её углы и отступы.")
+        # 21.10.2026: страница называется Compositor — сначала niri (лента, Scroll mode),
+        # потом верхний бар и нижняя панель
+        scroll, v = self.page("Compositor", "niri: окна, отступы, анимации и размытие; верхний "
+                              "бар и островок. Применяется сразу.")
+        self.niri_cards(v)
         self.section(v, "Форма панели", "\U000f1513")
         c = self.card(v)
         self.row(c, "Форма верхней панели", icon="\U000f1513",
@@ -4490,12 +4646,16 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.register(edge_row, "Отступы бара", edge_sc, tuple(look),
                       get=lambda: (cur["edge"], cur["win"]), put=margins_show, cb=margins_apply)
         self.bar_extras(v)
-        self.xp_cards(v)
+        # 21.10.2026, просьба: «Настройки островка можешь перекинуть в раздел Compositor»
+        self.island_section(v)
         return scroll
 
     # Visuals
-    def bar_extras(self, v):
-        """Что живёт на панели, попапы и меню (до 01.10.2026 — страница Visuals)."""
+    def panels_cards(self, v):
+        """Показ панелей по мониторам (top_bar.py, panels.py). С 21.10.2026 на странице DE и
+        только в Scroll mode (просьба: «в стакинге просто не показываем» — стопка сама
+        переводит верхний бар в «при наведении» и включает нижнюю панель, а выбор отсюда
+        спорил бы с ней)."""
         # Верхний бар: всегда / при наведении / выключен, и где список столов (03.10.2026,
         # top_bar.py). Применение перезапускает панели — идёт в фоне, по очереди.
         tb = os.path.join(HERE, "top_bar.py")
@@ -4563,27 +4723,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
                      "В нижней панели — столы между «Пуском» и окнами; нижняя панель при этом "
                      "включается (XP, всегда).",
                      icon="\U000f0570"))
-            # Плотность фона и размытие верхнего бара (04.10.2026, пользователь): top_bar.py
-            # opacity/blur — пишут стиль бара и правило niri, без перезапуска панелей.
-            def tb_num(kind, dflt):
-                try:
-                    return int(run("python3", tb, "opacity", kind))
-                except ValueError:
-                    return dflt
-            chip, sc = self.slider(20, 100, 2, tb_num("always", 88),
-                                   lambda val: run_serial(["python3", tb, "opacity", "always", str(int(val))]),
-                                   suffix="%")
-            self.row(c, "Фон бара", chip,
-                     "Режим «Всегда»: 100% — глухой фон, меньше — сквозь бар видны обои. "
-                     "У вида «Прозрачный» фона нет — ползунок его не меняет.",
-                     below=sc, icon="\U000f0e8e")
-            self.row(c, "Размытие под баром",
-                     self.pill(run("python3", tb, "blur") == "on",
-                               lambda on: run_serial(["python3", tb, "blur", "on" if on else "off"])),
-                     "Только в режиме «Всегда». При наведении niri размывал бы обои и под "
-                     "спрятанным баром — сверху висела бы мутная полоса. Сила размытия в niri одна "
-                     "на всю систему, отдельно для бара её не задать.",
-                     icon="\U000f00b6")
             if pn is not None:
                 # Одна группа «Мониторы» во всю ширину: ноутбук слева, MSI справа — рядом,
                 # а не врозь по колонкам (06.10.2026, просьба: «хочу видеть Ноутбук и MSI
@@ -4654,6 +4793,35 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 if not on:
                     for w in pvis[key]:
                         w.set_no_show_all(True)
+    def bar_extras(self, v):
+        """Что живёт на панели, попапы и меню (до 01.10.2026 — страница Visuals)."""
+        tb = os.path.join(HERE, "top_bar.py")
+        if os.path.exists(tb):
+            # 21.10.2026: «Показ панелей» и «Мониторы» ушли в DE (panels_cards), здесь —
+            # только вид самого верхнего бара
+            self.section(v, "Верхний бар", "\U000f06d0")
+            c = self.card(v)
+            # Плотность фона и размытие верхнего бара (04.10.2026, пользователь): top_bar.py
+            # opacity/blur — пишут стиль бара и правило niri, без перезапуска панелей.
+            def tb_num(kind, dflt):
+                try:
+                    return int(run("python3", tb, "opacity", kind))
+                except ValueError:
+                    return dflt
+            chip, sc = self.slider(20, 100, 2, tb_num("always", 88),
+                                   lambda val: run_serial(["python3", tb, "opacity", "always", str(int(val))]),
+                                   suffix="%")
+            self.row(c, "Фон бара", chip,
+                     "Режим «Всегда»: 100% — глухой фон, меньше — сквозь бар видны обои. "
+                     "У вида «Прозрачный» фона нет — ползунок его не меняет.",
+                     below=sc, icon="\U000f0e8e")
+            self.row(c, "Размытие под баром",
+                     self.pill(run("python3", tb, "blur") == "on",
+                               lambda on: run_serial(["python3", tb, "blur", "on" if on else "off"])),
+                     "Только в режиме «Всегда». При наведении niri размывал бы обои и под "
+                     "спрятанным баром — сверху висела бы мутная полоса. Сила размытия в niri одна "
+                     "на всю систему, отдельно для бара её не задать.",
+                     icon="\U000f00b6")
         self.section(v, "В баре", "\U000f0570")
         c = self.card(v)
         # «Пуск» в стиле XP (30.09.2026): start_button.py.
@@ -4791,16 +4959,18 @@ class SettingsWindow(Gtk.ApplicationWindow):
         chip, sc = self.slider(0, 24, 1, rounding,
                                lambda val: run("python3", ROUNDING, "set", "%d" % val),
                                suffix=" px")
-        self.row(c, "Скругление окон", chip,
+        r_row = self.row(c, "Скругление окон", chip,
                  "0 — прямые углы. Применяется сразу ко всем окнам и запоминается. "
                  "Бар, попапы и меню приложений скругляются отдельно.",
                  below=sc)
-        self.row(c, "Центрировать окно в фокусе",
+        c_row = self.row(c, "Центрировать окно в фокусе",
                  self.pill(run("python3", RIBBON_CENTER, "get") == "center",
                            lambda on: run("python3", RIBBON_CENTER, "center" if on else "fit")),
                  "Лента ставит окно с фокусом в центр экрана, соседи видны по краям — "
                  "вернулись к окну, и вид тот же. Выкл — лента сдвигается ровно настолько, "
                  "чтобы окно влезло, и вид зависит от того, откуда пришли.")
+        # в стопке углов нет (рамку рисует stack_bars.py), ленты тоже — только Scroll mode
+        self.only_in("scroll", r_row, c_row)
         self.row(c, "Фокус следует за мышью",
                  self.pill(run("python3", MOUSE, "get") == "follow",
                            lambda on: run("python3", MOUSE, "follow" if on else "detached")),
@@ -4829,9 +4999,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
     # Compositor (13.10.2026, просьба пользователя; была страница Cursors): окна, отступы,
     # рамка, размытие и скорость анимаций niri, стол дашборда. Значения niri правит
     # niri_compositor.py: на месте, с `niri validate` и откатом, если конфиг не принят.
-    def page_compositor(self):
-        scroll, v = self.page("Compositor", "Окна, отступы, рамка, размытие и анимации niri. "
-                              "Применяется сразу.")
+    def niri_cards(self, v):
+        """Настройки niri (лента, Scroll mode) — с 21.10.2026 на странице Compositor (ключ
+        waybar), вместе с верхним баром; прежняя Compositor стала DE — там только стопка."""
         self.window_cards(v)
         try:
             cur = json.loads(run("python3", NIRI_COMPOSITOR, "get"))
@@ -4849,19 +5019,23 @@ class SettingsWindow(Gtk.ApplicationWindow):
                                    suffix=suffix, digits=digits)
             self.row(c, title, chip, hint, below=sc)
 
-        self.section(v, "Раскладка", "\U000f0379")
-        c = self.card(v)
-        slide(c, "Отступы между окнами", "gaps", 0, 40, 1, 16,
-              "Зазор между соседними окнами. Отступ у краёв экрана при этом не меняется.",
-              suffix=" px")
-        # 13.10.2026, просьба: отступ от краёв — отдельно от зазора между окнами.
-        # В niri это gaps + struts; niri_compositor.py пересчитывает struts сам.
-        slide(c, "Отступы от краёв экрана", "edge", 0, 80, 1, 16,
-              "Расстояние от окон до краёв экрана и до бара — со всех четырёх сторон.",
-              suffix=" px")
-        slide(c, "Толщина рамки", "border", 0, 12, 1, 5,
-              "Цветная рамка окна с фокусом, цвет — из обоев. 0 — рамки нет. Обои "
-              "сменятся — толщина останется.", suffix=" px")
+        stack = self.stack_now()
+        if not stack:
+            # раскладка ленты: в стопке окна плавающие, отступы от краёв двигали бы её
+            # рабочую область, рамку рисует сама стопка (21.10.2026)
+            self.section(v, "Раскладка", "\U000f0379")
+            c = self.card(v)
+            slide(c, "Отступы между окнами", "gaps", 0, 40, 1, 16,
+                  "Зазор между соседними окнами. Отступ у краёв экрана при этом не меняется.",
+                  suffix=" px")
+            # 13.10.2026, просьба: отступ от краёв — отдельно от зазора между окнами.
+            # В niri это gaps + struts; niri_compositor.py пересчитывает struts сам.
+            slide(c, "Отступы от краёв экрана", "edge", 0, 80, 1, 16,
+                  "Расстояние от окон до краёв экрана и до бара — со всех четырёх сторон.",
+                  suffix=" px")
+            slide(c, "Толщина рамки", "border", 0, 12, 1, 5,
+                  "Цветная рамка окна с фокусом, цвет — из обоев. 0 — рамки нет. Обои "
+                  "сменятся — толщина останется.", suffix=" px")
 
         # Анимации — своей группой (14.10.2026): «Анимация окон» ушла сюда из «Окон»,
         # «Скорость анимаций» — из «Раскладки». После переноса «Вида системы» в Config
@@ -4890,7 +5064,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         slide(c, "Насыщенность", "blur_saturation", 0, 3, 0.1, 1.5,
               "Цвета под стеклом: 1 — как есть, больше — ярче, 0 — серые.", digits=1)
 
-        if NIRI:
+        if NIRI and not stack:
             # Режим дашборда (05.10.2026; с 13.10.2026 только здесь — из Applications
             # убран: «в Настройках не должно быть копий»). Его же хранит пресет виджетов.
             self.section(v, "Столы", "\U000f056e")
@@ -4907,6 +5081,99 @@ class SettingsWindow(Gtk.ApplicationWindow):
                      "Widget — стол без окон, на нём ваши виджеты (ПКМ по обоям → Редактировать). "
                      "Режим запоминает пресет виджетов вместе с раскладкой. SUPER+D — на стол "
                      "дашборда.", icon="\U000f056e")
+
+    @staticmethod
+    def stack_now():
+        """Включён ли Stack mode (stack-mode.json) — по нему строятся DE, Compositor, Misc."""
+        try:
+            return bool(json.load(open(STACK_STATE)).get("active"))
+        except (OSError, ValueError, AttributeError):
+            return False
+
+    def only_in(self, mode, *rows):
+        """Строки только для режима окон mode — «scroll» или «stack» (21.10.2026, просьба: «если выбран скроллинг, настройки стакинга не должны быть видны, и наоборот»). В
+        другом режиме строки нет совсем: ни на экране, ни в поиске, ни в «Сбросить»."""
+        if (mode == "stack") != self.stack_now():
+            for w in rows:
+                self.set_absent(w, True)
+
+    def stack_look_row(self, c):
+        """Вид XP-панели в стопке (21.10.2026, просьба: «ещё один вид stack mode: Centered
+        minimal»): state/xpbar-stack-look, xpbar.py следит за папкой state — на лету. Строка
+        с того же дня в DE, а не в «Нижней панели»: она только для стопки."""
+        sl_f = os.path.expanduser("~/.config/hypr/state/xpbar-stack-look")
+        try:
+            cur_sl = open(sl_f).read().strip()
+        except OSError:
+            cur_sl = "classic"
+
+        def set_sl(k):
+            with open(sl_f, "w") as f:
+                f.write(k + "\n")
+        return self.row(c, "Вид нижней панели",
+                 self.segments([("classic", "Left sided"), ("centered", "Centered minimal")],
+                               cur_sl if cur_sl in ("classic", "centered") else "classic", set_sl),
+                 "XP-панель в режиме Stack. Left sided — «Пуск» слева, кнопки окон с названиями. "
+                 "Centered minimal — «Пуск» и окна одними значками, крупнее, по центру экрана, "
+                 "под открытыми окнами полоска, как в Windows 10; закреплённые программы "
+                 "остаются, название окна — во всплывающей подсказке.",
+                 icon="\U000f0570", default="classic")
+
+    def page_compositor(self):
+        # 21.10.2026, просьба: «разделить настройки композитора для scroll mode отдельно, для
+        # stack mode отдельно». Ключ страницы прежний (compositor), название — DE; лента niri
+        # ушла в niri_cards на страницу Compositor (ключ waybar).
+        scroll, v = self.page("Desktop Environment (DE)",
+                              "Режим окон, меню рабочего стола, показ панелей и нижняя панель. "
+                              "Применяется сразу. Видно только то, что подходит к режиму окон.")
+        stack = self.stack_now()
+        # 21.10.2026, просьба: блок «Windows XP» убран — «Меню ПКМ» и его вид здесь же;
+        # настройки, что ломают другой режим, в нём не строятся (страница перестраивается
+        # при смене режима — sync_stack_title)
+        self.section(v, "Рабочий стол", "\U000f0570")
+        c = self.card(v)
+        # Scroll ⇄ Stack (21.10.2026, просьба: «в сами настройки добавь режим переключения между
+        # Stack mode и Scroll mode»): stack_mode.py on|off, то же, что Ctrl+Shift+Super+M.
+        # Ряд следит за stack-mode.json (sync_stack_title) — переключили клавишей, он отметится.
+        try:
+            stack_now = bool(json.load(open(STACK_STATE)).get("active"))
+        except (OSError, ValueError):
+            stack_now = False
+        self._stack_seg = self.segments(
+            [("scroll", "Scroll mode"), ("stack", "Stack mode")], "stack" if stack_now else "scroll",
+            lambda k: subprocess.Popen(["python3", os.path.join(HERE, "stack_mode.py"),
+                                        "on" if k == "stack" else "off"],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       start_new_session=True))
+        self.row(c, "Режим окон", self._stack_seg,
+                 "Scroll — обычная лента niri: колонки рядом, столы по вертикали. Stack — все "
+                 "окна монитора на одном столе, плавающие, у каждого полоса с кнопками «свернуть, "
+                 "развернуть, закрыть»; свёрнутые — на нижней панели. Выход возвращает окна туда, "
+                 "где они были. Клавиши в стопке: Ctrl+Shift+Super+M — вкл/выкл; Super+J/K и "
+                 "Super+Ctrl+колесо — свернуть / развернуть; Super+H/L — соседнее окно; Super+F — "
+                 "развернуть; Super+D — свернуть всё; Super+Ctrl+Alt+H/L — кнопка окна по панели. "
+                 "Отступы, рамка, анимации ленты — на странице Compositor.",
+                 icon="\U000f0570")      # без default: «Сбросить» не выключает стопку
+        # Как разворачивать окно в стопке (21.10.2026, просьба: «раскрывать полностью и
+        # раскрывать, чтобы было видно островок»): stack_mode.py maxmode full|island.
+        sm_py = os.path.join(HERE, "stack_mode.py")
+        cur_mm = run("python3", sm_py, "maxmode") if stack else "full"
+        mm_row = self.row(c, "Развёрнутое окно",
+                 self.segments([("full", "На весь экран"), ("island", "Под островком")],
+                               cur_mm if cur_mm in ("full", "island") else "full",
+                               lambda k: subprocess.run(["python3", sm_py, "maxmode", k],
+                                                        capture_output=True)),
+                 "Только в режиме Stack: куда встаёт окно по «развернуть» (кнопка на полосе, "
+                 "двойной щелчок, Super+F, Super+K). На весь экран — от верхнего края до нижней "
+                 "панели. Под островком — сверху остаётся полоска, и островок не перекрывает "
+                 "заголовок окна; на мониторе без островка окно всё равно на весь экран. "
+                 "Уже развёрнутые окна перестраиваются сразу.",
+                 icon="\U000f0293", default="full")
+        self.only_in("stack", mm_row, self.stack_look_row(c))
+        self.desk_menu_rows(c)
+        if not stack:
+            self.panels_cards(v)
+        self.bottom_cards(v, stack)
         return scroll
 
     # Misc: снимки экрана и окна (01.10.2026, раунд 3)
@@ -4917,6 +5184,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.power_cards(v)
         self.layout_cards(v)
         self.alttab_cards(v)
+        self.launcher_cards(v)
         self.mouse_cards(v)
         return scroll
 
@@ -5502,15 +5770,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
         btn.search_words = " ".join(a.get_display_name() for a in apps)
         return btn
 
-    # Windows XP: меню рабочего стола и нижняя панель (бывший раздел «Нижняя панель»)
-    def xp_cards(self, v):
-        """Меню рабочего стола и нижняя панель (была страница Windows XP; с 02.10.2026 — в Waybar)."""
-        self.section(v, "Windows XP", "\U000f05b3")
-        c = self.card(v)
+    # Меню рабочего стола (бывший блок «Windows XP»; 21.10.2026, просьба: «отдельного блока
+    # Windows XP не будет» — строки в первом блоке DE, «Меню программ» — в Misc)
+    def desk_menu_rows(self, c):
+        """Меню по правому щелчку на обоях: вкл/выкл и вид."""
         # Меню рабочего стола в стиле XP (30.09.2026): desktop_menu.py on|off|state.
-        # Строка переименована 01.10.2026, заголовок секции убран (просьба пользователя).
+        # «Меню ПКМ» — с 21.10.2026 (было «Меню по правому клику на обоях»).
         dm = os.path.join(HERE, "desktop_menu.py")
-        self.row(c, "Меню по правому клику на обоях",
+        self.row(c, "Меню ПКМ",
                  self.pill(run("python3", dm, "state") == "on",
                            lambda on: subprocess.run(["python3", dm, "on" if on else "off"],
                                                      capture_output=True)),
@@ -5525,6 +5792,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "Как выглядит меню по правому щелчку: в духе Windows XP, прежнее или "
                  "по стилю системы монитора (Skeet, Beta).",
                  icon="\U000f035c")
+
+    def launcher_cards(self, v):
+        """Меню программ (с 21.10.2026 в Misc; было в блоке «Windows XP»)."""
+        self.section(v, "Меню программ", "\U000f0349")
+        c = self.card(v)
         # Меню программ SUPER+SPACE (05.10.2026): своё (launcher.py — стиль системы, синонимы,
         # другая раскладка, Ctrl+D/U) или прежний rofi drun. Файл state/launcher-look.
         look_f = os.path.join(os.path.expanduser("~/.config/hypr/state"), "launcher-look")
@@ -5547,12 +5819,19 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "rofi — прежний вид лаунчера. Действует со следующего открытия.",
                  icon="\U000f0349")
 
+    def bottom_cards(self, v, stack):
+        """Нижняя панель (бывший раздел «Нижняя панель»; с 21.10.2026 в DE). В стопке
+        (stack) — только то, что ей не мешает: форму, появление, зазор, переход столов и док
+        стопка держит сама (XP-панель включена, столы скрыты), выбор отсюда сломал бы её."""
         self.section(v, "Нижняя панель", "\U000f10a9",
+                     "XP-панель в режиме Stack." if stack else
                      "Одновременно — только одно из трёх. Щелчок по схеме переключает сразу.")
         c = self.card(v)
         kind = run("python3", BOTTOM_BAR, "get")
         if kind not in ("none", "dock", "xp"):
             kind = "none"
+        if stack:
+            kind = "xp"
         xp_rev = Gtk.Revealer()
         dock_rev = Gtk.Revealer()
 
@@ -5560,11 +5839,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
             run_serial(["python3", BOTTOM_BAR, "set", k])
             xp_rev.set_reveal_child(k == "xp")
             dock_rev.set_reveal_child(k == "dock")
-        self.row(c, "Форма панели", icon="\U000f10a9",
-                 hint="Панель у нижнего края. Ничего — низ экрана свободен. Док — значки окон "
-                      "по центру, выезжает, если довести курсор до низа экрана. XP-панель — "
-                      "полоса во всю ширину: «Пуск» слева, окна, трей и часы справа.",
-                 below=self.tiles(BOTTOMS, kind, draw_bottom_look, pick, per_row=4, height=64))
+        if not stack:
+            self.row(c, "Форма панели", icon="\U000f10a9",
+                     hint="Панель у нижнего края. Ничего — низ экрана свободен. Док — значки окон "
+                          "по центру, выезжает, если довести курсор до низа экрана. XP-панель — "
+                          "полоса во всю ширину: «Пуск» слева, окна, трей и часы справа.",
+                     below=self.tiles(BOTTOMS, kind, draw_bottom_look, pick, per_row=4, height=64))
 
         # Как появляется XP-панель: всегда на месте или выезжает при наведении.
         xcard = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -5582,6 +5862,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "режиме (отдельный «По Super+S» убран 13.10 — он отличался только тем, что "
                  "панель стартовала скрытой). Если в «Показе "
                  "панелей» снято «На всех мониторах» — режим у каждого монитора свой, там.")
+        self.only_in("scroll", show_row)
         # Оформление XP-панели (15.10.2026, просьба: «под стиль системы… этот оставь как
         # выбор»): bottom_bar.py look system|xp, панель меняется на лету.
         curl = run("python3", BOTTOM_BAR, "look")
@@ -5616,7 +5897,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         def set_anim(k):
             with open(anim_f, "w") as f:
                 f.write(k + "\n")
-        self.row(xcard, "Переход между столами",
+        ws_row = self.row(xcard, "Переход между столами",
                  self.choice_menu([("slide", "Переезд"), ("worm", "Червячок"), ("inch", "Гусеница"),
                                    ("stretch", "Резинка"), ("goo", "Капля"), ("lean", "Наклон"),
                                    ("snap", "Рывок"), ("spring", "Пружина"), ("elastic", "Эластик"),
@@ -5637,6 +5918,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "Угасание — старый гаснет, новый загорается. Заливка — новый наливается снизу. "
                  "Вырастает — из середины нового квадрата. Действует сразу.",
                  icon="\U000f093a", default="slide")
+        self.only_in("scroll", ws_row)          # в стопке квадратов столов на панели нет
         # 07.10.2026, просьба: «что делает „Появление“, если сверху оно уже есть, разделённое на
         # два монитора?» — в раздельном режиме общее не действует, поэтому прячется (как общие
         # ряды «Показа панелей»); галочка «На всех мониторах» показывает его обратно.
@@ -5663,6 +5945,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         gap_rev.add(gbox)
         gap_rev.set_reveal_child(show != "hover")
         xcard.pack_start(gap_rev, False, False, 0)
+        self.only_in("scroll", gap_rev)         # зазор двигает рабочую область стопки
         # Тексты песен — только в XP-панели (lyrics_bar.py on|off, флаг lyrics-off).
         lyr = os.path.join(HERE, "lyrics_bar.py")
         self.row(xcard, "Тексты песен",
@@ -5701,8 +5984,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
             rev.add(box)
             rev.set_reveal_child(on)
             c.pack_start(rev, False, False, 0)
-
-        self.island_section(v)
 
     def island_section(self, v):
         """Островок сверху (island.py, 19.10.2026): вид, где показывать, что показывать.
@@ -6527,9 +6808,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "MSI сверху, Laptop снизу, столы каждого строкой слева направо.",
                  icon="\U000f0379")
         cur, put = state_rw("alttab-mode", ("windows", "desks"), "windows")
-        self.row(c, "Показывать", self.segments([("windows", "Окна"), ("desks", "Столы")], cur, put),
+        self.only_in("scroll", self.row(
+                 c, "Показывать", self.segments([("windows", "Окна"), ("desks", "Столы")], cur, put),
                  "С чего открывается Alt+Tab. Внутри переключает клавиша ~ (на русской — ё), "
-                 "выбор запоминается.", icon="\U000f05ad")
+                 "выбор запоминается. В Stack mode Alt+Tab — только окна.", icon="\U000f05ad"))
 
     def notify_cards(self, v):
         """Уведомления (была страница Notifications; с 02.10.2026 — в Misc)."""

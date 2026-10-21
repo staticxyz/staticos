@@ -273,6 +273,28 @@ def frequent(skip, n=5):
     return out
 
 
+def find_apps(q):
+    """Программы по запросу: сперва набранное как есть (и начало названия), потом другая
+    раскладка, потом синонимы."""
+    found = []
+    forms = search_forms(q)
+    for a in Gio.AppInfo.get_all():
+        if not a.should_show():
+            continue
+        hay = " ".join(x or "" for x in (a.get_display_name(), a.get_name(),
+                                          a.get_description(),
+                                          getattr(a, "get_generic_name", lambda: "")(),
+                                          ";".join(a.get_keywords() or []) if hasattr(a, "get_keywords") else "",
+                                          a.get_executable(), a.get_id())).lower()
+        name = (a.get_display_name() or "").lower()
+        score = search_score(hay, forms)
+        if score is not None:
+            starts = any(name.startswith(f) for f, wt in forms[0].items() if wt == score)
+            found.append((score, 0 if starts else 1, name, a))
+    found.sort(key=lambda x: x[:3])
+    return [a for _r, _s, _n, a in found]
+
+
 # ── вид ────────────────────────────────────────────────────────────────────
 
 def colors():
@@ -290,17 +312,17 @@ window.start-bg { background: transparent; }
 }
 .head {
     background-image: linear-gradient(to bottom, %(st_hover)s, %(st_top)s 18%%, %(st_mid)s 70%%, %(st_bot)s);
-    border-radius: 8px 8px 0 0; padding: 8px 12px;
+    border-radius: 8px 8px 0 0; padding: 5px 10px;   /* компактнее (15.10.2026, пользователь) */
     box-shadow: inset 0 1px %(st_hi)s;
 }
 .head-line { background-image: linear-gradient(to right, alpha(%(tertiary)s, 0.2), %(tertiary)s 50%%, alpha(%(tertiary)s, 0.2)); min-height: 2px; }
 label.user { font-size: 24px; color: #ffffff; text-shadow: 1px 1px 1px alpha(black, 0.7); }
 .avatar-frame { border: 2px solid %(st_hi)s; border-radius: 5px; background-color: %(base)s; }
-.right-col { background-color: %(right_bg)s; border-left: 1px solid %(line)s; padding: 6px 0; }
-.left-col { padding: 6px 0; }
+.right-col { background-color: %(right_bg)s; border-left: 1px solid %(line)s; padding: 3px 0; }
+.left-col { padding: 3px 0; }
 button.item {
     background: transparent; background-image: none; border: none; box-shadow: none;
-    border-radius: 0; padding: 4px 10px; margin: 0; min-height: 0; color: %(text)s;
+    border-radius: 0; padding: 2px 10px; margin: 0; min-height: 0; color: %(text)s;
     font-family: %(font)s; font-size: 16px; font-weight: normal;
 }
 button.item:hover, button.item.sel { background-color: %(hover)s; color: %(on_hover)s; }
@@ -315,20 +337,20 @@ button.item:hover label.side-glyph { color: %(on_hover)s; }
     box-shadow: 3px 3px 8px alpha(black, 0.5);
     font-family: %(font)s; font-size: 16px; color: %(text)s;
 }
-.sep { background-image: linear-gradient(to right, transparent, %(line)s 20%%, %(line)s 80%%, transparent); min-height: 1px; margin: 5px 10px; }
+.sep { background-image: linear-gradient(to right, transparent, %(line)s 20%%, %(line)s 80%%, transparent); min-height: 1px; margin: 3px 10px; }
 entry.search {
     background-color: %(base)s; color: %(text)s; border: 1px solid %(line)s; border-radius: 4px;
-    font-family: %(font)s; font-size: 16px; padding: 3px 8px; margin: 4px 10px 2px 10px;
+    font-family: %(font)s; font-size: 16px; padding: 2px 8px; margin: 3px 10px 1px 10px;
     box-shadow: inset 1px 1px 2px alpha(black, 0.5); caret-color: %(primary)s;
 }
 entry.search:focus { border-color: %(primary)s; }
 .foot {
     background-image: linear-gradient(to bottom, %(st_mid)s, %(st_bot)s);
-    padding: 8px 14px; box-shadow: inset 0 1px %(st_hi)s;
+    padding: 5px 10px; box-shadow: inset 0 1px %(st_hi)s;
 }
 button.pw {
     background: transparent; background-image: none; border: none; box-shadow: none;
-    padding: 3px 0 4px; margin: 0; min-height: 26px; color: %(text)s;
+    padding: 2px 0; margin: 0; min-height: 24px; color: %(text)s;
     font-family: %(font)s; font-size: 16px; font-weight: normal; text-shadow: 1px 1px alpha(black, 0.6);
 }
 button.pw:hover { color: %(st_hi)s; }
@@ -356,7 +378,7 @@ menuitem:hover { background-color: %(surface_high)s; color: %(primary)s; }
 LOOK_FILE = os.path.expanduser("~/.config/hypr/state/start-menu-look")
 BUTTON_FILE = os.path.expanduser("~/.config/hypr/state/start-button-look")
 LOOKS = ("default", "skeet", "beta")
-BUTTONS = ("default", "square")
+BUTTONS = ("default", "square")      # + <вид>-<символ> из start_glyphs.py (15.10.2026)
 
 
 def read_choice(path, allowed):
@@ -421,6 +443,52 @@ def beta_colors(c):
                 tile_ink="#f4f4fa", t0=tiles[0], t1=tiles[1], t2=tiles[2], tiles=tiles)
 
 
+# «Пуск» Windows 11 (компактный) — у панели Centered minimal, вид один на все стили
+W11_CSS = """
+.w11 {
+    background-color: transparent; border: none;
+    border-radius: 8px; box-shadow: 0 6px 18px alpha(black, 0.5);
+    font-family: %(font)s; font-size: 12px; font-weight: normal; color: %(text)s;
+}
+entry.w11-search {
+    background-color: alpha(%(base)s, 0.85); background-image: none; color: %(text)s;
+    border: 1px solid alpha(%(line)s, 0.8); border-bottom: 2px solid alpha(%(line)s, 0.8);
+    border-radius: 16px; box-shadow: none; caret-color: %(primary)s;
+    font-family: %(font)s; font-size: 12px; padding: 4px 14px; margin: 26px 32px 8px 32px;
+    min-height: 30px;
+}
+entry.w11-search:focus { border-bottom-color: %(primary)s; }
+entry.w11-search image { color: %(dim)s; }
+.w11-head { margin: 14px 36px 6px 38px; min-height: 24px; }
+label.w11-h { font-size: 12px; font-weight: bold; }
+button.w11-more, button.w11-tile, button.w11-row, button.w11-icon {
+    background: transparent; background-image: none; border: none; box-shadow: none;
+    border-radius: 4px; margin: 0; min-height: 0; color: %(text)s; text-shadow: none;
+    font-family: %(font)s; font-size: 12px; font-weight: normal; outline: none;
+}
+button.w11-more { background-color: alpha(white, 0.06); padding: 1px 8px; }
+button.w11-more:hover { background-color: alpha(white, 0.11); }
+label.w11-glyph { font-family: %(nerd)s; font-size: 12px; }
+.w11-grid { margin: 0 24px; }
+button.w11-tile { padding: 10px 2px 6px 2px; min-width: 92px; }
+.w11-cell { min-width: 96px; min-height: 76px; }
+button.w11-row { padding: 6px 10px; }
+button.w11-tile:hover, button.w11-row:hover, button.w11-icon:hover { background-color: alpha(white, 0.07); }
+button.w11-tile.sel, button.w11-row.sel {
+    background-color: alpha(white, 0.09); box-shadow: inset 0 0 0 1px alpha(%(primary)s, 0.8);
+}
+label.w11-sub { font-size: 12px; color: %(dim)s; }
+.w11-list { margin: 0 24px 6px 24px; }
+label.w11-letter { font-size: 12px; color: %(primary)s; margin: 6px 0 2px 10px; }
+.w11-foot {
+    background-color: alpha(black, 0.2); border-top: 1px solid alpha(%(line)s, 0.6);
+    border-radius: 0 0 8px 8px; padding: 12px 36px; margin-top: 18px;
+}
+label.w11-user { font-size: 12px; }
+button.w11-icon { padding: 6px 9px; }
+button.w11-icon label { font-family: %(nerd)s; font-size: 16px; }
+"""
+
 SKEET_CSS = """
 .menu-box {
     background-color: %(bg)s; border: 1px solid %(line1)s; border-radius: 0;
@@ -433,7 +501,7 @@ SKEET_CSS = """
     border-radius: 0; box-shadow: none;
 }
 .head-line { background-image: linear-gradient(to bottom, %(line1)s 50%%, %(line3)s 50%%); }
-label.user { color: %(text)s; text-shadow: none; }
+label.user { color: %(acc_l)s; text-shadow: 1px 1px %(line3)s; }   /* не белым — акцентом (15.10.2026) */
 .avatar-frame { border-color: %(line1)s; border-radius: 0; background-color: %(field)s; }
 .right-col { background-color: %(rail)s; border-left-color: %(line2)s; }
 button.item { color: %(text)s; }
@@ -508,6 +576,41 @@ menuitem:hover { background-color: %(acc)s; color: %(on_acc)s; }
 """
 
 
+TASKBAR_PINS = os.path.expanduser("~/.config/hypr/state/xpbar-pins.json")
+
+
+def taskbar_app_id(a):
+    """app_id окна niri для программы меню: StartupWMClass, иначе имя .desktop."""
+    return a.get_startup_wm_class() or (a.get_id() or "").removesuffix(".desktop")
+
+
+def taskbar_pins():
+    try:
+        d = json.load(open(TASKBAR_PINS))
+    except (OSError, ValueError):
+        d = {}
+    if not isinstance(d, dict):
+        d = {}
+    d.setdefault("pins", [])
+    d.setdefault("order", {})
+    return d
+
+
+def taskbar_pin_toggle(app):
+    """Внутри xpbar — его pin_toggle (место на панели не прыгает); иначе — просто файл,
+    xpbar подхватит по монитору папки."""
+    main = sys.modules.get("__main__")
+    if hasattr(main, "pin_toggle") and hasattr(main, "PINS_FILE"):
+        main.pin_toggle(app)
+        return
+    d = taskbar_pins()
+    (d["pins"].remove if app in d["pins"] else d["pins"].append)(app)
+    tmp = TASKBAR_PINS + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, TASKBAR_PINS)
+
+
 class StartMenu(Gtk.Window):
     def __init__(self, monitor, on_close=None):
         super().__init__(title="Start menu")
@@ -543,6 +646,7 @@ class StartMenu(Gtk.Window):
         holder.set_halign(Gtk.Align.START)
         holder.set_valign(Gtk.Align.END)
         holder.set_margin_bottom(BAR_H)
+        self.holder = holder
         # Каскады «Все программы» лежат поверх меню (Gtk.Overlay), как в XP: первый —
         # от кнопки вправо, второй — от строки папки.
         self.ov = Gtk.Overlay()
@@ -555,6 +659,9 @@ class StartMenu(Gtk.Window):
         catch.connect("button-press-event", lambda *_a: self.cascade_close() or True)
         catch.connect("button-release-event", lambda *_a: True)
         holder.add(catch)
+        self.classic = catch
+        self.w11_catch = None               # «Пуск» Windows 11 — строится при первом показе
+        self.w11_on = False
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         box.get_style_context().add_class("menu-box")
@@ -779,8 +886,21 @@ class StartMenu(Gtk.Window):
         else:
             self.cascade_open()
 
-    def open(self):
-        """Показать (встроенное меню — заранее построенное, поэтому мгновенно)."""
+    def open(self, center=False):
+        """Показать (встроенное меню — заранее построенное, поэтому мгновенно).
+        center — панель в виде Centered minimal: меню посередине, над «Пуском» в ряду значков."""
+        self.holder.set_halign(Gtk.Align.CENTER if center else Gtk.Align.START)
+        self.w11_on = center
+        if center and self.w11_catch is None:
+            self.w11_build()
+        self.classic.set_visible(not center)
+        if self.w11_catch is not None:
+            self.w11_catch.set_visible(center)
+        if center:
+            self.w11_reset()
+            self.show()
+            self.w11_search.grab_focus()
+            return
         self.cascade_close()
         if getattr(self, "nav", None) is not None:
             for c in ("left", "right"):
@@ -805,13 +925,21 @@ class StartMenu(Gtk.Window):
         fr.get_style_context().add_class("avatar-frame")
         img = Gtk.Image()
         try:
-            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(AVATAR, 44, 44, True)
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(AVATAR, 48, 48, True)
             img.set_from_pixbuf(pb)
         except GLib.Error:
             img.set_from_icon_name("avatar-default", Gtk.IconSize.DIALOG)
         fr.add(img)
         h.pack_start(fr, False, False, 0)
-        lab = Gtk.Label(label="staticxyzz", xalign=0)
+        # Имя — как в центре управления (15.10.2026, просьба: «именно staticxyzz»): файл
+        # state/display-name, иначе полное имя учётной записи, иначе логин.
+        try:
+            shown = open(os.path.expanduser("~/.config/hypr/state/display-name")).read().strip()
+        except OSError:
+            shown = ""
+        real = (GLib.get_real_name() or "").strip()
+        shown = shown or (real if real and real != "Unknown" else GLib.get_user_name())
+        lab = Gtk.Label(label=shown, xalign=0)
         lab.get_style_context().add_class("user")
         h.pack_start(lab, False, False, 0)
         return h
@@ -907,26 +1035,8 @@ class StartMenu(Gtk.Window):
         q = self.search.get_text().strip().lower()
         self.first = None
         if q:
-            found = []
-            forms = search_forms(q)
-            for a in Gio.AppInfo.get_all():
-                if not a.should_show():
-                    continue
-                hay = " ".join(x or "" for x in (a.get_display_name(), a.get_name(),
-                                                  a.get_description(),
-                                                  getattr(a, "get_generic_name", lambda: "")(),
-                                                  ";".join(a.get_keywords() or []) if hasattr(a, "get_keywords") else "",
-                                                  a.get_executable(), a.get_id())).lower()
-                name = (a.get_display_name() or "").lower()
-                score = search_score(hay, forms)
-                if score is not None:
-                    # сперва набранное как есть (и начало названия), потом другая
-                    # раскладка, потом синонимы
-                    starts = any(name.startswith(f) for f, wt in forms[0].items() if wt == score)
-                    found.append((score, 0 if starts else 1, name, a))
-            found.sort(key=lambda x: x[:3])
-            found = [(r, n, a) for r, _s, n, a in found]
-            for i, (_r, _n, a) in enumerate(found[:9]):
+            found = find_apps(q)
+            for i, a in enumerate(found[:9]):
                 row = self.app_row(a, False)
                 if i == 0:
                     self.first = a
@@ -949,6 +1059,463 @@ class StartMenu(Gtk.Window):
                     self.apps_box.pack_start(self.app_row(a, False), False, False, 0)
         self.apps_box.show_all()
 
+    # ── «Пуск» как в Windows 11 ──────────────────────────────────────────
+    # 21.10.2026, просьба: «Пуск… как в Windows новых, только для вида по центру… в стиле
+    # Windows 11, но компактную версию — в Windows 11 она слишком большая». Своя панель в том
+    # же окне, только у нижней панели Centered minimal: поиск сверху, закреплённые сеткой,
+    # «Рекомендуем» (частые за неделю), внизу пользователь и питание. «Все ›» — список всех
+    # программ по алфавиту на месте сетки. Закреплённые — те же, что в «Пуске» XP.
+    # Тот же день, позже: «перестарался с компактностью… можешь сделать Пуск побольше,
+    # больше похожий на Windows» — 6 колонок, значки 40 px, сетка не меньше двух рядов
+    # (недостающее добирают частые программы), «Рекомендуем» — шесть в две колонки.
+    W11_COLS = 6
+    W11_PINS = 18
+    W11_MIN = 12
+    W11_REC = 6
+
+    def w11_build(self):
+        catch = Gtk.EventBox()
+        catch.connect("button-press-event", lambda *_a: True)
+        catch.connect("button-release-event", lambda *_a: True)
+        catch.set_margin_bottom(8)          # как в Windows 11 — над панелью с зазором
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.get_style_context().add_class("w11")
+        box.connect("draw", self.w11_backdrop)
+        box.connect_after("draw", self.w11_frame)
+        catch.add(box)
+        self.w11_search = Gtk.Entry()
+        self.w11_search.get_style_context().add_class("w11-search")
+        self.w11_search.set_placeholder_text("Поиск программ…")
+        self.w11_search.set_icon_from_icon_name(Gtk.EntryIconPosition.PRIMARY, "system-search-symbolic")
+        self.w11_search.connect("changed", lambda _e: self.w11_fill())
+        self.w11_search.connect("activate", lambda _e: self.w11_enter())
+        box.pack_start(self.w11_search, False, False, 0)
+
+        self.w11_stack = Gtk.Stack()
+        self.w11_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.w11_stack.set_transition_duration(120)
+        box.pack_start(self.w11_stack, True, True, 0)
+        # главная: закреплённые и рекомендуемые
+        home = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        home.pack_start(self.w11_head("Закреплённые", "Все", "\U000f0142",
+                                      lambda: self.w11_page("all")), False, False, 0)
+        self.w11_grid = Gtk.Grid()
+        self.w11_grid.get_style_context().add_class("w11-grid")
+        self.w11_grid.set_halign(Gtk.Align.CENTER)
+        home.pack_start(self.w11_grid, False, False, 0)
+        self.w11_rec_head = self.w11_head("Рекомендуем")
+        home.pack_start(self.w11_rec_head, False, False, 0)
+        self.w11_rec = Gtk.Grid()
+        self.w11_rec.get_style_context().add_class("w11-grid")
+        self.w11_rec.set_halign(Gtk.Align.CENTER)
+        home.pack_start(self.w11_rec, False, False, 0)
+        self.w11_stack.add_named(home, "home")
+        # все программы по алфавиту
+        allp = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        allp.pack_start(self.w11_head("Все программы", "Назад", "\U000f0141",
+                                      lambda: self.w11_page("home"), back=True), False, False, 0)
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sw.set_size_request(-1, 60)         # высоту задаёт главная — меню не прыгает
+        self.w11_all = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.w11_all.get_style_context().add_class("w11-list")
+        sw.add(self.w11_all)
+        allp.pack_start(sw, True, True, 0)
+        self.w11_stack.add_named(allp, "all")
+        # результаты поиска
+        self.w11_found = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.w11_found.get_style_context().add_class("w11-list")
+        self.w11_stack.add_named(self.w11_found, "find")
+
+        box.pack_start(self.w11_footer(), False, False, 0)
+        self.holder.add(catch)
+        self.w11_catch = catch
+        self.w11_sel = None
+        self.w11_first = None
+        self.w11_fill()
+        catch.show_all()
+
+    # Подложка и рамка (21.10.2026, просьба: «убери прозрачность в этом Пуске, и сделай вместо
+    # него блюр», «и рамки добавь… немного ближе к стилю системы»). Правило niri с blur здесь
+    # не годится: слой меню — во весь экран (ловит щелчок мимо), размылся бы весь экран. Поэтому
+    # как у виджетов на обоях: под меню — свои размытые обои этого монитора (окна не
+    # просвечивают), сверху тонировка; рамка — по стилю системы монитора (stack_mode.style).
+    W11_BLUR = 16
+    W11_TINT = 0.72
+
+    def w11_out(self):
+        return getattr(self, "connector", None) or os.environ.get("START_MENU_OUTPUT")
+
+    def w11_blurred(self, W, H):
+        """Размытые обои монитора на W×H (кэш по пути обоев и размеру) или None."""
+        out = self.w11_out()
+        try:
+            txt = subprocess.run(["awww", "query"], capture_output=True, text=True, timeout=2).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+        path = None
+        for line in txt.splitlines():
+            m = re.match(r"^:?\s*([\w-]+):.*?image:\s*(.+?)\s*$", line)
+            if m and (m.group(1) == out or path is None):
+                path = m.group(2)
+        key = (path, W, H)
+        cache = getattr(self, "w11_bg", None)
+        if cache and cache[0] == key:
+            return cache[1]
+        surf = None
+        try:
+            import numpy as np
+            from PIL import Image, ImageFilter, ImageOps
+            im = Image.open(path)
+            im.seek(0)
+            k = 4                            # размываем уменьшенную копию, как виджеты
+            small = ImageOps.fit(im.convert("RGB"), (max(1, W // k), max(1, H // k)), Image.BILINEAR)
+            small = small.filter(ImageFilter.GaussianBlur(self.W11_BLUR / k))
+            arr = np.asarray(small.resize((W, H), Image.BILINEAR).convert("RGBA"))
+            buf = np.ascontiguousarray(arr[..., [2, 1, 0, 3]])
+            surf = (cairo.ImageSurface.create_for_data(memoryview(buf), cairo.FORMAT_RGB24, W, H, W * 4), buf)
+        except Exception as e:               # noqa: BLE001 — без обоев: просто тонировка
+            print("пуск: подложка", path, e, file=sys.stderr)
+        self.w11_bg = (key, surf)
+        return surf
+
+    @staticmethod
+    def w11_round(cr, x, y, w, h, r):
+        cr.new_sub_path()
+        for cx, cy, a in ((x + w - r, y + r, -1.5708), (x + w - r, y + h - r, 0),
+                          (x + r, y + h - r, 1.5708), (x + r, y + r, 3.14159)):
+            cr.arc(cx, cy, r, a, a + 1.5708)
+        cr.close_path()
+
+    def w11_backdrop(self, box, cr):
+        a = box.get_allocation()
+        W, H = self.get_allocated_width(), self.get_allocated_height()
+        pos = box.translate_coordinates(self, 0, 0)
+        self.w11_round(cr, 0, 0, a.width, a.height, 8)
+        cr.save()
+        cr.clip()
+        bg = self.w11_blurred(W, H) if W > 1 and H > 1 else None
+        if bg is not None and pos:
+            cr.set_source_surface(bg[0], -pos[0], -pos[1])
+            cr.paint()
+        import xpbar_colors
+        c = xpbar_colors.colors()
+        rgb = Gdk.RGBA()
+        rgb.parse(xpbar_colors.mix(c["base"], c["primary"], 0.07))
+        cr.set_source_rgba(rgb.red, rgb.green, rgb.blue, self.W11_TINT if bg is not None else 0.97)
+        cr.paint()
+        cr.restore()
+        return False
+
+    def w11_frame(self, box, cr):
+        import rec_menu
+        import stack_mode
+        st = stack_mode.style(self.w11_out())
+        C = rec_menu.style_colors(st)
+        mix = rec_menu.mix
+        a = box.get_allocation()
+        w, h = a.width, a.height
+        if st == "skeet":                    # gamesense: светлая, средняя, светлая, чёрная
+            rings = ((C["line1_on"], 1), (C["line2"], 2), (C["line1_on"], 1), (C["line3"], 1))
+        elif st == "beta":
+            rings = ((mix(C["line_strong"], C["acc"], 0.55), 1),)
+        else:                                # XP: тёмная линия снаружи, полоса цвета заголовка
+            rings = ((C["st_dark"], 1), (C["st_mid"], 2), (C["st_dark"], 1))
+        i = 0
+        for col, t in rings:
+            cr.set_source_rgb(*col[:3])
+            cr.set_line_width(t)
+            self.w11_round(cr, i + t / 2, i + t / 2, w - 2 * i - t, h - 2 * i - t, max(1, 8 - i - t / 2))
+            cr.stroke()
+            i += t
+        return False
+
+    def w11_head(self, title, more=None, glyph=None, cb=None, back=False):
+        h = Gtk.Box()
+        h.get_style_context().add_class("w11-head")
+        lab = Gtk.Label(label=title, xalign=0)
+        lab.get_style_context().add_class("w11-h")
+        if more:
+            b = Gtk.Button()
+            b.get_style_context().add_class("w11-more")
+            bx = Gtk.Box(spacing=4)
+            g = Gtk.Label(label=glyph)
+            g.get_style_context().add_class("w11-glyph")
+            t = Gtk.Label(label=more)
+            if back:                         # «‹ Назад» — стрелка слева
+                bx.pack_start(g, False, False, 0)
+                bx.pack_start(t, False, False, 0)
+            else:
+                bx.pack_start(t, False, False, 0)
+                bx.pack_start(g, False, False, 0)
+            b.add(bx)
+            b.connect("clicked", lambda _b: cb())
+            h.pack_end(b, False, False, 0)
+        h.pack_start(lab, True, True, 0)
+        return h
+
+    def w11_footer(self):
+        f = Gtk.Box(spacing=2)
+        f.get_style_context().add_class("w11-foot")
+        av = Gtk.DrawingArea()
+        av.set_size_request(32, 32)
+        av.set_valign(Gtk.Align.CENTER)
+        try:
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(AVATAR, 32, 32, False)
+        except GLib.Error:
+            pb = None
+
+        def draw_av(_w, cr):
+            cr.arc(16, 16, 16, 0, 6.2832)    # круглый аватар, как в Windows 11
+            cr.clip()
+            if pb is not None:
+                Gdk.cairo_set_source_pixbuf(cr, pb, 0, 0)
+            else:
+                cr.set_source_rgba(1, 1, 1, 0.2)
+            cr.paint()
+            return False
+        av.connect("draw", draw_av)
+        f.pack_start(av, False, False, 0)
+        name = self.header().get_children()[-1].get_text()    # то же имя, что в «Пуске» XP
+        lab = Gtk.Label(label=name, xalign=0)
+        lab.get_style_context().add_class("w11-user")
+        lab.set_margin_start(10)
+        f.pack_start(lab, True, True, 0)
+        py = sys.executable
+        for g, tip, cmd in (
+                ("\U000f0425", "Питание", [py, os.path.join(HERE, "power_xp.py")]),
+                ("\U000f033e", "Блокировка", [os.path.join(HERE, "lockscreen")]),
+                ("\U000f0493", "Настройки", [py, os.path.join(HERE, "settings_app.py")])):
+            b = Gtk.Button()
+            b.get_style_context().add_class("w11-icon")
+            b.add(Gtk.Label(label=g))
+            b.set_tooltip_text(tip)
+            b.connect("clicked", lambda _b, c=cmd: self.launch_cmd(*c))
+            f.pack_end(b, False, False, 0)
+        return f
+
+    def w11_tile(self, a):
+        b = Gtk.Button()
+        b.get_style_context().add_class("w11-tile")
+        bx = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        img = Gtk.Image()
+        img.set_from_gicon(a.get_icon() or Gio.ThemedIcon.new("application-x-executable"),
+                           Gtk.IconSize.DIALOG)
+        img.set_pixel_size(40)
+        bx.pack_start(img, False, False, 0)
+        lab = Gtk.Label(label=a.get_display_name())
+        lab.set_ellipsize(Pango.EllipsizeMode.END)
+        lab.set_max_width_chars(10)
+        lab.set_width_chars(10)
+        bx.pack_start(lab, False, False, 0)
+        b.add(bx)
+        b.set_tooltip_text(a.get_display_name())
+        self.w11_hook(b, a)
+        return b
+
+    def w11_row(self, a, sub=True):
+        b = Gtk.Button()
+        b.get_style_context().add_class("w11-row")
+        bx = Gtk.Box(spacing=10)
+        img = Gtk.Image()
+        img.set_from_gicon(a.get_icon() or Gio.ThemedIcon.new("application-x-executable"),
+                           Gtk.IconSize.DND)
+        img.set_pixel_size(32)
+        bx.pack_start(img, False, False, 0)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        col.set_valign(Gtk.Align.CENTER)
+        name = Gtk.Label(label=a.get_display_name(), xalign=0)
+        name.set_ellipsize(Pango.EllipsizeMode.END)
+        col.pack_start(name, False, False, 0)
+        role = role_of(a) if sub else ""
+        if role:
+            r = Gtk.Label(label=role, xalign=0)
+            r.set_ellipsize(Pango.EllipsizeMode.END)
+            r.get_style_context().add_class("w11-sub")
+            col.pack_start(r, False, False, 0)
+        bx.pack_start(col, True, True, 0)
+        b.add(bx)
+        self.w11_hook(b, a)
+        return b
+
+    def w11_hook(self, b, a):
+        b.connect("clicked", lambda _b: self.launch(a))
+        b.connect("button-press-event", lambda _w, e: self.app_menu(a, e) if e.button == 3 else False)
+        b.connect("enter-notify-event", lambda w, _e: self.w11_select(None))
+
+    def w11_fill(self):
+        if self.w11_catch is None:
+            return
+        self.w11_select(None)
+        q = self.w11_search.get_text().strip().lower()
+        self.w11_first = None
+        if q:
+            for c in self.w11_found.get_children():
+                c.destroy()
+            found = find_apps(q)[:7]
+            for i, a in enumerate(found):
+                row = self.w11_row(a)
+                if i == 0:
+                    self.w11_first = a
+                    row.get_style_context().add_class("sel")
+                self.w11_found.pack_start(row, False, False, 0)
+            if not found:
+                lab = Gtk.Label(label="Ничего не нашлось", xalign=0)
+                lab.get_style_context().add_class("w11-sub")
+                lab.set_margin_start(20)
+                lab.set_margin_top(10)
+                self.w11_found.pack_start(lab, False, False, 0)
+            self.w11_found.show_all()
+            self.w11_stack.set_visible_child_name("find")
+            return
+        if self.w11_stack.get_visible_child_name() == "find":
+            self.w11_stack.set_visible_child_name("home")
+        for grid in (self.w11_grid, self.w11_rec, self.w11_all):
+            for c in grid.get_children():
+                c.destroy()
+        pins = pinned()[:self.W11_PINS]
+        if len(pins) < self.W11_MIN:
+            pins += frequent({a.get_id() for a in pins}, self.W11_MIN - len(pins))
+        for i, a in enumerate(pins):
+            self.w11_grid.attach(self.w11_tile(a), i % self.W11_COLS, i // self.W11_COLS, 1, 1)
+        # пустые клетки до полного ряда — чтобы сетка не съёживалась к центру
+        for i in range(len(pins), max(self.W11_COLS, -(-len(pins) // self.W11_COLS) * self.W11_COLS)):
+            ph = Gtk.Box()
+            ph.get_style_context().add_class("w11-cell")
+            self.w11_grid.attach(ph, i % self.W11_COLS, i // self.W11_COLS, 1, 1)
+        rec = frequent({a.get_id() for a in pins}, self.W11_REC)
+        for i, a in enumerate(rec):
+            row = self.w11_row(a)
+            row.set_size_request(272, -1)
+            self.w11_rec.attach(row, i % 2, i // 2, 1, 1)
+        letter = None
+        apps = sorted((a for a in Gio.AppInfo.get_all() if a.should_show()),
+                      key=lambda a: (a.get_display_name() or "").lower())
+        for a in apps:
+            ch = (a.get_display_name() or "?")[:1].upper()
+            ch = ch if ch.isalpha() else "#"
+            if ch != letter:
+                letter = ch
+                lab = Gtk.Label(label=ch, xalign=0)
+                lab.get_style_context().add_class("w11-letter")
+                self.w11_all.pack_start(lab, False, False, 0)
+            self.w11_all.pack_start(self.w11_row(a, sub=False), False, False, 0)
+        for w in (self.w11_grid, self.w11_rec, self.w11_all):
+            w.show_all()
+        self.w11_rec_head.set_visible(bool(rec))
+
+    def w11_reset(self):
+        if self.w11_search.get_text():
+            self.w11_search.set_text("")
+        self.w11_stack.set_visible_child_name("home")
+        self.w11_select(None)
+
+    def w11_page(self, name):
+        self.click_sound()
+        self.w11_select(None)
+        self.w11_stack.set_visible_child_name(name)
+        self.w11_search.grab_focus()
+
+    def w11_enter(self):
+        if self.w11_sel is not None:
+            self.w11_sel.clicked()
+        elif self.w11_first is not None:
+            self.launch(self.w11_first)
+
+    def w11_items(self):
+        out = []
+
+        def walk(w):
+            if not w.get_visible():
+                return
+            if isinstance(w, Gtk.Button):
+                out.append(w)
+            elif isinstance(w, Gtk.Container):
+                w.forall(walk)
+        walk(self.w11_stack.get_visible_child())
+        return out
+
+    def w11_select(self, b):
+        old = getattr(self, "w11_sel", None)
+        if old is not None:
+            old.get_style_context().remove_class("sel")
+        if self.w11_catch is not None:
+            # первая находка поиска подсвечена, но w11_sel она не числится — снимать всегда,
+            # иначе после Ctrl+J выделены две строки (21.10.2026, просьба: «как будто выбрано 2 сразу»)
+            for r in self.w11_found.get_children():
+                r.get_style_context().remove_class("sel")
+        self.w11_sel = b
+        if b is None:
+            return
+        b.get_style_context().add_class("sel")
+        sw = b.get_ancestor(Gtk.ScrolledWindow)
+        if sw is not None:
+            a = b.get_allocation()
+            p = b.translate_coordinates(sw.get_child(), 0, 0)
+            y = p[1] if p else a.y
+            adj = sw.get_vadjustment()
+            if y < adj.get_value():
+                adj.set_value(y)
+            elif y + a.height > adj.get_value() + adj.get_page_size():
+                adj.set_value(y + a.height - adj.get_page_size())
+
+    def w11_move(self, where):
+        """Стрелки и Ctrl+H/J/K/L — по ближайшей кнопке в ту сторону (сетка и списки)."""
+        items = self.w11_items()
+        if not items:
+            return
+        cur = self.w11_sel
+        if cur is None and self.w11_first is not None:
+            cur = items[0]                   # с первой находки поиска
+        if cur not in items:
+            self.w11_select(items[0] if where in ("down", "right") else items[-1])
+            return
+
+        def center(w):
+            p = w.translate_coordinates(self, 0, 0) or (0, 0)
+            a = w.get_allocation()
+            return p[0] + a.width / 2, p[1] + a.height / 2
+        cx, cy = center(cur)
+        best, bd = None, None
+        for w in items:
+            if w is cur:
+                continue
+            x, y = center(w)
+            dx, dy = x - cx, y - cy
+            ahead, side = {"down": (dy, dx), "up": (-dy, dx),
+                           "right": (dx, dy), "left": (-dx, dy)}[where]
+            if ahead <= 2:
+                continue
+            d = ahead + 3 * abs(side)
+            if bd is None or d < bd:
+                best, bd = w, d
+        if best is not None:
+            self.w11_select(best)
+
+    def w11_key(self, e):
+        ctrl = bool(e.state & Gdk.ModifierType.CONTROL_MASK)
+        where = self.NAV_CTRL.get(e.keyval) if ctrl else self.NAV_ARROWS.get(e.keyval)
+        if where:
+            if not ctrl and where in ("left", "right") and self.w11_sel is None \
+                    and self.w11_search.get_text():
+                return False
+            self.w11_move(where)
+            return True
+        if e.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self.w11_enter()
+            return True
+        if e.keyval == Gdk.KEY_Escape:
+            if self.w11_search.get_text():
+                self.w11_search.set_text("")
+            elif self.w11_stack.get_visible_child_name() != "home":
+                self.w11_page("home")
+            else:
+                self.quit()
+            return True
+        if not self.w11_search.has_focus() and e.string and e.string.isprintable():
+            self.w11_search.grab_focus()
+        return False
+
     # ── действия ──────────────────────────────────────────────────────────
     def app_menu(self, a, e):
         ids = [x.get_id() for x in pinned()]
@@ -959,9 +1526,16 @@ class StartMenu(Gtk.Window):
             new = [i for i in ids if i != a.get_id()] if a.get_id() in ids else ids + [a.get_id()]
             set_pinned(new)
             self.search.set_text("")
-            self.fill_apps()
+            self.refill()
         mi.connect("activate", toggle)
         m.append(mi)
+        # и на панель задач, как в Windows 10 — закрепы нижней панели в стопке (xpbar-pins.json)
+        app = taskbar_app_id(a)
+        bar_pins = taskbar_pins()
+        mt = Gtk.MenuItem(label="Открепить от панели задач" if app in bar_pins["pins"]
+                          else "Закрепить на панели задач")
+        mt.connect("activate", lambda _m: taskbar_pin_toggle(app))
+        m.append(mt)
         m.show_all()
         m.attach_to_widget(self, None)
         m.popup_at_pointer(e)
@@ -1087,6 +1661,8 @@ class StartMenu(Gtk.Window):
     NAV_ARROWS = {Gdk.KEY_Down: "down", Gdk.KEY_Up: "up", Gdk.KEY_Left: "left", Gdk.KEY_Right: "right"}
 
     def on_key(self, _w, e):
+        if self.w11_on:
+            return self.w11_key(e)
         ctrl = bool(e.state & Gdk.ModifierType.CONTROL_MASK)
         where = self.NAV_CTRL.get(e.keyval) if ctrl else self.NAV_ARROWS.get(e.keyval)
         if where:
@@ -1119,7 +1695,13 @@ class StartMenu(Gtk.Window):
         self.on_close()
         # Частые программы и закреплённые — обновить в простое, пока меню спрятано:
         # к следующему открытию список готов.
-        GLib.idle_add(lambda: self.fill_apps() and False)
+        GLib.idle_add(lambda: self.refill() and False)
+
+    def refill(self):
+        self.fill_apps()
+        if self.w11_catch is not None:
+            self.w11_fill()
+        return False
 
 
 def monitor_for(connector):
@@ -1146,7 +1728,7 @@ def load_css():
              hover=xpbar_colors.mix(c["base"], c["primary"], 0.55),
              on_hover=c["on_primary"] if False else "#ffffff",
              err_dark=xpbar_colors.mix(c["error"], "#000000", 0.45))
-    css = CSS % c
+    css = CSS % c + W11_CSS % c
     look = menu_look()
     if look == "skeet":
         css += SKEET_CSS % skeet_colors(c)
@@ -1166,6 +1748,9 @@ def cli(args):
     """look get|default|skeet|beta, button get|default|square — для Настроек."""
     what = args[0]
     path, allowed = (LOOK_FILE, LOOKS) if what == "look" else (BUTTON_FILE, BUTTONS)
+    if what == "button":
+        import start_glyphs
+        allowed = tuple(k for k, _ in start_glyphs.choices())
     val = args[1] if len(args) > 1 else "get"
     if val == "get":
         print(read_choice(path, allowed))

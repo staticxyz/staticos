@@ -148,6 +148,10 @@ binds {
     Ctrl+Alt+J { move-column-to-workspace-down; }
     Mod+Ctrl+Alt+K { move-column-to-workspace-up; }
     Mod+Ctrl+Alt+J { move-column-to-workspace-down; }
+    // Кнопка окна в фокусе на нижней панели левее/правее: в стопке — порядок панели, вне её —
+    // колонка (панель идёт по колонкам). niri/scripts/hl-step … move, 21.10.2026.
+    Mod+Ctrl+Alt+H hotkey-overlay-title="Окно на панели левее (стопка) / колонка влево" { spawn-sh "~/.config/niri/scripts/hl-step left move"; }
+    Mod+Ctrl+Alt+L hotkey-overlay-title="Окно на панели правее (стопка) / колонка вправо" { spawn-sh "~/.config/niri/scripts/hl-step right move"; }
     Mod+Ctrl+Alt+Up   { move-column-to-workspace-up; }
     Mod+Ctrl+Alt+Down { move-column-to-workspace-down; }
     Mod+Ctrl+Alt+Minus { move-column-to-workspace-up; }
@@ -318,8 +322,9 @@ binds {
     // (просьба пользователя 19.09.2026; столы остались на H / L)
     Mod+WheelScrollDown { focus-column-right; }
     Mod+WheelScrollUp   { focus-column-left; }
-    Mod+Ctrl+WheelScrollDown cooldown-ms=150 hotkey-overlay-title="Стол ниже" { spawn-sh "~/.config/niri/scripts/ws-step down"; }
-    Mod+Ctrl+WheelScrollUp   cooldown-ms=150 hotkey-overlay-title="Стол выше" { spawn-sh "~/.config/niri/scripts/ws-step up"; }
+    // Super+Ctrl+колесо: в стопке — свернуть / развернуть окно (как Super+J/K), иначе столы (21.10.2026)
+    Mod+Ctrl+WheelScrollDown cooldown-ms=350 hotkey-overlay-title="Свернуть окно (стопка) / стол ниже" { spawn-sh "~/.config/niri/scripts/ws-step down jk"; }
+    Mod+Ctrl+WheelScrollUp   cooldown-ms=350 hotkey-overlay-title="Развернуть окно (стопка) / стол выше" { spawn-sh "~/.config/niri/scripts/ws-step up jk"; }
 
     // ─── Снимки экрана ───
     // Print — родной экран выбора niri: область, окно или монитор,

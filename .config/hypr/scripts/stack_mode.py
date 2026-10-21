@@ -13,6 +13,7 @@
     stack_mode.py restore             ещё раз разложить по последнему снимку
     stack_mode.py unmin ID            вернуть свёрнутое окно (нижняя панель, Alt+Tab)
     stack_mode.py max ID              развернуть ⇄ обратно (меню панели) — с полётом полосы
+    stack_mode.py maxmode [full|island]  развёрнутое: на весь экран | под островком
     stack_mode.py key up|down         Super+K/J: в стопке K развернуть / вернуть последнее
                                       свёрнутое, J обычный размер / свернуть; без стопки — столы
     stack_mode.py key fs              Super+F: в стопке — развернуть ⇄ обратно, вне — полный экран
@@ -25,7 +26,7 @@
   * у каждого монитора своя стопка: свой общий стол, свои свёрнутые, свои полосы;
     окна между мониторами не ездят. Общий стол — первый стол монитора, кроме кармана
     (POCKET, Super+Alt+Q): на ноутбуке это стол 1 (стол виджетов), на MSI — первый после
-    кармана. Окна кармана тоже едут на общий стол (21.10.2026, Просьба: «все окна должны быть
+    кармана. Окна кармана тоже едут на общий стол (21.10.2026, просьба: «все окна должны быть
     в одном столе, исключения только на мониторы»), на выходе возвращаются в карман.
   * вход: снимок всей раскладки всех мониторов (столы, их порядок и имена, колонки и
     строки, ширины/высоты, плавающие места, активные окна, раскладки ws_layout) — в
@@ -76,7 +77,7 @@ MIN_NAME = "\U000f05b0"              # md-window-minimize: стол свёрну
 WJ = "\u2060"                        # word joiner: свёрнутые второго монитора — MIN_NAME + WJ
 HIDDEN_APPS = ("dash-", "jv-stacktest")
 BAR_H = {"default": 30, "skeet": 28, "beta": 30}
-# Своя рамка окна (рисует stack_bars) — с 21.10.2026 и у развёрнутых (Просьба: «добавляй»).
+# Своя рамка окна (рисует stack_bars) — с 21.10.2026 и у развёрнутых (просьба: «добавляй»).
 FRAME = {"default": 3, "skeet": 6, "beta": 1}
 ZW = "​"                        # имена столов с ним ставит niri_bar.py сам
 WSL = [os.path.expanduser("~/.config/hypr/state/" + n) for n in
@@ -502,6 +503,8 @@ def turn_on():
     panel(True)
     top_hover(True)
     zen_buttons(True)
+    csd_buttons(True)
+    ym_buttons()
     notify("Включена: окон %d, мониторов %d" % (len(snap["windows"]), len(outs)))
     return 0
 
@@ -552,7 +555,7 @@ ZEN_END = "/* ZEN-STACK END */"
 
 def zen_buttons(hide):
     """Кнопки окна Zen (свернуть/развернуть/закрыть) в стопке не нужны — они есть в полосе
-    stack_bars (21.10.2026, Просьба: «не нужны и вот эти кнопки в браузере»). zen-ui.css
+    stack_bars (21.10.2026, просьба: «не нужны и вот эти кнопки в браузере»). zen-ui.css
     live-theme.js перечитывает на лету, перезапуск Zen не нужен."""
     try:
         text = open(ZEN_UI, encoding="utf-8").read()
@@ -572,6 +575,41 @@ def zen_buttons(hide):
         with open(ZEN_UI + ".tmp", "w", encoding="utf-8") as f:
             f.write(new)
         os.replace(ZEN_UI + ".tmp", ZEN_UI)
+
+
+def ym_buttons():
+    """Кнопки окна Яндекс Музыки (Electron, рисует их сама) — ym_tweaks.py сам читает
+    режим из состояния и прячет или возвращает их в открытом окне (21.10.2026)."""
+    if TEST:
+        return
+    subprocess.Popen([sys.executable, os.path.join(HERE, "ym_tweaks.py")],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+CSD_KEY = ("org.gnome.desktop.wm.preferences", "button-layout")
+CSD_SAVED = os.path.expanduser("~/.config/hypr/state/stack-button-layout")
+
+
+def csd_buttons(hide):
+    """Свои кнопки окна у Telegram (окно просмотра медиа) и других программ, что рисуют их
+    сами, — в стопке лишние (21.10.2026, просьба: «здесь тоже дублируются кнопки»). Telegram
+    (lib_ui) берёт набор из button-layout через портал и следит за ним на лету; пустая правая
+    часть — кнопок нет. Прежнее значение — в CSD_SAVED, выход возвращает его."""
+    if TEST:
+        return
+    cur = subprocess.run(["gsettings", "get", *CSD_KEY], capture_output=True, text=True).stdout.strip()
+    if hide:
+        if not os.path.exists(CSD_SAVED) and cur:
+            with open(CSD_SAVED, "w", encoding="utf-8") as f:
+                f.write(cur.strip("'"))
+        subprocess.run(["gsettings", "set", *CSD_KEY, "icon:"])
+        return
+    try:
+        old = open(CSD_SAVED, encoding="utf-8").read().strip()
+    except OSError:
+        return
+    subprocess.run(["gsettings", "set", *CSD_KEY, old or "icon:minimize,maximize,close"])
+    os.remove(CSD_SAVED)
 
 
 def top_hover(on):
@@ -679,7 +717,7 @@ def remember(st, wss, wins):
             geo["win"][key] = g
             if w.get("app_id"):
                 geo["app"][w["app_id"]] = g[2:]
-    # что было свёрнуто и развёрнуто — тоже на следующий вход (21.10.2026, Просьба: «пусть
+    # что было свёрнуто и развёрнуто — тоже на следующий вход (21.10.2026, просьба: «пусть
     # запоминает также были ли свёрнуты окна, какие были свёрнуты и т.д.»). Свёрнутые — в
     # порядке сворачивания (Super+K возвращает последнее).
     have = {w["id"] for w in wins if w.get("workspace_id") in mins}
@@ -719,6 +757,7 @@ def turn_off():
     panel(False)
     top_hover(False)
     zen_buttons(False)
+    csd_buttons(False)
     st = load_state()
     wss, wins = query()
     remember(st, wss, wins)
@@ -735,6 +774,7 @@ def turn_off():
     st["active"] = False
     st["max"], st["min"] = {}, {}
     _save(STATE, st)
+    ym_buttons()                         # состояние уже «выключено» — кнопки вернутся
     restore(st)
     set_anim(False)
     diffs, gone = verify(st["snap"])
@@ -964,11 +1004,45 @@ def is_minimized(w, wss=None):
     return any(d["id"] == w.get("workspace_id") and is_min_name(d.get("name")) for d in wss or [])
 
 
+def heal(st, wss, wins):
+    """Стол стопки пропал — niri убирает пустой неактивный стол (21.10.2026: Super+Ctrl+колесо
+    увело на стол свёрнутых, Super+D свернул всё — стол 314 исчез, окна некуда вернуть).
+    Новый стол — первый обычный стол монитора, встаёт перед столом свёрнутых; окна со стола
+    свёрнутых без записи «min» (их возвращали в исчезнувший стол) — туда же. True — чинил."""
+    live = {d["id"] for d in wss}
+    fixed = False
+    for o, v in (st.get("outs") or {}).items():
+        if v.get("desk") in live or not desks(wss, o):
+            continue
+        d = stack_desk_of(desks(wss, o))
+        if d is None:
+            continue
+        log("heal:", o, "стол стопки", v.get("desk"), "пропал →", d["id"])
+        v["desk"] = d["id"]
+        fixed = True
+        M = min_desk(wss, o)
+        mins = st.get("min") or {}
+        stray = [w for w in wins if M and w.get("workspace_id") == M["id"] and str(w["id"]) not in mins]
+        # сперва окна, потом место: пустой стол не в конце niri сразу убирает (лечение
+        # крутилось по кругу, 415 столов за секунду)
+        for w in stray:
+            A("MoveWindowToWorkspace", window_id=w["id"], reference={"Id": d["id"]}, focus=False)
+        if stray and d["idx"] > M["idx"]:
+            A("MoveWorkspaceToIndex", index=M["idx"], reference={"Id": d["id"]})
+        if stray and any(x.get("is_active") and x["id"] == M["id"] for x in wss):
+            A("FocusWorkspace", reference={"Id": d["id"]})
+    if fixed:
+        _save(STATE, st)
+    return fixed
+
+
 def minimize(wid):
     st = load_state()
     if not active(st):
         return
     wss, wins = query()
+    if heal(st, wss, wins):
+        wss, wins = query()
     w, o = window_out(wid, wss, wins)
     if not w or o not in (st.get("outs") or {}) or w.get("workspace_id") != so(st, o)["desk"]:
         return
@@ -992,6 +1066,8 @@ def unminimize(wid, focus=True):
     if not active(st):
         A("FocusWindow", id=wid)
         return
+    wss, wins = query()
+    heal(st, wss, wins)
     w, o = window_out(wid)
     if o not in (st.get("outs") or {}):
         A("FocusWindow", id=wid)
@@ -1017,7 +1093,7 @@ WS_STEP = os.path.expanduser("~/.config/niri/scripts/ws-step")
 def stack_key(st, d):
     """Как Win+↑/↓ в Windows. K (up): окно в фокусе — развернуть; на столе нет окна в фокусе
     (всё свёрнуто) — вернуть последнее свёрнутое этого монитора. J (down): свернуть, и
-    развёрнутое тоже — вернётся развёрнутым (21.10.2026, Просьба: «для возвращения из
+    развёрнутое тоже — вернётся развёрнутым (21.10.2026, просьба: «для возвращения из
     полноэкранного у нас и так есть super+f»)."""
     wss, wins = query()
     f = next((w for w in wins if w.get("is_focused")), None)
@@ -1051,7 +1127,7 @@ def stack_key(st, d):
 
 
 def stack_hl(st, d):
-    """Super+H/L в стопке (21.10.2026, Просьба: «переходили влево вправо по окнам, даже если
+    """Super+H/L в стопке (21.10.2026, просьба: «переходили влево вправо по окнам, даже если
     они свернуты; если на столе 2 и более окон — как раньше»; «и дальше проходится по
     свёрнутым, если левее уже ничего нет, и правее»). Есть окно на столе в ту сторону —
     фокус на ближайшее; дальше нет — ближайшее свёрнутое по порядку нижней панели (по кругу),
@@ -1096,11 +1172,55 @@ def stack_hl(st, d):
     return 0
 
 
+# Как разворачивать (21.10.2026, просьба: «раскрывать полностью и раскрывать, чтобы было видно
+# островок»): full — на всю рабочую область; island — сверху место под островок, на том
+# мониторе, где он есть (state/island.json monitor: имя | focus | all). Настройки →
+# Compositor → «Развёрнутое окно»; stack_mode.py maxmode full|island.
+MAX_MODE_FILE = os.path.expanduser("~/.config/hypr/state/stack-max-mode")
+ISLAND_CONF = os.path.expanduser("~/.config/hypr/state/island.json")
+ISLAND_CLEAR = 40             # низ капсулы островка — 35 px от края (снимок 21.10), и зазор
+
+
+def max_mode():
+    try:
+        m = open(MAX_MODE_FILE).read().strip()
+    except OSError:
+        return "full"
+    return m if m in ("full", "island") else "full"
+
+
+def max_top(o):
+    if max_mode() != "island":
+        return 0
+    try:
+        c = json.load(open(ISLAND_CONF))
+    except (OSError, ValueError):
+        return 0
+    if not c.get("on", True):
+        return 0
+    m = c.get("monitor") or "focus"
+    return ISLAND_CLEAR if m in ("focus", "all") or m == o else 0
+
+
 def max_rect(st, o, w):
-    """Где стоит развёрнутое окно: рабочая область минус полоса и своя рамка вокруг."""
+    """Где стоит развёрнутое окно: рабочая область минус полоса и своя рамка вокруг (и
+    место под островок — max_top)."""
     ww, wh = work(st, o)
-    b, bh, F = border(w), bar_h(o), FRAME.get(style(o), 3)
-    return F, bh + F, ww - 2 * F - 2 * b, wh - bh - 2 * F - 2 * b
+    b, bh, F, t = border(w), bar_h(o), FRAME.get(style(o), 3), max_top(o)
+    return F, t + bh + F, ww - 2 * F - 2 * b, wh - t - bh - 2 * F - 2 * b
+
+
+def set_max_mode(mode):
+    """Записать вид и переставить уже развёрнутые окна."""
+    with open(MAX_MODE_FILE, "w") as f:
+        f.write(mode + "\n")
+    st = load_state()
+    if not active(st):
+        return
+    for key in st.get("max") or {}:
+        w, o = window_out(int(key))
+        if w and o in (st.get("outs") or {}):
+            place(int(key), *max_rect(st, o, w))
 
 
 def toggle_max(wid, geom=None):
@@ -1249,6 +1369,12 @@ def main(a):
         if not anim_request(cmd, int(a[1])):
             (minimize if cmd == "min" else unminimize)(int(a[1]))
         return 0
+    if cmd == "maxmode":
+        if len(a) > 1 and a[1] in ("full", "island"):
+            set_max_mode(a[1])
+        else:
+            print(max_mode())
+        return 0
     if cmd == "max" and len(a) > 1:
         if not anim_request("max", int(a[1])):
             toggle_max(int(a[1]))
@@ -1260,7 +1386,7 @@ def main(a):
             return 0
         return stack_key(st, "fs")
     if cmd == "key" and len(a) > 1 and a[1] in ("up", "down"):
-        # Super+K/J (21.10.2026, Просьба: «убери в режиме стакинга переключение столов
+        # Super+K/J (21.10.2026, просьба: «убери в режиме стакинга переключение столов
         # super+j/k и сделай на эти бинды свернуть/развернуть окно»). Без стопки — шаг по
         # столам, как было (ws-step).
         st = load_state()
@@ -1274,7 +1400,7 @@ def main(a):
             return 0
         return stack_hl(st, a[1])
     if cmd == "superd":
-        # Super+D как в Windows, но по режиму (21.10.2026, Просьба: «если stack mode — свернуть
+        # Super+D как в Windows, но по режиму (21.10.2026, просьба: «если stack mode — свернуть
         # окна, если scrolling — перейти в стол дашборда»)
         if active() and anim_request("desktop", 0):
             return 0

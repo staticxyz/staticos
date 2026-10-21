@@ -185,6 +185,8 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, GtkLayerShell, Pango  # noqa: E402
 import cairo  # noqa: E402
+gi.require_version("PangoCairo", "1.0")
+from gi.repository import PangoCairo  # noqa: E402
 
 import popup_theme  # noqa: E402
 import pixel_recolor  # noqa: E402
@@ -317,7 +319,6 @@ button.task.focused {
     box-shadow: inset 1px 1px 2px alpha(black, 0.6);
     color: %(primary)s;
 }
-button.task.urgent { border-color: %(error)s; box-shadow: inset 0 -2px %(error)s; }
 button.arrow {
     background: transparent; background-image: none; border: none; box-shadow: none;
     padding: 0 4px; margin: 0; min-height: 0; min-width: 0;
@@ -549,7 +550,6 @@ SKEET_BAR_CSS = """
     box-shadow: inset 1px 1px 0 alpha(black, 0.55), inset 0 0 0 1px %(line3)s, inset 0 -2px %(acc)s;
     color: %(acc_l)s;
 }
-%(W)s button.task.urgent { border-color: %(err)s; box-shadow: inset 0 -2px %(err)s; }
 %(W)s button.arrow { color: %(dim)s; }
 %(W)s button.arrow:hover { color: %(acc)s; }
 %(W)s .tray {
@@ -636,7 +636,6 @@ BETA_BAR_CSS = """
     background-image: none; background-color: %(sel)s; border-color: %(frame)s;
     box-shadow: inset 1px 1px 0 alpha(black, 0.35); color: %(sel_text)s;
 }
-%(W)s button.task.urgent { border-color: %(err)s; box-shadow: inset 0 -2px %(err)s; }
 %(W)s button.arrow { color: %(dim)s; }
 %(W)s button.arrow:hover { color: %(acc)s; }
 %(W)s .tray {
@@ -706,7 +705,6 @@ DARK_BAR_CSS = """
     background-image: none; background-color: %(sel)s;
     box-shadow: inset 1px 1px 2px alpha(black, 0.45), inset 0 -2px %(primary)s; color: %(primary)s;
 }
-%(W)s button.task.urgent { box-shadow: inset 0 -2px %(error)s; }
 %(W)s .tray {
     background-color: transparent; background-image: none;
     border-left: none; box-shadow: none;
@@ -803,6 +801,26 @@ def load_css():
         css += ("%(s)s button.task.pinned { padding: 0 6px; }\n"
                 "%(s)s button.task.launcher:not(:hover) { background-color: transparent; "
                 "background-image: none; border-color: transparent; box-shadow: none; }\n" % dict(s=sel))
+    # стопка, вид centered: кнопки-значки без отступов; «Пуск» — плоский значок, как окна
+    for sel in ["window.xpbar-win"] + ["window.xpbar-win.look-" + k for k in LOOK_COLS]:
+        css += ("%(s)s button.task.compact { padding: 0; }\n"
+                # окно в фокусе — мягкая подложка без рамки и черты: черту рисует draw_run_mark
+                "%(s)s button.task.compact.focused { background-image: none; "
+                "background-color: alpha(white, 0.14); border-color: transparent; box-shadow: none; "
+                "border-radius: 0; }\n"
+                "%(s)s button.task.compact:hover { background-image: none; "
+                "background-color: alpha(white, 0.09); border-color: transparent; box-shadow: none; "
+                "border-radius: 0; }\n"
+                "%(s)s button.task.compact.focused:hover { background-color: alpha(white, 0.18); }\n"
+                "%(s)s button.task.compact:not(.focused):not(:hover) { background-color: transparent; "
+                "background-image: none; border-color: transparent; box-shadow: none; }\n"
+                "%(s)s button.start.compact, %(s)s button.start.compact:hover, %(s)s button.start.compact.open, "
+                "%(s)s button.start.compact.open:hover, %(s)s button.start.compact.open:active { "
+                "background-color: transparent; background-image: none; border-color: transparent; "
+                "box-shadow: none; border-radius: 4px; padding: 0 8px; margin: 0 2px 0 0; }\n"
+                "%(s)s button.start.compact:hover { background-color: alpha(white, 0.10); }\n"
+                "%(s)s button.start.compact.open, %(s)s button.start.compact.open:hover { "
+                "background-color: alpha(white, 0.18); }\n" % dict(s=sel))
     # 19.10.2026: окно просит внимания — квадрат стола трижды мягко вспыхивает акцентом и
     # остаётся с тонкой чертой снизу; нота — кто на столе звучит (тусклая — заглушён)
     WS_ACC.clear()
@@ -921,6 +939,23 @@ def stack_on():
         return False
 
 
+# Вид панели в стопке (21.10.2026, просьба: «ещё один вид stack mode: Centered minimal»):
+# classic — как было; centered — как в Windows 11: окна одними значками, крупнее, по
+# центру экрана, «Пуск» — значок первым в этом ряду, закреплённое остаётся. Настройки →
+# «Нижняя панель» → «Вид в стопке»; вне стопки панель всегда прежняя.
+STACK_LOOK_FILE = os.path.expanduser("~/.config/hypr/state/xpbar-stack-look")
+ICON_W = 44              # centered: ширина кнопки-значка
+ICON_PX = 24             # и размер значка (пиксельные значки чёткие на 8/16/24)
+
+
+def centered_on():
+    try:
+        look = open(STACK_LOOK_FILE).read().strip()
+    except OSError:
+        return False
+    return look == "centered" and stack_on()
+
+
 # В стопке программы закрепляются на панели (ПКМ по кнопке окна), кнопки ставятся в свой
 # порядок перетаскиванием (21.10.2026, пользователь). Закреплённое — значок без названия; окон
 # у программы нет — значок остаётся, щелчок запускает. Вне стопки панель как раньше.
@@ -949,11 +984,24 @@ def pins_save(d):
 
 
 def pin_toggle(app):
+    """Закрепить/открепить, не сдвигая с места — как в Windows 10 (21.10.2026, просьба: «механика закреплений не очень работает»): прежде у закреплённого появлялся новый ключ
+    «p:app», которого нет в сохранённом порядке, и программа уезжала в конец панели."""
     d = pins_load()
-    if app in d["pins"]:
-        d["pins"].remove(app)
-    else:
+    wins = BARS[0].state.windows.values() if BARS else []
+    mine = ["w:%d" % w["id"] for w in wins if (w.get("app_id") or "") == app]
+    pin = app not in d["pins"]
+    if pin:
         d["pins"].append(app)
+    else:
+        d["pins"].remove(app)
+    for conn, keys in d["order"].items():
+        # окна остаются на своих местах; закреп — место перед первым окном программы
+        keys = [k for k in keys if k != "p:" + app]
+        if pin:
+            i = next((i for i, k in enumerate(keys) if k in mine), None)
+            if i is not None:
+                keys.insert(i, "p:" + app)
+        d["order"][conn] = keys
     pins_save(d)
     for bar in BARS:
         bar.refresh()
@@ -3192,6 +3240,73 @@ def clear_drop():
                 b.cancel_spring()
 
 
+# ── Счётчик на кнопке окна (21.10.2026, просьба: «вместо перекрашивания окна, где требуется
+# внимание, нарисовать цифру… как в новых Windows»). Как в Windows 11: красная таблетка с
+# белой цифрой поверх правого верхнего угла значка; больше 99 — «99+». Число — уведомления
+# этой программы из журнала notif_log.py, пришедшие после того, как её окно было в фокусе
+# последний раз. Окно просит внимания, а уведомлений нет — красная точка.
+NOTIF_LOG = os.path.expanduser("~/.cache/jarvis-notif-log.json")
+BADGE_SEEN = os.path.expanduser("~/.cache/xpbar-badge-seen.json")
+BADGE_RGB = (0.91, 0.07, 0.14)           # #E81123 — красный Windows
+_badge = {"mtime": None, "log": [], "seen": None}
+
+
+def _norm(s):
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def badge_seen():
+    if _badge["seen"] is None:
+        try:
+            _badge["seen"] = json.load(open(BADGE_SEEN))
+        except (OSError, ValueError):
+            _badge["seen"] = {}
+    return _badge["seen"]
+
+
+def badge_mark_seen(app_id):
+    """Окно программы в фокусе — её уведомления прочитаны, счётчик в ноль."""
+    seen = badge_seen()
+    now = time.time()
+    if now - seen.get(app_id, 0) < 2:
+        return
+    seen[app_id] = now
+    try:
+        with open(BADGE_SEEN + ".tmp", "w") as f:
+            json.dump(seen, f)
+        os.replace(BADGE_SEEN + ".tmp", BADGE_SEEN)
+    except OSError:
+        pass
+
+
+def badge_count(app_id):
+    if not app_id:
+        return 0
+    try:
+        m = os.stat(NOTIF_LOG).st_mtime
+    except OSError:
+        return 0
+    if m != _badge["mtime"]:
+        try:
+            _badge["log"] = json.load(open(NOTIF_LOG))
+        except (OSError, ValueError):
+            _badge["log"] = []
+        _badge["mtime"] = m
+    seen = badge_seen()
+    if app_id not in seen:                    # программу видим впервые — старое не считаем
+        badge_mark_seen(app_id)
+    since = seen.get(app_id, time.time())
+    na = _norm(app_id)
+    n = 0
+    for r in _badge["log"]:
+        if r.get("t", 0) <= since:
+            break                             # журнал — новые сверху
+        a = _norm(r.get("app"))
+        if a and (a in na or na in a):        # «Telegram Desktop» ↔ org.telegram.desktop, zen ↔ «Zen Browser»
+            n += 1
+    return n
+
+
 class TaskButton(Gtk.Button):
     def __init__(self, bar, wid):
         super().__init__()
@@ -3201,6 +3316,8 @@ class TaskButton(Gtk.Button):
         self.set_relief(Gtk.ReliefStyle.NONE)
         box = Gtk.Box(spacing=6)
         self.img = Gtk.Image()
+        self.isz = 16
+        self.compact = False
         self.img.set_pixel_size(16)
         self.lbl = Gtk.Label(xalign=0)
         self.lbl.set_ellipsize(Pango.EllipsizeMode.END)
@@ -3216,6 +3333,8 @@ class TaskButton(Gtk.Button):
         self.dnd_on = True
         self.add_events(Gdk.EventMask.BUTTON1_MOTION_MASK)
         self.connect("button-press-event", self.on_press)
+        self.urgent = self.focused = False     # у значка закрепа без окон update() не бывает
+        self.connect_after("draw", self.draw_badge)
         self.connect("motion-notify-event", self.on_mmotion)
         self.connect("button-release-event", self.on_release)
         self.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, dnd_targets(), Gdk.DragAction.MOVE)
@@ -3226,7 +3345,10 @@ class TaskButton(Gtk.Button):
 
     @property
     def key(self):
-        return "p:" + self.app_id if self.pinned else "w:%d" % self.wid
+        # 21.10.2026, просьба: «сортировка сбрасывается, когда открываю окно» — прежде все
+        # окна закреплённой программы были «p:app», одно место на всех, и слипались снова.
+        # Теперь у окна свой ключ всегда, «p:app» — только место значка без окон.
+        return "w:%d" % self.wid if self.wid is not None else "p:" + self.app_id
 
     def set_pinned(self, on):
         """Закреплённое с открытым окном — обычная кнопка с названием, место на панели —
@@ -3235,13 +3357,25 @@ class TaskButton(Gtk.Button):
         названия — у закреплённого без окна, PinButton."""
         self.pinned = on
 
+    def set_compact(self, on):
+        """Centered minimal: только значок, крупнее, по середине кнопки; ширину ставит fit_buttons."""
+        if on == self.compact:
+            return
+        self.compact = on
+        self.isz = ICON_PX if on else 16
+        self.img.set_pixel_size(self.isz)
+        self.lbl.set_no_show_all(on)
+        self.lbl.set_visible(not on)
+        self.box.set_halign(Gtk.Align.CENTER if on else Gtk.Align.FILL)
+        (self.get_style_context().add_class if on else self.get_style_context().remove_class)("compact")
+
     def update(self, w):
         self.app_id = w.get("app_id") or ""
         app = window_icon_id(w.get("app_id") or "", w.get("title"))
         if app != self.app:
             self.app = app
             self.img.set_from_gicon(app_icon(app), Gtk.IconSize.MENU)
-            self.img.set_pixel_size(16)
+            self.img.set_pixel_size(self.isz)
             if self.dnd_on:
                 self.drag_source_set_icon_gicon(app_icon(app))     # под курсором при переносе
         self.sync_dnd()
@@ -3256,8 +3390,69 @@ class TaskButton(Gtk.Button):
         ws = self.bar.state.workspaces.get(w.get("workspace_id")) or {}
         self.minimized = stack_min(ws.get("name"))
         self.focused = bool(w.get("is_focused"))
+        self.urgent = bool(w.get("is_urgent")) and not self.focused
+        if self.focused:
+            badge_mark_seen(self.app_id)
+        self.queue_draw()
         # свёрнутое — обычная кнопка, как в XP: «нажата» только кнопка окна в фокусе
         # (21.10.2026, просьба: «не делать тусклыми окна в панели, если не открыты»)
+
+    def draw_run_mark(self, cr):
+        """Centered minimal — метка открытого окна, как в Windows 10: у каждого окна (и
+        свёрнутого) полоска акцентом под значком, чуть уже кнопки; у окна в фокусе — во всю
+        ширину кнопки. 21.10.2026, просьба: свёрнутые «выглядят как будто эти окна не
+        открыты»; сперва было как в Windows 11 (короткие черты) — «давай под Windows 10»."""
+        if not self.compact or self.get_style_context().has_class("launcher"):
+            return
+        st = self.get_style_context()
+        m = st.get_margin(self.get_state_flags())
+        inset = 0 if self.focused else 4
+        x = m.left + inset
+        w = self.get_allocated_width() - m.left - m.right - 2 * inset
+        h = 2
+        y = self.get_allocated_height() - m.bottom - h
+        col = (WS_ACC.get(getattr(self.bar, "look", "")) or WS_ACC.get("xp") or ("#ffffff", 0))[0]
+        rgba = Gdk.RGBA()
+        rgba.parse(col)
+        cr.set_source_rgba(rgba.red, rgba.green, rgba.blue, 1 if self.focused else 0.75)
+        cr.rectangle(x, y, w, h)
+        cr.fill()
+
+    def draw_badge(self, _w, cr):
+        self.draw_run_mark(cr)
+        n = 0 if self.focused else badge_count(self.app_id)
+        if not n and not self.urgent:
+            return False
+        r = self.img.translate_coordinates(self, 0, 0)
+        if not r:
+            return False
+        d = self.isz // 2
+        ix, iy = r[0] + self.img.get_allocated_width() // 2 + d, r[1] + self.img.get_allocated_height() // 2 - d
+        cr.set_source_rgb(*BADGE_RGB)
+        if not n:                                # просит внимания без уведомлений — точка
+            cr.arc(ix - 1, iy + 1, 3, 0, 2 * math.pi)
+            cr.fill()
+            return False
+        lay = self.create_pango_layout("99+" if n > 99 else str(n))
+        desc = lay.get_context().get_font_description().copy()
+        desc.set_absolute_size(8 * Pango.SCALE)       # пиксельный шрифт чёткий на 8 px
+        lay.set_font_description(desc)
+        ink = lay.get_pixel_extents()[0]
+        h = 10
+        w = max(h, ink.width + 4)
+        right = self.get_style_context().get_margin(self.get_state_flags()).right
+        x = min(ix - w // 2 + 1, self.get_allocated_width() - right - w - 1)
+        top = self.get_style_context().get_margin(self.get_state_flags()).top
+        y = max(top + 1, iy - h // 2 + 1)          # не на внешнем отступе — там срезается
+        cr.new_sub_path()
+        cr.arc(x + h / 2, y + h / 2, h / 2, math.pi / 2, 3 * math.pi / 2)
+        cr.arc(x + w - h / 2, y + h / 2, h / 2, -math.pi / 2, math.pi / 2)
+        cr.close_path()
+        cr.fill()
+        cr.set_source_rgb(1, 1, 1)
+        cr.move_to(x + (w - ink.width) / 2 - ink.x, y + (h - ink.height) / 2 - ink.y)
+        PangoCairo.show_layout(cr, lay)
+        return False
 
     def sync_dnd(self):
         """В стопке кнопки только переставляются по панели — своим перетаскиванием, без
@@ -3356,7 +3551,7 @@ class PinButton(TaskButton):
         self.set_pinned(True)
         self.get_style_context().add_class("launcher")
         self.img.set_from_gicon(app_icon(app), Gtk.IconSize.MENU)
-        self.img.set_pixel_size(16)
+        self.img.set_pixel_size(self.isz)
         if self.dnd_on:
             self.drag_source_set_icon_gicon(app_icon(app))
         self.info = app_info(app)
@@ -3379,7 +3574,7 @@ class PinButton(TaskButton):
             self.launch()
         elif e.button == 3:
             self.bar.menu([pop_item("Открыть", self.launch), POP_SEP,
-                           pop_item("Открепить от панели", lambda: pin_toggle(self.app_id))])
+                           pop_item("Открепить от панели задач", lambda: pin_toggle(self.app_id))])
         return True
 
 
@@ -3434,6 +3629,7 @@ def menu_for(bar):
     if m is None:
         m = MENUS[bar.connector] = start_menu.StartMenu(
             bar.monitor, on_close=lambda b=bar: _set_open(b, False))
+        m.connector = bar.connector          # подложка «Пуска» Win11 — обои и стиль этого монитора
     return m
 
 
@@ -3457,7 +3653,7 @@ def toggle_menu(conn):
     close_menus()
     _set_open(bar, True)
     MENU["opened"] = time.monotonic()
-    m.open()
+    m.open(center=bar.centered)
     ui_click("menu")
 
 
@@ -3608,7 +3804,10 @@ class XPBar(Gtk.Window):
         self.start.set_tooltip_text("Пуск")
         self.start.connect("button-release-event", self.on_start)
         bar.pack_start(self.start, False, False, 0)
-        bar.pack_start(Grip(), False, False, 0)
+        self.start_grip = Grip()
+        bar.pack_start(self.start_grip, False, False, 0)
+        self.bar = bar
+        self.centered = False
 
         # столы — только когда их место внизу (top_bar.py ws bottom / верхний бар выключен)
         self.ws_buttons = {}
@@ -3643,7 +3842,12 @@ class XPBar(Gtk.Window):
         self.launchers = {}
         self.btn_w = TASK_W
         self.tasks = Gtk.Box(spacing=0)
-        self.sw.add(self.tasks)
+        # «Пуск» и кнопки окон — в одном ряду: в виде centered «Пуск» переезжает в start_slot
+        self.inner = Gtk.Box(spacing=0)
+        self.start_slot = Gtk.Box(spacing=0)
+        self.inner.pack_start(self.start_slot, False, False, 0)
+        self.inner.pack_start(self.tasks, False, False, 0)
+        self.sw.add(self.inner)
         self.hadj = self.sw.get_hadjustment()
         self.hadj.connect("changed", lambda *_a: self.update_arrows())
         self.hadj.connect("value-changed", lambda *_a: self.update_arrows())
@@ -3720,12 +3924,54 @@ class XPBar(Gtk.Window):
             ctx.add_class("badge" if g[0] == "badge" else "glyphonly")
             self.glyph.set(*g)
         self.start.set_tooltip_text("Пуск — staticOS" if g and g[0] == "icon" else "Пуск")
-        for w in (self.logo, self.wordmark):
-            w.set_visible(v == "default")
-        for w, on in ((self.spark, sq), (self.plus, sq), (self.sq_label, sq or (g and g[0] == "badge")),
+        cen = self.centered                 # centered minimal: «Пуск» — только значок
+        for w, on in ((self.logo, v == "default"), (self.wordmark, v == "default" and not cen)):
+            w.set_visible(on)
+        for w, on in ((self.spark, sq), (self.plus, sq and not cen),
+                      (self.sq_label, (sq or (g and g[0] == "badge")) and not cen),
                       (self.glyph, bool(g))):
             w.set_visible(bool(on))
             w.queue_draw()
+
+    def apply_task_look(self):
+        """Вид в стопке (classic | centered) — на лету: при смене в Настройках и при
+        входе/выходе из стопки (refresh)."""
+        on = centered_on()
+        if on == self.centered:
+            return
+        self.centered = on
+        want = self.start_slot if on else self.bar
+        par = self.start.get_parent()
+        if par is not want:
+            par.remove(self.start)
+            want.pack_start(self.start, False, False, 0)
+            if not on:
+                self.bar.reorder_child(self.start, 0)
+        self.start_grip.set_visible(not on)
+        (self.start.get_style_context().add_class if on else
+         self.start.get_style_context().remove_class)("compact")
+        self.apply_start_look()
+        for b in list(self.buttons.values()) + list(self.launchers.values()):
+            b.set_compact(on)
+            if not on:
+                b.set_size_request(TASK_W, -1)
+        self.inner.set_halign(Gtk.Align.START if on else Gtk.Align.FILL)
+        self.inner.set_margin_start(0)
+        self.btn_w = None
+        self.fit_buttons()
+
+    def center_tasks(self):
+        """Ряд значков — по центру всего экрана, а не полосы между «Пуском» и треем."""
+        r = self.sw.translate_coordinates(self, 0, 0) if self.sw.get_mapped() else None
+        if not r:
+            return False
+        cur = self.inner.get_margin_start()
+        iw = self.inner.get_preferred_width()[1] - cur
+        m = int(max(0, min(self.sw.get_allocated_width() - iw,
+                           self.get_allocated_width() / 2 - iw / 2 - r[0])))
+        if m != cur:
+            self.inner.set_margin_start(m)
+        return False
 
     def apply_look(self):
         """Стиль системы / XP сменили (Настройки, system_style.py set) — на лету."""
@@ -4077,6 +4323,29 @@ class XPBar(Gtk.Window):
             self.tasks.reorder_child(src, idx)
         return False
 
+    def keep_order(self, order, pins):
+        """Записать порядок с новыми кнопками: иначе второе окно, вставшее рядом с первым,
+        уехало бы в конец, когда первое закроют. Ключи закрытых окон и откреплённых — вон."""
+        live = ({"w:%d" % i for i in self.state.windows} | {"p:" + a for a in pins["pins"]})
+        keys = []
+        for b in order:
+            if b.key not in keys:
+                keys.append(b.key)
+        d = pins_load()
+        keys += [k for k in d["order"].get(self.connector) or [] if k not in keys and k in live]
+        d["order"][self.connector] = self.slot_pins(keys, d["pins"])
+        pins_save(d)
+
+    def slot_pins(self, keys, pins):
+        """Значок закрепа, пока у программы есть окна, не виден — его место держим перед её
+        первым окном на панели: закрыли все окна — значок встаёт туда, где они были."""
+        app_of = {"w:%d" % i: w.get("app_id") or "" for i, w in self.state.windows.items()}
+        for a in pins:
+            keys = [k for k in keys if k != "p:" + a]
+            i = next((i for i, k in enumerate(keys) if app_of.get(k) == a), None)
+            keys.insert(len(keys) if i is None else i, "p:" + a)
+        return keys
+
     def save_order(self):
         keys = []
         for b in self.tasks.get_children():
@@ -4084,7 +4353,7 @@ class XPBar(Gtk.Window):
             if k and k not in keys:
                 keys.append(k)
         d = pins_load()
-        d["order"][self.connector] = keys
+        d["order"][self.connector] = self.slot_pins(keys, d["pins"])
         pins_save(d)
         self.order = []
         GLib.idle_add(lambda: self.refresh() and False)
@@ -4246,6 +4515,7 @@ class XPBar(Gtk.Window):
 
     def refresh(self):
         self.refresh_ws()
+        self.apply_task_look()
         wins = self.state.windows_on(self.connector)
         ids = [w["id"] for w in wins]
         for wid in list(self.buttons):
@@ -4263,6 +4533,7 @@ class XPBar(Gtk.Window):
             b = self.buttons.get(w["id"])
             if b is None:
                 b = self.buttons[w["id"]] = TaskButton(self, w["id"])
+                b.set_compact(self.centered)
                 self.tasks.pack_start(b, False, False, 0)
                 b.show_all()
             b.update(w)
@@ -4277,6 +4548,7 @@ class XPBar(Gtk.Window):
         for a in want:
             if a not in self.launchers:
                 b = self.launchers[a] = PinButton(self, a)
+                b.set_compact(self.centered)
                 self.tasks.pack_start(b, False, False, 0)
                 b.show_all()
         order = [self.buttons[i] for i in ids] + [self.launchers[a] for a in want]
@@ -4285,7 +4557,29 @@ class XPBar(Gtk.Window):
             saved = pins["order"].get(self.connector) or []
             pos = {k: i for i, k in enumerate(saved)}
             nat = {b: i for i, b in enumerate(order)}
-            order.sort(key=lambda b: (pos.get(b.key, len(saved) + (not b.pinned)), nat[b]))
+            # новое окно уже открытой программы — рядом с её окнами, как в Windows 10, а не в конец
+            # закреп, о котором порядок ещё не знает (закрепили из «Пуска»), — на место
+            # первого окна программы, а не в конец
+            wpos = {}
+            for b in order:
+                if b.wid is not None and "w:%d" % b.wid in pos:
+                    wpos[b.app_id] = min(wpos.get(b.app_id, 1 << 30), pos["w:%d" % b.wid])
+
+            def rank(b):
+                if b.key in pos:
+                    return (pos[b.key], 0, nat[b])
+                if b.wid is None and b.app_id in wpos:
+                    return (wpos[b.app_id], 0, nat[b])
+                same = [pos[x.key] for x in order if x is not b and x.key in pos
+                        and x.app_id and x.app_id == b.app_id]
+                if same:
+                    return (max(same), 1, nat[b])
+                if "p:%s" % b.app_id in pos:    # первое окно закреплённой — на место значка
+                    return (pos["p:%s" % b.app_id], 1, nat[b])
+                return (len(saved) + (not b.pinned), 0, nat[b])
+            order.sort(key=rank)
+            if any(b.key not in pos for b in order) and not any(b.dragging for b in order):
+                self.keep_order(order, pins)
         if order != self.order and not any(b.dragging for b in order):
             self.order = order
             for i, b in enumerate(order):
@@ -4299,6 +4593,13 @@ class XPBar(Gtk.Window):
     def fit_buttons(self):
         """Как в XP: окон много — кнопки ужимаются от TASK_W до TASK_MIN, и только
         когда и так не влезают, появляется прокрутка."""
+        if self.centered:
+            for b in list(self.buttons.values()) + list(self.launchers.values()):
+                if b.get_size_request()[0] != ICON_W:
+                    b.set_size_request(ICON_W, -1)
+            self.btn_w = ICON_W
+            GLib.idle_add(self.center_tasks)
+            return False
         wide = list(self.buttons.values())
         n = len(wide)
         if not n:
@@ -4352,12 +4653,15 @@ class XPBar(Gtk.Window):
             # в стопке окна и так плавающие; «во весь экран» демон стопки делает развёртыванием
             app = w.get("app_id") or ""
             pinned = app in pins_load()["pins"]
-            self.menu([item("Перейти", "focus-window", "--id", str(wid)),
-                       item("Во весь экран", "fullscreen-window", "--id", str(wid)),
-                       pop_item("Открепить от панели" if pinned else "Закрепить на панели",
+            info = app_info(app)
+            new_win = ([pop_item("Новое окно — " + info.get_display_name(),
+                                 lambda: spawn("gtk-launch", info.get_id()))] if info else [])
+            self.menu([item("Перейти", "focus-window", "--id", str(wid))] + new_win +
+                      [item("Во весь экран", "fullscreen-window", "--id", str(wid)),
+                       pop_item("Открепить от панели задач" if pinned else "Закрепить на панели задач",
                                 lambda: pin_toggle(app)),
                        POP_SEP,
-                       item("Закрыть", "close-window", "--id", str(wid))])
+                       item("Закрыть окно", "close-window", "--id", str(wid))])
             return
         self.menu([item("Перейти", "focus-window", "--id", str(wid)),
                    item("Во весь экран", "fullscreen-window", "--id", str(wid)),
@@ -4537,6 +4841,44 @@ def main():
     lyr_mon = Gio.File.new_for_path(ISLAND_LYR_FILE).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
     lyr_mon.connect("changed", island_lyr)
     BARS_KEEP.append(lyr_mon)
+
+    # пришло уведомление — счётчики на кнопках окон (TaskButton.draw_badge)
+    def badges_redraw(*_a):
+        for b in bars:
+            for t in b.buttons.values():
+                t.queue_draw()
+    badge_mon = Gio.File.new_for_path(NOTIF_LOG).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+    badge_mon.connect("changed", badges_redraw)
+    BARS_KEEP.append(badge_mon)
+
+    # Super+Ctrl+Alt+H/L в стопке (niri/scripts/hl-step … move пишет сюда left|right):
+    # кнопка окна в фокусе — на место левее/правее, порядок сохраняется как после перетаскивания
+    move_file = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "xpbar-move")
+
+    def task_move(_m, f, _o, ev):
+        if ev not in (Gio.FileMonitorEvent.CHANGES_DONE_HINT, Gio.FileMonitorEvent.CREATED):
+            return
+        try:
+            d = open(move_file).read().split()[0]
+        except (OSError, IndexError):
+            return
+        if not stack_on() or d not in ("left", "right"):
+            return
+        for b in bars:
+            t = next((t for t in b.buttons.values() if t.focused), None)
+            if t is None:
+                continue
+            kids = [k for k in b.tasks.get_children() if k.get_visible()]
+            i = kids.index(t) if t in kids else -1
+            j = i + (-1 if d == "left" else 1)
+            if i < 0 or not 0 <= j < len(kids):
+                return
+            b.tasks.reorder_child(t, b.tasks.get_children().index(kids[j]))
+            b.save_order()
+            return
+    move_mon = Gio.File.new_for_path(move_file).monitor_file(Gio.FileMonitorFlags.NONE, None)
+    move_mon.connect("changed", task_move)
+    BARS_KEEP.append(move_mon)
 
     # часы — на начало каждой минуты
     def tick_clock():
@@ -4746,6 +5088,12 @@ def main():
             for b in bars:
                 b.apply_start_look()
                 b.queue_draw()
+        if PINS_FILE in paths:              # закреп из меню «Пуск» (start_menu.py)
+            for b in bars:
+                b.refresh()
+        if STACK_LOOK_FILE in paths:
+            for b in bars:
+                b.apply_task_look()
         if START_LOOK_FILE in paths:
             reset_menus()
             GLib.timeout_add(500, prewarm_menus)     # готово к следующему открытию

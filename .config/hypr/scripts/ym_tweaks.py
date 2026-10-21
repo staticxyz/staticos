@@ -23,6 +23,11 @@ PxPlus мылит. Выбор запоминается в localStorage плее�
 Держится на том же порте отладки 9223, что шрифт и кнопка «Нравится»,
 и ставится на каждую загрузку документа: плеер переходит между разделами,
 одноразовая правка слетела бы на первом переходе.
+
+Свои кнопки окна (свернуть/развернуть/закрыть) в Stack mode прячутся — их рисует
+полоса stack_bars (21.10.2026, просьба: «в Яндекс музыке кнопки тоже дублируются»).
+Режим читается из stack-mode.json при каждом применении; stack_mode.py зовёт этот
+скрипт при входе и выходе. В Scroll mode кнопки клиента — единственные, они остаются.
 """
 import json
 import os
@@ -33,6 +38,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ym_font  # noqa: E402  (page_ws, ws_calls — одна машинерия на всех)
 
 SCRIPT_ID = "jarvis-ym-tweaks"
+STACK_STATE = os.path.expanduser("~/.config/hypr/state/stack-mode.json")
+
+
+def stack_on():
+    try:
+        return bool(json.load(open(STACK_STATE)).get("active"))
+    except (OSError, ValueError, AttributeError):
+        return False
 
 # 16 px, а не 14: у пиксельного шрифта системы клетка 8 px, и на кратном
 # размере он рисуется чётко, а на 14 подмыливал. Классы клиента хешированы,
@@ -67,6 +80,11 @@ JS = r"""
     try { localStorage.setItem(KEY, String(px)); } catch (e) {}
   };
   paint(saved());
+
+  // Кнопки окна клиента — прячутся в Stack mode (__HIDE_BUTTONS__ подставляет Python).
+  let tb = document.getElementById(ID + "-buttons");
+  if (!tb) { tb = document.createElement("style"); tb.id = ID + "-buttons"; document.head.appendChild(tb); }
+  tb.textContent = __HIDE_BUTTONS__ ? '[class*="TitleBar_button"] { display: none !important; }' : "";
 
   // Ступени размера. Вешаем один раз на документ; в полях ввода не мешаем.
   if (!window.__jarvisFontKeys) {
@@ -117,7 +135,7 @@ def apply_once():
     url = ym_font.page_ws()
     if not url:
         return False
-    js = JS % json.dumps(CSS)
+    js = JS.replace("__HIDE_BUTTONS__", "true" if stack_on() else "false") % json.dumps(CSS)
     calls = [{"id": 1, "method": "Runtime.evaluate",
               "params": {"expression": js, "returnByValue": True}},
              {"id": 2, "method": "Page.enable"},
