@@ -103,13 +103,41 @@ def gaming():
     return False
 
 
+PIN_MARKS = os.path.join(RUN, "jarvis-stack-pin")
+
+
+def pinned_windows():
+    """Окна «Поверх всех» стопки: их зеркало — запись окна через niri, но это не трансляция
+    (21.10.2026, просьба: «выключаются уведомления, во время закрепленного окна»). Метки пишет
+    stack_pin.py: файл = id окна, внутри pid зеркала; метка мёртвого зеркала не в счёт."""
+    out = set()
+    try:
+        names = os.listdir(PIN_MARKS)
+    except OSError:
+        return out
+    for n in names:
+        try:
+            os.kill(int(open(os.path.join(PIN_MARKS, n)).read().strip()), 0)
+            out.add(int(n))
+        except (OSError, ValueError):
+            pass
+    return out
+
+
 def busy(casts):
     if os.path.exists(REC_PID):
         return "запись (rec_area)"
     if gaming():
         return "игра"
+    pins = None
     for c in casts.values():
         if c.get("is_active", True):
+            win = ((c.get("target") or {}).get("Window") or {}).get("id")
+            if win is not None and c.get("pid") is None:      # D-Bus Mutter, как у stack_pin
+                if pins is None:
+                    pins = pinned_windows()
+                if win in pins:
+                    continue
             return "трансляция экрана"
     return ""
 

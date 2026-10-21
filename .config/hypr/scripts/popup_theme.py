@@ -154,18 +154,29 @@ EAR = 14                 # радиус вогнутого угла, px
 
 
 def minimal():
-    """Вид системы Minimalistic (pixel_look.py set minimal): бар — капсула посередине."""
+    """Вид системы Minimalistic (pixel_look.py set minimal) или капсула в стопке
+    (stack_mode.py topbar capsule): бар — капсула посередине."""
     try:
         import json
         with open(os.path.expanduser("~/.config/hypr/state/pixel-look.json")) as f:
-            return json.load(f).get("mode") == "minimal"
+            if json.load(f).get("mode") == "minimal":
+                return True
     except (OSError, ValueError):
+        pass
+    try:
+        import sys
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import panels
+        return panels.stack_capsule()
+    except Exception:
         return False
 
 
 def attached():
     # В Minimalistic бара во всю ширину нет — клеиться не к чему: плашки отдельные
-    # карточки под капсулой (13.10.2026, Просьба: «и плашки нужно пофиксить»).
+    # карточки под капсулой (13.10.2026, просьба: «и плашки нужно пофиксить»).
     return os.path.exists(ATTACHED_FILE) and bar_position() != "bottom" and not minimal()
 
 
@@ -373,7 +384,7 @@ def add_ears(align, bottom=False):
     так нижняя линия бара над попапом закрыта, и стыка не видно.
     Возвращает True, если режим включён.
 
-    Вид Minimalistic (13.10.2026, Просьба: «они открываются не в том месте»): бар — капсула
+    Вид Minimalistic (13.10.2026, просьба: «они открываются не в том месте»): бар — капсула
     посередине, поэтому плашка бара встаёт по центру под ней отдельной карточкой. Сюда
     приходят все плашки бара (place_under_cursor, календарь, батарея), так что место и вид
     ставятся здесь одним разом; place_side после этого сам ставит свою сторону."""
@@ -729,7 +740,7 @@ GROUP_ANCHOR = {"bluetooth_popup.py": ("left", 65),
 # по значку, см. ICON_PICK.
 PILL_PICK = {}
 
-# Попапы, которые встают ровно под своим значком в баре (13.10.2026, Просьба: «плашка
+# Попапы, которые встают ровно под своим значком в баре (13.10.2026, просьба: «плашка
 # иногда открывается по-разному. Нужно, чтобы всегда открывалась прямо под иконкой в
 # баре. Не левее, не правее, всегда»). Курсору здесь не верим: проба niri узнаёт, где
 # мышь, через ~0,3 с после щелчка, и если рука уже повела мышь, x уезжал на 130–180 px

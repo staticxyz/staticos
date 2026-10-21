@@ -9,12 +9,15 @@
 
     полоса: тянуть — двигать окно; двойной щелчок — развернуть ⇄ обратно
     СКМ по полосе — свернуть
+    ПКМ по полосе — кнопка «Поверх всех» (у закреплённого — «Открепить»), щелчок по ней
+                    закрепляет; поверх окон стоит живое зеркало окна (stack_pin.py)
 
     stack_bars.py --shot ФАЙЛ [стиль]   макет полос без niri (проверка вида)
 """
 import json
 import os
 import socket
+import subprocess
 import sys
 import time
 
@@ -39,7 +42,6 @@ CURSORS = {"l": "ew-resize", "r": "ew-resize", "b": "ns-resize", "bl": "nesw-res
 ANIM_MS = 230                 # свернуть/вернуть: окно летит к кнопке нижней панели и обратно, как в XP
 REQ = os.path.expanduser("~/.cache/stack-anim-req")          # «min|unmin ID» от stack_mode.py (SIGUSR2)
 BTNS = os.path.expanduser("~/.cache/xpbar-buttons-%s.json")  # где кнопки окон — пишет xpbar
-NOFS = ("steam_app_", "gamescope")    # играм «во весь экран» оставить — их не разворачивать
 ANIM_MAX = 200                # развернуть ⇄ обратно: полоса летит на новое место, потом окно (XP)
 # Своя рамка вокруг окна и полосы (21.10.2026: рамку niri в стопке выключает stack-mode.kdl) —
 # как у виджетов: Skeet 6 (1+3+1+1), Default 3 (XP), Beta 1. С 21.10 и у развёрнутых.
@@ -49,6 +51,14 @@ SHADOW = {True: 9, False: 4}  # тень вправо-вниз: у окна в �
 # кнопками»), значок в полосе — тот же, что был у них слева сверху (глиф Nerd Font).
 APP_GLYPH = {"com.jarvis.settings": "\U000f0493"}
 GLYPH_FONT = "JetBrainsMono Nerd Font"
+# «Поверх всех» (21.10.2026, просьба: «сначала должна появиться кнопка как в Windows… повторно
+# ПКМ — кнопка наоборот, открепить»): как кнопка «Закрепить сверху» в заголовке окон Windows
+# 11 (Калькулятор, Записки), но появляется только по ПКМ — функция редкая. Закреплённое окно —
+# в кольце цвета акцента (как PowerToys «Always On Top») и со значком булавки в полосе.
+PIN_BMP = ("..###..", "..#.#..", "..#.#..", ".#####.", "...#...", "...#...", "...#...")
+PIN_TEXT = {False: "Поверх всех", True: "Открепить"}
+OFFER_MS = 4000               # кнопка гаснет, если к ней не подвели мышь
+PIN_HELPER = os.path.join(HERE, "stack_pin.py")
 
 
 def ui_sound(event):
@@ -95,6 +105,75 @@ class Painter:
             out.append((name, r, by))
             r -= GAP
         return out
+
+    def accent(self):
+        return self.C.get("acc") or self.C["primary"]
+
+    def text_w(self, s):
+        key = ("w", self.style, s)
+        if key not in self.icons:
+            lay = PangoCairo.create_layout(cairo.Context(cairo.ImageSurface(cairo.FORMAT_A8, 1, 1)))
+            PangoCairo.context_set_font_options(lay.get_context(), self.fo)
+            lay.set_font_description(self.fd)
+            lay.set_text(s, -1)
+            self.icons[key] = lay.get_pixel_size()[0]
+        return self.icons[key]
+
+    def offer_rect(self, x, y, w, pinned):
+        """Кнопка «Поверх всех»/«Открепить» слева от «Свернуть»: (bx, by, bw, s)."""
+        s = self.s
+        bw = 4 + 7 + 4 + self.text_w(PIN_TEXT[pinned]) + 6
+        _n, mx, by = self.buttons(x, y, w)[-1]
+        return mx - 2 * GAP - bw, by, bw, s
+
+    def bitmap(self, cr, bmp, x, y, col):
+        cr.set_source_rgb(*col)
+        for r, row in enumerate(bmp):
+            for c, ch in enumerate(row):
+                if ch == "#":
+                    cr.rectangle(x + c, y + r, 1, 1)
+        cr.fill()
+
+    def pin_button(self, cr, it, hover):
+        C, style = self.C, self.style
+        bx, by, bw, s = self.offer_rect(it["x"], it["y"], it["w"], it.get("pinned"))
+        if style == "skeet":
+            g = cairo.LinearGradient(0, by, 0, by + s)
+            g.add_color_stop_rgb(0, *C["field_l"])
+            g.add_color_stop_rgb(1, *C["field"])
+            cr.set_source(g)
+            cr.rectangle(bx, by, bw, s)
+            cr.fill()
+            cr.set_line_width(1)
+            for i, col in ((0, C["line3"]), (1, C["gline"])):
+                cr.set_source_rgb(*col)
+                cr.rectangle(bx + i + 0.5, by + i + 0.5, bw - 2 * i - 1, s - 2 * i - 1)
+                cr.stroke()
+            ink = C["acc"] if hover else C["text"]
+        elif style == "beta":
+            self.fill(cr, bx, by, bw, s, C["acc"] if hover else C["field"])
+            cr.set_source_rgb(*C["line_strong"])
+            cr.set_line_width(1)
+            cr.rectangle(bx + 0.5, by + 0.5, bw - 1, s - 1)
+            cr.stroke()
+            ink = C["bg"] if hover else C["text"]
+        else:                                    # Default: синяя кнопка XP, как «Свернуть»
+            top, bot = mix(C["st_top"], (1, 1, 1), 0.22), C["st_bot"]
+            if hover:
+                top, bot = mix(top, (1, 1, 1), 0.2), mix(bot, (1, 1, 1), 0.15)
+            g = cairo.LinearGradient(0, by, 0, by + s)
+            g.add_color_stop_rgb(0, *top)
+            g.add_color_stop_rgb(1, *bot)
+            cr.set_source(g)
+            cr.rectangle(bx, by, bw, s)
+            cr.fill()
+            cr.set_source_rgb(*C["st_hi"])
+            cr.set_line_width(1)
+            cr.rectangle(bx + 0.5, by + 0.5, bw - 1, s - 1)
+            cr.stroke()
+            ink = C["on_surface"]
+        self.bitmap(cr, PIN_BMP, bx + 4, by + (s - 7) // 2, ink)
+        self.text(cr, PIN_TEXT[bool(it.get("pinned"))], bx + 15, it["y"], bw - 15, ink)
 
     def icon(self, app_id):
         if app_id in self.icons:
@@ -294,8 +373,9 @@ class Painter:
             cr.fill()
         cr.restore()
 
-    def bar(self, cr, it, hover=None):
-        """it: x, y (верх полосы), w, title, app_id, focused, maxed."""
+    def bar(self, cr, it, hover=None, offer=False):
+        """it: x, y (верх полосы), w, title, app_id, focused, maxed, pinned; offer — кнопка
+        «Поверх всех» видна."""
         x, y, w, C = it["x"], it["y"], it["w"], self.C
         self.background(cr, x, y, w, it["focused"], bool(it.get("F")))
         glyph = APP_GLYPH.get(it.get("app_id"))
@@ -311,7 +391,13 @@ class Painter:
                 cr.paint_with_alpha(0.6)
         btns = self.buttons(x, y, w)
         tx = ix + ICON + 7
-        tw = btns[-1][1] - 8 - tx
+        right = btns[-1][1]
+        if offer:
+            right = self.offer_rect(x, y, w, it.get("pinned"))[0]
+        elif it.get("pinned"):                   # булавка: окно закреплено поверх всех
+            right -= 2 * GAP + 7
+            self.bitmap(cr, PIN_BMP, right, y + (self.BH - 7) // 2, self.accent())
+        tw = right - 8 - tx
         if self.style == "default":
             self.text(cr, it.get("title"), tx, y, tw, C["on_surface"] if it["focused"]
                       else mix(C["on_surface"], C["st_mid"], 0.25), C["st_dark"] if it["focused"] else None)
@@ -319,6 +405,8 @@ class Painter:
             self.text(cr, it.get("title"), tx, y, tw, C["text"] if it["focused"] else C.get("dim", C["text"]))
         for name, bx, by in btns:
             self.button(cr, name, bx, by, hover == (it["id"], name), it.get("maxed"))
+        if offer:
+            self.pin_button(cr, it, hover == (it["id"], "pin"))
 
 
 class Fast:
@@ -470,6 +558,8 @@ class OutBar:
         self.z = []              # порядок окон снизу вверх — свой, niri его не отдаёт
         self.raised = None       # кого последним подняли (FocusWindow) — без повторов
         self.work_size = None
+        self.offer = None        # у какого окна видна кнопка «Поверх всех» (ПКМ по полосе)
+        self.offer_src = None
 
         w = self.win = Gtk.Window()
         w.set_title(NAMESPACE)
@@ -601,18 +691,23 @@ class OutBar:
         if desk and getattr(self, "need_recal", False):
             self.need_recal = False
             GLib.timeout_add(80, self.recalibrate)
-        zi = {wid: i for i, wid in enumerate(self.z)}
         items = []
-        for w in sorted(desk, key=lambda w: zi.get(w["id"], 1 << 30)):
+        for w in sorted(desk, key=lambda w: self.order(w["id"])):
             p, ts_ = sm.tpos(w), sm.lay(w).get("tile_size")
             if not p or not ts_:
                 continue
             tx, ty = int(round(p[0] - ox)), int(round(p[1] - oy))
             tw, th = int(round(ts_[0])), int(round(ts_[1]))
+            wo, ws_ = sm.lay(w).get("window_offset_in_tile") or (0, 0), sm.wsize(w) or (tw, th)
             items.append({"id": w["id"], "app_id": w.get("app_id"), "title": w.get("title"),
                           "focused": bool(w.get("is_focused")), "maxed": str(w["id"]) in mx,
                           "tile": (tx, ty, tw, th), "x": tx, "y": ty - self.P.BH, "w": tw,
-                          "size": sm.wsize(w), "F": self.P.F})
+                          "size": sm.wsize(w), "F": self.P.F, "pinned": w["id"] in self.mgr.pins,
+                          # зеркалу «поверх всех» — само окно, без отступа плитки: 1:1, не растянуто
+                          "win": (tx + int(round(wo[0])), ty + int(round(wo[1])),
+                                  int(round(ws_[0])), int(round(ws_[1])))})
+        if self.offer is not None and self.offer not in {i["id"] for i in items}:
+            self.set_offer(None)
         if self.press and self.press.get("moved"):          # тянем — место знаем сами
             old = next((i for i in self.items if i["id"] == self.press["id"]), None)
             new = next((i for i in items if i["id"] == self.press["id"]), None)
@@ -640,6 +735,28 @@ class OutBar:
         if fid != self.raised and not self.press:
             self.raised = fid
             FAST.A("FocusWindow", id=fid)
+
+    def order(self, wid):
+        """Снизу вверх: по своему порядку, закреплённые поверх всех — всегда последними
+        (их полоса и рамка сверху, их окно стирает полосы под собой — там зеркало)."""
+        return (wid in self.mgr.pins, self.z.index(wid) if wid in self.z else 1 << 30)
+
+    def set_offer(self, wid):
+        if self.offer_src:
+            GLib.source_remove(self.offer_src)
+            self.offer_src = None
+        if wid != self.offer:
+            self.offer = wid
+            self.win.queue_draw()
+        if wid is not None:
+            self.offer_src = GLib.timeout_add(OFFER_MS, self.offer_expire)
+
+    def offer_expire(self):
+        if self.offer is not None and self.hover == (self.offer, "pin"):
+            return True                          # мышь на кнопке — ждём дальше
+        self.offer_src = None
+        self.set_offer(None)
+        return False
 
     def deco(self, it):
         """Окно целиком — рамка, полоса, окно: (x, y, w, h)."""
@@ -747,7 +864,7 @@ class OutBar:
             cr.save()
             cr.rectangle(it["x"], it["y"], it["w"], self.P.BH)
             cr.clip()
-            self.P.bar(cr, it, self.hover)
+            self.P.bar(cr, it, self.hover, self.offer == it["id"])
             cr.restore()
         return False
 
@@ -764,6 +881,10 @@ class OutBar:
             if it["x"] - F <= x < it["x"] + it["w"] + F and it["y"] - F <= y < it["y"]:
                 return it, "title"                   # верх рамки над полосой
             if it["x"] <= x < it["x"] + it["w"] and it["y"] <= y < it["y"] + self.P.BH:
+                if self.offer == it["id"]:
+                    bx, by, bw, s = self.P.offer_rect(it["x"], it["y"], it["w"], it.get("pinned"))
+                    if bx <= x < bx + bw and by - 4 <= y < by + s + 4:
+                        return it, "pin"
                 for name, bx, by in self.P.buttons(it["x"], it["y"], it["w"]):
                     if bx <= x < bx + self.P.s and by - 4 <= y < by + self.P.s + 4:
                         return it, name
@@ -832,6 +953,9 @@ class OutBar:
 
     def on_press(self, _w, ev):
         it, zone = self.hit(ev.x, ev.y)
+        had_offer = self.offer
+        if self.offer is not None and zone != "pin":
+            self.set_offer(None)                 # щелчок мимо кнопки — погасить
         if not it:
             return False
         if ev.type == Gdk.EventType._2BUTTON_PRESS:
@@ -842,7 +966,7 @@ class OutBar:
         if ev.type != Gdk.EventType.BUTTON_PRESS:
             return True
         self.press = {"id": it["id"], "zone": zone, "x": ev.x, "y": ev.y, "last": (ev.x, ev.y),
-                      "moved": False, "button": ev.button, "tile0": it["tile"]}
+                      "moved": False, "button": ev.button, "tile0": it["tile"], "had_offer": had_offer}
         if zone.startswith("rs:"):
             self.press.update(edge=zone[3:], tile0=it["tile"], size0=tuple(it["size"] or it["tile"][2:]))
         if ev.button == 1 and not it["focused"]:
@@ -851,7 +975,7 @@ class OutBar:
             if self.z and self.z[-1] != it["id"] and it["id"] in self.z:
                 self.z.remove(it["id"])
                 self.z.append(it["id"])
-                self.items.sort(key=lambda i: self.z.index(i["id"]) if i["id"] in self.z else 1 << 30)
+                self.items.sort(key=lambda i: self.order(i["id"]))
                 self.win.queue_draw()
         return True
 
@@ -985,9 +1109,16 @@ class OutBar:
             GLib.timeout_add(60, self.mgr.schedule)      # niri успел встать — перечитать
             return True
         it, zone = self.hit(ev.x, ev.y)
+        if p["button"] == 3 and it and it["id"] == wid and not zone.startswith("rs:"):
+            # ПКМ по полосе — кнопка; ПКМ ещё раз по той же полосе — убрать
+            self.set_offer(None if p.get("had_offer") == wid else wid)
+            return True
         if not it or it["id"] != wid or zone != p["zone"]:
             return True
-        if p["button"] == 2 and zone == "title":
+        if p["button"] == 1 and zone == "pin":
+            self.set_offer(None)
+            self.mgr.toggle_pin(wid, self.out)
+        elif p["button"] == 2 and zone == "title":
             self.minimize(wid)
         elif p["button"] == 1 and zone == "close":
             sm.A("CloseWindow", id=wid)
@@ -998,6 +1129,9 @@ class OutBar:
         self.hover = None
         self.mgr.schedule()
         return True
+
+
+FS_WAIT = 1.0     # с: окно стопки ушло в ленту — ждать, не полный ли это экран (fs_pending)
 
 
 class Bars:
@@ -1011,12 +1145,16 @@ class Bars:
         self.pending = False
         self.buf = b""
         self.bars = {}
+        self.pins = {}           # id → {proc, out, sent}: окна «поверх всех», зеркало stack_pin.py
         self.sync_outputs()
         self.events()
         GLib.timeout_add(700, self.tick)
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, 10, self.dump)     # SIGUSR1
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, 12, self.on_req)   # SIGUSR2: свернуть/вернуть
-        self.fs_seen = {}        # id → время: «во весь экран» уже переделан в «развернуть»
+        self.fs_seen = {}        # id → когда последний раз видели во весь экран (для журнала)
+        self.was_float = set()   # id, что лежали плавающими на столе стопки
+        self.fs_wait = {}        # id → с какого времени ждём, не полный ли это экран
+        self.fs_back = set()     # id, что были во весь экран: вернутся — поставить на место
         self.refresh()
 
     def dump(self):
@@ -1079,6 +1217,69 @@ class Bars:
                 b.unminimize(w)
             elif w:
                 sm.unminimize(wid)
+
+    # — поверх всех —
+    def toggle_pin(self, wid, out):
+        if wid in self.pins:
+            self.unpin(wid, "открепил")
+        else:
+            self.pin(wid, out)
+        self.schedule()
+
+    def pin(self, wid, out):
+        try:
+            proc = subprocess.Popen([sys.executable, PIN_HELPER, str(wid), out], stdin=subprocess.PIPE,
+                                    text=True)
+        except OSError as e:
+            sm.log("bars: поверх всех — не запустилось", wid, e)
+            return
+        self.pins[wid] = {"proc": proc, "out": out, "sent": None}
+        sm.log("bars: поверх всех", out, wid, "зеркало", proc.pid)
+
+    def unpin(self, wid, why):
+        d = self.pins.pop(wid, None)
+        if d is None:
+            return
+        sm.log("bars: поверх всех — снято", wid, why)
+        proc = d["proc"]
+        try:
+            proc.stdin.write("quit\n")
+            proc.stdin.close()
+        except (OSError, ValueError):
+            pass
+
+        def reap():
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            return False
+        GLib.timeout_add(1500, reap)
+
+    def sync_pins(self, wins):
+        """Зеркалу — где окно, или спрятаться: окно в фокусе (niri и так поднял его),
+        стол не виден, обзор, свёрнуто. Окно закрыли или зеркало упало — снять."""
+        live = {w["id"] for w in wins}
+        for wid in list(self.pins):
+            d = self.pins[wid]
+            if wid not in live or d["proc"].poll() is not None:
+                self.unpin(wid, "окно закрыто" if wid not in live else "зеркало закончилось")
+                continue
+            b, it = next(((b, i) for b in self.bars.values() for i in b.items if i["id"] == wid),
+                         (None, None))
+            if b is not None and b.out != d["out"]:
+                self.unpin(wid, "переехало на " + b.out)
+                self.pin(wid, b.out)
+                d = self.pins.get(wid)
+                if d is None:
+                    continue
+            cmd = "hide" if b is None or not b.visible or it["focused"] else "show %d %d %d %d" % it["win"]
+            if cmd != d["sent"]:
+                try:
+                    d["proc"].stdin.write(cmd + "\n")
+                    d["proc"].stdin.flush()
+                    d["sent"] = cmd
+                except (OSError, ValueError):
+                    self.unpin(wid, "зеркало не отвечает")
 
     # — мониторы —
     def monitor(self, out):
@@ -1193,21 +1394,34 @@ class Bars:
             o = dout.get(ws)
             if o in outs and ws == outs[o]["desk"] and w.get("is_floating"):
                 nfl[o] = nfl.get(o, 0) + 1
+        live = {w["id"] for w in wins}
+        self.was_float &= live
+        for k in [k for k in self.fs_wait if k not in live]:
+            del self.fs_wait[k]
         moved = False
         for w in wins:
             ws = w.get("workspace_id")
             o = dout.get(ws)
             if o not in outs or sm.hidden(w):
                 continue
-            if ws == outs[o]["desk"] and self.fullscreen_to_max(w, o):
-                moved = True
-                continue
             if ws in mins:
                 if w.get("is_focused"):
                     sm.unminimize(w["id"])
                     moved = True
                 continue
+            if self.fullscreen_to_max(w, o):         # видео, игра — с любого стола, как есть
+                self.fs_wait.pop(w["id"], None)
+                self.was_float.discard(w["id"])      # выход из полного экрана — в стопку сразу
+                self.fs_back.add(w["id"])
+                continue
             if ws == outs[o]["desk"] and w.get("is_floating"):
+                self.was_float.add(w["id"])
+                self.fs_wait.pop(w["id"], None)
+                if w["id"] in self.fs_back:
+                    self.fs_back.discard(w["id"])
+                    moved = self.back_from_fs(w, o) or moved
+                continue
+            if ws == outs[o]["desk"] and self.fs_pending(w):
                 continue
             if now - self.handled.get(w["id"], 0) < 1.5:
                 continue
@@ -1220,31 +1434,53 @@ class Bars:
             moved = True
         return moved
 
-    def fullscreen_to_max(self, w, o):
-        """В стопке «во весь экран» (Super+F, меню панели) закрыл бы и нижнюю панель, и
-        полосу с кнопками — вместо него окно разворачивается под полосой (21.10.2026, просьба: «нижняя панель должна остаться и полоска с кнопками сверху тоже»)."""
-        size = self.out_size.get(o)
-        if not size or sm.wsize(w) != list(size) or (w.get("app_id") or "").startswith(NOFS):
+    def back_from_fs(self, w, o):
+        """Из полного экрана niri возвращает окно в плавающий размер по своей памяти — у
+        развёрнутого кнопкой стопки это прежний, неразвёрнутый (21.10.2026: Zen после видео
+        стал 1216×633, а полоса считала его развёрнутым). Развёрнутое — снова под полосу."""
+        if str(w["id"]) not in (self.st.get("max") or {}):
+            return False
+        r = sm.max_rect(self.st, o, w)
+        p = sm.tpos(w)
+        sz = sm.wsize(w)
+        if p and abs(sz[0] - r[2]) <= 1 and abs(sz[1] - r[3]) <= 1:
+            return False
+        sm.log("bars: из полного экрана — снова развёрнуто", o, w.get("app_id"), w["id"])
+        sm.place(w["id"], *r)
+        return True
+
+    def fs_pending(self, w):
+        """Плавающее окно стопки попросило полный экран: niri сразу уносит его в ленту, а размер
+        экрана окно получает позже, следующим кадром. Вернуть его в стопку в этот миг — сбить
+        полный экран: видео «делало вид, что раскрывается», раскрывалось только со второго F
+        (21.10.2026). Поэтому до FS_WAIT с ждём; не дорос до экрана — уложить, как обычно.
+        Выход из полного экрана сюда не попадает (fullscreen_to_max снимает отметку). True — ждём."""
+        if w["id"] not in self.was_float:
             return False
         now = time.monotonic()
-        if now - self.fs_seen.get(w["id"], 0) < 1.5:
+        t0 = self.fs_wait.setdefault(w["id"], now)
+        if now - t0 < FS_WAIT:
+            GLib.timeout_add(250, lambda: self.schedule() and False)
             return True
+        self.fs_wait.pop(w["id"], None)
+        self.was_float.discard(w["id"])
+        return False
+
+    def fullscreen_to_max(self, w, o):
+        """Окно во весь экран niri — не трогать: ни в стопку, ни обратно в окно. True — оно такое.
+        Видео в браузере просит полный экран само; раньше демон снимал его и разворачивал окно,
+        браузер просил снова — окно мигало по кругу, каждые 2–4 с (21.10.2026, просьба: «багуется
+        система, когда я открываю видео в браузере на весь экран»). Super+F и «Во весь экран» в
+        меню панели в стопке и так идут через «Развернуть» (stack_mode.py key fs / max), сюда
+        доходит только то, что попросила сама программа. Полный экран niri переносит окно из
+        плавающих в ленту, выход возвращает его плавающим; если нет — enforce вернёт в стопку."""
+        size = self.out_size.get(o)
+        if not size or w.get("is_floating") or sm.wsize(w) != list(size):
+            return False
+        now = time.monotonic()
+        if now - self.fs_seen.get(w["id"], -9) > 3:
+            sm.log("bars: во весь экран — оставить", o, w.get("app_id"), w["id"])
         self.fs_seen[w["id"]] = now
-        b = self.bars.get(o)
-        prev = next((i for i in (b.items if b else []) if i["id"] == w["id"]), None)
-        sm.log("bars: во весь экран → развернуть", o, w.get("app_id"), w["id"])
-        sm.A("FullscreenWindow", id=w["id"])          # переключатель: снять полный экран
-        if str(w["id"]) not in (self.st.get("max") or {}):
-            g = None
-            if prev:
-                tx, ty, tw, th = prev["tile"]
-                bw = sm.border(w)
-                g = [tx, ty, tw - 2 * bw, th - 2 * bw]
-            if b is not None:
-                b.toggle_max(w["id"], g)
-            else:
-                sm.toggle_max(w["id"], g)
-        self.st = sm.load_state()
         return True
 
     def refresh(self):
@@ -1266,6 +1502,7 @@ class Bars:
             wss, wins = sm.query()
         for b in self.bars.values():
             b.update(wss, wins)
+        self.sync_pins(wins)
         return False
 
 
@@ -1277,6 +1514,7 @@ def shot(path, style):
     cr = cairo.Context(surf)
     cr.set_source_rgb(0.18, 0.2, 0.24)
     cr.paint()
+    # окно 1 закреплено поверх всех, у окна 3 — кнопка «Поверх всех» (ПКМ по полосе)
     wins = [(1, "kitty", "~ btop", 30, 60, 520, 220, False, False),
             (2, "org.gnome.Nautilus", "Загрузки — очень длинное имя папки, которое не влезает", 260, 130, 360, 200,
              False, True),
@@ -1288,11 +1526,11 @@ def shot(path, style):
         P.shadow(cr, x - F, y - P.BH - F, w + 2 * F, h + P.BH + 2 * F, SHADOW[foc])
         P.fill(cr, x, y, w, h, (0.06, 0.07, 0.09))
         it = {"id": wid, "app_id": app, "title": title, "x": x, "y": y - P.BH, "w": w,
-              "focused": foc, "maxed": maxed, "F": F}
+              "focused": foc, "maxed": maxed, "F": F, "pinned": wid == 1}
         P.frame(cr, x - F, y - P.BH - F, w + 2 * F, h + P.BH + 2 * F, foc)
         if foc:
             hover = (wid, "close")
-        P.bar(cr, it, hover)
+        P.bar(cr, it, hover, offer=wid == 3)
     surf.write_to_png(path)
     print(path)
 

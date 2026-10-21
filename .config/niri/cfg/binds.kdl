@@ -122,8 +122,8 @@ binds {
     Mod+Ctrl+Down { focus-window-down; }
 
     // ─── Двигать колонку по ленте (ALT, горизонталь) ───
-    Mod+Alt+H     { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-left"; }
-    Mod+Alt+L     { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-right"; }
+    Mod+Alt+H     hotkey-overlay-title="Колонку влево / в стопке окно на 50 px влево" { spawn-sh "python3 ~/.config/hypr/scripts/stack_mode.py move left"; }
+    Mod+Alt+L     hotkey-overlay-title="Колонку вправо / в стопке окно на 50 px вправо" { spawn-sh "python3 ~/.config/hypr/scripts/stack_mode.py move right"; }
     Mod+Alt+Left  { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-left"; }
     Mod+Alt+Right { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-right"; }
 
@@ -131,8 +131,8 @@ binds {
     Mod+Alt+End  { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-last"; }
 
     // ─── Двигать окно внутри колонки (ALT, вертикаль) ───
-    Mod+Alt+K { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-window-up"; }
-    Mod+Alt+J { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-window-down"; }
+    Mod+Alt+K hotkey-overlay-title="Окно вверх / в стопке на 50 px вверх" { spawn-sh "python3 ~/.config/hypr/scripts/stack_mode.py move up"; }
+    Mod+Alt+J hotkey-overlay-title="Окно вниз / в стопке на 50 px вниз" { spawn-sh "python3 ~/.config/hypr/scripts/stack_mode.py move down"; }
     Mod+Alt+Up   { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-window-up"; }
     Mod+Alt+Down { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-window-down"; }
 
@@ -264,9 +264,10 @@ binds {
     // откуда вызвали (scripts/magic помнит его между нажатиями).
     // ALT+Q — туда и обратно, ALT+E — положить окно в карман,
     // SUPER+ALT+E — достать окно из кармана туда, откуда пришли (как в Hyprland).
-    Alt+Q repeat=false hotkey-overlay-title="Карманный стол: открыть/спрятать" { spawn-sh "~/.config/niri/scripts/magic toggle"; }
-    Alt+E hotkey-overlay-title="Окно в карманный стол" { spawn-sh "~/.config/niri/scripts/magic send"; }
-    Mod+Alt+E hotkey-overlay-title="Окно из карманного стола" { spawn-sh "~/.config/niri/scripts/magic take"; }
+    // В стопке молчат (nostack, 21.10.2026): окна кармана и так на общем столе, Alt+Q уводил на пустой.
+    Alt+Q repeat=false hotkey-overlay-title="Карманный стол: открыть/спрятать" { spawn-sh "~/.config/niri/scripts/nostack ~/.config/niri/scripts/magic toggle"; }
+    Alt+E hotkey-overlay-title="Окно в карманный стол" { spawn-sh "~/.config/niri/scripts/nostack ~/.config/niri/scripts/magic send"; }
+    Mod+Alt+E hotkey-overlay-title="Окно из карманного стола" { spawn-sh "~/.config/niri/scripts/nostack ~/.config/niri/scripts/magic take"; }
 
     // ─── Столы по номеру ───
     Mod+1 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 1"; }

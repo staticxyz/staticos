@@ -372,19 +372,31 @@ window#waybar #image.battery-mini { padding: 0 0 0 2px; }
 
 
 def minimal_on():
+    """Капсула вместо бара: вид системы Minimalistic — "look"; стопка с верхним баром
+    «капсула» (stack_mode.py topbar capsule, 21.10.2026) — "stack"; иначе None."""
     try:
         with open(os.path.expanduser("~/.config/hypr/state/pixel-look.json"), encoding="utf-8") as f:
-            return json.load(f).get("mode") == "minimal"
+            if json.load(f).get("mode") == "minimal":
+                return "look"
     except (OSError, ValueError):
-        return False
+        pass
+    try:
+        import sys
+        sys.path.insert(0, os.path.expanduser("~/.config/hypr/scripts"))
+        import panels
+        return "stack" if panels.stack_capsule() else None
+    except Exception:
+        return None
 
 
-def minimal_bar(s):
-    """Конфиг под капсулу: слева и справа пусто, в середине столы, время, Wi-Fi, батарея."""
+def minimal_bar(s, desks=True):
+    """Конфиг под капсулу: слева и справа пусто, в середине столы, время, Wi-Fi, батарея.
+    desks=False — без точек столов (в стопке стол у монитора один)."""
     s = re.sub(r'"modules-left"\s*:\s*\[[^\]]*\]', '"modules-left": []', s, count=1)
     s = re.sub(r'"modules-right"\s*:\s*\[[^\]]*\]', '"modules-right": []', s, count=1)
-    s = re.sub(r'"modules-center"\s*:\s*\[[^\]]*\]', '"modules-center": ["niri/workspaces#mini", '
-               '"clock#mini", "network#mini", "image#battery-mini"]', s, count=1)
+    s = re.sub(r'"modules-center"\s*:\s*\[[^\]]*\]', '"modules-center": [%s'
+               '"clock#mini", "network#mini", "image#battery-mini"]'
+               % ('"niri/workspaces#mini", ' if desks else ""), s, count=1)
     m = re.search(r'^(\s*)"include"\s*:.*,\s*$', s, re.M)
     if m:
         ins = ['"position": "top"', '"height": %d' % MINI_HEIGHT, '"margin-left": 0', '"margin-right": 0',
@@ -600,7 +612,8 @@ def main():
     # упоминания в списках модулей
     s = s.replace('"hyprland/workspaces"', '"niri/workspaces"')
     s = s.replace('"hyprland/language"', '"custom/language"')
-    s = minimal_bar(s) if minimal_on() else fix_margins(s)
+    mini = minimal_on()
+    s = minimal_bar(s, desks=mini == "look") if mini else fix_margins(s)
     head = "// СОБРАНО АВТОМАТИЧЕСКИ из config.jsonc скриптом ~/.config/niri/scripts/waybar_niri.py.\n" \
            "// Не править: при следующем входе в niri файл будет перезаписан.\n"
     write_if_changed(DST, head + top_bar_mode(s))

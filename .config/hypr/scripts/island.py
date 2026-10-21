@@ -179,8 +179,10 @@ def sync_space(c):
                        capture_output=True, timeout=10)
     except (OSError, ValueError, subprocess.SubprocessError) as e:
         log("sync_space:", e)
-PAUSED_KEEP = 60             # музыка на паузе держится нитью столько секунд (30→60, 20.10.2026:
-                             # «исчезает слишком быстро, если ничего не играет»)
+NO_TITLE = "Медиа"           # плеер без названия (видео Telegram) — см. Music.NamedPlayer
+PAUSED_KEEP = None           # музыка на паузе — нитью, компактом и в карточке, пока плеер жив (None —
+                             # без срока; 30→60 с 20.10, 21.10.2026 Просьба: «будет стоять, пока есть
+                             # что смотреть или слушать»); уходит, когда закрыли вкладку/окно плеера
 TRACK_POP_S = 5.0            # название нового трека в компакте (20.10.2026: «на 5 секунд»)
 NIGHT = (22, 7)              # ночное притемнение: с 22:00 до 07:00
 NIGHT_A = {"thread": 0.6, "compact": 0.75, "card": 0.9}
@@ -489,7 +491,17 @@ class Music:
     def __init__(self, on_change):
         from gi.repository import Gio, GLib
         from lyrics_bar import Player
-        self.Gio, self.GLib, self.Player = Gio, GLib, Player
+
+        class NamedPlayer(Player):
+            # Telegram не шлёт xesam:title вовсе (видео в просмотрщике), а шину снимает, когда
+            # просмотрщик закрыли, — значит, без названия, но живой: подпись «Медиа» (21.10.2026).
+            # Браузеры — нет: у них пустое название бывает между вкладками
+            @property
+            def title(self):
+                t = Player.title.fget(self)
+                return t or ("" if self.is_browser() else NO_TITLE)
+
+        self.Gio, self.GLib, self.Player = Gio, GLib, NamedPlayer
         self.on_change = on_change
         self.players, self.by_owner, self.paused_at = {}, {}, {}
         self.bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
@@ -579,14 +591,15 @@ class Music:
         if p:
             p.set_pos(int(_a[-1].unpack()[0] or 0) / 1e6)
 
-    def current(self):
-        """Играющий плеер (песня важнее видео), иначе недавно поставленный на паузу."""
+    def current(self, keep=PAUSED_KEEP):
+        """Играющий плеер (песня важнее видео), иначе недавно поставленный на паузу. keep=None —
+        любой на паузе, пока плеер жив (вкладку/окно закрыли — MPRIS уходит или Stopped)."""
         ps = [p for p in self.players.values() if p.title and not p.ignored()]
         play = [p for p in ps if p.status == "Playing"]
         if play:
             return max(play, key=lambda p: (p.is_song(), not p.is_browser()))
         now = time.monotonic()
-        recent = [p for p in ps if p.status == "Paused" and now - self.paused_at.get(p.name, -1e9) < PAUSED_KEEP]
+        recent = [p for p in ps if p.status == "Paused" and (keep is None or now - self.paused_at.get(p.name, -1e9) < keep)]
         return max(recent, key=lambda p: self.paused_at.get(p.name, 0)) if recent else None
 
     def paused_player(self, keep=None):
@@ -1649,6 +1662,7 @@ APP_BY_SITE = (("youtube.com", "youtube"), ("youtu.be", "youtube"), ("music.yand
 APP_BY_PROC = {"yandexmusic": "yandexmusic", "spotify": "spotify-launcher", "zen-bin": "zen-browser",
                "zen": "zen-browser", "firefox": "firefox", "helium": "helium-browser",
                "chromium": "chromium", "telegram-deskto": "org.telegram.desktop", "Telegram": "org.telegram.desktop",
+               "TelegramDesktop": "org.telegram.desktop",
                "mpv": "mpv", "vlc": "vlc", "youtube-music-d": "youtube-music-desktop-app"}
 YT_BMP = ("..############..", ".##############.", "################", "######WW########",
           "######WWWW######", "######WWWWWW####", "######WWWWWW####", "######WWWW######",
@@ -1683,10 +1697,26 @@ def player_app(p):
     icon = APP_BY_PROC.get(comm)
     if icon is None and m is None:
         icon = APP_BY_PROC.get(name.split(".")[3] if name.count(".") >= 3 else "")
+    if icon is None:
+        # чего нет в таблице — по DesktopEntry самого плеера (21.10.2026: видео в Telegram шло
+        # без значка — шина TelegramDesktop, а не telegram-desktop)
+        icon = mpris_desktop_entry(name)
     if icon and icon != "youtube" and app_pixbuf(icon) is None:
         icon = None
     _APPICON[name] = icon
     return icon
+
+
+def mpris_desktop_entry(name):
+    try:
+        from gi.repository import Gio, GLib
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        v = bus.call_sync(name, "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties", "Get",
+                          GLib.Variant("(ss)", ("org.mpris.MediaPlayer2", "DesktopEntry")),
+                          GLib.VariantType("(v)"), Gio.DBusCallFlags.NONE, 500, None).unpack()[0]
+        return str(v or "") or None
+    except Exception:
+        return None
 
 
 def bus_pid(name):
@@ -3683,12 +3713,14 @@ def cat_right(cat):
     """Правая часть капсулы: music (обложка + квадратики), pomo, busy, date."""
     if not cat:
         return "date"
-    if cat.get("p") is not None:
+    p = cat.get("p")
+    if p is not None and p.status == "Playing":
         return "music"
-    pm = cat.get("pomo")
-    if pm:
+    if cat.get("pomo"):
         return "pomo"
-    return "busy" if cat.get("busy") else "date"
+    if cat.get("busy"):                   # 21.10.2026, просьба: «когда клод работает нет её
+        return "busy"                     # иконки» — музыка на паузе занимала место
+    return "music" if p is not None else "date"
 
 
 def cat_parts(cr, cat, D=None):
@@ -4010,7 +4042,8 @@ def paint_cat_card(cr, x, w, h, cat, col, a, hits, ios):
     # к верху, надо оцентровать»)
     p = cat.get("p")
     rx = x + w - pad - 48
-    if p is not None:                       # 20.10.2026: «квадратик убрать, вместо него иконку,
+    r = cat_right(cat)                      # что справа — как в капсуле (cat_right)
+    if r == "music":                        # 20.10.2026: «квадратик убрать, вместо него иконку,
         k = 3                               # что запущено» — обложка теперь в карточке музыки
         bw, bh = len(CAT_NOTE[0]) * k, len(CAT_NOTE) * k
         bx, y0 = int(rx + 24 - bw / 2), int((h - bh) / 2)
@@ -4018,11 +4051,11 @@ def paint_cat_card(cr, x, w, h, cat, col, a, hits, ios):
         hits.append(((bx, y0, bw, bh), ("cat", "music")))
     else:
         pm = cat.get("pomo")
-        if pm:
+        if r == "pomo":
             y0 = int((h - (len(CAT_TOMATO) * 4 + 14)) / 2)
             draw_bitmap(cr, CAT_TOMATO, int(rx + 10), y0, 4, act_color("pomo", col), a)
             put_text(cr, mmss(pomo_rem(pm)), 8, rx + 24, y0 + len(CAT_TOMATO) * 4 + 10, fg, a, center=True)
-        elif cat.get("busy"):
+        elif r == "busy":
             k = 3                               # 20.10.2026: «иконку клода чуть поменьше» (было 4)
             bw, bh = len(CAT_BUSY[0]) * k, len(CAT_BUSY) * k
             bx, y0 = int(rx + 24 - bw / 2), int((h - bh) / 2)
@@ -5648,12 +5681,12 @@ class App:
                 self.sys_bg("cc", island_sys.night, st["night"])
             elif what == "caf":
                 snap = dict(st)
-                if button == 1:
-                    st["caffeine"] = not st.get("caffeine")
-                    st["taurine"] = bool(st.get("taurine") and st["caffeine"])
-                else:
+                if button == 1:                  # ЛКМ по таурину — обычный кофеин (21.10.2026)
+                    st["caffeine"] = bool(st.get("taurine")) or not st.get("caffeine")
+                    st["taurine"] = False
+                else:                            # ПКМ по таурину гасит и кофеин (21.10.2026)
                     st["taurine"] = not st.get("taurine")
-                    st["caffeine"] = bool(st["caffeine"] or st["taurine"])
+                    st["caffeine"] = st["taurine"]
                 self.sys_pin_set("cc", caffeine=st["caffeine"], taurine=st["taurine"])
                 self.sys["pill"] = dict(self.sys.get("pill") or {}, caffeine=st["caffeine"], taurine=st["taurine"])
                 self.sys_bg("cc", island_sys.caffeine, button, snap)

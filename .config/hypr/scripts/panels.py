@@ -125,6 +125,20 @@ def top_for(out, d=None):
     return "hover" if v == "always" and stack_top(out) else v
 
 
+def stack_capsule():
+    """Стопка включена и в ней выбран верхний бар «капсула» (stack_mode.py topbar capsule):
+    waybar_niri собирает капсулу Minimalistic, плашки — по центру под ней (21.10.2026)."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import stack_mode
+        st = stack_mode.load_state()
+        return bool(st.get("capsule")) and stack_mode.active(st)
+    except Exception:
+        return False
+
+
 def stack_top(out=None):
     """Стопка (stack_mode.py) перевела верхний бар монитора из «всегда» в «при наведении»
     (21.10.2026, просьба: «в режиме stack mode waybar переводить в режим При наведении, если

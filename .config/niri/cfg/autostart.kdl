@@ -6,6 +6,10 @@
 // Оболочка: своя (waybar + swaync + eww) или Noctalia — что выбрано в
 // ~/.config/niri/state/shell. Переключатель: SUPER+SHIFT+S, он же scripts/shell-switch.
 spawn-at-startup "~/.config/niri/scripts/shell-switch" "start"
+// Вступление staticOS после входа (молния → надпись → рабочий стол проступает) — первым,
+// пока остальное поднимается под ним. Раз за включение: повторный вход его не покажет
+// (boot_intro.py off — выключить; 21.10.2026).
+spawn-at-startup "python3" "~/.config/hypr/scripts/boot_intro.py"
 // Подписи столов в баре: значок первой программы вместо номера
 // (переключается в «Настройках» → «Бар», скрипт hypr/scripts/ws_labels.py).
 spawn-at-startup "python3" "~/.config/niri/scripts/niri_bar.py" "names"

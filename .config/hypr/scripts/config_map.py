@@ -109,7 +109,7 @@ AREAS = [
     ("Окна и столы", "▢", """
         alt_tab.py alt_tab.sh ribbon_center.py mouse_focus.py mouse_wait_release.py
         window_fx.py wm.py hot_corners.py
-        pip_place.py ws_layout.py stack_mode.py stack_bars.py mousepad_place.py colexpand colwidth floattoggle magic
+        pip_place.py ws_layout.py stack_mode.py stack_bars.py stack_pin.py mousepad_place.py colexpand colwidth floattoggle magic
         move_all no_self_maximize.py pair_center.py winreset ws_insert ws-step fs-toggle hl-step nostack winmon close-or-clipboard
         dashboard shell-switch shell-do ws-anim"""),
     ("Настройки и справка", "⚙", """
@@ -121,7 +121,7 @@ AREAS = [
         lock_power_label.sh lock_style.py lockscreen avatar_picker.py login_theme.py
         login_theme/ vt_guard"""),
     ("Простой, сон, заставка", "☾", """
-        idle_dim idle_guard.py idle_lock idle_suspend screen_awake.py screensaver.py
+        idle_dim idle_guard.py idle_lock idle_suspend screen_awake.py screensaver.py boot_intro.py
         power_menu.py alt-f4 dpms screenon output-mode-fix"""),
     ("Яркость и ночной свет", "☀", """
         screen_gamma.py night_mode.py monitor_brightness.py"""),

@@ -160,17 +160,21 @@ def cc_state():
 
 def caffeine(button, st):
     """ЛКМ — кофеин (Savage Mode) вкл/выкл; ПКМ — «Кофеин + Таурин» (ещё и экран не гаснет)
-    вкл/выкл, выключение таурина оставляет кофеин. Как плитка control_center.py."""
+    вкл/выкл. ЛКМ по таурину оставляет обычный кофеин; ПКМ по нему гасит всё (21.10.2026, просьба: «полностью должна выключаться, вместе с Кофеин»)."""
     import savage_battery
     on = savage_battery.is_savage_active()
     if button == 1:
-        if on:
+        if st.get("taurine"):                    # ЛКМ по таурину — назад к обычному кофеину
+            run(*script("screen_awake.py", "off"))      # (21.10.2026, пользователь)
+        elif on:
             run(*script("savage_battery.py", "--toggle"))       # гасит и таурин
         else:
             spawn(list(script("savage_battery.py", "--toggle")))
         return
     if st.get("taurine"):
         run(*script("screen_awake.py", "off"))
+        if on:
+            run(*script("savage_battery.py", "--toggle"))
     else:
         if not on:
             spawn(list(script("savage_battery.py", "--toggle")))   # systemd-inhibit — отдельной сессией

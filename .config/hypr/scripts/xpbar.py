@@ -945,6 +945,7 @@ def stack_on():
 # «Нижняя панель» → «Вид в стопке»; вне стопки панель всегда прежняя.
 STACK_LOOK_FILE = os.path.expanduser("~/.config/hypr/state/xpbar-stack-look")
 ICON_W = 44              # centered: ширина кнопки-значка
+NOTE_TASK_PX = 12        # значок звука в углу кнопки окна (стопка); было 9, как у стола — «чуть побольше»
 ICON_PX = 24             # и размер значка (пиксельные значки чёткие на 8/16/24)
 
 
@@ -2782,6 +2783,7 @@ NOTE_AFTER = 4.0                        # поток звучит дольше �
 # уведомления открывают свой поток и держат его ещё несколько секунд после звука
 NOTE_AFTER_MEDIA = 1.5                  # браузеру и музыке — быстрее (19.10.2026, «не сразу появляется»)
 NOTE_LINGER = 8.0                       # пауза или конец — нота держится, чтобы успеть нажать
+NOTE_LINGER_TASK = 60.0                 # значок на кнопке окна в стопке — минуту после паузы (21.10.2026, «хотя бы минуту»)
 BROWSER_RE = re.compile(r"zen|firefox|librewolf|helium|chrom|brave|vivaldi", re.I)
 PIP_TITLES = ("Picture-in-Picture", "Картинка в картинке")    # как pip_place.TITLES
 NOTE_SKIP_ROLES = {"event", "notification", "alert"}
@@ -2899,21 +2901,28 @@ def _eval_streams():
             seen[sid] = now
         last[sid] = now
         info[sid] = f[:6]
-    show, wake = [], []
+    show, wake, long = [], [], []
     for sid in list(seen):
         f = info.get(sid)
         after = note_after(f[1], f[3]) if f else NOTE_AFTER
         if sid in playing:
             if now - seen[sid] >= after:
                 show.append(f)
+                long.append(f)
             else:
                 wake.append(after - (now - seen[sid]))
             continue
         qualified = last[sid] - seen[sid] >= after
-        if qualified and now - last[sid] < NOTE_LINGER:
+        if qualified and now - last[sid] < NOTE_LINGER_TASK:
             cur = next((g for g in AUDIO["found"] if g[0] == sid), None)
-            show.append(cur[:6] if cur else f)             # заглушили на паузе — видно сразу
-            wake.append(NOTE_LINGER - (now - last[sid]))
+            cur = cur[:6] if cur else f                     # заглушили на паузе — видно сразу
+            info[sid] = cur                                 # и после закрытия потока — как было
+            long.append(cur)
+            if now - last[sid] < NOTE_LINGER:
+                show.append(cur)
+                wake.append(NOTE_LINGER - (now - last[sid]))
+            else:
+                wake.append(NOTE_LINGER_TASK - (now - last[sid]))
             continue
         if not qualified and last[sid] - seen[sid] < 15 and f:
             print("xpbar note: поток %s прожил %.1f с" % (f[1], last[sid] - seen[sid]),
@@ -2921,6 +2930,7 @@ def _eval_streams():
         for d in (seen, last, info):
             d.pop(sid, None)
     AUDIO["streams"] = show
+    AUDIO["streams_long"] = long
     if AUDIO["recheck"] is not None:
         GLib.source_remove(AUDIO["recheck"])
         AUDIO["recheck"] = None
@@ -2938,7 +2948,17 @@ def audio_by_ws(windows):
     """стол → [{name, sids, muted, vol}]: кто звучит на каком столе. Поток — к окну по
     дереву процессов, а без pid (Telegram) — по имени приложения. Окон с тем же pid
     несколько (два окна Zen) — к тому, что было в фокусе последним."""
-    if not AUDIO["streams"]:
+    return audio_by(windows, "workspace_id")
+
+
+def audio_by_win(windows):
+    """окно → [{name, …}]: то же, по окнам — значок звука на кнопке окна в стопке
+    (21.10.2026, просьба: «иконку звука в правом верху квадрата окна в панели»)."""
+    return audio_by(windows, "id", "streams_long")
+
+
+def audio_by(windows, key, src="streams"):
+    if not AUDIO.get(src):
         return {}
     import app_volume
     wins = [w for w in windows.values() if w.get("workspace_id") is not None]
@@ -2948,7 +2968,8 @@ def audio_by_ws(windows):
         return (t.get("secs", 0), t.get("nanos", 0))
     out = {}
     playing = {f[0] for f in AUDIO.get("found", ()) if not f[6]}
-    for sid, name, chain, words, muted, vol in AUDIO["streams"]:
+    alive = {f[0] for f in AUDIO.get("found") or ()}
+    for sid, name, chain, words, muted, vol in AUDIO[src]:
         cand = [w for w in wins if w.get("pid") in chain]
         if not cand and words:
             cand = [w for w in wins
@@ -2961,17 +2982,55 @@ def audio_by_ws(windows):
         w = max(cand, key=lambda w: ((w.get("title") or "") not in PIP_TITLES, ts(w)))
         if GAME_RE.match(w.get("app_id") or ""):
             continue
-        apps = out.setdefault(w["workspace_id"], {})
+        apps = out.setdefault(w[key], {})
         a = apps.setdefault(name, {"name": name, "sids": [], "muted": True, "vol": 0, "rank": 9,
-                                   "playing": False})
+                                   "playing": False, "dead": []})
         a["rank"] = min(a["rank"], app_rank(name, w))
         a["playing"] = a["playing"] or sid in playing or not AUDIO.get("found")
+        if AUDIO.get("found") is not None and sid not in alive:
+            a["dead"].append((sid, muted, vol))
+            continue
         a["sids"].append(sid)
         a["muted"] = a["muted"] and muted
         a["vol"] = max(a["vol"], vol)
+    # 21.10.2026, просьба: «нажимаю — то включается, то сразу отключается». Zen на паузе
+    # закрывает поток и открывает новый; старый ещё держится в «минуте после паузы», и его
+    # «не заглушён» перебивал живой — значок мигал обратно. Закрытые потоки — только когда
+    # живых нет (показать, как было до закрытия)
+    for apps in out.values():
+        for a in apps.values():
+            dead = a.pop("dead")
+            if not a["sids"] and dead:
+                a["sids"] = [d[0] for d in dead]     # как было у последнего потока
+                a["muted"], a["vol"] = dead[-1][1], dead[-1][2]
     # первым — что играет сейчас (музыка на паузе уступает Telegram), дальше по рангу
     return {ws: sorted(apps.values(), key=lambda a: (not a["playing"], a["rank"], a["name"]))
             for ws, apps in out.items()}
+
+
+def audio_of_window(win):
+    """Колесо над кнопкой окна (21.10.2026, просьба: «почему скролл по окнам в панели
+    для регулировки громкости не работает?»): потоки этого окна — по дереву
+    процессов, без pid (Telegram) — по имени. Все потоки, не только те, что видны
+    динамиком на столе; играющие — первыми. [] — у окна нет звука (или это игра)."""
+    if GAME_RE.match(win.get("app_id") or ""):
+        return []
+    import app_volume
+    found = AUDIO.get("found")
+    if found is None:
+        found = AUDIO["found"] = read_streams()
+    aw = app_volume.words_of(win.get("app_id")) - GENERIC_WORDS
+    apps = {}
+    for sid, name, chain, words, muted, vol, corked in found:
+        if not (win.get("pid") in chain or (words and aw and app_volume.same_app(words, aw))):
+            continue
+        a = apps.setdefault(name, {"name": name, "sids": [], "muted": True, "vol": 0,
+                                   "playing": False})
+        a["sids"].append(sid)
+        a["muted"] = a["muted"] and muted
+        a["vol"] = max(a["vol"], vol)
+        a["playing"] = a["playing"] or not corked
+    return sorted(apps.values(), key=lambda a: (not a["playing"], a["name"]))
 
 
 def app_rank(name, win):
@@ -3005,9 +3064,10 @@ def set_app_volume(apps, step):
         a["vol"] = max(0, min(100, a["vol"] + step))
         for sid in a["sids"]:
             spawn("pactl", "set-sink-input-volume", str(sid), "%d%%" % a["vol"])
-        for s_i, s in enumerate(AUDIO["streams"]):           # следующий щелчок колеса — от нового
-            if s[0] in a["sids"]:
-                AUDIO["streams"][s_i] = s[:5] + (a["vol"],)
+        for key in ("streams", "found"):                     # следующий щелчок колеса — от нового
+            for s_i, s in enumerate(AUDIO.get(key) or ()):
+                if s[0] in a["sids"]:
+                    AUDIO[key][s_i] = s[:5] + (a["vol"],) + s[6:]
     name = " + ".join(a["name"] for a in live)
     pct = live[0]["vol"]
 
@@ -3363,11 +3423,21 @@ class TaskButton(Gtk.Button):
         self.dragging = False
         self.mdrag = None        # стопка: своё перетаскивание по панели {x, moved}
         self.dnd_on = True
-        self.add_events(Gdk.EventMask.BUTTON1_MOTION_MASK)
+        # колесо — на окно кнопки: без маски событие шло ленте, и кнопку под курсором
+        # on_task_scroll не находил — громкость не крутилась (21.10.2026)
+        self.add_events(Gdk.EventMask.BUTTON1_MOTION_MASK | Gdk.EventMask.SCROLL_MASK |
+                        Gdk.EventMask.SMOOTH_SCROLL_MASK | Gdk.EventMask.POINTER_MOTION_MASK |
+                        Gdk.EventMask.LEAVE_NOTIFY_MASK)
+        self.apps = []           # стопка: кто звучит в этом окне — значок в углу (set_audio)
+        self.note_box = None     # куда щёлкать по значку (x, y, w, h) — щелчок глушит
+        self.note_hover = False
+        self.note_force = None   # (заглушено?, до) — после щелчка, пока pactl не применил
         self.connect("button-press-event", self.on_press)
         self.urgent = self.focused = False     # у значка закрепа без окон update() не бывает
         self.connect_after("draw", self.draw_badge)
         self.connect("motion-notify-event", self.on_mmotion)
+        self.connect("motion-notify-event", lambda _w, e: self.hover_note(self.in_note(e)))
+        self.connect("leave-notify-event", lambda *_a: self.hover_note(False))
         self.connect("button-release-event", self.on_release)
         self.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, dnd_targets(), Gdk.DragAction.MOVE)
         self.sync_dnd()
@@ -3415,7 +3485,7 @@ class TaskButton(Gtk.Button):
         if title != self.title:
             self.title = title
             self.lbl.set_text(title)
-            self.set_tooltip_text(title)
+            self.set_tip()
         ctx = self.get_style_context()
         for cls, on in (("focused", w.get("is_focused")), ("urgent", w.get("is_urgent"))):
             (ctx.add_class if on else ctx.remove_class)(cls)
@@ -3450,8 +3520,85 @@ class TaskButton(Gtk.Button):
         cr.rectangle(x, y, w, h)
         cr.fill()
 
+    def set_audio(self, apps):
+        apps = apps or []
+        key = [(a["name"], silent(a), a["vol"]) for a in apps]
+        if key == [(a["name"], silent(a), a["vol"]) for a in self.apps]:
+            return
+        self.apps = apps
+        self.set_tip()
+        self.queue_draw()
+
+    def set_tip(self):
+        tip = self.title or ""
+        if self.apps:
+            tip += "\nЗвучит: " + ", ".join(
+                a["name"] + (" (заглушён)" if a["muted"] else " · %d%%" % a["vol"]) for a in self.apps) \
+                + "\nКолесо — громкость"
+        self.set_tooltip_text(tip or None)
+
+    def note_muted(self):
+        f = self.note_force
+        if f and time.monotonic() < f[1]:
+            return f[0]
+        self.note_force = None
+        return all(silent(a) for a in self.apps)
+
+    def in_note(self, e):
+        nb = self.note_box
+        return bool(self.apps and nb and nb[0] <= e.x < nb[0] + nb[2] and nb[1] <= e.y < nb[1] + nb[3])
+
+    def hover_note(self, on):
+        if on != self.note_hover:
+            self.note_hover = on
+            self.queue_draw()
+        return False
+
+    def draw_note(self, cr):
+        """Значок звука в правом верхнем углу квадрата — как нота у стола (WsButton): цвет
+        акцента, тусклее; заглушено — перечёркнутый динамик. Щелчок по нему — заглушить
+        (21.10.2026, просьба: «чуть побольше, и сделать её кликабельной»). Рисуется поверх
+        кнопки, места не занимает — значок программы не сдвигается («должна вставать поверх»)."""
+        self.note_box = None
+        if not self.apps:
+            self.note_hover = False
+            return
+        muted = self.note_muted()
+        lay = self.create_pango_layout(NOTE_OFF if muted else NOTE)
+        desc = lay.get_context().get_font_description().copy()
+        desc.set_absolute_size(NOTE_TASK_PX * Pango.SCALE)
+        lay.set_font_description(desc)
+        ink = lay.get_pixel_extents()[0]
+        m = self.get_style_context().get_margin(self.get_state_flags())
+        x = self.get_allocated_width() - m.right - 2 - ink.width - ink.x
+        y = m.top + 2 - ink.y
+        # куда щёлкать — весь правый верхний угол до края кнопки (21.10.2026, «сложно на них
+        # нажать»: было только по значку ±2 px); середина со значком программы — окно
+        W = self.get_allocated_width()
+        x0, y0 = max(0, int(x + ink.x) - 5), 0
+        self.note_box = (x0, y0, W - x0, int(y + ink.y + ink.height) + 5)
+        col = (WS_ACC.get(getattr(self.bar, "look", "")) or WS_ACC.get("xp") or ("#ffffff", 0))[0]
+        rgba = Gdk.RGBA()
+        rgba.parse(col)
+        if self.note_hover:                  # под курсором — подложка: ясно, что щёлкнется значок
+            bx, by = x + ink.x - 3, y + ink.y - 2
+            bw, bh, r = ink.width + 6, ink.height + 4, 3
+            cr.new_sub_path()
+            cr.arc(bx + bw - r, by + r, r, -1.5708, 0)
+            cr.arc(bx + bw - r, by + bh - r, r, 0, 1.5708)
+            cr.arc(bx + r, by + bh - r, r, 1.5708, 3.1416)
+            cr.arc(bx + r, by + r, r, 3.1416, 4.7124)
+            cr.close_path()
+            cr.set_source_rgba(rgba.red, rgba.green, rgba.blue, 0.22)
+            cr.fill()
+        cr.set_source_rgba(rgba.red, rgba.green, rgba.blue,
+                           (1 if self.note_hover else 0.7) * (0.45 if muted else 1))
+        cr.move_to(x, y)
+        PangoCairo.show_layout(cr, lay)
+
     def draw_badge(self, _w, cr):
         self.draw_run_mark(cr)
+        self.draw_note(cr)
         n = 0 if self.focused else badge_count(self.app_id)
         if n and self.wid is not None:
             mine = [w for w in self.bar.state.windows_on(self.bar.connector)
@@ -3510,6 +3657,8 @@ class TaskButton(Gtk.Button):
         return r[0] if r else None
 
     def on_press(self, _w, e):
+        if self.in_note(e):                  # значок звука — не перетаскивание кнопки
+            return False
         if not self.dnd_on and e.button == 1 and e.type == Gdk.EventType.BUTTON_PRESS:
             self.mdrag = {"x": self.tasks_x(e), "moved": False}
         return False
@@ -3563,6 +3712,21 @@ class TaskButton(Gtk.Button):
 
     def on_release(self, _w, e):
         if self.end_mdrag() or self.dragging:
+            return True
+        if e.button == 1 and self.in_note(e):
+            ui_click("click")
+            # что видно, то и переключаем; до ответа pactl значок держит новое состояние
+            mute = not self.note_muted()
+            live = {a["name"]: a for a in audio_of_window(self.bar.state.windows.get(self.wid) or {})}
+            set_app_mute([live.get(a["name"], a) for a in self.apps], mute)
+            info = AUDIO["info"]                 # поток уже закрыт (пауза) — запомнить выбор
+            for a in self.apps:
+                for sid in a["sids"]:
+                    if sid in info and a["name"] not in live:
+                        info[sid] = info[sid][:4] + (mute,) + info[sid][5:]
+            self.note_force = (mute, time.monotonic() + 1.5)
+            GLib.timeout_add(1600, lambda: self.queue_draw() or False)
+            self.queue_draw()
             return True
         if e.button == 1:
             ui_click("click")
@@ -4156,6 +4320,9 @@ class XPBar(Gtk.Window):
         for wdg in (self.ws_ev, self.ws_grip):
             if wdg.get_visible() == hide:
                 wdg.set_visible(not hide)
+        audio = audio_by_win(self.state.windows) if hide else {}
+        for wid, b in self.buttons.items():
+            b.set_audio(audio.get(wid))
         if hide:
             return
         wss = self.ws_list()
@@ -4678,6 +4845,26 @@ class XPBar(Gtk.Window):
         self.hadj.set_value(max(lo, min(hi, self.hadj.get_value() + dx)))
 
     def on_task_scroll(self, _w, e):
+        # над кнопкой окна со звуком — громкость этой программы (как над столом),
+        # над окном без звука — прокрутка ленты окон
+        b = Gtk.get_event_widget(e)
+        while b is not None and not isinstance(b, TaskButton):
+            b = b.get_parent()
+        win = self.state.windows.get(b.wid) if b is not None and b.wid is not None else None
+        apps = audio_of_window(win) if win else []
+        if apps:
+            v = 0
+            if e.direction == Gdk.ScrollDirection.SMOOTH:
+                ok, dx, dy = e.get_scroll_deltas()
+                v = (dy if abs(dy) >= abs(dx) else dx) if ok else 0
+                v = (1 if v > 0 else -1) if abs(v) >= 0.5 else 0
+            elif e.direction in (Gdk.ScrollDirection.UP, Gdk.ScrollDirection.LEFT):
+                v = -1
+            else:
+                v = 1
+            if v:
+                set_app_volume(apps, -v * VOL_STEP)
+            return True
         d = e.direction
         if d == Gdk.ScrollDirection.SMOOTH:
             _ok, dx, dy = e.get_scroll_deltas()
@@ -4694,14 +4881,15 @@ class XPBar(Gtk.Window):
         def item(label, *act):
             return pop_item(label, lambda: action(*act))
         if stack_on():
-            # в стопке окна и так плавающие; «во весь экран» демон стопки делает развёртыванием
+            # в стопке окна и так плавающие; «во весь экран» — развернуть под полосой, как Super+F
+            # (настоящий полный экран демон стопки не трогает: его просит видео, 21.10.2026)
             app = w.get("app_id") or ""
             pinned = app in pins_of(pins_load(), self.connector)
             info = app_info(app)
             new_win = ([pop_item("Новое окно — " + info.get_display_name(),
                                  lambda: spawn("gtk-launch", info.get_id()))] if info else [])
             self.menu([item("Перейти", "focus-window", "--id", str(wid))] + new_win +
-                      [item("Во весь экран", "fullscreen-window", "--id", str(wid)),
+                      [pop_item("Во весь экран", lambda: spawn("python3", STACK_MODE, "max", str(wid))),
                        pop_item("Открепить от панели задач" if pinned else "Закрепить на панели задач",
                                 lambda: pin_toggle(app, self.connector)),
                        POP_SEP,

@@ -380,7 +380,7 @@ PAGE_ALIASES = {"look": "waybar", "bar-shape": "waybar", "bar-geometry": "waybar
                 "shaders": "apps", "terminal": "apps",
                 "windows": "waybar", "visuals-windows": "waybar", "niri": "waybar",
                 # 21.10.2026: лента niri — на странице Compositor (waybar), стопка — DE
-                "stack": "compositor", "de": "compositor",
+                "stack": "compositor", "de": "compositor", "island": "compositor",
                 "shots": "misc", "screen": "visuals",
                 # 13.10.2026: Fonts → Design (и курсор там же), Cursors → Compositor
                 "cursor": "fonts", "design": "fonts",
@@ -4522,7 +4522,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # 21.10.2026: страница называется Compositor — сначала niri (лента, Scroll mode),
         # потом верхний бар и нижняя панель
         scroll, v = self.page("Compositor", "niri: окна, отступы, анимации и размытие; верхний "
-                              "бар и островок. Применяется сразу.")
+                              "бар. Применяется сразу.")
         self.niri_cards(v)
         self.section(v, "Форма панели", "\U000f1513")
         c = self.card(v)
@@ -4646,8 +4646,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.register(edge_row, "Отступы бара", edge_sc, tuple(look),
                       get=lambda: (cur["edge"], cur["win"]), put=margins_show, cb=margins_apply)
         self.bar_extras(v)
-        # 21.10.2026, просьба: «Настройки островка можешь перекинуть в раздел Compositor»
-        self.island_section(v)
         return scroll
 
     # Visuals
@@ -5124,7 +5122,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # stack mode отдельно». Ключ страницы прежний (compositor), название — DE; лента niri
         # ушла в niri_cards на страницу Compositor (ключ waybar).
         scroll, v = self.page("Desktop Environment (DE)",
-                              "Режим окон, меню рабочего стола, показ панелей и нижняя панель. "
+                              "Режим окон, меню рабочего стола, показ панелей, нижняя панель и островок. "
                               "Применяется сразу. Видно только то, что подходит к режиму окон.")
         stack = self.stack_now()
         # 21.10.2026, просьба: блок «Windows XP» убран — «Меню ПКМ» и его вид здесь же;
@@ -5169,11 +5167,25 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "заголовок окна; на мониторе без островка окно всё равно на весь экран. "
                  "Уже развёрнутые окна перестраиваются сразу.",
                  icon="\U000f0293", default="full")
-        self.only_in("stack", mm_row, self.stack_look_row(c))
+        cur_tb = run("python3", sm_py, "topbar") if stack else "waybar"
+        tb_row = self.row(c, "Верхний бар",
+                 self.segments([("waybar", "Waybar"), ("capsule", "Капсула")],
+                               cur_tb if cur_tb in ("waybar", "capsule") else "waybar",
+                               lambda k: subprocess.run(["python3", sm_py, "topbar", k],
+                                                        capture_output=True)),
+                 "Только в режиме Stack: какой верхний бар выезжает при наведении. Капсула — "
+                 "маленькая чёрная таблетка по центру: время, Wi-Fi, батарея (бывший вид "
+                 "Minimalistic, без столов — в стопке стол один). Режим остаётся «при "
+                 "наведении»; выход из стопки возвращает обычный бар.",
+                 icon="\U000f0bc9", default="waybar")
+        self.only_in("stack", mm_row, tb_row, self.stack_look_row(c))
         self.desk_menu_rows(c)
         if not stack:
             self.panels_cards(v)
         self.bottom_cards(v, stack)
+        # 21.10.2026, просьба: «Настройки островка можешь переместить в раздел DE»
+        # (до того — на странице Compositor)
+        self.island_section(v)
         return scroll
 
     # Misc: снимки экрана и окна (01.10.2026, раунд 3)
@@ -5488,17 +5500,16 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # колонки skeet не сходились и в «Окне Настроек» снизу оставалась пустота
         # (14.10.2026, «не должны создаваться пустые пространства»).
         self.row(c, "Шрифт и значки", self.segments(
-            [("normal", "Гладкие"), ("pixel", "Пиксельные"), ("minimal", "Minimalistic")],
+            # Minimalistic отсюда убран (21.10.2026, просьба: «сделана под scroll mode»):
+            # капсула теперь — выбор верхнего бара в стопке, «Рабочий стол» → «Верхний бар»
+            [("normal", "Гладкие"), ("pixel", "Пиксельные")],
             run("python3", pl, "get"),
             lambda k: run_serial(["python3", pl, "set", k])),
                  "Вид системы — меняет всё разом: шрифт системы, Obsidian и Zen, «Пуск» в баре и нижней "
                  "панели, значки (пиксельные везде), подсказку раскладки, микшеры громкости и курсор. Обычный — "
                  "каким он был до переключения. Не трогает kitty, обои и Telegram (его "
                  "шрифт — в настройках чатов). Бар, панель и виджеты перезапустятся сами "
-                 "(секунд 15), открытые программы и эти Настройки — после перезапуска. "
-                 "Minimalistic — как Гладкие, но бар — парящая капсула (столы, время, Wi-Fi, "
-                 "батарея), у окон скруглённые углы и отступ 20 px от краёв; прежние "
-                 "отступ и скругление вернутся при выходе из него.",
+                 "(секунд 15), открытые программы и эти Настройки — после перезапуска.",
                  icon="\U000f03d8")
         self.watch_section(v)
         # Карта конфигов (14.10.2026, просьба: «в разделе Config добавь кнопку, чтобы можно

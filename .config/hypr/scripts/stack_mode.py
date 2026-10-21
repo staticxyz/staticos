@@ -14,6 +14,7 @@
     stack_mode.py unmin ID            вернуть свёрнутое окно (нижняя панель, Alt+Tab)
     stack_mode.py max ID              развернуть ⇄ обратно (меню панели) — с полётом полосы
     stack_mode.py maxmode [full|island]  развёрнутое: на весь экран | под островком
+    stack_mode.py topbar [waybar|capsule]  верхний бар в стопке: обычный | капсула Minimalistic
     stack_mode.py key up|down         Super+K/J: в стопке K развернуть / вернуть последнее
                                       свёрнутое, J обычный размер / свернуть; без стопки — столы
     stack_mode.py key fs              Super+F: в стопке — развернуть ⇄ обратно, вне — полный экран
@@ -21,6 +22,8 @@
                                       без стопки — стол дашборда (dashboard focus)
     stack_mode.py tomon left|right    Ctrl+Alt+H/L: окно на соседний монитор (в стопке — на
                                       его стол стопки, то же место; вне — как в niri)
+    stack_mode.py move left|right|up|down  Super+Alt+H/L/K/J: в стопке сдвиг окна на 50 px,
+                                      вне — перенос колонки/окна, как в niri
     stack_mode.py daemon              полосы заголовков и порядок на столе (запускает on)
     stack_mode.py check | selftest
 
@@ -113,8 +116,9 @@ animations {
 // Рамку окна вместе с полосой заголовка рисует stack_bars.py по стилю системы (21.10.2026,
 // Просьба: «рамки у окон в режиме stack mode убрать вообще и нарисовать свои, в стиле skeet»).
 window-rule {
+    // и у записываемых: красная рамка записи легла бы вокруг окна «поверх всех» (его зеркало —
+    // запись окна, stack_pin.py); что идёт запись, видно по индикатору «экран» в баре
     match is-floating=true
-    exclude is-window-cast-target=true
     border { off; }
     focus-ring { off; }
     shadow { off; }
@@ -634,6 +638,34 @@ def csd_buttons(hide):
     os.remove(CSD_SAVED)
 
 
+# Верхний бар в стопке (21.10.2026, просьба: «можно как вариант заменить ею [Minimalistic]
+# waybar, но режим также останется При наведении. Это только в stack mode такая настройка
+# будет»): waybar — обычный бар; capsule — капсула по центру (время, Wi-Fi, батарея, без
+# точек столов: стол в стопке один). Собирает waybar_niri.py по panels.stack_capsule().
+TOP_BAR_FILE = os.path.expanduser("~/.config/hypr/state/stack-top-bar")
+
+
+def top_bar_kind():
+    try:
+        k = open(TOP_BAR_FILE).read().strip()
+    except OSError:
+        return "waybar"
+    return k if k in ("waybar", "capsule") else "waybar"
+
+
+def set_top_bar_kind(kind):
+    with open(TOP_BAR_FILE + ".tmp", "w") as f:
+        f.write(kind + "\n")
+    os.replace(TOP_BAR_FILE + ".tmp", TOP_BAR_FILE)
+    st = load_state()
+    if not active(st) or TEST or bool(st.get("capsule")) == (kind == "capsule"):
+        return
+    st["capsule"] = kind == "capsule"
+    _save(STATE, st)
+    subprocess.Popen([sys.executable, os.path.join(HERE, "panels.py"), "apply", "top"],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
 def top_hover(on):
     """Верхний бар на время стопки: где он «всегда», там «при наведении» — окна до самого
     верха, бар выезжает поверх (21.10.2026, пользователь). Мониторы — в st["top_hover"], сам
@@ -646,15 +678,18 @@ def top_hover(on):
     import panels
     if on:
         need = [o for o in st.get("outs") or {} if panels.top_for(o) == "always"]
-        if not need:
+        cap = top_bar_kind() == "capsule"
+        if not need and not cap:
             return
         st["top_hover"] = need
+        st["capsule"] = cap
         _save(STATE, st)
         subprocess.Popen([sys.executable, os.path.join(HERE, "panels.py"), "apply", "top"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         return
-    need = st.pop("top_hover", None)
-    if not need:
+    need = st.pop("top_hover", None) or []
+    cap = st.pop("capsule", False)
+    if not need and not cap:
         return
     _save(STATE, st)
     subprocess.run([sys.executable, os.path.join(HERE, "panels.py"), "apply", "top"],
@@ -1317,6 +1352,34 @@ def to_monitor(d):
     return 0
 
 
+NUDGE = 50                               # шаг Super+Alt+H/J/K/L в стопке, px
+NIRI_MOVE = {"left": "MoveColumnLeft", "right": "MoveColumnRight",
+             "up": "MoveWindowUp", "down": "MoveWindowDown"}
+
+
+def nudge(d):
+    """Super+Alt+H/J/K/L (21.10.2026, просьба: вариант «сдвиг окна шагом»). В стопке окно в
+    фокусе сдвигается на NUDGE; полоса заголовка не уходит за верх рабочей области, окно —
+    не дальше 80 px от края. Развёрнутое не двигается. Без стопки — как раньше в niri."""
+    st = load_state()
+    if not active(st):
+        A(NIRI_MOVE[d])
+        return 0
+    wss, wins = query()
+    w = next((x for x in wins if x.get("is_focused")), None)
+    if not w or hidden(w) or str(w["id"]) in (st.get("max") or {}):
+        return 0
+    o = desk_out(wss).get(w.get("workspace_id"))
+    if o not in (st.get("outs") or {}) or w.get("workspace_id") != so(st, o)["desk"]:
+        return 0
+    x, y, ww_, wh_ = geom_of(w, st, o)
+    dx, dy = {"left": (-NUDGE, 0), "right": (NUDGE, 0), "up": (0, -NUDGE), "down": (0, NUDGE)}[d]
+    W, H = work(st, o)
+    x = min(max(x + dx, 80 - ww_), W - 80)
+    y = min(max(y + dy, bar_h(o)), H - 80)
+    A("MoveFloatingWindow", id=w["id"], x={"SetFixed": int(x)}, y={"SetFixed": int(y)})
+    return 0
+
 # ── команды ───────────────────────────────────────────────────────────────────
 def status():
     st = load_state()
@@ -1450,6 +1513,12 @@ def main(a):
         if not anim_request(cmd, int(a[1])):
             (minimize if cmd == "min" else unminimize)(int(a[1]))
         return 0
+    if cmd == "topbar":
+        if len(a) > 1 and a[1] in ("waybar", "capsule"):
+            set_top_bar_kind(a[1])
+        else:
+            print(top_bar_kind())
+        return 0
     if cmd == "maxmode":
         if len(a) > 1 and a[1] in ("full", "island"):
             set_max_mode(a[1])
@@ -1487,6 +1556,8 @@ def main(a):
             return 0
         os.execv(os.path.expanduser("~/.config/niri/scripts/dashboard"),
                  ["dashboard", "focus"])
+    if cmd == "move" and len(a) > 1 and a[1] in NIRI_MOVE:
+        return nudge(a[1])
     if cmd == "tomon" and len(a) > 1 and a[1] in ("left", "right"):
         return to_monitor(a[1])
     if cmd == "daemon":
