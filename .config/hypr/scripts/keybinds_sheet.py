@@ -118,6 +118,10 @@ ACTION_RU = {
 def untitled(key, action):
     """(подпись, категория, ключ) для неподписанного бинда или None."""
     a = action.strip().rstrip(";").strip()
+    # обёртка nostack (в стопке бинд молчит, 21.10.2026) — подпись по самому действию niri
+    m = re.match(r'spawn\s+"[^"]*/nostack"\s+"niri"\s+"msg"\s+"action"\s+(.*)', a)
+    if m:
+        a = " ".join(re.findall(r'"([^"]*)"', m.group(1)))
     name, _, arg = a.partition(" ")
     if name in ("focus-workspace", "move-column-to-workspace") and arg.isdigit():
         if "KP_" in key:                                   # дубль цифрового ряда
@@ -313,7 +317,7 @@ class View:
         x0, x1 = PAD, w - PAD
         y = 14
         p.text(x0, y, "Клавиши", c["acc_l"], size=FONT_SZ, bold=True)
-        # Крестик в углу (13.10.2026, Просьба: «в меню Super+Z тоже добавь кнопку закрыть»)
+        # Крестик в углу (13.10.2026, просьба: «в меню Super+Z тоже добавь кнопку закрыть»)
         import close_cap                   # общий крестик системы (как у буфера обмена)
         s = close_cap.size(self.style)
         cy = y + (FONT_SZ + 6 - s) // 2

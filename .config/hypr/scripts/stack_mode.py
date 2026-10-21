@@ -19,6 +19,8 @@
     stack_mode.py key fs              Super+F: в стопке — развернуть ⇄ обратно, вне — полный экран
     stack_mode.py superd              Super+D: в стопке свернуть все окна ⇄ вернуть,
                                       без стопки — стол дашборда (dashboard focus)
+    stack_mode.py tomon left|right    Ctrl+Alt+H/L: окно на соседний монитор (в стопке — на
+                                      его стол стопки, то же место; вне — как в niri)
     stack_mode.py daemon              полосы заголовков и порядок на столе (запускает on)
     stack_mode.py check | selftest
 
@@ -76,7 +78,11 @@ if TEST:
 MIN_NAME = "\U000f05b0"              # md-window-minimize: стол свёрнутых окон
 WJ = "\u2060"                        # word joiner: свёрнутые второго монитора — MIN_NAME + WJ
 HIDDEN_APPS = ("dash-", "jv-stacktest")
-BAR_H = {"default": 30, "skeet": 28, "beta": 30}
+# 21.10.2026: −4 px во всех стилях (просьба: «чуть уменьшить эту верхнюю линию… более компактнее,
+# а три кнопки справа не трогать» — кнопки задаёт close_cap.CAP, они прежние)
+# ещё −4 (21.10.2026, «верхнюю часть окон ещё компактнее»): Skeet 20 (кнопки 14), Default 22 (16);
+# Beta 22 — её кнопкам 18 px ниже тесно
+BAR_H = {"default": 22, "skeet": 20, "beta": 22}
 # Своя рамка окна (рисует stack_bars) — с 21.10.2026 и у развёрнутых (просьба: «добавляй»).
 FRAME = {"default": 3, "skeet": 6, "beta": 1}
 ZW = "​"                        # имена столов с ним ставит niri_bar.py сам
@@ -405,24 +411,40 @@ def geom_of(w, st, out):
     return [int(p[0] - ox), int(p[1] - oy)] + wsize(w)
 
 
-def default_geom(app_id, size, k, st, geo, out):
+def default_geom(app_id, size, k, st, geo, out, taken=()):
+    """Новое окно — по центру рабочей области вместе со своей полосой; занято (taken — углы
+    окон стола) или k-е при включении стопки — каскадом +32 вниз-вправо, как в Windows
+    (21.10.2026, просьба: «окна открываются слева сверху, пусть по центру, как в Windows»)."""
     ww, wh = work(st, out)
     a = geo["app"].get(app_id or "")
     w, h = a if a else (min(size[0] or 900, int(ww * 0.6)), min(size[1] or 600, int(wh * 0.66)))
     bh = bar_h(out)
-    k %= 10
-    return [40 + 32 * k, bh + 18 + 32 * k, w, h]
+    x0, y0 = max(8, (ww - w) // 2), max(bh + 8, (wh - h - bh) // 2 + bh)
+    x, y = x0 + 32 * (k % 10), y0 + 32 * (k % 10)
+    for _ in range(10):
+        if not any(abs(x - tx) < 16 and abs(y - ty) < 16 for tx, ty in taken):
+            break
+        x, y = x + 32, y + 32
+    if x + w > ww - 8 or y + h > wh - 8:     # каскад упёрся в край — назад к центру со сдвигом
+        x, y = x0 - 32, y0 - 32 if y0 - 32 >= bh + 8 else y0
+    return [max(8, x), max(bh + 8, y), w, h]
 
 
-def float_into_stack(w, st, geo, k, out):
-    """Окно — плавающим на общий стол своего монитора, на прошлое место или каскадом."""
+def float_into_stack(w, st, geo, k, out, avoid=False):
+    """Окно — плавающим на общий стол своего монитора, на прошлое место или по центру
+    (avoid — обойти углы окон, что уже стоят на столе: новое окно при живой стопке)."""
     wid, S = w["id"], so(st, out)["desk"]
+    taken = ()
+    if avoid and str(wid) not in geo["win"]:
+        taken = [geom_of(x, st, out)[:2] for x in query()[1] if x["id"] != wid
+                 and x.get("workspace_id") == S and x.get("is_floating") and tpos(x)]
+        k = 0
     if w.get("workspace_id") != S:
         A("MoveWindowToWorkspace", window_id=wid, reference={"Id": S},
           focus=bool(w.get("is_focused")))
     if not w.get("is_floating"):
         A("MoveWindowToFloating", id=wid)
-    g = geo["win"].get(str(wid)) or default_geom(w.get("app_id"), wsize(w), k, st, geo, out)
+    g = geo["win"].get(str(wid)) or default_geom(w.get("app_id"), wsize(w), k, st, geo, out, taken)
     place(wid, *g)
 
 
@@ -1242,6 +1264,59 @@ def toggle_max(wid, geom=None):
     _save(STATE, st)
 
 
+def fit_geom(g, ww, wh, bh):
+    """[x, y, w, h] влезть в рабочую область ww×wh другого монитора (полоса bh сверху)."""
+    w, h = min(g[2], ww - 16), min(g[3], wh - bh - 16)
+    x = min(max(8, g[0]), ww - w - 8)
+    y = min(max(bh + 8, g[1]), wh - h - 8)
+    return [int(x), int(y), int(w), int(h)]
+
+
+def neighbor_out(order, o, d):
+    """Монитор слева/справа от o (order — по x) или None у края."""
+    if o not in order:
+        return None
+    i = order.index(o) + (-1 if d == "left" else 1)
+    return order[i] if 0 <= i < len(order) else None
+
+
+def to_monitor(d):
+    """Ctrl+Alt+H/L. niri кладёт окно на активный стол соседа как есть; в стопке там может
+    оказаться стол свёрнутых или место за краем, а развёрнутое — с размером чужого
+    монитора (21.10.2026, «Делай тоже» — дыра nostack). Окно — на стол стопки соседа, на
+    то же место от угла рабочей области; развёрнутое там разворачивается заново."""
+    st = load_state()
+    if not active(st):
+        A("MoveWindowToMonitorLeft" if d == "left" else "MoveWindowToMonitorRight")
+        return 0
+    wss, wins = query()
+    w = next((x for x in wins if x.get("is_focused")), None)
+    if not w or hidden(w):
+        return 0
+    outs = st.get("outs") or {}
+    o = desk_out(wss).get(w.get("workspace_id"))
+    info = get("Outputs") or {}
+    order = sorted(outs, key=lambda n: ((info.get(n) or {}).get("logical") or {}).get("x", 0))
+    t = neighbor_out(order, o, d)
+    if t is None:
+        return 0
+    wid, key = w["id"], str(w["id"])
+    mx = st.setdefault("max", {})
+    ww, wh = work(st, t)
+    g = fit_geom(mx.get(key) or geom_of(w, st, o), ww, wh, bar_h(t))
+    A("MoveWindowToWorkspace", window_id=wid, reference={"Id": outs[t]["desk"]}, focus=True)
+    if not w.get("is_floating"):
+        A("MoveWindowToFloating", id=wid)
+    if key in mx:
+        mx[key] = g
+        place(wid, *max_rect(st, t, w))
+        _save(STATE, st)
+    else:
+        place(wid, *g)
+    A("FocusWindow", id=wid)
+    return 0
+
+
 # ── команды ───────────────────────────────────────────────────────────────────
 def status():
     st = load_state()
@@ -1331,7 +1406,13 @@ def selftest():
                       (s["tabbed"] == [[2, 3]], "вкладки распознаны: %s" % s["tabbed"]),
                       (s["focused_output"] == "DP-4" and s["focused"] == 19, "фокус: монитор и окно"),
                       (columns(wins, 2) == [[10], [11, 12], [16, 17]], "колонки живых окон"),
-                      (outs.get(18) == "DP-4", "окна кармана — в стопку своего монитора")):
+                      (outs.get(18) == "DP-4", "окна кармана — в стопку своего монитора"),
+                      (neighbor_out(["eDP-1", "DP-4"], "eDP-1", "right") == "DP-4"
+                       and neighbor_out(["eDP-1", "DP-4"], "eDP-1", "left") is None,
+                       "Ctrl+Alt+L/H: сосед справа, у края — никуда"),
+                      (fit_geom([1700, 900, 1200, 900], 1920, 1036, 22) == [712, 128, 1200, 900]
+                       and fit_geom([-50, 0, 600, 400], 1920, 1036, 22) == [8, 30, 600, 400],
+                       "окно на другом мониторе влезает в рабочую область")):
         print(("ок  " if cond else "НЕТ ") + msg)
         ok &= cond
     return 0 if ok else 1
@@ -1406,6 +1487,8 @@ def main(a):
             return 0
         os.execv(os.path.expanduser("~/.config/niri/scripts/dashboard"),
                  ["dashboard", "focus"])
+    if cmd == "tomon" and len(a) > 1 and a[1] in ("left", "right"):
+        return to_monitor(a[1])
     if cmd == "daemon":
         import stack_bars
         return stack_bars.run()

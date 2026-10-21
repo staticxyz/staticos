@@ -166,7 +166,7 @@ python3 "$HOME/.config/hypr/scripts/merge_kdeglobals.py" || \
 # сбрасывал font_size, и всё, что было правее новой (более узкой) сетки, окно
 # теряло безвозвратно: у termdown от длинной надписи оставался обрубок. Откат — theme_changer.sh.bak.noreload-*.
 #
-# 04.10.2026 (Просьба: «смена обоев медленная»): замер — заливка 9 окон kitty шла
+# 04.10.2026 (просьба: «смена обоев медленная»): замер — заливка 9 окон kitty шла
 # по одному (0,67 с), spicetify/btop/cava/экран входа — друг за другом (0,9 с),
 # и акцент виджетов доезжал только на 2,1 с. Теперь окна kitty заливаются
 # параллельно, а spicetify/btop/cava/экран входа идут отдельными задачами — они
@@ -274,7 +274,8 @@ fi
 # Папки в значках Papirus — в цвет обоев (пользовательская тема Papirus-Wall).
 # Следом — kitty в цвет акцента в обеих темах (kitty_icon.py, 13.10.2026).
 ( python3 "$HOME/.config/hypr/scripts/folder_colors.py"
-  python3 "$HOME/.config/hypr/scripts/kitty_icon.py" apply >/dev/null 2>&1 ) &
+  python3 "$HOME/.config/hypr/scripts/kitty_icon.py" apply >/dev/null 2>&1
+  python3 "$HOME/.config/hypr/scripts/yazi_icon.py" apply >/dev/null 2>&1 ) &   # yazi, 21.10.2026
 # Пиксельные значки папок и файлов (тема Jarvis-Pixel) — под новую палитру,
 # только если они выбраны (Настройки → Значки; состояние state/icon-theme).
 # build заодно возвращает тему в kdeglobals: шаблон matugen выше каждый раз

@@ -78,7 +78,8 @@ class Painter:
         self.F = FRAME.get(style, 3)
         self.s = close_cap.size(style)
         self.fd = Pango.FontDescription(rec_menu.FONT)
-        self.fd.set_absolute_size(16 * Pango.SCALE)
+        # 12 px (21.10.2026, просьба: «шрифт заголовков чуть меньше») — чёткий, как меню панели
+        self.fd.set_absolute_size(12 * Pango.SCALE)
         self.fo = cairo.FontOptions()
         self.fo.set_antialias(cairo.ANTIALIAS_GRAY)
         self.fo.set_hint_style(cairo.HINT_STYLE_FULL)
@@ -1141,6 +1142,12 @@ class Bars:
                 continue
             if "OverviewOpenedOrClosed" in ev:
                 self.overview = bool(ev["OverviewOpenedOrClosed"].get("is_open"))
+                # обзор в стопке показал бы стол свёрнутых и дал таскать окна по столам;
+                # Super+G молчит (nostack), а горячий угол и жест тачпада — мимо биндов
+                # (21.10.2026, «Делай тоже»)
+                if self.overview:
+                    sm.log("bars: обзор в стопке — закрываю")
+                    sm.A("CloseOverview")
             if "KeyboardLayoutSwitched" in ev or "KeyboardLayoutsChanged" in ev:
                 continue
             self.schedule()
@@ -1206,7 +1213,7 @@ class Bars:
                 continue
             self.handled[w["id"]] = now
             sm.log("bars: в стопку", o, w.get("app_id"), w["id"], "со стола", ws)
-            sm.float_into_stack(w, self.st, sm.load_geom(), nfl.get(o, 0), o)
+            sm.float_into_stack(w, self.st, sm.load_geom(), nfl.get(o, 0), o, avoid=True)
             nfl[o] = nfl.get(o, 0) + 1
             if w.get("is_focused"):
                 sm.A("FocusWindow", id=w["id"])

@@ -22,13 +22,15 @@
 
 Вид (пользователь прислал образец чужой ОС — взята только идея, код и графика свои):
 экран плавно уходит в чёрное, крупная пиксельная надпись staticOS собирается из
-пиксельных блоков, за ней по символам подзаголовок «[ТВ] ~ signal through the
-static ~ [сигнал]», потом часы и дата. Буквы стоят на медленной «дышащей» волне
-и чуть наклонены, у каждой под ней — три ступенчатых контура-эха вниз-вправо.
-Градиент по надписи медленно переливается оттенками палитры обоев (matugen).
-Над надписью — пиксельный телевизор с «снегом» на экране и шкала сигнала (ник
-пользователя static, логотип — телевизор с помехами); по фону мерцают пиксели-помехи.
-Изредка — короткая ТВ-помеха по надписи. Сердечек больше нет (просьба: «не по
+пиксельных блоков, за ней по символам подзаголовок «[молния] ~ signal through
+the static ~ [сигнал]», потом часы и дата. Буквы стоят на медленной «дышащей» волне
+и чуть наклонены. Вид — как у шапки README (21.10.2026, make_banner.py): у букв
+светлая верхняя кромка и объём вниз-вправо в одну клетку (с 21.10 без эха и
+внутренних полос — «как будто слишком много слоёв»); градиент медленно
+переливается оттенками палитры обоев (matugen). Слева — пиксельная молния с
+обводкой, бликом, свечением и искрами (раньше был телевизор); по углам — «эфир»: ▶LIVE ●, CH 01 · niri, SIGNAL со
+шкалой; по фону мерцают пиксели-помехи. Изредка — помеха: красно-голубое
+расслоение, полосы, разрыв строки. Сердечек больше нет (просьба: «не по
 нашему вайбу»).
 
 Сборка и цикл (04.10.2026, просьба пользователя: «как в Omarchy — плавнее, медленнее,
@@ -46,8 +48,14 @@ static ~ [сигнал]», потом часы и дата. Буквы стоя�
            обратно через строку, как «pour» в tte;
   tune     «настройка» — клетки сперва мерцают серым снегом вокруг, потом
            съезжаются в буквы: сигнал проступает сквозь помехи.
+Вступление (21.10.2026, «молния эффектно разрядом из ниоткуда появилась в
+центре, потом сместилась налево, и по центру уже надпись»): два пробных разряда
+в пустоте, главный бьёт сверху в центр — вспышка, кольцо, молния раскалена и
+в 1,6 раза крупнее; потом с шлейфом уезжает влево, уменьшаясь, а надпись
+собирается по центру экрана. Блоки сборки — кубики: грань, светлая фаска
+сверху-слева, тёмная снизу-справа и тень-торец («слишком 2Dшно»).
 Раз в `cycle` секунд: ТВ-помеха, надпись осыпается вниз (или рассыпается в
-снег), сигнал на шкале падает до нуля, телевизор шумит — и сборка заново.
+снег), сигнал на шкале падает до нуля, молния гаснет — и сборка заново.
 Пока сыплется — 60 к/с, в покое — 30, под глубоким приглушением — 10.
 
 Блокировка (`lockmode`, по умолчанию включено; только при state/lock-engine =
@@ -108,7 +116,7 @@ IDLE_DEFAULT = 3       # минут; блокировка в hypridle — на �
 CYCLE_DEFAULT = 60     # секунд между пересборками надписи
 ARM_AFTER = 60         # через сколько секунд простоя hypridle зовёт arm (listener)
 SLOGAN = "staticOS"
-# \x01 — маленький телевизор, \x02 — шкала сигнала (свои глифы, см. CUSTOM)
+# \x01 — маленькая молния, \x02 — шкала сигнала (свои глифы, см. CUSTOM)
 SUBTITLE = "\x01 ~ signal through the static ~ \x02"
 HINT = "press any key or move the mouse"
 HINT_LOCK = "press any key to unlock"
@@ -669,7 +677,7 @@ def load_theme(colors=None, vivid=None):
         "dim": on_v,
         # серые пиксели-помехи фона — чуть подкрашены акцентом
         "star": mix(mix(on_v, (0, 0, 0), 0.62), acc, 0.10),
-        # «снег»: блоки в полёте, шум телевизора, осыпание
+        # «снег»: блоки в полёте, осыпание
         "static": mix(mix(on_v, (0, 0, 0), 0.30), acc, 0.08),
         "hint": mix(on_v, (0, 0, 0), 0.45),
         "error": get("error", "#ffb4ab"),
@@ -692,21 +700,13 @@ def ramp_color(theme, u):
 
 
 # ── пиксельный шрифт и значки ──────────────────────────────────────────────
-# Мотив — «сигнал сквозь помехи»: телевизор с антенной (логотип static), шкала
-# сигнала, пиксели-снежинки. Сердечки убраны 04.10.2026.
-TV = ["...#.....#...",
-      "....#...#....",
-      ".....#.#.....",
-      "#############",
-      "#...........#",
-      "#...........#",
-      "#...........#",
-      "#...........#",
-      "#############",
-      ".##.......##."]
-TV_SCREEN = (1, 4, 11, 4)          # экран телевизора в клетках: x, y, ширина, высота
-TV_MINI = [".#...#.", "..#.#..", "#######", "#.#.#.#", "##.#.##", "#######"]
+# Мотив — «сигнал сквозь помехи»: молния (как в шапке README, 21.10.2026 — вместо
+# телевизора), шкала сигнала, пиксели-снежинки. Сердечки убраны 04.10.2026.
+BOLT_POLY = [(12, 0), (21, 0), (14, 12), (20, 12), (5, 31), (8, 16), (3, 16)]   # make_banner.py
+BOLT_MINI = ["..###", ".###.", ".##..", "#####", "..##.", ".##..", ".#..."]
 SIG_MINI = ["......#", "....#.#", "..#.#.#", "#.#.#.#"]
+PLAY = ["#...", "##..", "###.", "####", "###.", "##..", "#..."]
+RED, CYAN = (1.0, 0.23, 0.42), (0.31, 0.89, 1.0)        # расслоение помехи, как в шапке
 PLUS = ["..#..", "..#..", "#####", "..#..", "..#.."]
 SPARK = ["...#...", "...#...", "..###..", "#######", "..###..", "...#...", "...#..."]
 TWINKLE = [".#.", "###", ".#."]
@@ -715,7 +715,7 @@ DASH = ["####"]                    # обрывок строки развёрт�
 SNOW = ["#.#.", ".#.#"]
 SNOW2 = ["#..", ".#.", "..#", ".#."]
 # свои «символы» подзаголовка: (ширина клетки, картинка, сдвиг вниз)
-CUSTOM = {"\x01": (8, TV_MINI, 1), "\x02": (8, SIG_MINI, 3)}
+CUSTOM = {"\x01": (7, BOLT_MINI, 1), "\x02": (8, SIG_MINI, 3), "\x03": (6, PLAY, 1)}
 
 _GLYPHS = {}
 _FONT = None
@@ -773,16 +773,101 @@ def bitmap_cells(rows):
     return [(x, y) for y, row in enumerate(rows) for x, c in enumerate(row) if c == "#"]
 
 
+def around(cells):
+    """Клетки вокруг фигуры (8 соседей), без самой фигуры — контур."""
+    out = set()
+    for x, y in cells:
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                out.add((x + dx, y + dy))
+    return out - set(cells)
+
+
+def bolt_cells():
+    """Молния шапки README (make_banner.py): многоугольник BOLT_POLY в клетках 24×34."""
+    from PIL import Image, ImageDraw
+    im = Image.new("1", (24, 34))
+    ImageDraw.Draw(im).polygon(BOLT_POLY, fill=1)
+    return {(x + 1, y + 1) for y in range(34) for x in range(24) if im.getpixel((x, y))}
+
+
+def cells_a8(layers, cell, w, h, ox=0, oy=0):
+    """Маска A8 из слоёв [(клетки, прозрачность)] — по порядку, каждый поверх
+    (OPERATOR_SOURCE: прозрачность 0 вырезает то, что под ним)."""
+    import cairo
+    s = cairo.ImageSurface(cairo.FORMAT_A8, max(1, w), max(1, h))
+    cr = cairo.Context(s)
+    cr.set_antialias(cairo.ANTIALIAS_NONE)
+    cr.set_operator(cairo.OPERATOR_SOURCE)
+    for cells, a in layers:
+        if not cells:
+            continue
+        cr.set_source_rgba(0, 0, 0, a)
+        for x, y in cells:
+            cr.rectangle(ox + x * cell, oy + y * cell, cell, cell)
+        cr.fill()
+    s.flush()
+    return s
+
+
+def glow_mask(w, h):
+    """Свечение за молнией: эллипс A8, к краю гаснет (ступенями по 1/32 — на
+    тёмном фоне незаметно). Готовится один раз, в кадре — маска цветом."""
+    import cairo
+    s = cairo.ImageSurface(cairo.FORMAT_A8, w, h)
+    cr = cairo.Context(s)
+    cr.scale(w / 2, h / 2)
+    g = cairo.RadialGradient(1, 1, 0, 1, 1, 1)
+    g.add_color_stop_rgba(0.0, 0, 0, 0, 1.0)
+    g.add_color_stop_rgba(0.45, 0, 0, 0, 0.35)
+    g.add_color_stop_rgba(1.0, 0, 0, 0, 0.0)
+    cr.set_source(g)
+    cr.paint()
+    s.flush()
+    return s
+
+
+def shade(cells, top, bot, side=False, bands=True):
+    """Свет и тень по образцу шапки README: полосы по высоте (верх светлее, низ
+    темнее), блик по верхней кромке, тень по нижней. side — ещё левая кромка
+    светлая, правая тёмная (молния). bands=False — только кромки, без полос
+    внутри (буквы с 21.10: «слишком много слоёв»).
+    → ({прозрачность: клетки} света, … тени)."""
+    light, dark = {}, {}
+    for x, y in cells:
+        t = (y - top) / max(bot - top, 1)
+        up = (x, y - 1) not in cells or (side and (x - 1, y) not in cells)
+        down = (x + 1, y) not in cells if side else (x, y + 1) not in cells
+        if up:
+            light.setdefault(0.80 if t < (0.55 if side else 0.5) else 0.40, set()).add((x, y))
+        elif down:
+            if t > (0.4 if side else 0.5):
+                dark.setdefault(0.35, set()).add((x, y))
+        elif bands and t < (0.3 if side else 0.34):
+            light.setdefault(0.38, set()).add((x, y))
+        elif bands and t >= (0.7 if side else 0.72):
+            dark.setdefault(0.30, set()).add((x, y))
+    return light, dark
+
+
 # ── буквы надписи ──────────────────────────────────────────────────────────
 class Letter:
-    """Буква надписи: глиф PxPlus ×2 (штрих в две клетки), под ним три контура-эха
-    вниз-вправо. Всё в ОДНОЙ маске A8: эхо — 42/60/82 % (на чёрном это и есть
-    «темнее»), заливка — 100 % поверх. На кадр — одна операция с маской."""
+    """Буква надписи: глиф PxPlus ×2 (штрих в две клетки). С 21.10.2026 — в манере
+    шапки README: тёмный контур, выдавленная вниз тень, блик по верхней кромке и
+    тень по нижней. Были ещё три ступени эха и полосы внутри букв — Просьба: «как будто слишком много слоёв» (21.10), убраны; ECHO можно вернуть.
 
-    ECHO = (0.42, 0.60, 0.82)           # дальнее → ближнее
+    Три маски A8 (на кадр — три наложения):
+      base  — эхо (если есть) и выдавливание 22 % (на чёрном это и есть «темнее»),
+              контур 0 (вырезает эхо — на чёрном это тёмная обводка), тело 100 %;
+              рисуется переливом;
+      light — блики, рисуются светлым;
+      dark  — тени, рисуются чёрным."""
 
-    def __init__(self, ch, cell):
-        import cairo
+    ECHO = ()                           # эхо дальнее → ближнее; было (.08, .15, .26)
+    EXT = 0.22                          # выдавливание вниз
+    DEPTH = 1                           # его глубина, клеток (было 2)
+
+    def __init__(self, ch, cell, band=None):
         _adv, cs = glyph(ch)
         # ×2 и ещё клетка вправо: вертикальный штрих — три клетки, горизонтальный —
         # две. Тоньше PxPlus ×2 надпись выходила «воздушной», образец — плотнее.
@@ -798,104 +883,121 @@ class Letter:
         self.cols = max(xs) - x0 + 1
         self.rows = 18
         self.cell = cell
-        self.step = max(2, round(cell * 0.58))      # сдвиг одного эха
-        self.lw = max(2, round(cell * 0.26))        # толщина линии контура
-        pad = self.lw + 2
+        self.step = 2 * cell                        # шаг эха — целый пиксель шрифта
+        self.pad = 2 * cell
         far = self.step * len(self.ECHO)
         self.w = self.cols * cell
         self.h = self.rows * cell
-        self.pad = pad
-        mw, mh = self.w + far + 2 * pad, self.h + far + 2 * pad
-        s = cairo.ImageSurface(cairo.FORMAT_A8, mw, mh)
-        cr = cairo.Context(s)
-        cr.set_antialias(cairo.ANTIALIAS_NONE)
-        edges = self.edges(cells)
+        mw, mh = self.w + far + 2 * self.pad, self.h + far + 2 * self.pad + self.DEPTH * cell
+        ys = [y for _x, y in cells] or [0]
+        top, bot = band or (min(ys), max(ys))
+        ext = {(x, y + d) for x, y in cells for d in range(1, self.DEPTH + 1)} - cells
+        sil = cells | ext
+        layers = []
         for k, a in zip(range(len(self.ECHO), 0, -1), self.ECHO):
-            off = pad + k * self.step
-            cr.set_operator(cairo.OPERATOR_SOURCE)
-            cr.set_source_rgba(0, 0, 0, a)
-            for (x1, y1, x2, y2) in edges:
-                # линия по границе клетки, целиком внутри «тени» буквы
-                X1, Y1 = off + x1 * cell, off + y1 * cell
-                X2, Y2 = off + x2 * cell, off + y2 * cell
-                if Y1 == Y2:
-                    cr.rectangle(min(X1, X2), Y1 - self.lw // 2, abs(X2 - X1) + self.lw // 2, self.lw)
-                else:
-                    cr.rectangle(X1 - self.lw // 2, min(Y1, Y2), self.lw, abs(Y2 - Y1) + self.lw // 2)
-            cr.fill()
-        cr.set_operator(cairo.OPERATOR_SOURCE)
-        cr.set_source_rgba(0, 0, 0, 1)
-        for x, y in cells:
-            cr.rectangle(pad + x * cell, pad + y * cell, cell, cell)
-        cr.fill()
-        s.flush()
-        self.mask = s
+            n = k * self.step // cell
+            layers.append(({(x + n, y + n) for x, y in sil}, a))
+        layers += [(around(sil), 0.0), (ext, self.EXT), (cells, 1.0)]
+        light, dark = shade(cells, top, bot, bands=False)
+        o = self.pad
+        self.masks = (cells_a8(layers, cell, mw, mh, o, o),
+                      cells_a8([(v, a) for a, v in light.items()], cell, mw, mh, o, o),
+                      cells_a8([(v, a) for a, v in dark.items()], cell, mw, mh, o, o))
+        self.mask = self.masks[0]
         self.mw, self.mh = mw, mh
-        self.pat = cairo.SurfacePattern(s)
-        self.pat.set_filter(cairo.FILTER_NEAREST)
         self.turned = {}
 
     TILT_STEP = 0.5 * math.pi / 180     # наклон — ступенями по полградуса
 
-    def turned_mask(self, ang):
-        """Маска, заранее повёрнутая на ближайшую ступень наклона: (маска, dx, dy).
+    def turned_layers(self, ang):
+        """Маски, заранее повёрнутые на ближайшую ступень наклона:
+        (base, light, dark, dx, dy) — dx, dy — где в них точка опоры.
 
         Поворот маски прямо в кадре (cairo, NEAREST) стоил 2,3 мс из 2,6 на всю
         надпись — 12 % ядра при 30 к/с. Ступени по 0,5° готовятся один раз (на
-        ±3° их 13 на букву, ~5 МБ на всё), в кадре — простое наложение."""
+        ±3° их 13 на букву), в кадре — простое наложение."""
         import cairo
         k = int(round(ang / self.TILT_STEP))
         got = self.turned.get(k)
         if got is None:
             r = int(math.ceil(math.hypot(self.mw, self.mh))) + 2
-            surf = cairo.ImageSurface(cairo.FORMAT_A8, r, r)
-            cr = cairo.Context(surf)
-            cr.translate(r // 2, r // 2)
-            cr.rotate(k * self.TILT_STEP)
-            self.pat.set_matrix(cairo.Matrix(x0=self.w / 2 + self.pad, y0=self.h / 2 + self.pad))
-            cr.set_source_rgba(0, 0, 0, 1)
-            cr.mask(self.pat)
-            surf.flush()
-            got = self.turned[k] = self.crop(surf, r // 2, r // 2)
+            out = []
+            for m in self.masks:
+                surf = cairo.ImageSurface(cairo.FORMAT_A8, r, r)
+                cr = cairo.Context(surf)
+                cr.translate(r // 2, r // 2)
+                cr.rotate(k * self.TILT_STEP)
+                pat = cairo.SurfacePattern(m)
+                pat.set_filter(cairo.FILTER_NEAREST)
+                pat.set_matrix(cairo.Matrix(x0=self.w / 2 + self.pad, y0=self.h / 2 + self.pad))
+                cr.set_source_rgba(0, 0, 0, 1)
+                cr.mask(pat)
+                surf.flush()
+                out.append(surf)
+            got = self.turned[k] = self.crop(out, r // 2, r // 2)
         return got
 
+    def turned_mask(self, ang):
+        """(маска base, dx, dy) — прежний вызов."""
+        b, _l, _d, hx, hy = self.turned_layers(ang)
+        return b, hx, hy
+
     @staticmethod
-    def crop(surf, px, py):
-        """Обрезать маску по чернилам: повёрнутый холст вдвое больше буквы, а
-        градиент считается на каждый пиксель маски. → (маска, dx, dy) — где
-        в ней точка опоры."""
+    def crop(surfs, px, py):
+        """Обрезать маски по чернилам первой (остальные внутри неё): повёрнутый
+        холст вдвое больше буквы, а градиент считается на каждый пиксель маски.
+        → (*маски, dx, dy)."""
         import cairo
         try:
             import numpy as np
         except ImportError:
-            return surf, px, py
-        w, h, st = surf.get_width(), surf.get_height(), surf.get_stride()
-        a = np.frombuffer(surf.get_data(), np.uint8).reshape(h, st)[:, :w]
+            return (*surfs, px, py)
+        s0 = surfs[0]
+        w, h, st = s0.get_width(), s0.get_height(), s0.get_stride()
+        a = np.frombuffer(s0.get_data(), np.uint8).reshape(h, st)[:, :w]
         ys, xs = np.nonzero(a.any(axis=1))[0], np.nonzero(a.any(axis=0))[0]
         if not len(ys):
-            return surf, px, py
+            return (*surfs, px, py)
         y0, y1, x0, x1 = int(ys[0]), int(ys[-1]) + 1, int(xs[0]), int(xs[-1]) + 1
-        out = cairo.ImageSurface(cairo.FORMAT_A8, x1 - x0, y1 - y0)
-        cr = cairo.Context(out)
-        cr.set_operator(cairo.OPERATOR_SOURCE)
-        cr.set_source_surface(surf, -x0, -y0)
-        cr.paint()
-        out.flush()
-        return out, px - x0, py - y0
-
-    @staticmethod
-    def edges(cells):
         out = []
+        for s in surfs:
+            o = cairo.ImageSurface(cairo.FORMAT_A8, x1 - x0, y1 - y0)
+            cr = cairo.Context(o)
+            cr.set_operator(cairo.OPERATOR_SOURCE)
+            cr.set_source_surface(s, -x0, -y0)
+            cr.paint()
+            o.flush()
+            out.append(o)
+        return (*out, px - x0, py - y0)
+
+
+class Bolt:
+    """Молния слева от надписи — та же манера, что у букв: контур, выдавливание
+    вниз, свет сверху-слева, тень справа-снизу, светлая жила по середине строк.
+    Маски A8: outline (рисуется чёрным — поверх свечения), base (переливом),
+    light, dark. Клетка своя (bc), молния стоит, не наклоняется."""
+
+    def __init__(self, bc):
+        cells = bolt_cells()
+        ext = {(x, y + d) for x, y in cells for d in (1, 2)} - cells
+        sil = cells | ext
+        ys = [y for _x, y in cells]
+        light, dark = shade(cells, min(ys), max(ys), side=True)
+        rows = {}
         for x, y in cells:
-            if (x, y - 1) not in cells:
-                out.append((x, y, x + 1, y))
-            if (x, y + 1) not in cells:
-                out.append((x, y + 1, x + 1, y + 1))
-            if (x - 1, y) not in cells:
-                out.append((x, y, x, y + 1))
-            if (x + 1, y) not in cells:
-                out.append((x + 1, y, x + 1, y + 1))
-        return out
+            rows.setdefault(y, []).append(x)
+        core = {(sorted(v)[len(v) // 2], y) for y, v in rows.items() if len(v) >= 4}
+        for a in list(dark):
+            dark[a] -= core
+        self.bc = bc
+        self.w = (max(x for x, _ in sil) + 2) * bc
+        self.h = (max(y for _, y in sil) + 2) * bc
+        lay_l = [(v, a) for a, v in light.items()] + [(core, 0.9)]
+        self.outline = cells_a8([(around(sil), 1.0)], bc, self.w, self.h)
+        self.base = cells_a8([(ext, Letter.EXT), (cells, 1.0)], bc, self.w, self.h)
+        self.light = cells_a8(lay_l, bc, self.w, self.h)
+        self.dark = cells_a8([(v, a) for a, v in dark.items()], bc, self.w, self.h)
+        self.sil = cells_a8([(sil, 1.0)], bc, self.w, self.h)
 
 
 # ── сцена одного монитора ──────────────────────────────────────────────────
@@ -928,10 +1030,31 @@ class _Rects:
             self.g.setdefault((rgb, a), []).append((x, y))
 
     def flush(self, cr, s):
+        """Каждая клетка — кубик (21.10.2026, просьба: «квадраты слишком простые,
+        не хватает глубины, слишком 2D»): торец вниз (как выдавливание букв),
+        лицо, светлые грани сверху и слева, тёмные справа и снизу. Сначала все
+        торцы, потом лица — торец не ложится на соседний кубик."""
+        d = max(2, s // 3)
+        e = max(1, s // 5)
+        for (rgb, a), pts in self.g.items():
+            cr.set_source_rgba(*mix(rgb, (0, 0, 0), 0.68), a)
+            for x, y in pts:
+                cr.rectangle(x, y + d, s, s)
+            cr.fill()
         for (rgb, a), pts in self.g.items():
             cr.set_source_rgba(*rgb, a)
             for x, y in pts:
                 cr.rectangle(x, y, s, s)
+            cr.fill()
+            cr.set_source_rgba(*mix(rgb, (1, 1, 1), 0.5), a)
+            for x, y in pts:
+                cr.rectangle(x, y, s, e)
+                cr.rectangle(x, y + e, e, s - 2 * e)
+            cr.fill()
+            cr.set_source_rgba(*mix(rgb, (0, 0, 0), 0.4), a)
+            for x, y in pts:
+                cr.rectangle(x + s - e, y + e, e, s - e)
+                cr.rectangle(x + e, y + s - e, s - 2 * e, e)
             cr.fill()
 
 
@@ -1074,7 +1197,16 @@ class Scene:
     зерном посреди показа, рисует ровно то же, что слой-заставка (случайны только
     мелочи: помехи, мерцание снега)."""
 
-    T_LETTERS = 0.55        # начало первой сборки
+    # Вступление (21.10.2026, просьба: «сначала молния эффектно разрядом из ниоткуда
+    # появилась в центре, потом сместилась налево, и по центру уже надпись»):
+    # из темноты бьют разряды, главный — сверху в центр, там вспыхивает молния,
+    # от удара — кольцо, вокруг потрескивают искры; потом она уезжает налево со
+    # шлейфом, а сверху уже сыплется надпись.
+    T_STRIKE = 0.45         # первый разряд
+    T_HIT = 0.9             # главный удар — молния в центре
+    T_MOVE = 2.2            # трогается налево
+    MOVE = 0.85             # и доезжает за столько секунд
+    T_LETTERS = 2.6         # начало первой сборки (было 0.55, до вступления)
     SETTLE = 0.35           # буква собрана — проступает эхо
     LAND = 0.45             # клетка на месте — из «снега» в цвет надписи
     DT_CHAR = 0.032         # шаг подзаголовка
@@ -1106,7 +1238,6 @@ class Scene:
         self.first_landed = 0.0
         self.next_cycle = float("inf")
         self.outro, self.outro_t, self.outro_end, self.outro_kind = [], None, 0.0, None
-        self._tv = (None, [])
         if main:
             self.build_main()
         else:
@@ -1121,16 +1252,27 @@ class Scene:
         probe = [Letter(c, 1) for c in SLOGAN]
         gap = 3
         cols = sum(l.cols for l in probe) + gap * (len(probe) - 1)
-        cell = max(4, int(w * 0.60 / cols))
+        # 21.10.2026: слева от надписи — молния (как в шапке README): ~24 клетки
+        # молнии с зазором; надпись с молнией вместе — две трети ширины
+        cell = max(4, int(w * 0.66 / (cols + 24)))
         self.cell = cell
         self._cb = cell * 2                           # шаг кэша цвета клеток
-        self.letters = [Letter(c, cell) for c in SLOGAN]
+        ys = [y for l in probe for _x, y in l.cells]
+        band = (min(ys), max(ys))                     # полосы света — общие на всю строку
+        self.letters = [Letter(c, cell, band) for c in SLOGAN]
         steps = int(math.ceil(0.05 / Letter.TILT_STEP))
         for l in self.letters:
             for k in range(-steps, steps + 1):
-                l.turned_mask(k * Letter.TILT_STEP)
+                l.turned_layers(k * Letter.TILT_STEP)
+        self.hl = mix(self.theme["fg"], (1, 1, 1), 0.4)    # блики букв и молнии
         tw = cols * cell
+        bc = max(2, round(cell * 0.75))
+        self.bolt = Bolt(bc)
+        bgap = cell * 4
+        # 21.10.2026: надпись — точно по центру экрана (как подзаголовок и часы),
+        # молния — слева от неё; во вступлении молния сначала бьёт в центр
         self.tx0 = (w - tw) // 2
+        self.bgap = bgap
         self.tw = tw
         x = self.tx0
         self.lx = []
@@ -1142,7 +1284,7 @@ class Scene:
         self.ty0 = int(h * 0.40 - th / 2)
         self.amp = cell * 0.75                        # размах волны
         self.tilt = 0.05                              # наклон, рад (~3°)
-        m = int(self.amp + cell * 3 + self.letters[0].step * 3 + self.letters[0].pad)
+        m = int(self.amp + cell * 3 + self.letters[0].step * len(Letter.ECHO) + self.letters[0].pad)
         self.title_rect = (self.tx0 - m - cell * 3, self.ty0 - m,
                            tw + 2 * m + cell * 6, th + 2 * m)
         # первая сборка — от неё отсчитываются подзаголовок, часы, помехи
@@ -1168,7 +1310,7 @@ class Scene:
             x += adv * s
         self.sub_w = x
         self.sx0 = (w - x) // 2
-        self.sy0 = self.ty0 + th + int(cell * 2.6)
+        self.sy0 = self.ty0 + th + int(cell * (3.6 + 1.3 * len(Letter.ECHO)))   # под выдавливанием и эхом
         self.sub_amp = s * 1.6
         self.sub_rect = (self.sx0 - s * 2, self.sy0 - int(self.sub_amp) - s * 4,
                          x + s * 4, 9 * s + int(2 * self.sub_amp) + s * 8)
@@ -1178,44 +1320,196 @@ class Scene:
         self.cy0 = self.sy0 + 9 * s + int(cell * 2.0)
         self.hint_scale = 2 if h >= 900 else 1
         self.hint_mask, self.hint_w, self.hint_h = text_mask(self.hint, self.hint_scale)
-        # Над надписью: телевизор с «снегом», шкала сигнала и пара искр.
-        cx = w // 2
-        top = self.ty0 - int(cell * 1.6)
-        ts = max(2, int(cell * 0.40))
-        tvw, tvh = len(TV[0]) * ts, len(TV) * ts
-        tvx, tvy = cx - tvw // 2, int(top - cell * 1.2 - tvh / 2)
-        sx, sy, sw, sh = TV_SCREEN
-        self.tv = dict(x=tvx, y=tvy, w=tvw, h=tvh, s=ts,
-                       mask=a8_from_cells(bitmap_cells(TV), ts, tvw, tvh),
-                       screen=(tvx + sx * ts, tvy + sy * ts, sw, sh))
-        gs = max(2, int(cell * 0.36))
-        self.sig = dict(x=int(cx + cell * 4.6), y=int(tvy + tvh - 5 * gs - ts * 1.5), s=gs,
-                        w=7 * gs, h=4 * gs)
-        self.cluster = []
-        for dx, dy, bm, sc in ((-7.6, -0.4, PLUS, 0.30), (-4.9, -1.8, TWINKLE, 0.34),
-                               (7.4, -0.5, DOT, 0.42), (9.0, -1.9, TWINKLE, 0.30)):
-            scale = max(2, int(cell * sc))
-            bw = len(bm[0]) * scale
-            bh = len(bm) * scale
-            x0 = int(cx + dx * cell - bw / 2)
-            y0 = int(top + dy * cell - bh / 2)
-            self.cluster.append(dict(x=x0, y=y0, w=bw, h=bh,
-                                     mask=a8_from_cells(bitmap_cells(bm), scale, bw, bh),
-                                     per=self.rnd.uniform(1.6, 3.2), ph=self.rnd.uniform(0, 6.28)))
-        boxes = [(c["x"], c["y"], c["w"], c["h"]) for c in self.cluster]
-        boxes += [(tvx, tvy, tvw, tvh), (self.sig["x"], self.sig["y"], self.sig["w"], self.sig["h"])]
-        x0 = min(b[0] for b in boxes)
-        y0 = min(b[1] for b in boxes)
-        self.cluster_rect = (x0 - 2, y0 - 2, max(b[0] + b[2] for b in boxes) - x0 + 4,
-                             max(b[1] + b[3] for b in boxes) - y0 + 4)
-        # Надпись, гроздь и подзаголовок перекрываются — в кадре это ОДНА область,
+        # Молния слева, по высоте — по середине надписи; вокруг — свечение и искры
+        b = self.bolt
+        self.bx = self.tx0 - bgap - b.w
+        self.by = int(self.ty0 + th / 2 - b.h / 2 + cell)
+        gw, gh = int(b.w * 2.2), int(b.h * 1.3)
+        self.glow = dict(x=self.bx + b.w // 2 - gw // 2, y=self.by + b.h // 2 - gh // 2, w=gw, h=gh,
+                         mask=glow_mask(gw, gh))
+        rng = random.Random(self.seed * 31 + 5)
+        self.sparks = []
+        ks = max(2, int(cell * 0.35))
+        for _ in range(9):
+            shape = ([(1, 0), (0, 1), (1, 1), (2, 1), (1, 2)] if rng.random() < 0.6
+                     else [(0, 0), (1, 1), (2, 2), (2, 0), (0, 2)])
+            sx = int(self.bx + b.w / 2 + rng.choice((-1, 1)) * rng.uniform(b.w * 0.45, b.w * 1.0))
+            sy = int(self.by + rng.uniform(0.05, 0.9) * b.h)
+            self.sparks.append(dict(x=sx, y=sy, w=3 * ks, h=3 * ks, mask=a8_from_cells(shape, ks, 3 * ks, 3 * ks),
+                                    per=rng.uniform(0.9, 2.2), ph=rng.random(), kind=rng.choice("llrc")))
+        boxes = [(c["x"], c["y"], c["w"], c["h"]) for c in self.sparks]
+        boxes += [(self.glow["x"], self.glow["y"], gw, gh), (self.bx - cell, self.by, b.w + 2 * cell, b.h)]
+        bx0 = min(r[0] for r in boxes)
+        by0 = min(r[1] for r in boxes)
+        self.cluster_rect = (bx0 - 2, by0 - 2, max(r[0] + r[2] for r in boxes) - bx0 + 4,
+                             max(r[1] + r[3] for r in boxes) - by0 + 4)
+        # помеха режет надпись и молнию вместе
+        rs = (self.title_rect, self.cluster_rect)
+        gx0 = min(r[0] for r in rs)
+        gy0 = min(r[1] for r in rs)
+        self.glitch_rect = (gx0, gy0, max(r[0] + r[2] for r in rs) - gx0, max(r[1] + r[3] for r in rs) - gy0)
+        # Надпись, молния и подзаголовок перекрываются — в кадре это ОДНА область,
         # иначе пересечение рисовалось дважды (замер: 2,3 мс вместо 1,2).
         rs = (self.title_rect, self.sub_rect, self.cluster_rect)
         x0 = min(r[0] for r in rs)
         y0 = min(r[1] for r in rs)
         self.text_rect = (x0, y0, max(r[0] + r[2] for r in rs) - x0, max(r[1] + r[3] for r in rs) - y0)
-        self.avoid = (self.title_rect[0], self.cluster_rect[1] - cell,
-                      self.title_rect[2], self.cy0 + 12 * self.clock_scale + 12 * self.date_scale - self.cluster_rect[1] + cell * 2)
+        top = min(self.title_rect[1], self.cluster_rect[1])
+        self.avoid = (x0, top - cell, self.text_rect[2],
+                      self.cy0 + 12 * self.clock_scale + 12 * self.date_scale - top + cell * 2)
+        # Уголки экрана, как в эфире (шапка README): ▶LIVE ● слева сверху, канал
+        # справа сверху, SIGNAL со шкалой слева снизу
+        k = 3 if h >= 900 else 2
+        mg = max(28, h // 30)
+        live = text_mask("\x03 LIVE", k)
+        dot = text_mask("\u25cf", k)
+        chn = text_mask("CH 01 \u00b7 niri", k)
+        sig = text_mask("SIGNAL", k)
+        sy = h - 9 * k - mg
+        self.osd = dict(k=k, live=(live[0], mg, mg), dot=(dot[0], mg + live[1] + 3 * k, mg),
+                        ch=(chn[0], w - mg - chn[1], mg), sig=(sig[0], mg, sy),
+                        bars=(mg + sig[1] + 3 * k, sy))
+        self.osd_rects = [(mg, mg, live[1] + 3 * k + dot[1], 9 * k), (w - mg - chn[1], mg, chn[1], 9 * k),
+                          (mg, sy, sig[1] + 3 * k + 14 * k, 9 * k)]
+        self.build_intro()
+
+    def build_intro(self):
+        """Разряды вступления — заранее, от зерна (jarvis_lock, подхватив сцену,
+        рисует те же). Молния ломаная: середины отрезков сдвигаются поперёк."""
+        b, w, h = self.bolt, self.w, self.h
+        q = self.zq = max(3, b.bc * 2 // 3)            # пиксель разряда
+        # в центре молния в 1,6 раза крупнее — своя, с целой клеткой (чёткая)
+        self.bolt_big = Bolt(round(b.bc * 1.6))
+        self.big_rel = self.bolt_big.w / b.w
+        rng = random.Random(self.seed * 613 + 17)
+        self.bcx = w // 2 - b.w // 2                   # молния в центре экрана
+        cx, cy = w / 2, self.by + b.h * 0.45           # куда бьёт
+
+        def zig(p0, p1, rough):
+            pts = [p0, p1]
+            for _ in range(6):
+                nxt = [pts[0]]
+                for a, c in zip(pts, pts[1:]):
+                    dx, dy = c[0] - a[0], c[1] - a[1]
+                    ln = math.hypot(dx, dy) or 1
+                    o = rng.uniform(-rough, rough) * ln
+                    nxt += [((a[0] + c[0]) / 2 - dy / ln * o, (a[1] + c[1]) / 2 + dx / ln * o), c]
+                pts = nxt
+            return pts
+
+        def cells(pts):
+            out, seen = [], set()
+            for a, c in zip(pts, pts[1:]):
+                n = max(1, int(max(abs(c[0] - a[0]), abs(c[1] - a[1])) / q))
+                for i in range(n + 1):
+                    x = int(a[0] + (c[0] - a[0]) * i / n) // q * q
+                    y = int(a[1] + (c[1] - a[1]) * i / n) // q * q
+                    if (x, y) not in seen:
+                        seen.add((x, y))
+                        out.append((x, y))
+            return out
+
+        def bolt_from(p0, p1, rough, forks):
+            pts = zig(p0, p1, rough)
+            cs = cells(pts)
+            for _ in range(forks):                     # ответвления от середины пути
+                a = pts[rng.randint(len(pts) // 5, len(pts) * 3 // 4)]
+                ang = math.atan2(p1[1] - p0[1], p1[0] - p0[0]) + rng.choice((-1, 1)) * rng.uniform(0.4, 1.1)
+                ln = math.hypot(p1[0] - p0[0], p1[1] - p0[1]) * rng.uniform(0.12, 0.3)
+                cs += cells(zig(a, (a[0] + math.cos(ang) * ln, a[1] + math.sin(ang) * ln), 0.3))
+            return cs
+
+        self.strikes = []
+        # два пробных разряда из ниоткуда — с разных сторон, мимо центра
+        for t0, side in ((self.T_STRIKE, -1), (self.T_STRIKE + 0.2, 1)):
+            ang = math.pi * (1.5 + side * rng.uniform(0.18, 0.42))
+            r = rng.uniform(0.45, 0.6) * h
+            p0 = (cx + math.cos(ang) * r, cy + math.sin(ang) * r)
+            p1 = (cx + rng.uniform(-1, 1) * b.w, cy + rng.uniform(-0.3, 0.3) * b.h)
+            self.strikes.append(dict(t0=t0, dur=0.11, cells=bolt_from(p0, p1, 0.22, 2), flash=0.05))
+        # главный — сверху, из-за края экрана, прямо в молнию
+        top = (cx + rng.uniform(-0.12, 0.12) * w, -q)
+        self.strikes.append(dict(t0=self.T_HIT - 0.07, dur=0.3,
+                                 cells=bolt_from(top, (cx, self.by + b.h / 2 - self.bolt_big.h / 2
+                                                       + self.bolt_big.bc * 2), 0.2, 3), flash=0.12))
+        # потрескивание вокруг молнии (координаты от её угла — едут вместе с ней)
+        self.crackles = []
+        t0 = self.T_HIT + 0.12
+        while t0 < self.T_MOVE + self.MOVE + 0.4:
+            ang = rng.uniform(0, 2 * math.pi)
+            a = (b.w / 2 + math.cos(ang) * b.w * 0.35, b.h / 2 + math.sin(ang) * b.h * 0.35)
+            ln = rng.uniform(0.25, 0.55) * b.h
+            c = (a[0] + math.cos(ang) * ln, a[1] + math.sin(ang) * ln)
+            self.crackles.append(dict(t0=t0, dur=rng.uniform(0.06, 0.12), cells=cells(zig(a, c, 0.35))))
+            t0 += rng.uniform(0.07, 0.2)
+
+    def bolt_state(self, t):
+        """(центр молнии по x, во сколько раз она крупнее обычной): в центре —
+        крупная, на лету уменьшается и садится на место слева."""
+        e = ease_cubic((t - self.T_MOVE) / self.MOVE)
+        b = self.bolt
+        c0, c1 = self.w / 2, self.bx + b.w / 2
+        return round(c0 + (c1 - c0) * e), self.big_rel + (1 - self.big_rel) * e
+
+    def bolt_space(self, cr, st):
+        """Перевести cr так, чтобы обычные координаты молнии (bx, by) легли туда
+        и в том размере, где она во вступлении."""
+        cx, rel = st
+        cyb = self.by + self.bolt.h / 2
+        cr.translate(cx, cyb)
+        cr.scale(rel, rel)
+        cr.translate(-(self.bx + self.bolt.w / 2), -cyb)
+
+    def big_mask(self, cr, surf, dx=0):
+        """Маска крупной молнии на месте обычной (в bolt_space), без размытия."""
+        import cairo
+        b, big = self.bolt, self.bolt_big
+        cr.save()
+        cr.translate(self.bx + dx, self.by)
+        cr.scale(b.w / big.w, b.h / big.h)
+        pat = cairo.SurfacePattern(surf)
+        pat.set_filter(cairo.FILTER_NEAREST)
+        cr.mask(pat)
+        cr.restore()
+
+    def draw_arc(self, cr, cs, a, ox=0, oy=0):
+        """Разряд по клеткам: широкое свечение акцентом, светлая сердцевина."""
+        q = self.zq
+        col = self.color_at(self.tx0, 0.0)
+        cr.set_source_rgba(*col, 0.35 * a)
+        for x, y in cs:
+            cr.rectangle(ox + x - q, oy + y - q, 3 * q, 3 * q)
+        cr.fill()
+        cr.set_source_rgba(*mix(self.hl, (1, 1, 1), 0.6), a)
+        for x, y in cs:
+            cr.rectangle(ox + x, oy + y, q, q)
+        cr.fill()
+
+    def draw_strikes(self, cr, t, st):
+        """Разряды до удара и вспышка экрана, кольцо от удара."""
+        for s in self.strikes:
+            p = t - s["t0"]
+            if 0 <= p < s["dur"] and int(p * 45) % 3 != 2:      # мерцает, как разряд
+                self.draw_arc(cr, s["cells"], 1.0 - 0.5 * p / s["dur"])
+            if 0 <= p < 0.18 and s["flash"]:
+                cr.set_source_rgba(*mix(self.hl, (1, 1, 1), 0.5), s["flash"] * (1 - p / 0.18))
+                cr.paint()
+        p = (t - self.T_HIT) / 0.7                            # кольцо от удара
+        if 0 <= p < 1:
+            b = self.bolt
+            q = self.zq * 2
+            r = b.h * st[1] * (0.35 + 1.6 * ease_out(p))
+            ccx, ccy = st[0], self.by + b.h / 2
+            n = max(8, int(2 * math.pi * r / q))
+            cr.set_source_rgba(*mix(CYAN, self.hl, 0.4), 0.8 * (1 - p))
+            seen = set()
+            for i in range(n):
+                a = 2 * math.pi * i / n
+                k = (int(ccx + math.cos(a) * r) // q * q, int(ccy + math.sin(a) * r * 0.8) // q * q)
+                if k not in seen:
+                    seen.add(k)
+                    cr.rectangle(k[0], k[1], q, q)
+            cr.fill()
 
     def build_side(self):
         w, h = self.w, self.h
@@ -1234,12 +1528,11 @@ class Scene:
 
     def build_stars(self):
         """Фон — пиксели-помехи: искры, обрывки строк развёртки, снежинки, мелкие
-        телевизоры и шкалы сигнала. Мерцают, как «снег» на ЭЛТ."""
+        молнии и шкалы сигнала. Мерцают, как «снег» на ЭЛТ."""
         w, h = self.w, self.h
         unit = max(3, min(w, h) // 270)
         kinds = [(PLUS, 1.0), (PLUS, 1.0), (TWINKLE, 1.3), (SPARK, 0.8), (DOT, 1.5),
-                 (DASH, 1.0), (SNOW, 1.0), (SNOW2, 1.0), (SIG_MINI, 0.9), (TV_MINI, 0.9)]
-        ax, ay, aw, ah = self.avoid
+                 (DASH, 1.0), (SNOW, 1.0), (SNOW2, 1.0), (SIG_MINI, 0.9), (BOLT_MINI, 0.9)]
         self.stars = []
         tries = 0
         while len(self.stars) < 16 and tries < 600:
@@ -1249,7 +1542,8 @@ class Scene:
             bw, bh = len(bm[0]) * scale, len(bm) * scale
             x = self.rnd.randint(30, w - 30 - bw)
             y = self.rnd.randint(30, h - 60 - bh)
-            if ax - 20 < x + bw and x < ax + aw + 20 and ay - 20 < y + bh and y < ay + ah + 20:
+            if any(ax - 20 < x + bw and x < ax + aw + 20 and ay - 20 < y + bh and y < ay + ah + 20
+                   for ax, ay, aw, ah in [self.avoid] + getattr(self, "osd_rects", [])):
                 continue
             if any(abs(x - s["x"]) < 120 and abs(y - s["y"]) < 100 for s in self.stars):
                 continue
@@ -1497,14 +1791,27 @@ class Scene:
                 g["roll"] = k
                 c = self.cell
                 th = 18 * c
-                g["bands"] = [(self.ty0 + self.rnd.randint(0, 16) * c - c,
+                gx, gy, gw, gh = self.glitch_rect
+                g["bands"] = [(gy + self.rnd.randint(0, max(1, gh // c - 2)) * c,
                                self.rnd.randint(1, 3) * c,
                                self.rnd.choice((-1, 1)) * self.rnd.randint(c // 2, int(c * 2.6)))
                               for _ in range(self.rnd.randint(2, 4))]
-                g["ghost"] = self.rnd.choice((-1, 1)) * max(2, c // 2)
+                # цветное расслоение, как в шапке: красное влево, голубое вправо
+                g["ghost"] = self.rnd.randint(max(2, c // 2), max(3, c))
                 ny = self.ty0 + self.rnd.randint(0, th)
-                g["noise"] = [(self.tx0 + self.rnd.randint(0, self.tw), ny + self.rnd.randint(-c, c))
+                g["noise"] = [(gx + self.rnd.randint(0, gw), ny + self.rnd.randint(-c, c))
                               for _ in range(self.rnd.randint(20, 46))]
+                # срыв строки: светлая черта во всю ширину и рваные цветные куски
+                ty = self.ty0 + self.rnd.randint(c, th - c)
+                bits, x = [], gx
+                while x < gx + gw:
+                    bw = self.rnd.randint(2 * c, 14 * c)
+                    if self.rnd.random() < 0.5:
+                        bits.append((x, bw, self.rnd.choice((1, 2, 3)) * max(2, c // 3),
+                                     self.rnd.choice((RED, CYAN, self.hl))))
+                    x += bw + self.rnd.randint(c, 8 * c)
+                g["tear"] = (ty, bits) if self.rnd.random() < 0.7 else None
+                g["strike"] = self.rnd.choice((1.0, 0.25, 1.0, 0.4))
         return g
 
     # ── отрисовка ────────────────────────────────────────────────────────
@@ -1533,12 +1840,12 @@ class Scene:
         if self.main:
             # Осыпание идёт до низа экрана, сборка — от верха: тогда весь экран
             # перерисовывается (dirty → None), клип — целиком.
-            if hit(self.title_rect) or not self.steady(t):
-                self.draw_title(cr, t)
-            if hit(self.cluster_rect):
-                self.draw_cluster(cr, t)
+            if hit(self.title_rect) or hit(self.cluster_rect) or not self.steady(t):
+                self.draw_title(cr, t)                  # и молния: помеха режет их вместе
             if hit(self.sub_rect):
                 self.draw_subtitle(cr, t)
+            if any(hit(r) for r in self.osd_rects):
+                self.draw_osd(cr, t)
         if self.main:
             r = self.clock_rect()
             if hit(r):
@@ -1557,13 +1864,16 @@ class Scene:
         return ramp_color(self.theme, u)
 
     def paint_letters(self, cr, t, dx=0, color=None, alpha=1.0):
+        """Буквы: перелив по маске base, поверх — блики и тени. С color — только
+        силуэт одним цветом (расслоение помехи)."""
         import cairo
         for i, l in enumerate(self.letters):
             pose = self.letter_pose(i, t)
             if pose is None:
                 continue
             cx, cy, ang, a = pose
-            mask, hx, hy = l.turned_mask(ang)
+            base, light, dark, hx, hy = l.turned_layers(ang)
+            x, y = cx + dx - hx, cy - hy
             if color is None:
                 gx = self.lx[i] + dx
                 span = l.w + l.step * 3
@@ -1571,9 +1881,14 @@ class Scene:
                 for stop in (0.0, 0.5, 1.0):
                     g.add_color_stop_rgba(stop, *self.color_at(gx - dx + stop * span, t), a * alpha)
                 cr.set_source(g)
+                cr.mask_surface(base, x, y)
+                cr.set_source_rgba(*self.hl, a * alpha)
+                cr.mask_surface(light, x, y)
+                cr.set_source_rgba(0, 0, 0, a * alpha)
+                cr.mask_surface(dark, x, y)
             else:
                 cr.set_source_rgba(*color, a * alpha)
-            cr.mask_surface(mask, cx + dx - hx, cy - hy)
+                cr.mask_surface(base, x, y)
 
     def draw_title(self, cr, t):
         import cairo
@@ -1581,15 +1896,19 @@ class Scene:
         if self.outro_t is not None and t >= self.outro_t:
             self.draw_outro(cr, t)                  # клетки под гаснущими масками
         if not g:
+            self.draw_cluster(cr, t)
             self.paint_letters(cr, t)
         else:
-            # Кадр помехи: надпись — в отдельную картинку, потом полосы со сдвигом.
-            x0, y0, rw, rh = self.title_rect
+            # Кадр помехи: надпись с молнией — в отдельную картинку, под ней красная и
+            # голубая копии со сдвигом (видны каймой по краям), потом
+            # полосы со сдвигом вбок, шум и срыв строки.
+            x0, y0, rw, rh = self.glitch_rect
             surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, rw, rh)
             c2 = cairo.Context(surf)
             c2.translate(-x0, -y0)
-            ghost = ramp_color(self.theme, t / self.DRIFT + 1.0)
-            self.paint_letters(c2, t, dx=g["ghost"], color=ghost, alpha=0.45)
+            self.draw_cluster(c2, t)
+            self.paint_letters(c2, t, dx=-g["ghost"], color=RED, alpha=0.6)
+            self.paint_letters(c2, t, dx=g["ghost"], color=CYAN, alpha=0.6)
             self.paint_letters(c2, t)
             surf.flush()
             cr.set_source_surface(surf, x0, y0)
@@ -1611,6 +1930,15 @@ class Scene:
                 cr.set_source_rgba(v, v, v, 0.75)
                 cr.rectangle(nx - nx % sq, ny - ny % sq, sq * self.rnd.randint(1, 3), sq)
                 cr.fill()
+            if g.get("tear"):
+                ty, bits = g["tear"]
+                cr.set_source_rgba(*self.hl, 0.55)
+                cr.rectangle(x0, ty, rw, max(2, self.cell // 4))
+                cr.fill()
+                for bx, bw, bh, col in bits:
+                    cr.set_source_rgba(*col, 0.4)
+                    cr.rectangle(bx, ty - bh - 2, bw, bh)
+                    cr.fill()
         if self.build_t <= t < self.build_end:
             self.draw_blocks(cr, t)
         # Едва заметная «прокатка» ЭЛТ: тёмная полоса раз в несколько секунд
@@ -1622,11 +1950,11 @@ class Scene:
             if 0 <= p <= 1:
                 y = self.ty0 - self.amp + p * (self.th + 2 * self.amp)
                 cr.set_source_rgba(0, 0, 0, 0.32)
-                cr.rectangle(self.title_rect[0], int(y), self.title_rect[2], self.cell)
+                cr.rectangle(self.glitch_rect[0], int(y), self.glitch_rect[2], self.cell)
                 cr.fill()
 
     def signal(self, t):
-        """(делений шкалы 0–4, густота снега в телевизоре) — по фазе цикла:
+        """(делений шкалы 0–4, густота снега) — по фазе цикла:
         перед осыпанием и в паузе сигнал пропадает, при сборке — возвращается."""
         if self.outro_t is not None and t >= self.outro_t - self.OUT_GLITCH:
             return 0, 0.75
@@ -1636,44 +1964,105 @@ class Scene:
         return (4, 4, 3, 4, 4, 4, 2, 3, 4, 4)[int(t / 1.3) % 10], 0.22
 
     def draw_cluster(self, cr, t):
-        t0 = self.first_landed - 0.3
-        if t < t0:
+        """Молния. Вступление: разряды бьют из темноты, главный — в центр, там
+        вспыхивает крупная раскалённая молния, вокруг треск; потом она уменьшается
+        и уезжает налево со шлейфом (bolt_state). Дальше свечение дышит; без
+        сигнала (перед осыпанием и в паузе) — еле теплится и дрожит; в помеху —
+        вспышка свечения и мерцание, как удар в шапке."""
+        intro = t < self.T_MOVE + self.MOVE + 0.7
+        st = self.bolt_state(t) if intro else None
+        if intro:
+            self.draw_strikes(cr, t, st)
+        p = t - self.T_HIT
+        if p < 0:
             return
-        k = min(1.0, (t - t0) / 0.8)
-        for c in self.cluster:
-            tw = 0.5 + 0.5 * math.sin(2 * math.pi * t / c["per"] + c["ph"])
-            cr.set_source_rgba(*self.color_at(c["x"], t), k * (0.35 + 0.65 * tw))
-            cr.mask_surface(c["mask"], c["x"], c["y"])
-        level, dens = self.signal(t)
-        # телевизор: корпус в цвет надписи, на экране — снег
-        tv = self.tv
-        cr.set_source_rgba(*self.color_at(tv["x"] + tv["w"] / 2, t), k)
-        cr.mask_surface(tv["mask"], tv["x"], tv["y"])
-        roll = (int(t * 12), round(dens, 2))
-        if roll != self._tv[0]:
-            rng = random.Random(roll[0] * 31 + self.seed)
-            sx, sy, sw, sh = tv["screen"]
-            s = tv["s"]
-            self._tv = (roll, [(sx + x * s, sy + y * s, round(rng.uniform(0.3, 1.0) * 4) / 4)
-                               for y in range(sh) for x in range(sw) if rng.random() < dens])
-        st = self.theme["static"]
-        for x, y, v in self._tv[1]:
-            cr.set_source_rgba(*mix(st, (1, 1, 1), v * 0.5), k * (0.35 + 0.55 * v))
-            cr.rectangle(x, y, tv["s"], tv["s"])
-            cr.fill()
-        # шкала сигнала: горящие деления — цветом надписи, пустые — тусклые;
-        # без сигнала мигает первое деление
-        sg = self.sig
-        s = sg["s"]
-        lit = self.color_at(sg["x"], t)
-        for j in range(4):
-            on = j < level or (level == 0 and j == 0 and int(t * 2.5) % 2 == 0)
-            if on:
-                cr.set_source_rgba(*(lit if level else st), k)
-            else:
-                cr.set_source_rgba(*st, k * 0.18)
-            bh = (j + 1) * s
-            cr.rectangle(sg["x"] + j * 2 * s, sg["y"] + 4 * s - bh, s, bh)
+        moving = t < self.T_MOVE + self.MOVE             # крупнее обычной / в пути
+        k = 1.0
+        if 0.15 < p < 0.6 and int(p * 20) % 4 == 1:
+            k *= 0.45
+        level, _dens = self.signal(t)
+        if level == 0:
+            k *= 0.35 + 0.25 * (int(t * 8) % 2)
+        g = self.glitch
+        strike = g.get("strike", 1.0) if g else 1.0
+        b, bx, by = self.bolt, self.bx, self.by
+        col = self.color_at(self.tx0 - b.w, t)
+        breathe = 0.5 + 0.5 * math.sin(2 * math.pi * t / 3.1)
+        hot = max(0.0, 1.0 - p / 0.5)                    # только что ударила — раскалена
+        if moving and t > self.T_MOVE:                   # шлейф при полёте
+            for j, ta in ((3, 0.10), (2, 0.2), (1, 0.34)):
+                cr.save()
+                self.bolt_space(cr, self.bolt_state(t - 0.045 * j))
+                cr.set_source_rgba(*col, ta)
+                self.big_mask(cr, self.bolt_big.sil)
+                cr.restore()
+        if moving:
+            cr.save()
+            self.bolt_space(cr, st)
+
+            def put(m, dx=0):
+                self.big_mask(cr, getattr(self.bolt_big, m), dx)
+        else:
+            def put(m, dx=0):
+                cr.mask_surface(getattr(b, m), bx + dx, by)
+        gl = self.glow
+        cr.set_source_rgba(*col, min(1.0, (0.16 + 0.08 * breathe + 0.5 * hot) * k * (2.2 if g else 1.0)))
+        cr.mask_surface(gl["mask"], gl["x"], gl["y"])
+        for s in self.sparks:
+            if 0.55 <= (t / s["per"] + s["ph"]) % 1.0 < 0.85:
+                c = {"l": self.hl, "r": col, "c": CYAN}[s["kind"]]
+                cr.set_source_rgba(*c, k)
+                cr.mask_surface(s["mask"], s["x"], s["y"])
+        if intro:
+            for c in self.crackles:
+                q = t - c["t0"]
+                if 0 <= q < c["dur"]:
+                    self.draw_arc(cr, c["cells"], 0.9, bx, by)
+        a = k * strike
+        if g:
+            cr.set_source_rgba(*RED, 0.6 * k)
+            put("sil", -g["ghost"])
+            cr.set_source_rgba(*CYAN, 0.6 * k)
+            put("sil", g["ghost"])
+        cr.set_source_rgba(0, 0, 0, a)
+        put("outline")
+        cr.set_source_rgba(*mix(col, self.hl, 0.15), a)
+        put("base")
+        cr.set_source_rgba(*self.hl, a)
+        put("light")
+        cr.set_source_rgba(0, 0, 0, a)
+        put("dark")
+        if hot > 0:
+            cr.set_source_rgba(1, 1, 1, 0.9 * hot * hot)
+            put("sil")
+        if moving:
+            cr.restore()
+
+    def draw_osd(self, cr, t):
+        """Уголки «эфира»: ▶LIVE ● (точка мигает), канал, SIGNAL со шкалой из
+        signal() — та же, что раньше была у телевизора."""
+        a = max(0.0, min(1.0, (t - self.t_clock() - 0.5) / 0.6))
+        if a <= 0:
+            return
+        o, k = self.osd, self.osd["k"]
+        dim = self.theme["dim"]
+        for key in ("live", "ch", "sig"):
+            m, x, y = o[key]
+            cr.set_source_rgba(*dim, a * 0.55)
+            cr.mask_surface(m, x, y)
+        if int(t / 0.6) % 2 == 0:
+            m, x, y = o["dot"]
+            cr.set_source_rgba(1.0, 0.36, 0.54, a * 0.85)
+            cr.mask_surface(m, x, y)
+        level, _dens = self.signal(t)
+        lvl = level + (level == 4)                    # полный сигнал — все пять
+        bx, by = o["bars"]
+        lit = self.color_at(bx, t)
+        for j in range(5):
+            bh = (3 + j) * k
+            on = j < lvl or (lvl == 0 and j == 0 and int(t * 2.5) % 2 == 0)
+            cr.set_source_rgba(*(lit if on and lvl else dim), a * (0.8 if on else 0.15))
+            cr.rectangle(bx + j * 3 * k, by + 8 * k - bh, 2 * k, bh)
             cr.fill()
 
     def draw_subtitle(self, cr, t):
@@ -1744,6 +2133,8 @@ class Scene:
             out.append(self.text_rect)
         if frame % 3 == 0:
             out += [(s["x"], s["y"], s["w"], s["h"]) for s in self.stars]
+            if self.main:
+                out += self.osd_rects
         if not self.main:
             out.append(self.orb.rect)                     # сфера движется каждый кадр
         elif self.clock_strings() != self.clock_text:

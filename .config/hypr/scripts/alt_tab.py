@@ -1292,17 +1292,22 @@ class Switcher:
             self.hide()
         # h/j/k/l как в nvim (05.10.2026); на русской раскладке те же клавиши — р/о/л/д
         # Tab — по давности; h/l и стрелки — по месту, за краем — соседний монитор (19.10.2026)
+        # и WASD как h/l/j/k: a/d — влево/вправо, w/s — вверх/вниз (21.10.2026); ф/в/ц/ы — русская
         elif k == Gdk.KEY_Tab:
             self.move(1)
         elif k == Gdk.KEY_ISO_Left_Tab:
             self.move(-1)
-        elif k in (Gdk.KEY_Right, Gdk.KEY_l, Gdk.KEY_L, Gdk.KEY_Cyrillic_de, Gdk.KEY_Cyrillic_DE):
+        elif k in (Gdk.KEY_Right, Gdk.KEY_l, Gdk.KEY_L, Gdk.KEY_Cyrillic_de, Gdk.KEY_Cyrillic_DE,
+                   Gdk.KEY_d, Gdk.KEY_D, Gdk.KEY_Cyrillic_ve, Gdk.KEY_Cyrillic_VE):
             self.move_col(1)
-        elif k in (Gdk.KEY_Left, Gdk.KEY_h, Gdk.KEY_H, Gdk.KEY_Cyrillic_er, Gdk.KEY_Cyrillic_ER):
+        elif k in (Gdk.KEY_Left, Gdk.KEY_h, Gdk.KEY_H, Gdk.KEY_Cyrillic_er, Gdk.KEY_Cyrillic_ER,
+                   Gdk.KEY_a, Gdk.KEY_A, Gdk.KEY_Cyrillic_ef, Gdk.KEY_Cyrillic_EF):
             self.move_col(-1)
-        elif k in (Gdk.KEY_Down, Gdk.KEY_j, Gdk.KEY_J, Gdk.KEY_Cyrillic_o, Gdk.KEY_Cyrillic_O):
+        elif k in (Gdk.KEY_Down, Gdk.KEY_j, Gdk.KEY_J, Gdk.KEY_Cyrillic_o, Gdk.KEY_Cyrillic_O,
+                   Gdk.KEY_s, Gdk.KEY_S, Gdk.KEY_Cyrillic_yeru, Gdk.KEY_Cyrillic_YERU):
             self.move_row(1)
-        elif k in (Gdk.KEY_Up, Gdk.KEY_k, Gdk.KEY_K, Gdk.KEY_Cyrillic_el, Gdk.KEY_Cyrillic_EL):
+        elif k in (Gdk.KEY_Up, Gdk.KEY_k, Gdk.KEY_K, Gdk.KEY_Cyrillic_el, Gdk.KEY_Cyrillic_EL,
+                   Gdk.KEY_w, Gdk.KEY_W, Gdk.KEY_Cyrillic_tse, Gdk.KEY_Cyrillic_TSE):
             self.move_row(-1)
         elif k in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_space):
             self.commit()

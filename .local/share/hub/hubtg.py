@@ -220,6 +220,11 @@ def render(it):
     over = it["due"] is not None and it["due"] <= H.now()
     if it["kind"] == "timer":
         if it["status"] != "open":
+            # 21.10.2026: «Время вышло» в 12:38 после «Стоп» с ПК в 12:55 переписывалось в
+            # «Таймер остановлен» — по чату казалось, что таймер не звенел. Отзвеневший помнит время.
+            if it["fired_pc"] and it["due"]:
+                return "⏱ Время вышло в %s: %s\n■ остановлен в %s" % (
+                    hm(it["due"]), t, hm(it["updated_at"] or H.now())), None
             return "■ Таймер остановлен: %s" % t, None
         if over:
             return "⏱ Время вышло: %s" % t, [[{"text": "+5 мин", "callback_data": "s:%d:300" % it["id"]},

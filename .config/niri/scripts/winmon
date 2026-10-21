@@ -1,0 +1,7 @@
+#!/bin/sh
+# Ctrl+Alt+H/L — окно на монитор слева/справа (21.10.2026). В стопке — stack_mode.py tomon:
+# на стол стопки соседа, то же место, развёрнутое — развёрнутым; иначе — как в niri.
+#   winmon left|right
+grep -q '"active": true' "$HOME/.config/hypr/state/stack-mode.json" 2>/dev/null &&
+    exec python3 "$HOME/.config/hypr/scripts/stack_mode.py" tomon "$1"
+exec niri msg action "move-window-to-monitor-$1"

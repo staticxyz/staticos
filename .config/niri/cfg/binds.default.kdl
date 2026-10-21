@@ -31,8 +31,8 @@ binds {
     Mod+Y hotkey-overlay-title="LibreWolf (браузер)" { spawn "librewolf"; }
     // Пароли — KeePassXC через обёртку (цвета обоев, пиксельный шрифт); открыт — поднимает окно.
     Mod+Ctrl+Shift+P hotkey-overlay-title="Пароли (KeePassXC)" { spawn-sh "~/.local/bin/keepassxc"; }
-    Mod+A hotkey-overlay-title="Раскладка стола: прокрутка → сетка → плавающие → подглядывание → три в ряд" { spawn-sh "python3 ~/.config/hypr/scripts/ws_layout.py cycle"; }
-    Mod+Ctrl+A hotkey-overlay-title="Раскладка стола: прежняя" { spawn-sh "python3 ~/.config/hypr/scripts/ws_layout.py cycle back"; }
+    Mod+A hotkey-overlay-title="Раскладка стола: прокрутка → сетка → плавающие → подглядывание → три в ряд" { spawn-sh "~/.config/niri/scripts/nostack python3 ~/.config/hypr/scripts/ws_layout.py cycle"; }
+    Mod+Ctrl+A hotkey-overlay-title="Раскладка стола: прежняя" { spawn-sh "~/.config/niri/scripts/nostack python3 ~/.config/hypr/scripts/ws_layout.py cycle back"; }
     Mod+Ctrl+Shift+M hotkey-overlay-title="Стопка окон (hyprstack): вкл/выкл" { spawn-sh "python3 ~/.config/hypr/scripts/stack_mode.py toggle"; }
     // Калькулятор-переводчик — своё окно (translate_popup.py): rofi-calc не
     // умел показывать длинный перевод строками (23.09.2026). Повторное
@@ -79,7 +79,7 @@ binds {
     // ─── Обзор: новое, в Hyprland такого не было ───
     // Зум-вид всех столов и окон. Ещё — левый верхний угол мышью
     // и четыре пальца вверх по тачпаду.
-    Mod+G repeat=false { toggle-overview; }
+    Mod+G repeat=false { spawn-sh "~/.config/niri/scripts/nostack niri msg action toggle-overview"; }
 
     // ═══ НАВИГАЦИЯ: оси совпадают с направлениями vim ═══
     //
@@ -122,53 +122,53 @@ binds {
     Mod+Ctrl+Down { focus-window-down; }
 
     // ─── Двигать колонку по ленте (ALT, горизонталь) ───
-    Mod+Alt+H     { move-column-left; }
-    Mod+Alt+L     { move-column-right; }
-    Mod+Alt+Left  { move-column-left; }
-    Mod+Alt+Right { move-column-right; }
+    Mod+Alt+H     { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-left"; }
+    Mod+Alt+L     { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-right"; }
+    Mod+Alt+Left  { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-left"; }
+    Mod+Alt+Right { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-right"; }
 
-    Mod+Alt+Home { move-column-to-first; }
-    Mod+Alt+End  { move-column-to-last; }
+    Mod+Alt+Home { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-first"; }
+    Mod+Alt+End  { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-last"; }
 
     // ─── Двигать окно внутри колонки (ALT, вертикаль) ───
-    Mod+Alt+K { move-window-up; }
-    Mod+Alt+J { move-window-down; }
-    Mod+Alt+Up   { move-window-up; }
-    Mod+Alt+Down { move-window-down; }
+    Mod+Alt+K { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-window-up"; }
+    Mod+Alt+J { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-window-down"; }
+    Mod+Alt+Up   { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-window-up"; }
+    Mod+Alt+Down { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-window-down"; }
 
     // ─── Двигать сам стол в порядке (SHIFT, вертикаль) ───
-    Mod+Shift+K { move-workspace-up; }
-    Mod+Shift+J { move-workspace-down; }
-    Mod+Shift+Up   { move-workspace-up; }
-    Mod+Shift+Down { move-workspace-down; }
+    Mod+Shift+K { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-workspace-up"; }
+    Mod+Shift+J { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-workspace-down"; }
+    Mod+Shift+Up   { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-workspace-up"; }
+    Mod+Shift+Down { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-workspace-down"; }
 
     // ─── Окно на соседний стол (CTRL+ALT, вертикаль) ───
     // 13.10.2026, просьба: то же без Super — Ctrl+Alt+K/J (как Ctrl+Alt+H/L на мониторы).
-    Ctrl+Alt+K { move-column-to-workspace-up; }
-    Ctrl+Alt+J { move-column-to-workspace-down; }
-    Mod+Ctrl+Alt+K { move-column-to-workspace-up; }
-    Mod+Ctrl+Alt+J { move-column-to-workspace-down; }
+    Ctrl+Alt+K { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace-up"; }
+    Ctrl+Alt+J { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace-down"; }
+    Mod+Ctrl+Alt+K { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace-up"; }
+    Mod+Ctrl+Alt+J { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace-down"; }
     // Кнопка окна в фокусе на нижней панели левее/правее: в стопке — порядок панели, вне её —
     // колонка (панель идёт по колонкам). niri/scripts/hl-step … move, 21.10.2026.
     Mod+Ctrl+Alt+H hotkey-overlay-title="Окно на панели левее (стопка) / колонка влево" { spawn-sh "~/.config/niri/scripts/hl-step left move"; }
     Mod+Ctrl+Alt+L hotkey-overlay-title="Окно на панели правее (стопка) / колонка вправо" { spawn-sh "~/.config/niri/scripts/hl-step right move"; }
-    Mod+Ctrl+Alt+Up   { move-column-to-workspace-up; }
-    Mod+Ctrl+Alt+Down { move-column-to-workspace-down; }
-    Mod+Ctrl+Alt+Minus { move-column-to-workspace-up; }
-    Mod+Ctrl+Alt+Equal { move-column-to-workspace-down; }
-    Mod+Ctrl+Alt+KP_Subtract { move-column-to-workspace-up; }
-    Mod+Ctrl+Alt+KP_Add      { move-column-to-workspace-down; }
+    Mod+Ctrl+Alt+Up   { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace-up"; }
+    Mod+Ctrl+Alt+Down { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace-down"; }
+    Mod+Ctrl+Alt+Minus { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace-up"; }
+    Mod+Ctrl+Alt+Equal { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace-down"; }
+    Mod+Ctrl+Alt+KP_Subtract { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace-up"; }
+    Mod+Ctrl+Alt+KP_Add      { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace-down"; }
 
     // ─── Стол на соседний монитор (CTRL+SHIFT, горизонталь) ───
-    Mod+Ctrl+Shift+H { move-workspace-to-monitor-left; }
-    Mod+Ctrl+Shift+L { move-workspace-to-monitor-right; }
+    Mod+Ctrl+Shift+H { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-workspace-to-monitor-left"; }
+    Mod+Ctrl+Shift+L { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-workspace-to-monitor-right"; }
     // Все окна стола — на соседний стол (замена SUPER+ALT+SHIFT+←/→ из
     // Hyprland; ALT+SHIFT занят сменой раскладки, поэтому клавиши другие).
     Mod+Ctrl+Shift+K hotkey-overlay-title="Все окна на стол выше" { spawn-sh "~/.config/niri/scripts/move_all up"; }
     Mod+Ctrl+Shift+J hotkey-overlay-title="Все окна на стол ниже" { spawn-sh "~/.config/niri/scripts/move_all down"; }
 
-    Mod+Ctrl+Shift+Left  { move-workspace-to-monitor-left; }
-    Mod+Ctrl+Shift+Right { move-workspace-to-monitor-right; }
+    Mod+Ctrl+Shift+Left  { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-workspace-to-monitor-left"; }
+    Mod+Ctrl+Shift+Right { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-workspace-to-monitor-right"; }
 
     // ─── Новый стол РЯДОМ с текущим, а не в конце ───
     // Замена SUPER+CTRL+вверх/вниз из Hyprland (там это делал ws_order.py insert).
@@ -186,8 +186,8 @@ binds {
     // ─── Двигать сам стол в порядке, горизонтальная привычка из Hyprland ───
     // То же, что Mod+Shift+K/J выше: там ось niri (вертикаль), здесь память рук
     // от Hyprland, где это висело на SUPER+SHIFT+влево/вправо.
-    Mod+Shift+H { move-workspace-up; }
-    Mod+Shift+L { move-workspace-down; }
+    Mod+Shift+H { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-workspace-up"; }
+    Mod+Shift+L { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-workspace-down"; }
 
     // ─── Ширина колонки ───
     // Шаг ±10 % рабочей ширины — ровно то, что делал ribbon_width.
@@ -222,12 +222,12 @@ binds {
     // Окно с фокусом — по центру: вкл/выкл (то же, что тумблер в «Настройках» →
     // «Окна»). Перебор заготовленных ширин отсюда снят 28.09.2026: ширину
     // меняют SUPER+= / −.
-    Mod+R hotkey-overlay-title="Центрирование ленты вкл/выкл (у каждого стола своё)" { spawn-sh "python3 ~/.config/hypr/scripts/ws_layout.py view toggle"; }
+    Mod+R hotkey-overlay-title="Центрирование ленты вкл/выкл (у каждого стола своё)" { spawn-sh "~/.config/niri/scripts/nostack python3 ~/.config/hypr/scripts/ws_layout.py view toggle"; }
 
     // ─── Вложить в колонку / вынуть из неё ───
-    Mod+BracketLeft  { consume-or-expel-window-left; }
-    Mod+BracketRight { consume-or-expel-window-right; }
-    Mod+Comma  { consume-window-into-column; }
+    Mod+BracketLeft  { spawn-sh "~/.config/niri/scripts/nostack niri msg action consume-or-expel-window-left"; }
+    Mod+BracketRight { spawn-sh "~/.config/niri/scripts/nostack niri msg action consume-or-expel-window-right"; }
+    Mod+Comma  { spawn-sh "~/.config/niri/scripts/nostack niri msg action consume-window-into-column"; }
     // На английской — «вынуть из колонки» (клавиша «.»), на русской та же
     // клавиша даёт «/», и там это «Настройки»: niri разбирает сочетания по
     // символу текущей раскладки, отдельного бинда для «/» на русской нет.
@@ -236,16 +236,16 @@ binds {
     // ─── Развернуть / полный экран / плавающее ───
     Mod+F hotkey-overlay-title="Во весь экран (в стопке: развернуть окно)" { spawn-sh "~/.config/niri/scripts/fs-toggle"; }
     // Последний шаг SUPER+= в Hyprland — развернуть на всю рабочую область.
-    Mod+Shift+F { maximize-column; }
+    Mod+Shift+F { spawn-sh "~/.config/niri/scripts/nostack niri msg action maximize-column"; }
     // Растянуть колонку на всё свободное место; повторно — исходный размер (scripts/colexpand).
-    Mod+Alt+D hotkey-overlay-title="Колонку растянуть на всю ширину" { spawn-sh "~/.config/niri/scripts/colexpand"; }
+    Mod+Alt+D hotkey-overlay-title="Колонку растянуть на всю ширину" { spawn-sh "~/.config/niri/scripts/nostack ~/.config/niri/scripts/colexpand"; }
     // Через скрипт, а не toggle-window-floating напрямую (02.10.2026): niri, возвращая окно
     // из плавающих в ленту, сбрасывал ширину на 50 % — скрипт возвращает ту, что была.
-    Mod+V hotkey-overlay-title="Плавающее окно вкл/выкл" { spawn-sh "~/.config/niri/scripts/floattoggle"; }
+    Mod+V hotkey-overlay-title="Плавающее окно вкл/выкл" { spawn-sh "~/.config/niri/scripts/nostack ~/.config/niri/scripts/floattoggle"; }
     Mod+Shift+V { switch-focus-between-floating-and-tiling; }
     // Вкладки внутри колонки — новое, в Hyprland такого не было.
-    Mod+Shift+T { toggle-column-tabbed-display; }
-    Mod+Shift+C { center-column; }
+    Mod+Shift+T { spawn-sh "~/.config/niri/scripts/nostack niri msg action toggle-column-tabbed-display"; }
+    Mod+Shift+C { spawn-sh "~/.config/niri/scripts/nostack niri msg action center-column"; }
 
     // ─── Мониторы (горизонталь) ───
     // 05.10.2026: Super+Tab — следующий монитор, Alt+Tab — свой переключатель окон как в
@@ -253,10 +253,10 @@ binds {
     // канал резидента alt_tab.py — без запуска питона, почти мгновенно.
     Mod+Tab { focus-monitor-next; }
     Alt+Tab hotkey-overlay-title="Переключатель окон" { spawn-sh "~/.config/hypr/scripts/alt_tab.sh next"; }
-    Ctrl+Alt+H { move-window-to-monitor-left; }
-    Ctrl+Alt+L { move-window-to-monitor-right; }
-    Ctrl+Alt+Left  { move-window-to-monitor-left; }
-    Ctrl+Alt+Right { move-window-to-monitor-right; }
+    Ctrl+Alt+H hotkey-overlay-title="Окно на монитор слева" { spawn-sh "~/.config/niri/scripts/winmon left"; }
+    Ctrl+Alt+L hotkey-overlay-title="Окно на монитор справа" { spawn-sh "~/.config/niri/scripts/winmon right"; }
+    Ctrl+Alt+Left hotkey-overlay-title="Окно на монитор слева" { spawn-sh "~/.config/niri/scripts/winmon left"; }
+    Ctrl+Alt+Right hotkey-overlay-title="Окно на монитор справа" { spawn-sh "~/.config/niri/scripts/winmon right"; }
 
 
     // ─── «Карманный» стол (в Hyprland был спецстол special:magic) ───
@@ -269,54 +269,54 @@ binds {
     Mod+Alt+E hotkey-overlay-title="Окно из карманного стола" { spawn-sh "~/.config/niri/scripts/magic take"; }
 
     // ─── Столы по номеру ───
-    Mod+1 { focus-workspace 1; }
-    Mod+2 { focus-workspace 2; }
-    Mod+3 { focus-workspace 3; }
-    Mod+4 { focus-workspace 4; }
-    Mod+5 { focus-workspace 5; }
-    Mod+6 { focus-workspace 6; }
-    Mod+7 { focus-workspace 7; }
-    Mod+8 { focus-workspace 8; }
-    Mod+9 { focus-workspace 9; }
+    Mod+1 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 1"; }
+    Mod+2 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 2"; }
+    Mod+3 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 3"; }
+    Mod+4 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 4"; }
+    Mod+5 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 5"; }
+    Mod+6 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 6"; }
+    Mod+7 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 7"; }
+    Mod+8 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 8"; }
+    Mod+9 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 9"; }
     // SUPER+0 — исходный размер окна (scripts/winreset, 28.09.2026). На стол 10
     // ведёт SUPER+0 на цифровом блоке.
-    Mod+0 hotkey-overlay-title="Сбросить размер окна" { spawn-sh "~/.config/niri/scripts/winreset"; }
+    Mod+0 hotkey-overlay-title="Сбросить размер окна" { spawn-sh "~/.config/niri/scripts/nostack ~/.config/niri/scripts/winreset"; }
     // SUPER+D — стол дашборда (05.10.2026; раньше — стол 10)
     Mod+D repeat=false hotkey-overlay-title="Свернуть все окна (стопка) / дашборд" { spawn-sh "python3 ~/.config/hypr/scripts/stack_mode.py superd"; }
 
-    Mod+Shift+1 { move-column-to-workspace 1; }
-    Mod+Shift+2 { move-column-to-workspace 2; }
-    Mod+Shift+3 { move-column-to-workspace 3; }
-    Mod+Shift+4 { move-column-to-workspace 4; }
-    Mod+Shift+5 { move-column-to-workspace 5; }
-    Mod+Shift+6 { move-column-to-workspace 6; }
-    Mod+Shift+7 { move-column-to-workspace 7; }
-    Mod+Shift+8 { move-column-to-workspace 8; }
-    Mod+Shift+9 { move-column-to-workspace 9; }
-    Mod+Shift+0 { move-column-to-workspace 10; }
+    Mod+Shift+1 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 1"; }
+    Mod+Shift+2 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 2"; }
+    Mod+Shift+3 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 3"; }
+    Mod+Shift+4 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 4"; }
+    Mod+Shift+5 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 5"; }
+    Mod+Shift+6 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 6"; }
+    Mod+Shift+7 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 7"; }
+    Mod+Shift+8 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 8"; }
+    Mod+Shift+9 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 9"; }
+    Mod+Shift+0 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 10"; }
 
     // Цифровая клавиатура — те же столы
-    Mod+KP_1 { focus-workspace 1; }
-    Mod+KP_2 { focus-workspace 2; }
-    Mod+KP_3 { focus-workspace 3; }
-    Mod+KP_4 { focus-workspace 4; }
-    Mod+KP_5 { focus-workspace 5; }
-    Mod+KP_6 { focus-workspace 6; }
-    Mod+KP_7 { focus-workspace 7; }
-    Mod+KP_8 { focus-workspace 8; }
-    Mod+KP_9 { focus-workspace 9; }
-    Mod+KP_0 { focus-workspace 10; }
+    Mod+KP_1 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 1"; }
+    Mod+KP_2 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 2"; }
+    Mod+KP_3 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 3"; }
+    Mod+KP_4 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 4"; }
+    Mod+KP_5 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 5"; }
+    Mod+KP_6 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 6"; }
+    Mod+KP_7 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 7"; }
+    Mod+KP_8 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 8"; }
+    Mod+KP_9 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 9"; }
+    Mod+KP_0 { spawn-sh "~/.config/niri/scripts/nostack niri msg action focus-workspace 10"; }
 
-    Mod+Shift+KP_1 { move-column-to-workspace 1; }
-    Mod+Shift+KP_2 { move-column-to-workspace 2; }
-    Mod+Shift+KP_3 { move-column-to-workspace 3; }
-    Mod+Shift+KP_4 { move-column-to-workspace 4; }
-    Mod+Shift+KP_5 { move-column-to-workspace 5; }
-    Mod+Shift+KP_6 { move-column-to-workspace 6; }
-    Mod+Shift+KP_7 { move-column-to-workspace 7; }
-    Mod+Shift+KP_8 { move-column-to-workspace 8; }
-    Mod+Shift+KP_9 { move-column-to-workspace 9; }
-    Mod+Shift+KP_0 { move-column-to-workspace 10; }
+    Mod+Shift+KP_1 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 1"; }
+    Mod+Shift+KP_2 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 2"; }
+    Mod+Shift+KP_3 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 3"; }
+    Mod+Shift+KP_4 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 4"; }
+    Mod+Shift+KP_5 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 5"; }
+    Mod+Shift+KP_6 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 6"; }
+    Mod+Shift+KP_7 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 7"; }
+    Mod+Shift+KP_8 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 8"; }
+    Mod+Shift+KP_9 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 9"; }
+    Mod+Shift+KP_0 { spawn-sh "~/.config/niri/scripts/nostack niri msg action move-column-to-workspace 10"; }
 
     // ─── Колесо мыши: SUPER + колесо листает ОКНА ленты ───
     // (просьба пользователя 19.09.2026; столы остались на H / L)

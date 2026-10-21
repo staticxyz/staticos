@@ -935,7 +935,9 @@ def register(ns):
             if it is None or it["status"] != "open":
                 # остановили из Telegram или закрыли уведомление hub
                 o.pop("hub", None)
-                if o.get("auto"):
+                # 21.10.2026, просьба: виджет таймера с телефона стоит, пока его не закроют
+                # крестиком на столе или кнопкой в боте. Снимаем его только по кнопке бота.
+                if o.get("auto") and (it is None or self.closed_from_tg(c, int(iid))):
                     self.mgr.remove(self)
                     return
                 if not self.done() and "end" in o:
@@ -1003,12 +1005,17 @@ def register(ns):
                 self.keep()
             return False
 
+        @staticmethod
+        def closed_from_tg(c, iid):
+            row = c.execute("SELECT data FROM events WHERE item_id=? AND kind IN ('drop','done') "
+                            "ORDER BY id DESC LIMIT 1", (iid,)).fetchone()
+            return bool(row and str(row[0]).startswith("tg"))
+
         def on_click(self, x, y, button=1):
             if self.opts.get("hub") and self.done():
                 self.hub_drop()                # звонит hub: первый щелчок — «Стоп» в hub
-                if self.opts.get("auto"):
-                    self.mgr.remove(self)
-                    return
+                self.stop_alarm()              # виджет остаётся на столе (21.10), убирает крестик
+                self.opts["rang"] = True
                 self.keep()
                 if button == 1:
                     self.menu = True

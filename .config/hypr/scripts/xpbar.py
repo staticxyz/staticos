@@ -971,9 +971,18 @@ def pins_load():
         d = {}
     if not isinstance(d, dict):
         d = {}
-    d.setdefault("pins", [])
     d.setdefault("order", {})
+    # 21.10.2026, просьба: «закреплённое должно закрепляться только в том мониторе, на котором
+    # закрепили» — pins: {монитор: [app_id]}; старый общий список достаётся каждой панели
+    pins = d.get("pins")
+    if isinstance(pins, list):
+        pins = {c: list(pins) for c in d["order"]}
+    d["pins"] = pins if isinstance(pins, dict) else {}
     return d
+
+
+def pins_of(d, conn):
+    return d["pins"].get(conn) or []
 
 
 def pins_save(d):
@@ -983,25 +992,25 @@ def pins_save(d):
     os.replace(tmp, PINS_FILE)
 
 
-def pin_toggle(app):
+def pin_toggle(app, conn):
     """Закрепить/открепить, не сдвигая с места — как в Windows 10 (21.10.2026, просьба: «механика закреплений не очень работает»): прежде у закреплённого появлялся новый ключ
     «p:app», которого нет в сохранённом порядке, и программа уезжала в конец панели."""
     d = pins_load()
     wins = BARS[0].state.windows.values() if BARS else []
     mine = ["w:%d" % w["id"] for w in wins if (w.get("app_id") or "") == app]
-    pin = app not in d["pins"]
+    mine_pins = d["pins"].setdefault(conn, [])
+    pin = app not in mine_pins
     if pin:
-        d["pins"].append(app)
+        mine_pins.append(app)
     else:
-        d["pins"].remove(app)
-    for conn, keys in d["order"].items():
-        # окна остаются на своих местах; закреп — место перед первым окном программы
-        keys = [k for k in keys if k != "p:" + app]
-        if pin:
-            i = next((i for i, k in enumerate(keys) if k in mine), None)
-            if i is not None:
-                keys.insert(i, "p:" + app)
-        d["order"][conn] = keys
+        mine_pins.remove(app)
+    # окна остаются на своих местах; закреп — место перед первым окном программы
+    keys = [k for k in d["order"].get(conn) or [] if k != "p:" + app]
+    if pin:
+        i = next((i for i, k in enumerate(keys) if k in mine), None)
+        if i is not None:
+            keys.insert(i, "p:" + app)
+    d["order"][conn] = keys
     pins_save(d)
     for bar in BARS:
         bar.refresh()
@@ -1120,6 +1129,10 @@ class NiriState:
         elif kind == "WindowFocusChanged":
             for o in self.windows.values():
                 o["is_focused"] = o["id"] == d.get("id")
+        elif kind == "WindowFocusTimestampChanged":     # для badge_holder — какое окно было последним
+            w = self.windows.get(d["id"])
+            if w:
+                w["focus_timestamp"] = d.get("focus_timestamp")
         elif kind == "WindowUrgencyChanged":
             w = self.windows.get(d["id"])
             if w:
@@ -1212,6 +1225,10 @@ def window_icon_id(app_id, title):
     # значком jchat.desktop (15.10.2026, просьба: «показывать иконку вместо kitty»).
     if app_id in TERMINALS and (t == "jchat" or t.startswith("jchat ")):
         return "jchat"
+    # yazi в терминале (заголовок «Yazi: ~/…», «Yazi File Manager», «yazi ~») — свой значок
+    # jarvis-yazi через ~/.local/share/applications/yazi.desktop (yazi_icon.py, 21.10.2026).
+    if app_id in TERMINALS and t[:4].lower() == "yazi" and t[4:5] in ("", " ", ":"):
+        return "yazi"
     return app_id
 
 
@@ -3307,6 +3324,21 @@ def badge_count(app_id):
     return n
 
 
+def badge_holder(wins):
+    """Окно программы, на котором рисовать счётчик: одно на программу (21.10.2026, просьба: «у всех окон этот красный значок, хотя уведомлений там нет» — пришло одно от kitty, «1»
+    встала на все четыре окна kitty). Просит внимания — оно; уведомление Claude Code —
+    окно, где Claude ждёт ввода (заголовок «✳ …»); иначе — последнее бывшее в фокусе."""
+    def ts(w):
+        t = w.get("focus_timestamp") or {}
+        return (t.get("secs", 0), t.get("nanos", 0))
+    pick = [w for w in wins if w.get("is_urgent")]
+    last = next((r for r in _badge["log"] if _norm(r.get("app")) == _norm(wins[0].get("app_id"))), None) \
+        if wins else None
+    if not pick and last and last.get("summary") == "Claude Code":
+        pick = [w for w in wins if (w.get("title") or "").startswith("\u2733")]
+    return max(pick or wins, key=ts)["id"] if wins else None
+
+
 class TaskButton(Gtk.Button):
     def __init__(self, bar, wid):
         super().__init__()
@@ -3421,6 +3453,11 @@ class TaskButton(Gtk.Button):
     def draw_badge(self, _w, cr):
         self.draw_run_mark(cr)
         n = 0 if self.focused else badge_count(self.app_id)
+        if n and self.wid is not None:
+            mine = [w for w in self.bar.state.windows_on(self.bar.connector)
+                    if (w.get("app_id") or "") == self.app_id]
+            if len(mine) > 1 and badge_holder(mine) != self.wid:
+                n = 0
         if not n and not self.urgent:
             return False
         r = self.img.translate_coordinates(self, 0, 0)
@@ -3574,7 +3611,7 @@ class PinButton(TaskButton):
             self.launch()
         elif e.button == 3:
             self.bar.menu([pop_item("Открыть", self.launch), POP_SEP,
-                           pop_item("Открепить от панели задач", lambda: pin_toggle(self.app_id))])
+                           pop_item("Открепить от панели задач", lambda: pin_toggle(self.app_id, self.bar.connector))])
         return True
 
 
@@ -4326,14 +4363,14 @@ class XPBar(Gtk.Window):
     def keep_order(self, order, pins):
         """Записать порядок с новыми кнопками: иначе второе окно, вставшее рядом с первым,
         уехало бы в конец, когда первое закроют. Ключи закрытых окон и откреплённых — вон."""
-        live = ({"w:%d" % i for i in self.state.windows} | {"p:" + a for a in pins["pins"]})
+        live = ({"w:%d" % i for i in self.state.windows} | {"p:" + a for a in pins_of(pins, self.connector)})
         keys = []
         for b in order:
             if b.key not in keys:
                 keys.append(b.key)
         d = pins_load()
         keys += [k for k in d["order"].get(self.connector) or [] if k not in keys and k in live]
-        d["order"][self.connector] = self.slot_pins(keys, d["pins"])
+        d["order"][self.connector] = self.slot_pins(keys, pins_of(d, self.connector))
         pins_save(d)
 
     def slot_pins(self, keys, pins):
@@ -4341,9 +4378,15 @@ class XPBar(Gtk.Window):
         первым окном на панели: закрыли все окна — значок встаёт туда, где они были."""
         app_of = {"w:%d" % i: w.get("app_id") or "" for i, w in self.state.windows.items()}
         for a in pins:
+            if not any(app_of.get(k) == a for k in keys):
+                # окон нет — значок виден и стоит там, куда его поставили (21.10.2026, просьба:
+                # «передвигаю влево, а она возвращается назад» — прежде уезжал в конец)
+                if "p:" + a not in keys:
+                    keys.append("p:" + a)
+                continue
             keys = [k for k in keys if k != "p:" + a]
-            i = next((i for i, k in enumerate(keys) if app_of.get(k) == a), None)
-            keys.insert(len(keys) if i is None else i, "p:" + a)
+            i = next(i for i, k in enumerate(keys) if app_of.get(k) == a)
+            keys.insert(i, "p:" + a)
         return keys
 
     def save_order(self):
@@ -4353,7 +4396,7 @@ class XPBar(Gtk.Window):
             if k and k not in keys:
                 keys.append(k)
         d = pins_load()
-        d["order"][self.connector] = self.slot_pins(keys, d["pins"])
+        d["order"][self.connector] = self.slot_pins(keys, pins_of(d, self.connector))
         pins_save(d)
         self.order = []
         GLib.idle_add(lambda: self.refresh() and False)
@@ -4527,7 +4570,8 @@ class XPBar(Gtk.Window):
                 else:
                     b.destroy()
         stack = stack_on()
-        pins = pins_load() if stack else {"pins": [], "order": {}}
+        pins = pins_load() if stack else {"pins": {}, "order": {}}
+        my_pins = pins_of(pins, self.connector)
         focused = None
         for w in wins:
             b = self.buttons.get(w["id"])
@@ -4537,11 +4581,11 @@ class XPBar(Gtk.Window):
                 self.tasks.pack_start(b, False, False, 0)
                 b.show_all()
             b.update(w)
-            b.set_pinned((w.get("app_id") or "") in pins["pins"])
+            b.set_pinned((w.get("app_id") or "") in my_pins)
             if w.get("is_focused"):
                 focused = b
         have = {w.get("app_id") or "" for w in wins}
-        want = [a for a in pins["pins"] if a not in have]
+        want = [a for a in my_pins if a not in have]
         for a in list(self.launchers):
             if a not in want:
                 self.launchers.pop(a).destroy()
@@ -4557,7 +4601,8 @@ class XPBar(Gtk.Window):
             saved = pins["order"].get(self.connector) or []
             pos = {k: i for i, k in enumerate(saved)}
             nat = {b: i for i, b in enumerate(order)}
-            # новое окно уже открытой программы — рядом с её окнами, как в Windows 10, а не в конец
+            # новое окно — в конец, даже если программа уже открыта (21.10.2026, просьба: «чтобы окна
+            # открывались в конце списка»; прежде вставало рядом с её окнами, как в Windows 10)
             # закреп, о котором порядок ещё не знает (закрепили из «Пуска»), — на место
             # первого окна программы, а не в конец
             wpos = {}
@@ -4570,11 +4615,10 @@ class XPBar(Gtk.Window):
                     return (pos[b.key], 0, nat[b])
                 if b.wid is None and b.app_id in wpos:
                     return (wpos[b.app_id], 0, nat[b])
-                same = [pos[x.key] for x in order if x is not b and x.key in pos
-                        and x.app_id and x.app_id == b.app_id]
-                if same:
-                    return (max(same), 1, nat[b])
-                if "p:%s" % b.app_id in pos:    # первое окно закреплённой — на место значка
+                # первое окно закреплённой — на место значка; второе и дальше — в конец (21.10.2026:
+                # новый kitty вставал на место «p:kitty» посреди панели). wpos считан до sort:
+                # во время list.sort сам список пуст — обходить order в rank нельзя
+                if b.app_id not in wpos and "p:%s" % b.app_id in pos:
                     return (pos["p:%s" % b.app_id], 1, nat[b])
                 return (len(saved) + (not b.pinned), 0, nat[b])
             order.sort(key=rank)
@@ -4652,14 +4696,14 @@ class XPBar(Gtk.Window):
         if stack_on():
             # в стопке окна и так плавающие; «во весь экран» демон стопки делает развёртыванием
             app = w.get("app_id") or ""
-            pinned = app in pins_load()["pins"]
+            pinned = app in pins_of(pins_load(), self.connector)
             info = app_info(app)
             new_win = ([pop_item("Новое окно — " + info.get_display_name(),
                                  lambda: spawn("gtk-launch", info.get_id()))] if info else [])
             self.menu([item("Перейти", "focus-window", "--id", str(wid))] + new_win +
                       [item("Во весь экран", "fullscreen-window", "--id", str(wid)),
                        pop_item("Открепить от панели задач" if pinned else "Закрепить на панели задач",
-                                lambda: pin_toggle(app)),
+                                lambda: pin_toggle(app, self.connector)),
                        POP_SEP,
                        item("Закрыть окно", "close-window", "--id", str(wid))])
             return
