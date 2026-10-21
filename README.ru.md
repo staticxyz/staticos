@@ -1,6 +1,6 @@
 <div align="center">
 
-# staticOS
+<img src="assets/header.svg" width="100%" alt="staticOS — signal through the static">
 
 Пиксельный рабочий стол на [niri](https://github.com/YaLTeR/niri) для Arch Linux.<br>
 Все цвета берутся из обоев.

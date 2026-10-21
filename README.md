@@ -1,6 +1,6 @@
 <div align="center">
 
-# staticOS
+<img src="assets/header.svg" width="100%" alt="staticOS — signal through the static">
 
 A pixel-styled [niri](https://github.com/YaLTeR/niri) desktop for Arch Linux.<br>
 Every color comes from your wallpaper.
