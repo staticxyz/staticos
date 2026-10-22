@@ -489,6 +489,45 @@ button.w11-icon { padding: 6px 9px; }
 button.w11-icon label { font-family: %(nerd)s; font-size: 16px; }
 """
 
+# Тот же «Пуск» Windows 11 на мониторе со стилем Skeet (22.10.2026, просьба: «адаптировать
+# под стиль системы (Skeet)? А то как будто дизайн выбивается среди остальных»): глухой серый
+# фон вместо размытых обоев, прямые углы, полоска-градиент сверху, поля и кнопки как в Настройках.
+W11_SKEET_CSS = """
+.w11.skeet { border-radius: 0; color: %(text)s; box-shadow: 0 0 0 1px %(line3)s, 0 6px 18px alpha(black, 0.55); }
+.w11.skeet entry.w11-search {
+    background-color: alpha(%(search)s, 0.88); color: %(text)s; border: 1px solid alpha(%(search_line)s, 0.9);
+    border-radius: 16px; box-shadow: none; caret-color: %(acc)s; margin: 24px 30px 8px 30px;
+}
+.w11.skeet entry.w11-search:focus { border-color: %(acc)s; }
+.w11.skeet entry.w11-search image { color: %(text_dim)s; }
+.w11.skeet label.w11-h { color: %(text)s; }
+.w11.skeet button.w11-more, .w11.skeet button.w11-tile, .w11.skeet button.w11-row,
+.w11.skeet button.w11-icon { border-radius: 0; color: %(text)s; }
+.w11.skeet button.w11-more {
+    background-color: alpha(%(search)s, 0.88); box-shadow: inset 0 0 0 1px alpha(%(search_line)s, 0.9);
+}
+.w11.skeet button.w11-more label.w11-glyph { color: %(acc)s; }
+.w11.skeet button.w11-more:hover { box-shadow: inset 0 0 0 1px %(acc)s; color: %(acc_l)s; }
+/* наведение и выбор — тёмно-синим, как поиск (22.10.2026: «фон тоже сделай как поиск»), и ещё темнее
+   («Можно еще более темнее сделать, выбор приложений фон») — sel_bg */
+.w11.skeet button.w11-tile:hover, .w11.skeet button.w11-row:hover {
+    background-color: alpha(%(sel_bg)s, 0.92); color: %(acc_l)s; box-shadow: inset 0 0 0 1px alpha(%(search_line)s, 0.9);
+}
+.w11.skeet button.w11-tile.sel, .w11.skeet button.w11-row.sel {
+    background-color: alpha(%(sel_bg)s, 0.92); color: %(acc_l)s; box-shadow: inset 0 0 0 1px %(acc)s;
+}
+.w11.skeet label.w11-sub { color: %(text_dim)s; }
+.w11.skeet label.w11-letter { color: %(acc)s; }
+.w11.skeet .w11-foot {
+    background-color: alpha(%(rail)s, 0.6); border-top: 1px solid %(line1)s; border-radius: 0;
+    box-shadow: inset 0 1px %(line3)s;
+}
+.w11.skeet label.w11-user { color: %(acc_l)s; text-shadow: 1px 1px %(line3)s; }
+.w11.skeet button.w11-icon label { color: #ffffff; }   /* «Вот эти иконки белыми» */
+.w11.skeet button.w11-icon:hover { background-color: alpha(%(search)s, 0.88); }
+.w11.skeet button.w11-icon:hover label { color: %(acc_l)s; }
+"""
+
 SKEET_CSS = """
 .menu-box {
     background-color: %(bg)s; border: 1px solid %(line1)s; border-radius: 0;
@@ -902,6 +941,7 @@ class StartMenu(Gtk.Window):
         if self.w11_catch is not None:
             self.w11_catch.set_visible(center)
         if center:
+            self.w11_restyle()
             self.w11_reset()
             self.show()
             self.w11_search.grab_focus()
@@ -1088,6 +1128,7 @@ class StartMenu(Gtk.Window):
         box.connect("draw", self.w11_backdrop)
         box.connect_after("draw", self.w11_frame)
         catch.add(box)
+        self.w11_box = box
         self.w11_search = Gtk.Entry()
         self.w11_search.get_style_context().add_class("w11-search")
         self.w11_search.set_placeholder_text("Поиск программ…")
@@ -1151,6 +1192,17 @@ class StartMenu(Gtk.Window):
     def w11_out(self):
         return getattr(self, "connector", None) or os.environ.get("START_MENU_OUTPUT")
 
+    def w11_style(self):
+        import stack_mode
+        return stack_mode.style(self.w11_out())
+
+    def w11_restyle(self):
+        """Класс .skeet — по стилю монитора на каждое открытие (стиль у монитора свой)."""
+        skeet = self.w11_style() == "skeet"
+        ctx = self.w11_box.get_style_context()
+        (ctx.add_class if skeet else ctx.remove_class)("skeet")
+        self.w11_box.queue_draw()
+
     def w11_blurred(self, W, H):
         """Размытые обои монитора на W×H (кэш по пути обоев и размеру) или None."""
         out = self.w11_out()
@@ -1196,7 +1248,11 @@ class StartMenu(Gtk.Window):
         a = box.get_allocation()
         W, H = self.get_allocated_width(), self.get_allocated_height()
         pos = box.translate_coordinates(self, 0, 0)
-        self.w11_round(cr, 0, 0, a.width, a.height, 8)
+        skeet = self.w11_style() == "skeet"
+        if skeet:                            # Skeet — прямые углы, как рамка
+            cr.rectangle(0, 0, a.width, a.height)
+        else:
+            self.w11_round(cr, 0, 0, a.width, a.height, 8)
         cr.save()
         cr.clip()
         bg = self.w11_blurred(W, H) if W > 1 and H > 1 else None
@@ -1205,9 +1261,17 @@ class StartMenu(Gtk.Window):
             cr.paint()
         import xpbar_colors
         c = xpbar_colors.colors()
+        tint = xpbar_colors.mix(c["base"], c["primary"], 0.07)
+        if skeet:
+            # 22.10.2026, просьба: «добавь блюр… как было до этого… цвет приблизить к тому что
+            # было, но это не должно выбиваться» — размытые обои под тонировкой посередине
+            # между прежней синеватой и серой Skeet (как у Настроек и «Энергии»), чуть гуще.
+            import rec_style
+            tint = xpbar_colors.mix(rec_style.colors("skeet")["bg"], tint, 0.5)
         rgb = Gdk.RGBA()
-        rgb.parse(xpbar_colors.mix(c["base"], c["primary"], 0.07))
-        cr.set_source_rgba(rgb.red, rgb.green, rgb.blue, self.W11_TINT if bg is not None else 0.97)
+        rgb.parse(tint)
+        alpha = (self.W11_TINT + 0.08 if skeet else self.W11_TINT) if bg is not None else 0.97
+        cr.set_source_rgba(rgb.red, rgb.green, rgb.blue, alpha)
         cr.paint()
         cr.restore()
         return False
@@ -1226,13 +1290,26 @@ class StartMenu(Gtk.Window):
             rings = ((mix(C["line_strong"], C["acc"], 0.55), 1),)
         else:                                # XP: тёмная линия снаружи, полоса цвета заголовка
             rings = ((C["st_dark"], 1), (C["st_mid"], 2), (C["st_dark"], 1))
+        square = st == "skeet"
         i = 0
         for col, t in rings:
             cr.set_source_rgb(*col[:3])
             cr.set_line_width(t)
-            self.w11_round(cr, i + t / 2, i + t / 2, w - 2 * i - t, h - 2 * i - t, max(1, 8 - i - t / 2))
+            if square:
+                cr.rectangle(i + t / 2, i + t / 2, w - 2 * i - t, h - 2 * i - t)
+            else:
+                self.w11_round(cr, i + t / 2, i + t / 2, w - 2 * i - t, h - 2 * i - t, max(1, 8 - i - t / 2))
             cr.stroke()
             i += t
+        if square:                           # полоска gamesense под рамкой: цвета и их тень
+            strip = C["strip"]
+            for row, k in ((0, 0.0), (1, 0.55)):
+                g = cairo.LinearGradient(i, 0, w - i, 0)
+                for n, col in enumerate(strip):
+                    g.add_color_stop_rgb(n / max(1, len(strip) - 1), *mix(col, (0, 0, 0), k)[:3])
+                cr.set_source(g)
+                cr.rectangle(i, i + row, w - 2 * i, 1)
+                cr.fill()
         return False
 
     def w11_head(self, title, more=None, glyph=None, cb=None, back=False):
@@ -1271,7 +1348,7 @@ class StartMenu(Gtk.Window):
             pb = None
 
         def draw_av(_w, cr):
-            cr.arc(16, 16, 16, 0, 6.2832)    # круглый аватар, как в Windows 11
+            cr.arc(16, 16, 16, 0, 6.2832)    # круглый аватар, как в Windows 11 (и в Skeet — просьба 22.10)
             cr.clip()
             if pb is not None:
                 Gdk.cairo_set_source_pixbuf(cr, pb, 0, 0)
@@ -1734,7 +1811,11 @@ def load_css():
              hover=xpbar_colors.mix(c["base"], c["primary"], 0.55),
              on_hover=c["on_primary"] if False else "#ffffff",
              err_dark=xpbar_colors.mix(c["error"], "#000000", 0.45))
-    css = CSS % c + W11_CSS % c
+    # поиск в Skeet — тёмно-синий, как был (22.10.2026: «не нравится что поиск сероватый…
+    # более темным, но ближе к темно синему»): base обоев, притемнённый на 20 %
+    sk = dict(skeet_colors(c), search=xpbar_colors.mix(c["base"], "#000000", 0.20),
+              search_line=c["line"], sel_bg=xpbar_colors.mix(c["base"], "#000000", 0.50))
+    css = CSS % c + W11_CSS % c + W11_SKEET_CSS % sk
     look = menu_look()
     if look == "skeet":
         css += SKEET_CSS % skeet_colors(c)

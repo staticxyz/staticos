@@ -61,7 +61,8 @@ The bottom panel comes in two looks. Pick one in Settings → DE → Bottom pane
   - The menu has search, a grid of pinned apps, recommended apps (the ones you used most this
     week) and an A–Z list of everything.
   - Behind the menu is a frosted, blurred copy of the wallpaper, and its frame follows the
-    system style.
+    system style. In Skeet the menu gets square corners, the gamesense color strip and dark
+    navy search and selection.
   - Keyboard: arrows or `Ctrl+H/J/K/L` to move, `Enter` to launch.
 - **Wi-Fi and Bluetooth in the Energy popup** of the bottom panel, in the system style. The switch
   turns the radio on or off; a click on the row turns the popup into a page of the same size with

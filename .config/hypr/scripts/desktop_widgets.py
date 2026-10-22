@@ -616,14 +616,15 @@ def parse_timer(words):
     prev = ""
     for w in words:
         # 15.10.2026: и по-русски — 25м, 5ч, 1ч30м, 90с, 2д, 25мин; порядок слов любой
-        if re.fullmatch(r"(\d+([dhms]|мин|м|ч|сек|с|д)?)+", w.lower()):
-            for n, u in re.findall(r"(\d+)(мин|сек|[dhmsмчсд]?)", w.lower()):
-                secs += int(n) * {"d": 86400, "h": 3600, "m": 60, "s": 1, "": 1, "д": 86400, "ч": 3600,
+        # 22.10.2026: и дробные — 3.5h, 1,5ч, 2.5m («почему таймер не понимает… 3.5h?»)
+        if re.fullmatch(r"(\d+([.,]\d+)?([dhms]|мин|м|ч|сек|с|д)?)+", w.lower()):
+            for n, u in re.findall(r"(\d+(?:[.,]\d+)?)(мин|сек|[dhmsмчсд]?)", w.lower()):
+                secs += float(n.replace(",", ".")) * {"d": 86400, "h": 3600, "m": 60, "s": 1, "": 1, "д": 86400, "ч": 3600,
                                   "м": 60, "мин": 60, "с": 1, "сек": 1}[u]
         elif w.lower() in ("мин", "минут", "минуты", "м", "ч", "час", "часа", "часов", "сек") and secs \
-                and re.fullmatch(r"\d+", prev):
+                and re.fullmatch(r"\d+([.,]\d+)?", prev):
             # «25 мин»: число без единицы считалось секундами — перевести в минуты/часы
-            secs += int(prev) * ((60 if w.lower()[0] == "м" else 3600 if w.lower()[0] == "ч" else 1) - 1)
+            secs += float(prev.replace(",", ".")) * ((60 if w.lower()[0] == "м" else 3600 if w.lower()[0] == "ч" else 1) - 1)
         elif re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?", w):
             p = [int(v) for v in w.split(":")] + [0]
             now = datetime.datetime.now()
@@ -635,7 +636,7 @@ def parse_timer(words):
             label.append(w)
         prev = w
     if end is None and secs:
-        end = time.time() + secs
+        end = time.time() + round(secs)
     return " ".join(label), end
 
 
