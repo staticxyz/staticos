@@ -57,6 +57,8 @@ if [ -n "${NIRI_SOCKET:-}" ] && [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
         exit 0
     fi
 
+    # свёрнутый в стопке — вернуть на место, как кнопкой на панели (22.10.2026)
+    python3 "$(dirname "$0")/wm.py" unmin "$id" && exit 0
     if [ "$(win_ws "$id")" = "$(here_id)" ]; then
         niri msg action focus-window --id "$id"            # уже тут — просто в фокус
     else

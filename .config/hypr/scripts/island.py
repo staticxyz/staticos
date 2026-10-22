@@ -29,6 +29,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+WM_PY = os.path.join(HERE, "wm.py")   # focus: свёрнутое в стопке — через unmin (22.10.2026)
 sys.path.insert(0, HERE)
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 LOCK = os.path.join(RUN, "jarvis-island.lock")
@@ -4452,7 +4453,7 @@ class CatWatch:
     def focus_busy(self):
         wid = self.busy_window()
         if wid is not None:
-            subprocess.Popen(["niri", "msg", "action", "focus-window", "--id", str(wid)],
+            subprocess.Popen([sys.executable, WM_PY, "focus", str(wid)],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -4471,6 +4472,38 @@ def niri_json(*what):
         return json.loads(out) if out.strip() else None
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
+
+
+def niri_ipc(req):
+    """Быстрый запрос к niri прямо в сокет (~1 мс; niri msg — процесс, ~15 мс)."""
+    import socket
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            s.connect(os.environ["NIRI_SOCKET"])
+            s.sendall(json.dumps(req).encode() + b"\n")
+            buf = b""
+            while not buf.endswith(b"\n"):
+                chunk = s.recv(1 << 16)
+                if not chunk:
+                    break
+                buf += chunk
+        return (json.loads(buf).get("Ok") or {}).get(req)
+    except (OSError, KeyError, ValueError, AttributeError):
+        return None
+
+
+def fullscreen_on(out):
+    """На мониторе out открыт стол с окном во весь экран (размер окна ≥ размера монитора)."""
+    o = (niri_ipc("Outputs") or {}).get(out) or {}
+    lg = o.get("logical") or {}
+    ws = next((w["id"] for w in niri_ipc("Workspaces") or [] if w.get("output") == out and w.get("is_active")), None)
+    if not lg or ws is None:
+        return False
+    return any(w.get("workspace_id") == ws and not w.get("is_floating")
+               and (w.get("layout") or {}).get("window_size", [0, 0])[0] >= lg["width"]
+               and (w.get("layout") or {}).get("window_size", [0, 0])[1] >= lg["height"]
+               for w in niri_ipc("Windows") or [])
 
 
 def pdeathsig():
@@ -4497,16 +4530,41 @@ class OsdWatch:
         self.busy = False
         self.proc = None
         self.dim_seen = (os.path.exists(self.DIM), 0.0)
+        self.force = None                # "sink"/"source" — показать и без изменения (упор в 100/0)
         self.flag()
         import threading
         threading.Thread(target=self.prime, daemon=True).start()
         self.start()
+        self.watch_keys()
         self.watch_light()
+
+    def watch_keys(self):
+        """Нажатие клавиши громкости — показать, даже если уровень не сдвинулся (22.10.2026, просьба: «не появляется, если громкость 100 и я нажала увеличить… тоже должен появляться,
+        показывая, что он уже 100»). volume_manager.sh трогает eww-vol.keys на каждое нажатие
+        (up/down/mic_up/mic_down) и пишет в eww-vol.target, что крутили — sink или source."""
+        run = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+        self.keys_target = os.path.join(run, "eww-vol.target")
+        try:
+            Gio = self.app.Gio
+            self.keys_mon = Gio.File.new_for_path(os.path.join(run, "eww-vol.keys")).monitor_file(
+                Gio.FileMonitorFlags.NONE, None)
+            self.keys_mon.connect("changed", self.on_keys)
+        except Exception as e:
+            log("osd: клавиши:", e)
+
+    def on_keys(self, _m, _f, _o, ev):
+        if ev == self.app.Gio.FileMonitorEvent.DELETED:
+            return
+        self.force = _read(self.keys_target).strip() or "sink"
+        if self.t is None:
+            self.t = self.GLib.timeout_add(90, self.scan)
 
     def flag(self):
         """Файл с pid островка, пока индикатор включён: volume_manager.sh не откроет шторку."""
         try:
-            if self.app.conf["osd"]:
+            # островок выключен — громкость снова показывает правый микшер eww (22.10.2026,
+            # Просьба: «при отключении островка звуки должны как раньше показываться в правом микшере»)
+            if self.app.conf["osd"] and self.app.conf["on"]:
                 with open(OSD_FLAG, "w") as f:
                     f.write(str(os.getpid()))
             else:
@@ -4574,12 +4632,13 @@ class OsdWatch:
 
     def done(self, now):
         self.busy = False
+        force, self.force = self.force, None
         for k in ("sink", "source"):
             v, old = now[k], self.last.get(k)
             self.last[k] = v
-            if v is None or old is None or v == old:
+            if v is None or old is None or (v == old and k != force):
                 continue                        # смена устройства по умолчанию тоже даёт новое — пусть
-            if not self.app.conf["osd"] or os.path.exists(EWW_VOL_OPEN):
+            if not (self.app.conf["osd"] and self.app.conf["on"]) or os.path.exists(EWW_VOL_OPEN):
                 continue
             pct, muted = int(round(v[0] * 100)), v[1]
             if k == "sink":
@@ -4628,7 +4687,7 @@ class OsdWatch:
         v = self.bl_level(dev)
         old = self.bl.get(dev.get_sysfs_path())
         self.bl[dev.get_sysfs_path()] = v
-        if v is None or old is None or abs(v - old) < 0.005 or self.dimming() or not self.app.conf["osd"]:
+        if v is None or old is None or abs(v - old) < 0.005 or self.dimming() or not (self.app.conf["osd"] and self.app.conf["on"]):
             return
         self.app.osd(G_SUN, "Яркость  %d%%" % round(v * 100), v, out="eDP-1")
 
@@ -4638,7 +4697,7 @@ class OsdWatch:
             return
         v = _read(self.MSI).strip()
         old, self.msi_last = self.msi_last, v
-        if v == old or not v.isdigit() or self.dimming() or not self.app.conf["osd"]:
+        if v == old or not v.isdigit() or self.dimming() or not (self.app.conf["osd"] and self.app.conf["on"]):
             return
         self.app.osd(G_SUN, "Яркость  %s%%" % v, int(v) / 100, out="DP-4")
 
@@ -4653,6 +4712,7 @@ class Island:
         from gi.repository import Gdk, Gtk, GtkLayerShell
         self.app, self.output, self.monitor = app, output, monitor
         self.scrims = []                 # слои «щелчок мимо — свернуть», пока карточка раскрыта
+        self.osd_top = False             # вспышка индикатора поднята в OVERLAY (osd_layer)
         self.in_rect = None              # (x, y, w, h) входной области островка на поверхности
         self.mode = "none"
         self.geo = (0.0, 0.0)            # текущие w, h
@@ -4765,7 +4825,8 @@ class Island:
 
     def go(self, mode):
         to = self.target(mode)
-        if mode == self.mode and (self.anim is None and self.geo == to):
+        if mode == self.mode and (self.anim is None and self.geo == to) and (
+                mode == "none" or self.win.get_visible()):     # osd_layer мог скрыть для пересоздания
             self.win.queue_draw()
             return
         grow = to[1] > self.geo[1] or to[0] > self.geo[0]
@@ -4828,8 +4889,8 @@ class Island:
         x = int((CW - w) / 2)
         ty = self.ty()
         y = int(top_of(self.design(), h, ty))
-        if w < 2 or h < 1:
-            r = cairo.Region()
+        if w < 2 or h < 1 or (self.osd_top and self.app.game):
+            r = cairo.Region()                  # над игрой — без входа: щелчки идут игре
         elif self.mode == "thread" and (self.app.conf["thread_style"] in PILLS or self.app.dl):
             r = cairo.Region(cairo.RectangleInt(x - 6, 0, int(w) + 12, ty + int(h) + 4))
             if self.bub:
@@ -4862,7 +4923,23 @@ class Island:
     def sync_layer(self):
         from gi.repository import GtkLayerShell
         if not self.scrims:
-            GtkLayerShell.set_layer(self.win, self.base_layer())
+            GtkLayerShell.set_layer(self.win, GtkLayerShell.Layer.OVERLAY if self.osd_top else self.base_layer())
+
+    def osd_layer(self, on):
+        """Вспышка индикатора — слой OVERLAY: TOP niri рисует под полноэкранным окном."""
+        if on == self.osd_top:
+            return
+        self.osd_top = on
+        # Нить, уже видимая под полноэкранным окном, — закрытая поверхность: niri шлёт ей кадры
+        # редко (~раз в секунду), и смена слоя ждала следующего кадра — индикатор появлялся с
+        # задержкой (22.10.2026, просьба: «не сразу появляется… в фулл скрине»). Тогда окно
+        # пересоздаётся: новая поверхность встаёт сразу в OVERLAY (go покажет её снова).
+        if on and not self.scrims and self.win.get_visible() and fullscreen_on(self.output):
+            self.win.hide()
+            self.app.lyr_seen(self.output, False)
+        if not self.scrims:
+            self.sync_layer()
+        self.set_input()
 
     def cover(self, on):
         """Раскрытая карточка: прозрачные слои во весь каждый монитор (scrim_layer.Scrim, как у
@@ -6214,7 +6291,10 @@ class App:
                         and sig[1] == self.sig[1] and not self.conf["track_pop"]):
                     self.pop_until = max(self.pop_until, now + self.conf["pop_sec"])
             self.sig = sig
-        hidden = self.game or self.overview or not on
+        # Индикатор громкости/яркости — и поверх полноэкранного окна и игры (22.10.2026, просьба:
+        # «не видно, я меняю или нет, когда на весь экран»): на время вспышки островок в OVERLAY.
+        flash_live = bool(self.flash) and now < self.flash["until"]
+        hidden = (self.game and not flash_live) or self.overview or not on
         tg = self.targets()
         for out, isl in self.wins.items():
             if hidden or out not in tg or (self.bar_up.get(out, 0) > now and isl.mode != "card"):
@@ -6227,6 +6307,9 @@ class App:
                 mode = "compact"                # индикатор яркости — только на своём мониторе
             else:
                 mode = "thread" if self.want_thread(out) else "none"
+            if self.game and mode != "compact":
+                mode = "none"
+            isl.osd_layer(mode == "compact" and flash_live)   # слой — до показа, не после
             isl.go(mode)
         self.schedule(now)
         self.cat.sync()
@@ -6553,7 +6636,7 @@ class App:
                 log("music source: окно не найдено", p.name, pid)
                 return
             w = next((w for w in cand if title and title in (w.get("title") or "").lower()), cand[0])
-            subprocess.Popen(["niri", "msg", "action", "focus-window", "--id", str(w["id"])],
+            subprocess.Popen([sys.executable, WM_PY, "focus", str(w["id"])],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         threading.Thread(target=run, daemon=True).start()
@@ -6568,7 +6651,7 @@ class App:
         for w in niri_json("windows") or []:
             app = (w.get("app_id") or "").lower()
             if any(k in app for k in want):
-                subprocess.Popen(["niri", "msg", "action", "focus-window", "--id", str(w["id"])],
+                subprocess.Popen([sys.executable, WM_PY, "focus", str(w["id"])],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 break
         self.collapse_all()

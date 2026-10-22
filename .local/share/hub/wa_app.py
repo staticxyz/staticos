@@ -55,6 +55,21 @@ HIST_FILE = os.path.expanduser("~/.config/hub/wa-history")
 HIST_N = 40
 MARK = {"pending": "◷", "sending": "…", "ask": "!", "sent": "✓", "cancelled": "✕"}
 
+_STACK = [None, False]
+
+
+def stack_on():
+    """Режим «стопка» включён? Тогда «×» не рисуется: закрывает полоса stack_bars.py
+    (21.10.2026, «дублируются кнопки»). Файл перечитывается только при смене mtime."""
+    p = os.path.expanduser("~/.config/hypr/state/stack-mode.json")
+    try:
+        m = os.stat(p).st_mtime
+        if m != _STACK[0]:
+            _STACK[0], _STACK[1] = m, '"active": true' in open(p).read()
+    except OSError:
+        _STACK[0], _STACK[1] = None, False
+    return _STACK[1]
+
 
 def fmt_left(secs):
     if secs < 60:
@@ -64,6 +79,21 @@ def fmt_left(secs):
     d, h = divmod(h, 24)
     return " ".join(x for x in ("%d д" % d if d else "", "%d ч" % h if h else "",
                                 "%d мин" % m if m and not d else "") if x)
+
+
+def present_unmin(win):
+    """present() окна, свёрнутого в стопке, уводил niri на стол свёрнутых — окно появлялось
+    «багованно» (22.10.2026). Такое окно возвращает stack_mode.py unmin (wm.raise_own)."""
+    try:
+        scripts = os.path.expanduser("~/.config/hypr/scripts")
+        if scripts not in sys.path:
+            sys.path.append(scripts)
+        import wm
+        if wm.raise_own():
+            return
+    except Exception:
+        pass
+    win.present()
 
 
 class View:
@@ -340,8 +370,9 @@ class View:
             return self.draw_lock(p, x0, x1, y, h, f)
         title = "WhatsApp · " + ("правка #%d" % self.editing if self.editing is not None else "новое сообщение")
         p.text(x0, y, title, c["acc_l"] if self.active else c["text"])
-        p.text(x1, y, "×", c["text"] if self.hover == "close" else c["dim"], align="r")
-        self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
+        if not stack_on():
+            p.text(x1, y, "×", c["text"] if self.hover == "close" else c["dim"], align="r")
+            self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
         if self.contacts_ok is False:
             p.text(x1 - 24, y, "не привязан: wa login", c["err"], align="r")
         y += 30
@@ -396,8 +427,9 @@ class View:
     def draw_lock(self, p, x0, x1, y, h, f):
         c = self.c
         p.text(x0, y, "WhatsApp · вход", c["acc_l"] if self.active else c["text"])
-        p.text(x1, y, "×", c["text"] if self.hover == "close" else c["dim"], align="r")
-        self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
+        if not stack_on():
+            p.text(x1, y, "×", c["text"] if self.hover == "close" else c["dim"], align="r")
+            self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
         y = max(y + 40, h / 2 - 70)
         p.text((x0 + x1) / 2, y, "Пароль sudo", c["text"], align="c")
         y += 26
@@ -1061,7 +1093,7 @@ class App(Gtk.Application):
         else:
             self.win.view.reload_style()
             self.win.redraw()
-        self.win.present()
+        present_unmin(self.win)
         return 0
 
 

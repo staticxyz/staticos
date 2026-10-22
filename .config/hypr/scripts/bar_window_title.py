@@ -78,6 +78,19 @@ def reserve():
         n = int(open(os.path.join(run, "jarvis-privacy-n")).read().strip() or 0)
     except (OSError, ValueError):
         n = 0
+    try:
+        # камера — свой модуль с 22.10.2026 (privacy_status.py --camera), свои 8+8 px полей
+        c = int(open(os.path.join(run, "jarvis-privacy-cam-n")).read().strip() or 0)
+    except (OSError, ValueError):
+        c = 0
+    if c:
+        px += 16 + 18 * c
+    try:
+        # экран — тоже свой модуль с 22.10.2026 (privacy_status.py --screen)
+        if int(open(os.path.join(run, "jarvis-privacy-scr-n")).read().strip() or 0):
+            px += 16 + 18
+    except (OSError, ValueError):
+        pass
     if n:
         px += 16 + 18 * n          # поля модуля 8+8 и ~18 px на значок
     if os.path.exists(os.path.join(run, "jarvis-rec", "pid")):

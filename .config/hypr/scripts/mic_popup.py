@@ -6,6 +6,7 @@ gi.require_version('GtkLayerShell', '0.1')
 from gi.repository import Gtk, Gdk, GtkLayerShell
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import popup_theme  # noqa: E402
+from audio_names import stream_name  # noqa: E402
 # Второй щелчок по модулю закрывает открытый попап. Раньше здесь были
 # `pgrep -f` и `kill -9` по всему найденному — см. popup_theme.single_instance.
 popup_theme.single_instance(__file__)
@@ -29,6 +30,9 @@ class MicPopup(Gtk.Window):
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.EXCLUSIVE)
 
+        # Из нижней панели — в стиле системы монитора и вплотную к панели, как громкость
+        # (22.10.2026, просьба: ПКМ по микрофону открывал pavucontrol — «микшер микрофона»)
+        self.xp = popup_theme.FROM_XPBAR and popup_theme.xp_style() != "default"
         # Общий каркас, см. popup_theme.py. Шкала микрофона красится ролью
         # error, как и была красной в зашитой гамме: это единственный попап,
         # где цвет нёс смысл (запись), поэтому роль выбрана, а не primary.
@@ -50,6 +54,11 @@ class MicPopup(Gtk.Window):
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        if self.xp:
+            skin = Gtk.CssProvider()
+            skin.load_from_data(popup_theme.xp_skin_css(pad="12px 15px 9px 15px").encode())
+            Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), skin,
+                                                     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
 
         self.bg = Gtk.EventBox()
         self.bg.connect("button-press-event", lambda w, e: self._exit())
@@ -60,7 +69,10 @@ class MicPopup(Gtk.Window):
         # попапов бара, см. popup_theme.place_under_cursor. Раньше здесь были
         # отступ 34 сверху (слой и так начинается под панелью, так что попап
         # висел на полосу ниже) и жёсткий отступ от правого края.
-        popup_theme.place_under_cursor(self.align)
+        if self.xp:
+            popup_theme.xp_place(self, self.align, right=8)
+        else:
+            popup_theme.place_under_cursor(self.align)
         self.bg.add(self.align)
 
         self.popup_event = Gtk.EventBox()
@@ -93,7 +105,52 @@ class MicPopup(Gtk.Window):
                 vbox.pack_start(scale, False, False, 0)
         except Exception: pass
 
+        # Программы, которые сейчас слушают микрофон, — по строке на программу, как в
+        # микшере громкости. Запись с монитора выхода (cava, волна бара, кошка) — не
+        # микрофон; служебные петли и измерители уровня (pavucontrol) — тоже мимо.
+        try:
+            monitors = {src.index for src in self.pulse.source_list() if src.name.endswith(".monitor")}
+            groups = {}
+            for out in self.pulse.source_output_list():
+                pl = out.proplist
+                if out.source in monitors or str(pl.get('pulse.corked', '')).lower() == 'true':
+                    continue
+                if 'loopback' in str(pl.get('media.name', '')).lower() \
+                        or 'loopback' in str(pl.get('node.name', '')).lower() \
+                        or 'peak detect' in str(pl.get('media.name', '')).lower():
+                    continue
+                groups.setdefault(stream_name(pl), []).append(out)
+            if groups:
+                vbox.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
+                for app_name, outs in groups.items():
+                    self.build_app(vbox, "\U000f036c  " + app_name, [o.index for o in outs],
+                                   max(o.volume.value_flat for o in outs))
+        except Exception:
+            pass
+
         self.connect("key-press-event", lambda w, e: self._exit())
+
+    def build_app(self, box, title, ids, vol):
+        lab = Gtk.Label(label=title, xalign=0)
+        lab.set_ellipsize(3)
+        lab.set_max_width_chars(30)
+        lab.set_tooltip_text(title)
+        scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 150, 1)
+        scale.set_draw_value(True)
+        scale.set_value_pos(Gtk.PositionType.RIGHT)
+        scale.set_value(round(vol * 100))
+        scale.connect("value-changed", self.on_app_changed, ids)
+        box.pack_start(lab, False, False, 0)
+        box.pack_start(scale, False, False, 0)
+
+    def on_app_changed(self, scale, ids):
+        vol = scale.get_value() / 100.0
+        for idx in ids:
+            # запись могла закончиться, пока попап открыт — остальные всё равно двигаем
+            try:
+                self.pulse.volume_set_all_chans(self.pulse.source_output_info(idx), vol)
+            except Exception:
+                pass
 
     def on_mic_changed(self, scale, idx):
         vol = scale.get_value() / 100.0

@@ -515,6 +515,24 @@ window#waybar.empty #window {
 #custom-privacy.screen {
     color: @error;
 }
+/* Камера — свой модуль со щелчком «выключить/включить» (22.10.2026). Выключена — 󱜷
+   бледным цветом ошибки: видно, что выключена, и есть по чему щёлкнуть снова. */
+#custom-camera {
+    font-family: "JetBrainsMono Nerd Font", "Noto Sans", sans-serif;
+    color: @error;
+    padding: 0 8px;
+    margin-top: 3px;
+}
+#custom-camera.camera-off {
+    color: alpha(@error, 0.5);
+}
+/* Экран — тоже свой модуль (22.10.2026): щелчок останавливает запись/трансляцию. */
+#custom-screencast {
+    font-family: "JetBrainsMono Nerd Font", "Noto Sans", sans-serif;
+    color: @error;
+    padding: 0 8px;
+    margin-top: 3px;
+}
 /* Микрофон заглушён щелчком (13.10.2026): значок 󰍭 бледнее — занят, но не слышит. */
 #custom-privacy.muted:not(.camera):not(.screen) {
     color: alpha(@tertiary, 0.5);

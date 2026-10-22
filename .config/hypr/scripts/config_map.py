@@ -85,7 +85,7 @@ AREAS = [
         waybar_niri.py barfix bar_border.py bar_margins.py bar_rounding.py bar_style.py"""),
     ("Бар: модули", "▀", """
         bar_language.py bar_window_title.py browser_status.py bongo_cat.py cava_bar.py
-        mpris_common.py mpris_status.py mpris_focus privacy_status.py rec_status.sh
+        mpris_common.py mpris_status.py mpris_focus privacy_status.py 70-jarvis-camera.rules rec_status.sh
         ribbon_map.py sensor_colors.py start_button.py start_glyphs.py taskbar.py waybar_clock.py
         ws_labels.py ws_order.py lyrics_bar.py bar_volume.py bar_volume.sh
         savage_battery.py battery_mini.py"""),

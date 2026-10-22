@@ -112,6 +112,23 @@ window#waybar #workspaces button.empty:not(.focused):not(#niri-workspace-\U000f0
 window#waybar #workspaces button.empty:not(.focused):not(#niri-workspace-\U000f072c):not(#niri-workspace-\U000f0437) label {
     font-size: 1px;
 }
+
+/* Карман (Alt+Q): штатная кнопка спрятана, вместо неё — модуль custom/pocket со значком
+   самого левого окна (niri_bar.py pocket, 22.10.2026). Вид кнопки модуль берёт копией
+   правил «#workspaces button» (pocket_css ниже). В капсуле Minimalistic (.mini) — как было. */
+window#waybar #workspaces:not(.mini) button#niri-workspace-\uf2c6 {
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+    border: none;
+    box-shadow: none;
+    background: none;
+    font-size: 0;
+    opacity: 0;
+}
+window#waybar #workspaces:not(.mini) button#niri-workspace-\uf2c6 label {
+    font-size: 1px;
+}
 """
 
 NIRI_WORKSPACES = '''"niri/workspaces": {
@@ -127,6 +144,14 @@ NIRI_RIBBON = '''"custom/ribbon": {
         "on-scroll-up": "niri msg action focus-column-left",
         "on-scroll-down": "niri msg action focus-column-right"
     }'''
+
+NIRI_POCKET = '''"custom/pocket": {
+        // Карман (Alt+Q) со значком самого левого окна — вместо штатной кнопки (22.10.2026)
+        "exec": "python3 $HOME/.config/niri/scripts/niri_bar.py pocket",
+        "return-type": "json",
+        "on-click": "niri msg action focus-workspace \\uf2c6"
+    },
+    '''
 
 NIRI_LANGUAGE = '''"custom/language": {
         // Раскладка + Caps Lock: скрипт печатает JSON с классом "caps", когда
@@ -423,6 +448,22 @@ def write_if_changed(path, text):
     return True
 
 
+def pocket_css(sources):
+    """Правила «#workspaces button…» копией на #custom-pocket — кнопка кармана выглядит как
+    стол в любом виде бара. sources — тексты CSS в порядке каскада. Пропускаются капсула
+    .mini и правила под конкретный стол (button#…)."""
+    out = []
+    for css in sources:
+        css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        for sel, body in re.findall(r"([^{}@;]+)\{([^{}]*)\}", css):
+            sels = [x.strip() for x in sel.split(",")]
+            new = [re.sub(r"\s+label$", "", x.replace("#workspaces button", "#custom-pocket"))
+                   for x in sels if "#workspaces button" in x and ".mini" not in x and "button#" not in x]
+            if new:
+                out.append(",\n".join(new) + " {" + body.rstrip() + "\n}")
+    return "\n/* Кнопка кармана = кнопка стола (waybar_niri.py, pocket_css) */\n" + "\n".join(out) + "\n"
+
+
 def build_style():
     try:
         base = open(STYLE_SRC, encoding="utf-8").read()
@@ -433,6 +474,11 @@ def build_style():
         text += STYLE_COZETTE
     if minimal_on():
         text += STYLE_MINIMAL
+    try:
+        look = open(os.path.join(os.path.dirname(STYLE_SRC), "looks", "current.css"), encoding="utf-8").read()
+    except OSError:
+        look = ""
+    text += pocket_css([look, text])
     write_if_changed(STYLE_DST, text)
 
 
@@ -569,6 +615,7 @@ def top_bar_mode(s, mode=None, ws=None, stack=False):
     # stack — стопка окон: столы с бара убраны, все окна на одном (panels.stack_top, 22.10.2026)
     if mode == "off" or stack or (ws or read("ws-place", "top")) == "bottom":
         s = re.sub(r'\n[ \t]*"niri/workspaces",[ \t]*(?=\n[ \t]*"custom/ribbon")', "", s, count=1)
+        s = re.sub(r'\n[ \t]*"custom/pocket",[ \t]*(?=\n[ \t]*"custom/ribbon")', "", s, count=1)
     return s
 
 
@@ -612,6 +659,11 @@ def main():
         s = s[:m.start()] + NIRI_WINDOW + s[m.start():]
     # упоминания в списках модулей
     s = s.replace('"hyprland/workspaces"', '"niri/workspaces"')
+    # кнопка кармана — перед столами (niri_bar.py pocket); в капсуле Minimalistic ряд свой
+    s = s.replace('"niri/workspaces",\n', '"custom/pocket",\n        "niri/workspaces",\n', 1)
+    m = re.search(r'"custom/ribbon"\s*:', s)
+    if m:
+        s = s[:m.start()] + NIRI_POCKET + s[m.start():]
     s = s.replace('"hyprland/language"', '"custom/language"')
     mini = minimal_on()
     s = minimal_bar(s, desks=mini == "look") if mini else fix_margins(s)

@@ -24,11 +24,33 @@
 Ключи: --ignore имя[,имя]  — не показывать эти приложения/процессы (сравнение без регистра
 по началу имени), напр. --ignore gpu-screen-recorder чтобы Replay не зажигал экран.
        --once — напечатать состояние один раз и выйти (для проверки).
+       --camera — режим отдельного модуля камеры (custom/camera): 󰖠 пока камера занята,
+                  󱜷 пока выключена щелчком; основной модуль камеру больше не показывает.
+       --toggle-camera — выключить/включить камеру (щелчок по значку камеры).
+       --screen — режим отдельного модуля экрана (custom/screencast): 󱒃 пока экран
+                  транслируется или пишется; основной модуль экран больше не показывает.
+       --stop-screen — остановить всё, что показывает значок экрана (щелчок по нему).
+
+Камера вынесена в свой модуль 22.10.2026 (просьба: «при нажатии на камеру чтобы она
+отключалась, и наоборот при повторном чтобы включалась»): у одного модуля waybar один
+щелчок, а ЛКМ основного уже глушит микрофон. Выключение — USB-устройство камеры
+authorized=0 (система его отцепляет, /dev/video* пропадают); право на запись даёт
+правило udev /etc/udev/rules.d/70-jarvis-camera.rules. Выключенная остаётся выключенной и
+после перезагрузки: флаг ~/.config/hypr/state/camera-off, модуль камеры при старте
+повторяет authorized=0.
+
+Экран — тоже свой модуль, 22.10.2026 (просьба: «при клике на иконку… отключает запись
+экрана? — Делай»). Щелчок останавливает: свою запись rec_area.sh — его же командой halt
+(файл сохранится как при Esc), касты niri через PipeWire (Discord, браузер) — stop-cast,
+прочие записчики (wf-recorder, wl-screenrec, gpu-screen-recorder) — SIGINT, как Ctrl+C:
+файл у них дописывается. Скрытые --ignore не трогаются — их значок и не показывал.
+Касты wlr-screencopy у niri по IPC не останавливаются (так в справке stop-cast).
 """
 import ctypes
 import json
 import os
 import re
+import select
 import selectors
 import signal
 import socket
@@ -41,6 +63,8 @@ ICON = {"mic": "\U000F036C", "camera": "\U000F05A0", "screen": "\U000F1483"}
 LABEL = {"mic": "Микрофон", "camera": "Камера", "screen": "Экран"}
 ORDER = ("mic", "camera", "screen")
 ICON_MUTED = "\U000F036D"   # 󰍭 mdi-microphone-off
+ICON_CAM_OFF = "\U000F1737"  # 󱜷 mdi-webcam-off
+CAM_OFF = os.path.expanduser("~/.config/hypr/state/camera-off")
 
 TICK = 3.0          # период дешёвой проверки процессов-записчиков
 DEBOUNCE = 0.15     # склейка пачки событий в одно перечитывание
@@ -52,6 +76,8 @@ RECORDER_COMMS = {  # /proc/pid/comm обрезан до 15 символов
 PEAK_NAMES = ("peak detect",)
 
 IGNORE = []
+SCREEN_ONLY = False     # --screen: модуль экрана; иначе основной — микрофон
+REC_PID = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-rec", "pid")
 _libc = ctypes.CDLL(None, use_errno=True)
 
 
@@ -266,12 +292,144 @@ def cast_label(c):
 
 
 # ─────────────────────────── вывод ───────────────────────────
+def tell_title(fname, n):
+    """Число значков — в файл для bar_window_title.py и SIGUSR1 ему (он держит под них место)."""
+    try:
+        with open(os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), fname), "w") as f:
+            f.write("%d\n" % n)
+        for argv in proc_argvs():
+            if len(argv[1]) and os.path.basename(argv[1]) == b"bar_window_title.py":
+                os.kill(argv[0], signal.SIGUSR1)
+    except OSError:
+        pass
+
+
+def proc_argvs():
+    """[(pid, argv1, …)] своих процессов."""
+    out = []
+    for p in os.listdir("/proc"):
+        if p.isdigit():
+            try:
+                argv = open("/proc/%s/cmdline" % p, "rb").read().split(b"\0")
+            except OSError:
+                continue
+            if len(argv) >= 2:
+                out.append((int(p), *argv[1:]))
+    return out
+
+
+# ─────────────────────────── выключатель камеры ───────────────────────────
+def camera_usb():
+    """Имена USB-устройств с видеоинтерфейсом (класс 0e): ['1-8']."""
+    base = "/sys/bus/usb/devices"
+    devs = set()
+    for n in os.listdir(base):
+        if ":" not in n:
+            continue
+        try:
+            if open(f"{base}/{n}/bInterfaceClass").read().strip() == "0e":
+                devs.add(n.split(":")[0])
+        except OSError:
+            pass
+    return sorted(devs)
+
+
+def set_authorized(devs, on):
+    ok = True
+    for d in devs:
+        try:
+            with open(f"/sys/bus/usb/devices/{d}/authorized", "w") as f:
+                f.write("1" if on else "0")
+        except OSError:
+            ok = False
+    return ok
+
+
+def cam_off_devs():
+    try:
+        return open(CAM_OFF).read().split()
+    except OSError:
+        return None
+
+
+def toggle_camera():
+    off = cam_off_devs()
+    if off is not None:
+        ok = set_authorized(off, True)
+        if ok:
+            os.remove(CAM_OFF)
+    else:
+        devs = camera_usb()
+        ok = bool(devs) and set_authorized(devs, False)
+        if ok:
+            os.makedirs(os.path.dirname(CAM_OFF), exist_ok=True)
+            with open(CAM_OFF, "w") as f:
+                f.write(" ".join(devs) + "\n")
+    if not ok:
+        subprocess.run(["notify-send", "-a", "Камера", "Камера",
+                        "Нет права выключать камеру — нужно правило udev "
+                        "/etc/udev/rules.d/70-jarvis-camera.rules"], stdin=subprocess.DEVNULL)
+    for argv in proc_argvs():
+        if (len(argv) >= 3 and os.path.basename(argv[1]) == b"privacy_status.py"
+                and b"--camera" in argv[2:]):
+            os.kill(argv[0], signal.SIGUSR1)
+
+
+def render_camera(holders, off):
+    if off:
+        return {"text": ICON_CAM_OFF, "class": ["camera-off"],
+                "tooltip": f"{ICON_CAM_OFF}  Камера выключена — щелчок включит"}
+    if holders:
+        uniq = ", ".join(dict.fromkeys(holders))
+        return {"text": ICON["camera"], "class": ["camera"],
+                "tooltip": f"{ICON['camera']}  Камера: {esc(uniq)}\nЩелчок — выключить камеру"}
+    return {"text": "", "tooltip": "", "class": "idle"}
+
+
+def camera_main(once):
+    off = cam_off_devs()
+    if off:
+        # после перезагрузки устройство снова authorized=1 — выключить, как было
+        set_authorized([d for d in off if os.path.exists(f"/sys/bus/usb/devices/{d}/authorized")
+                        and open(f"/sys/bus/usb/devices/{d}/authorized").read().strip() == "1"], False)
+    cam = CamWatch()
+    poke = [False]
+    signal.signal(signal.SIGUSR1, lambda *_: poke.__setitem__(0, True))
+    signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
+    signal.signal(signal.SIGHUP, lambda *_: os._exit(0))
+    last = None
+    while True:
+        line = json.dumps(render_camera(scan_camera(), cam_off_devs() is not None),
+                          ensure_ascii=False)
+        if line != last:
+            last = line
+            tell_title("jarvis-privacy-cam-n", 1 if '"text": ""' not in line else 0)
+            try:
+                sys.stdout.write(line + "\n")
+                sys.stdout.flush()
+            except BrokenPipeError:
+                os._exit(0)
+        if once:
+            return
+        # Выключенная камера — /dev/video* нет, её возвращение ловит IN_CREATE на /dev.
+        try:
+            r, _, _ = select.select([cam.fd] if cam.fd >= 0 else [], [], [], TICK)
+        except InterruptedError:
+            r = []
+        if poke[0]:
+            poke[0] = False
+            time.sleep(0.3)      # отцепление/подключение устройства
+        if r:
+            time.sleep(DEBOUNCE)
+            cam.drain()
+
+
 def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def render(state):
-    active = [k for k in ORDER if state[k]]
+    active = [k for k in (("screen",) if SCREEN_ONLY else ORDER[:2]) if state[k]]
     if not active:
         return {"text": "", "tooltip": "", "class": "idle"}
     # Щелчок по значку глушит микрофон (config.jsonc, custom/privacy) — значок
@@ -285,22 +443,85 @@ def render(state):
         lines.append(f"{ICON[k]}  {LABEL[k]}{vol}: {esc(', '.join(uniq))}")
     if muted:
         lines.append("Микрофон заглушён — щелчок включит")
+    if SCREEN_ONLY:
+        lines.append("Щелчок — остановить")
     return {"text": text, "tooltip": "\n".join(lines), "class": active + (["muted"] if muted else [])}
 
 
+def descendants(pid):
+    kids = {}
+    for p in os.listdir("/proc"):
+        if p.isdigit():
+            try:
+                kids.setdefault(int(open(f"/proc/{p}/stat").read().rsplit(")", 1)[1].split()[1]),
+                                []).append(int(p))
+            except (OSError, IndexError, ValueError):
+                pass
+    out, todo = set(), [pid]
+    while todo:
+        for c in kids.get(todo.pop(), []):
+            if c not in out:
+                out.add(c)
+                todo.append(c)
+    return out
+
+
+def stop_screen():
+    """Щелчок по значку экрана: остановить запись и трансляцию (см. описание вверху)."""
+    stopped, own = [], set()
+    try:
+        rp = int(open(REC_PID).read().strip())
+        os.kill(rp, 0)
+        own = descendants(rp) | {rp}
+        subprocess.Popen([os.path.join(os.path.dirname(os.path.abspath(__file__)), "rec_area.sh"), "halt"],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        stopped.append("запись")
+    except (OSError, ValueError):
+        pass
+    if os.environ.get("NIRI_SOCKET"):
+        done = set()
+        for c in run_json(["niri", "msg", "-j", "casts"]) or []:
+            sid, pid = c.get("session_id"), c.get("pid")
+            if sid is None or sid in done or pid in own or ignored(proc_name(pid) if pid else "?"):
+                continue
+            done.add(sid)
+            if subprocess.run(["niri", "msg", "action", "stop-cast", "--session-id", str(sid)],
+                              capture_output=True).returncode == 0:
+                stopped.append(cast_label(c)[0])
+    for pid, name in ProcTable().recorders().items():
+        if pid in own or ignored(name):
+            continue
+        try:
+            os.kill(pid, signal.SIGINT)
+            stopped.append(name)
+        except OSError:
+            pass
+    if stopped:
+        subprocess.run(["notify-send", "-a", "Экран", "Экран", "Остановлено: " + ", ".join(dict.fromkeys(stopped))],
+                       stdin=subprocess.DEVNULL)
+    return 0
+
+
 def main():
-    global IGNORE
+    global IGNORE, SCREEN_ONLY
     args = sys.argv[1:]
     once = "--once" in args
     if "--ignore" in args:
         i = args.index("--ignore")
         if i + 1 < len(args):
             IGNORE = [x.strip().lower() for x in args[i + 1].split(",") if x.strip()]
+    if "--toggle-camera" in args:
+        return toggle_camera()
+    if "--camera" in args:
+        return camera_main(once)
+    if "--stop-screen" in args:
+        return stop_screen()
+    SCREEN_ONLY = "--screen" in args
 
     state = {"mic": [], "camera": [], "screen": []}
     casts = {}          # stream_id → cast (niri) / "hypr" → флаг
     proc = ProcTable()
-    cam = CamWatch()
 
     def screen_list():
         out, cast_pids = [], set()
@@ -319,14 +540,13 @@ def main():
                 out.append(name)
         return out
 
-    mic = scan_mic()
+    mic = None if SCREEN_ONLY else scan_mic()
     state["mic"] = mic or []
-    state["mute"], state["micvol"] = mic_muted()
-    state["camera"] = scan_camera()
-    if os.environ.get("NIRI_SOCKET"):
+    state["mute"], state["micvol"] = (None, None) if SCREEN_ONLY else mic_muted()
+    if SCREEN_ONLY and os.environ.get("NIRI_SOCKET"):
         for c in run_json(["niri", "msg", "-j", "casts"]) or []:
             casts[c.get("stream_id")] = c
-    state["screen"] = screen_list()
+    state["screen"] = screen_list() if SCREEN_ONLY else []
     last = None
 
     def emit():
@@ -337,21 +557,8 @@ def main():
             # Сколько значков показано — для заголовка окна (bar_window_title.py): он
             # оставляет под них место, иначе длинный заголовок + значок микрофона
             # выдавливали бар вправо и кнопка питания уезжала за экран (01.10.2026).
-            try:
-                n = sum(1 for k in ORDER if state[k])
-                path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-privacy-n")
-                with open(path, "w") as f:
-                    f.write("%d\n" % n)
-                for p in os.listdir("/proc"):
-                    if p.isdigit():
-                        try:
-                            argv = open("/proc/%s/cmdline" % p, "rb").read().split(b"\0")
-                        except OSError:
-                            continue
-                        if len(argv) >= 2 and os.path.basename(argv[1]) == b"bar_window_title.py":
-                            os.kill(int(p), signal.SIGUSR1)
-            except OSError:
-                pass
+            tell_title("jarvis-privacy-scr-n" if SCREEN_ONLY else "jarvis-privacy-n",
+                       sum(1 for k in ORDER if state[k]))
             try:
                 sys.stdout.write(line + "\n")
                 sys.stdout.flush()
@@ -377,8 +584,6 @@ def main():
     signal.signal(signal.SIGHUP, cleanup)
 
     sel = selectors.DefaultSelector()
-    if cam.ok:
-        sel.register(cam.fd, selectors.EVENT_READ, "cam")
 
     bufs = {}
     retry = {"pactl": 0.0, "niri": 0.0, "hypr": 0.0}
@@ -422,10 +627,11 @@ def main():
             p.close()
         retry[kind] = time.monotonic() + 2
 
-    kinds = ["pactl"]
-    if os.environ.get("NIRI_SOCKET"):
+    # основному — только микрофон (pactl), модулю экрана — только касты
+    kinds = [] if SCREEN_ONLY else ["pactl"]
+    if SCREEN_ONLY and os.environ.get("NIRI_SOCKET"):
         kinds.append("niri")
-    elif os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+    elif SCREEN_ONLY and os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
         kinds.append("hypr")
     for k in kinds:
         start(k)
@@ -439,10 +645,6 @@ def main():
         wake = min(x for x in (next_tick, due, *[retry[k] for k in kinds if k not in children and retry[k]]) if x)
         for key, _ in sel.select(max(0.0, wake - now)):
             kind = key.data
-            if kind == "cam":
-                if cam.drain():
-                    dirty.add("camera")
-                continue
             p = children.get(kind)
             f = p.stdout if isinstance(p, subprocess.Popen) else p
             try:
@@ -504,9 +706,8 @@ def main():
                         casts[c.get("stream_id")] = c
         if now >= next_tick:
             next_tick = now + TICK
-            dirty.add("screen")          # процессы-записчики
-            if not cam.ok:
-                dirty.add("camera")      # запасной путь без inotify — обход /proc
+            if SCREEN_ONLY:
+                dirty.add("screen")      # процессы-записчики
         if (due is not None and now >= due) or ("screen" in dirty and due is None):
             if "mic" in dirty:
                 m = scan_mic()
@@ -514,8 +715,6 @@ def main():
                     state["mic"] = m
             if "mute" in dirty or "mic" in dirty:
                 state["mute"], state["micvol"] = mic_muted()
-            if "camera" in dirty:
-                state["camera"] = scan_camera()
             if "screen" in dirty:
                 state["screen"] = screen_list()
             dirty.clear()

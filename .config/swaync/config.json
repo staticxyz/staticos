@@ -46,6 +46,12 @@
     }
   },
   "notification-visibility": {
+    "browser-not-critical": {
+      "state": "enabled",
+      "app-name": "^(Helium|Chromium|Google Chrome|Zen|zen|Firefox|LibreWolf)$",
+      "urgency": "Critical",
+      "override-urgency": "normal"
+    },
     "hub-log": {
       "state": "muted",
       "app-name": "^hub-log$"

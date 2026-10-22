@@ -337,6 +337,18 @@ def skin_css(style, c):
     """ % c
 
 
+def present_unmin(win):
+    """present() окна, свёрнутого в стопке, уводил niri на стол свёрнутых — окно появлялось
+    «багованно» (22.10.2026). Такое окно возвращает stack_mode.py unmin (wm.raise_own)."""
+    try:
+        import wm
+        if wm.raise_own():
+            return
+    except Exception:
+        pass
+    win.present()
+
+
 class CapButton(Gtk.DrawingArea):
     """Кнопка заголовка, нарисованная close_cap — тем же квадратом, что у всей системы."""
 
@@ -850,7 +862,7 @@ class CalendarApp(Gtk.Application):
             self.win.notes = load_notes()
             self.win.refresh()
         self.apply_style()
-        self.win.present()
+        present_unmin(self.win)
         # Runs once the surface exists, so Hyprland has something to act on.
         GLib.timeout_add(120, self._float_self)
 

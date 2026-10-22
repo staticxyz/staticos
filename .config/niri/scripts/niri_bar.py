@@ -14,6 +14,8 @@
     niri_bar.py relabel   разово пересчитать подписи (зовётся из ws_labels.py)
     niri_bar.py ribbon    модуль waybar: точки — по одной на колонку активного стола
                           своего монитора (имя монитора даёт waybar в WAYBAR_OUTPUT_NAME).
+    niri_bar.py pocket    модуль waybar custom/pocket: кнопка карманного стола (Alt+Q) со
+                          значком его самого левого окна (22.10.2026).
 
 Значки — из того же места, что и в Hyprland: таблица window-rewrite в
 ~/.config/waybar/config.jsonc. Новое приложение добавляется там один раз на оба композитора.
@@ -284,6 +286,46 @@ def run_ribbon():
             last = out
 
 
+# ── карман (Alt+Q) ──────────────────────────────────────────────────────────
+# Пользователь 22.10.2026: «иконку стола нужно ставить именно того окна, который стоит левее… а щас
+# стоит значок телеграмма, хотя телеграмм там не открыт». Имя кармана задано в workspaces.kdl
+# (значок Telegram) и служба names его не трогает — на имя завязаны Alt+Q, правила окон и
+# нижняя панель. Поэтому штатная кнопка кармана в niri/workspaces спрятана (waybar_niri.py),
+# а на её месте — этот модуль: значок самого левого окна, как first_app_glyph в xpbar.py.
+POCKET = "\uf2c6"
+
+
+def pocket(output):
+    ws, wins = state()
+    cur = next((w for w in ws if w.get("name") == POCKET), None)
+    if not cur or cur.get("output") != output:
+        return {"text": ""}
+    mine = sorted((x for x in wins if x.get("workspace_id") == cur["id"]), key=col_row)
+    cls = [c for c, on in (("active", cur.get("is_active")), ("focused", cur.get("is_focused")),
+                           ("empty", not mine)) if on]
+    if mine:
+        rules, default = rewrite_rules()
+        subject = "class<%s> title<%s>" % (mine[0].get("app_id") or "", mine[0].get("title") or "")
+        text = next((g for rx, g in rules if rx.search(subject)), default or POCKET)
+        tip = "Карман (Alt+Q): окон %d\nслева — %s" % (len(mine), mine[0].get("app_id") or "?")
+    else:
+        # пустой — номер, как у любого пустого стола (виден, только пока вы на нём)
+        text, tip = str(cur.get("idx", "")), "Карман (Alt+Q): пусто"
+    return {"text": text, "class": cls, "tooltip": tip}
+
+
+def run_pocket():
+    output, last = os.environ.get("WAYBAR_OUTPUT_NAME", ""), None
+    for _ in events():
+        try:
+            out = json.dumps(pocket(output), ensure_ascii=False)
+        except Exception:
+            out = json.dumps({"text": ""})
+        if out != last:
+            print(out, flush=True)
+            last = out
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     if mode == "names":
@@ -294,6 +336,8 @@ def main():
         clear_names()
     elif mode == "ribbon":
         run_ribbon()
+    elif mode == "pocket":
+        run_pocket()
     else:
         print(__doc__, file=sys.stderr)
         return 1

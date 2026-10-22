@@ -159,6 +159,12 @@ def _pomo_locked():
 def action(*args):
     if args[:1] == ("close-window",) and _pomo_locked():
         return
+    if args[:2] == ("focus-window", "--id"):
+        # свёрнутое в стопке wm.py возвращает unmin — focus-window показал бы стол свёрнутых
+        args = ("focus", args[2])
+        subprocess.Popen([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "wm.py"), *args],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
     subprocess.Popen(["niri", "msg", "action", *args],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

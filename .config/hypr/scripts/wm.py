@@ -2,7 +2,7 @@
 """Общий слой над композитором: одно и то же для Hyprland и Niri.
 
 Из Python:  import wm;  wm.which(), wm.windows(), wm.focus(id), wm.monitors()
-Из шелла:   wm.py which | windows | monitors | focus <id> | focused
+Из шелла:   wm.py which | windows | monitors | focus <id> | focused | unmin <id>
 
 Зачем. Скрипты рабочего стола писались под Hyprland и звали hyprctl напрямую.
 В сеансе Niri такой вызов ничего не делает и НЕ ругается — значок браузера не
@@ -119,10 +119,44 @@ def focused():
     return None
 
 
+STACK_MIN = "\U000f05b0"   # стол свёрнутых окон стопки (stack_mode.MIN_NAME; у MSI + \u2060 в конце)
+STACK_MODE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stack_mode.py")
+
+
+def stack_unmin(wid=None, pid=None):
+    """Окно (по id или по pid процесса) свёрнуто в стопке — вернуть его, как кнопкой на
+    панели (stack_mode.py unmin), и True. focus-window и present() такого окна сперва уводят
+    niri на стол свёрнутых, демон стопки возвращает окно лишь следом — оно появлялось
+    «багованно» (22.10.2026: Reminders по Super+M; до того то же у Настроек)."""
+    if which() != "niri":
+        return False
+    try:
+        wss = json.loads(_run(["niri", "msg", "-j", "workspaces"]) or "[]")
+        wins = json.loads(_run(["niri", "msg", "-j", "windows"]) or "[]")
+    except ValueError:
+        return False
+    mins = {d["id"] for d in wss if (d.get("name") or "").rstrip("\u2060") == STACK_MIN}
+    w = next((w for w in wins if w.get("workspace_id") in mins and
+              (str(w.get("id")) == str(wid) if wid is not None else w.get("pid") == pid)), None)
+    if w is None:
+        return False
+    _run([sys.executable, STACK_MODE, "unmin", str(w["id"])], timeout=5)
+    return True
+
+
+def raise_own():
+    """Для однокопийных окон перед present(): своё окно свёрнуто в стопке — вернуть его
+    (True, present() уже не нужен)."""
+    return stack_unmin(pid=os.getpid())
+
+
 def focus(win):
-    """Перевести фокус на окно: словарь из windows() или его id."""
+    """Перевести фокус на окно: словарь из windows() или его id. Свёрнутое в стопке
+    возвращается со стола свёрнутых (stack_unmin)."""
     wid = win["id"] if isinstance(win, dict) else str(win)
     w = which()
+    if w == "niri" and stack_unmin(wid):
+        return True
     if w == "hyprland":
         return _run(["hyprctl", "dispatch",
                      'hl.dsp.focus({ window = "address:%s" })' % wid]) is not None
@@ -174,6 +208,8 @@ def main():
         return 0
     if args[0] == "focus" and len(args) == 2:
         return 0 if focus(args[1]) else 1
+    if args[0] == "unmin" and len(args) == 2:
+        return 0 if stack_unmin(args[1]) else 1
     print(__doc__, file=sys.stderr)
     return 1
 

@@ -1128,6 +1128,20 @@ def verify(snap):
         got = columns(wins, T, {i for c in want for i in c})
         if want != got:
             diffs.append("колонки стола %s %d: было %s, стало %s" % (dout.get(T), pos.get(T, 0), want, got))
+    # Все плитки монитора выше/ниже на одно и то же — сменилась высота рабочей области (бар,
+    # островок, отступы), раскладка ни при чём. 22.10.2026: снимок снят, когда бар был на 2 px
+    # выше, — на выходе шесть «не сошлось» при окнах на своих местах.
+    shift = {}
+    for r in rows:
+        w = cur[r["id"]]
+        if not r["floating"] and not w.get("is_floating"):
+            g = wsize(w)
+            shift.setdefault(dout.get(w.get("workspace_id")), []).append(
+                (g[0] - r["size"][0], g[1] - r["size"][1]))
+    area = {o: s[0][1] for o, s in shift.items()
+            if len(s) > 1 and len(set(s)) == 1 and s[0][0] == 0 and 0 < abs(s[0][1]) <= 80}
+    for o, dy in area.items():
+        log("verify: рабочая область %s выше на %d px — плитки этого монитора не в счёт" % (o, dy))
     for r in rows:
         w = cur[r["id"]]
         nm = "%s (%s)" % (r["app_id"], r["id"])
@@ -1135,6 +1149,8 @@ def verify(snap):
             diffs.append("%s: %s" % (nm, "плавающее" if w.get("is_floating") else "в мозаике"))
             continue
         g = wsize(w)
+        if not r["floating"] and dout.get(w.get("workspace_id")) in area:
+            g = [g[0], g[1] - area[dout.get(w.get("workspace_id"))]]
         if any(abs(g[i] - r["size"][i]) > 1 for i in (0, 1)):
             diffs.append("%s: размер %s, был %s" % (nm, g, r["size"]))
         if r["floating"] and r["pos"]:

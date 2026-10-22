@@ -1051,6 +1051,12 @@ def pin_toggle(app, conn):
 def action(*args):
     if args[:1] == ("close-window",) and _pomo_locked():
         return
+    if args[:2] == ("focus-window", "--id"):
+        # свёрнутое в стопке wm.py возвращает unmin — focus-window показал бы стол свёрнутых
+        args = ("focus", args[2])
+        subprocess.Popen([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "wm.py"), *args],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
     subprocess.Popen(["niri", "msg", "action", *args], stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL)
 
@@ -1162,6 +1168,12 @@ class NiriState:
         elif kind == "WindowClosed":
             self.windows.pop(d["id"], None)
         elif kind == "WindowFocusChanged":
+            # уходим из окна — прочитано всё, что пришло, пока оно было в фокусе: отметка
+            # только при входе считала их новыми, и после выхода из Telegram вставала «1»
+            # на уже прочитанном (22.10.2026, просьба: «появляются как будто ошибочно»)
+            prev = next((o for o in self.windows.values() if o.get("is_focused")), None)
+            if prev and prev.get("id") != d.get("id"):
+                badge_mark_seen(prev.get("app_id"), force=True)
             for o in self.windows.values():
                 o["is_focused"] = o["id"] == d.get("id")
         elif kind == "WindowFocusTimestampChanged":     # для badge_holder — какое окно было последним
@@ -2810,7 +2822,8 @@ class Tray(Gtk.Box):
                 GLib.idle_add(AUDIO_REFRESH[0])
         elif e.button == 3:
             if view == "mic":
-                spawn("pavucontrol", "-t", "4")             # вкладка устройств ввода
+                # микшер микрофона, как у громкости (22.10.2026; был pavucontrol)
+                spawn("env", "JARVIS_POPUP_FROM=xpbar", sys.executable, os.path.join(HERE, "mic_popup.py"))
             else:
                 # попап бара — над нижней панелью, отдельной плашкой (popup_theme.FROM_XPBAR)
                 spawn("env", "JARVIS_POPUP_FROM=xpbar", sys.executable, os.path.join(HERE, "volume_popup.py"))
@@ -3635,6 +3648,10 @@ _badge = {"mtime": None, "log": [], "seen": None}
 # Плееры без счётчика: «Music» — смена трека (track_notify.py), каждая песня зажигала бы
 # красную цифру (22.10.2026, просьба: «не надо рисовать для яндекс музыки… это неудобно»).
 NO_BADGE = ("yandexmusic", "spotify", "music")
+# «Не беспокоить» — счётчиков и точек нет совсем (22.10.2026, просьба: «пусть не появляются,
+# когда включен режим не беспокоить»); пришедшее за это время всплывёт после выключения.
+# Ставит watch_notif по swaync-client -swb.
+BADGE_DND = [False]
 
 
 def _norm(s):
@@ -3650,11 +3667,13 @@ def badge_seen():
     return _badge["seen"]
 
 
-def badge_mark_seen(app_id):
+def badge_mark_seen(app_id, force=False):
     """Окно программы в фокусе — её уведомления прочитаны, счётчик в ноль."""
+    if not app_id:
+        return
     seen = badge_seen()
     now = time.time()
-    if now - seen.get(app_id, 0) < 2:
+    if not force and now - seen.get(app_id, 0) < 2:
         return
     seen[app_id] = now
     try:
@@ -3691,6 +3710,24 @@ def badge_count(app_id):
         if a and a not in NO_BADGE and (a in na or na in a):        # «Telegram Desktop» ↔ org.telegram.desktop, zen ↔ «Zen Browser»
             n += 1
     return n
+
+
+# Telegram — его собственный счётчик непрочитанного из заголовка окна «Telegram (N)», как
+# значок на панели задач Windows (22.10.2026, просьба: «как в windows: пока я не открою сам чат с
+# сообщением, чтобы она не пропадала»; счёт по уведомлениям врал — «10» при прочитанном на
+# телефоне, гас при фокусе окна). Число то же, что Telegram ставит сам: что в него входит
+# (заглушённые чаты, сообщения или чаты) — Telegram → Настройки → Уведомления → «Счётчик».
+TITLE_COUNT = {"org.telegram.desktop": re.compile(r"^Telegram(?: \((\d+)\))?$")}
+
+
+def title_count(app_id, title):
+    """Число из заголовка или None — у программы такого счётчика нет. Не главное окно
+    (просмотр медиа и т. п.) — 0: счёт по уведомлениям для неё не включается."""
+    rx = TITLE_COUNT.get(app_id or "")
+    if not rx:
+        return None
+    m = rx.match(title or "")
+    return int(m.group(1) or 0) if m else 0
 
 
 def badge_holder(wins):
@@ -3908,8 +3945,11 @@ class TaskButton(Gtk.Button):
     def draw_badge(self, _w, cr):
         self.draw_run_mark(cr)
         self.draw_note(cr)
-        n = 0 if self.focused else badge_count(self.app_id)
-        if n and self.wid is not None:
+        if BADGE_DND[0]:
+            return False
+        own = title_count(self.app_id, self.title)      # свой счётчик — виден и в фокусе
+        n = own if own is not None else 0 if self.focused else badge_count(self.app_id)
+        if n and self.wid is not None and own is None:
             mine = [w for w in self.bar.state.windows_on(self.bar.connector)
                     if (w.get("app_id") or "") == self.app_id]
             if len(mine) > 1 and badge_holder(mine) != self.wid:
@@ -5515,6 +5555,9 @@ def main():
                     cnt = int(d.get("text") or 0) if str(d.get("text") or "0").isdigit() else 0
                     dnd = "dnd" in str(d.get("alt") or d.get("class") or "")
                     seen["notif"] = (cnt, dnd)
+                    if dnd != BADGE_DND[0]:
+                        BADGE_DND[0] = dnd
+                        GLib.idle_add(lambda: badges_redraw() and False)
                     GLib.idle_add(lambda c=cnt, n=dnd: [b.tray.set_notif(c, n) for b in bars] and False)
                 p.wait()
             except OSError:

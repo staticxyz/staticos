@@ -24,6 +24,8 @@
         "hyprland/workspaces",
         "custom/ribbon",
         "custom/privacy",
+        "custom/camera",
+        "custom/screencast",
         "custom/rec",
         "custom/pomo",
         "custom/gap",
@@ -546,6 +548,25 @@
     // Индикаторы приватности (30.09.2026, по образцу Noctalia): микрофон,
     // камера, трансляция/запись экрана — видны, только пока что-то занято.
     // Скрипт событийный (pactl subscribe, inotify, события niri) — interval не нужен.
+    // 22.10.2026, просьба: «при нажатии на камеру чтобы она отключалась, и наоборот при
+    // повторном чтобы включалась» — камера отдельным модулем со своим щелчком.
+    "custom/camera": {
+        "exec": "$HOME/.config/hypr/scripts/wb_share privacycam $HOME/.config/hypr/scripts/privacy_status.py --camera",
+        "on-click": "python3 $HOME/.config/hypr/scripts/privacy_status.py --toggle-camera",
+        "return-type": "json",
+        "restart-interval": 5,
+        "tooltip": true,
+        "escape": false
+    },
+    "custom/screencast": {
+        // 22.10.2026: экран — свой модуль, щелчок останавливает запись/трансляцию экрана.
+        "exec": "$HOME/.config/hypr/scripts/wb_share privacyscr $HOME/.config/hypr/scripts/privacy_status.py --screen",
+        "on-click": "python3 $HOME/.config/hypr/scripts/privacy_status.py --stop-screen",
+        "return-type": "json",
+        "restart-interval": 5,
+        "tooltip": true,
+        "escape": false
+    },
     "custom/privacy": {
         "exec": "$HOME/.config/hypr/scripts/wb_share privacy $HOME/.config/hypr/scripts/privacy_status.py",
         // 13.10.2026, просьба: ЛКМ — заглушить микрофон, ПКМ — плашка с ползунком,

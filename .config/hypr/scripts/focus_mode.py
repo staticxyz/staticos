@@ -719,7 +719,7 @@ def overlay(label, output, back):
 
     def go_back(*_a):
         if back:
-            subprocess.run(["niri", "msg", "action", "focus-window", "--id", back],
+            subprocess.run([sys.executable, os.path.join(HERE, "wm.py"), "focus", back],   # свёрнутое — unmin
                            capture_output=True)
         else:
             subprocess.run(["niri", "msg", "action", "focus-column-left"], capture_output=True)

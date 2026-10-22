@@ -1841,6 +1841,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
         else:
             self._appeared = True
             self.show_all()
+        if wm.raise_own():   # свёрнуто в стопке — present() показал бы стол свёрнутых (22.10.2026)
+            return
         self.present()
 
     def park(self):

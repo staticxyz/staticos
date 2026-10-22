@@ -43,6 +43,22 @@ APPS = {"telegram": "Telegram", "telegram desktop": "Telegram",
 # безымянные: звонок от уведомления не отличить, поэтому не трогаем его вовсе — ни
 # тишиной вне фокуса, ни приглушением на уведомление. Вернуть: False.
 TG_EXEMPT = True
+# 22.10.2026, просьба: «можно всё-таки отключать звуки телеграмм в режиме Не беспокоить? Но
+# чтобы это не тронуло звук звонка». Звук СООБЩЕНИЯ Telegram всегда идёт вместе с его
+# уведомлением (Notify), гудок звонка — без уведомления. Поэтому: пока DND и окно Telegram
+# не в фокусе, правило WirePlumber (dnd-silence.lua) глушит новый поток Telegram в момент
+# создания и через 0,4 с смотрит метку jarvis.tg-notify: было уведомление рядом — звук
+# сообщения, немой 2,5 с; не было — звонок/голосовое, mute снимается. Громкость не трогаем,
+# открытые потоки не трогаем — звонок, уже звучащий, ничем не задеть. Новое окно Telegram
+# (панель звонка) — тишина снимается на CALL_S. Вернуть полное исключение: TG_MSG_SOUNDS = False.
+TG_MSG_SOUNDS = True
+TG_NOTIFY_APPS = {"telegram", "telegram desktop"}
+TG_BIN = "Telegram"
+if os.environ.get("JARVIS_TG_TEST"):             # проверка: "имя_уведомления:бинарник"
+    _a, _b = os.environ["JARVIS_TG_TEST"].split(":", 1)
+    TG_NOTIFY_APPS, TG_BIN = {_a.lower()}, _b
+CALL_S = 120
+tg = {"call_until": 0.0, "wins": None, "recent_timer": None}
 if TG_EXEMPT:
     for _k in ("telegram", "telegram desktop"):
         APPS.pop(_k, None)
@@ -226,11 +242,79 @@ def evaluate():
 
 
 def _evaluate_now():
+    if TG_MSG_SOUNDS:
+        want = (state["dnd"] and silent["focus"] != SILENT["Telegram"]
+                and time.time() >= tg["call_until"])
+        if want and not silent["on"]:
+            tg_quiet_on()
+        elif not want and silent["on"]:
+            tg_quiet_off()
+        return
     want = state["dnd"] and silent["focus"] != SILENT["Telegram"] and not TG_EXEMPT
     if want and not silent["on"]:
         silence_on()
     elif not want and silent["on"]:
         silence_off()
+
+
+def tg_quiet_on():
+    """Только флаг для dnd-silence.lua — ни громкости, ни открытых потоков."""
+    set_flag(True)
+    with lock:
+        silent.update(on=True, saved_pct=None)
+        save_silent()
+    log("Telegram: звуки сообщений глушатся (DND, окно не в фокусе)")
+
+
+def tg_quiet_off():
+    set_flag(False)
+    for sid, _vol in streams_of(TG_BIN):        # вдруг держим немым звук сообщения
+        subprocess.run(["pactl", "set-sink-input-mute", str(sid), "0"], capture_output=True)
+    with lock:
+        silent.update(on=False, saved_pct=None)
+        save_silent()
+    log("Telegram: звуки открыты")
+
+
+def tg_notified():
+    """Уведомление Telegram — метка для dnd-silence.lua (новое значение на каждое)."""
+    if not silent["on"]:
+        return
+    subprocess.run(["pw-metadata", "-n", "default", "0", "jarvis.tg-notify", "%.3f" % time.time()],
+                   capture_output=True)
+    subprocess.run(["pw-metadata", "-n", "default", "0", "jarvis.tg-notify-recent", "1"],
+                   capture_output=True)
+    if tg["recent_timer"]:
+        tg["recent_timer"].cancel()
+    tg["recent_timer"] = threading.Timer(2.0, lambda: subprocess.run(
+        ["pw-metadata", "-n", "default", "-d", "0", "jarvis.tg-notify-recent"], capture_output=True))
+    tg["recent_timer"].start()
+    log("Telegram: уведомление — его звук останется немым")
+
+
+def tg_windows(line):
+    """Новое окно Telegram (панель входящего звонка) — тишину снять на CALL_S."""
+    if '"WindowsChanged"' in line:
+        try:
+            ws = json.loads(line)["WindowsChanged"]["windows"]
+        except (ValueError, KeyError):
+            return
+        tg["wins"] = {w["id"] for w in ws if w.get("app_id") == SILENT["Telegram"]}
+        return
+    if '"WindowOpenedOrChanged"' not in line:
+        return
+    try:
+        w = json.loads(line)["WindowOpenedOrChanged"]["window"]
+    except (ValueError, KeyError):
+        return
+    if w.get("app_id") != SILENT["Telegram"] or tg["wins"] is None or w["id"] in tg["wins"]:
+        return
+    tg["wins"].add(w["id"])
+    if state["dnd"]:
+        tg["call_until"] = time.time() + CALL_S
+        log("Telegram: новое окно «%s» — звуки открыты на %d с (звонок?)" % (w.get("title"), CALL_S))
+        tg_quiet_off()
+        threading.Timer(CALL_S + 1, evaluate).start()
 
 
 def follow_focus():
@@ -239,6 +323,8 @@ def follow_focus():
             p = subprocess.Popen(["niri", "msg", "-j", "event-stream"], stdout=subprocess.PIPE,
                                  stderr=subprocess.DEVNULL, text=True, preexec_fn=_pdeathsig)
             for line in p.stdout:
+                if TG_MSG_SOUNDS and ("WindowOpenedOrChanged" in line or "WindowsChanged" in line):
+                    tg_windows(line)
                 if "WindowFocusChanged" not in line and "WindowsChanged" not in line:
                     continue
                 try:
@@ -270,7 +356,7 @@ def follow_streams():
                                        capture_output=True)
                     silent["pending"] = None
                     save_silent()
-                if silent["on"]:
+                if silent["on"] and not TG_MSG_SOUNDS:
                     for sid, vol in streams_of("Telegram"):
                         if vol != "0%":
                             if not silent["saved_pct"]:
@@ -321,6 +407,8 @@ def follow_notify():
                     if not m:
                         continue
                     app = m.group(1)
+                    if TG_MSG_SOUNDS and app.lower() in TG_NOTIFY_APPS:
+                        tg_notified()
                     binary = APPS.get(app.lower())
                     if binary and state["dnd"]:
                         state["notified"][binary] = time.time()
@@ -361,7 +449,10 @@ def main():
     except (OSError, ValueError):
         pass
     set_flag(silent["on"])        # флаг для WirePlumber — по сохранённому состоянию
-    if TG_EXEMPT and (silent["on"] or silent.get("pending")):
+    if TG_MSG_SOUNDS:
+        if silent["on"]:
+            tg_quiet_off()        # решит заново evaluate по DND и фокусу
+    elif TG_EXEMPT and (silent["on"] or silent.get("pending")):
         silence_off()             # Telegram вне DND: вернуть громкость и снять флаг сразу
     threading.Thread(target=follow_dnd, daemon=True).start()
     threading.Thread(target=follow_streams, daemon=True).start()

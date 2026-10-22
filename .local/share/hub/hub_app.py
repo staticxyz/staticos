@@ -79,6 +79,22 @@ KEYS[65] = " "
 
 # ── цвета (как у Discipline / Настроек) ────────────────────────────────────────
 
+_STACK = [None, False]
+
+
+def stack_on():
+    """Режим «стопка» включён? Тогда ни «×», ни своей рамки: их рисует stack_bars.py
+    (21.10.2026, «дублируются кнопки», «двойная рамка»). Файл перечитывается при смене mtime."""
+    p = os.path.expanduser("~/.config/hypr/state/stack-mode.json")
+    try:
+        m = os.stat(p).st_mtime
+        if m != _STACK[0]:
+            _STACK[0], _STACK[1] = m, '"active": true' in open(p).read()
+    except OSError:
+        _STACK[0], _STACK[1] = None, False
+    return _STACK[1]
+
+
 def hexrgb(h, d=(0.5, 0.6, 1.0)):
     try:
         h = h.strip().lstrip("#")
@@ -167,6 +183,18 @@ def selection():
 
 
 # ── рисование ────────────────────────────────────────────────────────────────
+
+def present_unmin(win):
+    """present() окна, свёрнутого в стопке, уводил niri на стол свёрнутых — окно появлялось
+    «багованно» (22.10.2026). Такое окно возвращает stack_mode.py unmin (wm.raise_own)."""
+    try:
+        import wm
+        if wm.raise_own():
+            return
+    except Exception:
+        pass
+    win.present()
+
 
 class Painter:
     def __init__(self, cr):
@@ -600,6 +628,17 @@ class View:
 
     def draw_frame(self, p, w, h):
         c, cr = self.c, p.cr
+        if stack_on():
+            # В стопке рамку окна рисует stack_bars.py — своя была бы второй, внутри
+            # (21.10.2026, просьба: «двойную рамку в discipline»). Только фон.
+            p.rect(0, 0, w, h, c["bg"])
+            if c["frame"] == "skeet":
+                p.rgb(c["dot"])
+                for yy in range(2, h - 2, 4):
+                    for xx in range(2 + (yy // 4) % 2 * 2, w - 2, 4):
+                        cr.rectangle(xx, yy, 1, 1)
+                cr.fill()
+            return
         if c["frame"] == "skeet":
             l1 = mix(c["line1"], c["acc"], 0.45) if self.active else c["line1"]
             p.rect(0, 0, w, h, c["line3"])
@@ -651,8 +690,9 @@ class View:
                 p.rect(x, y + 17, w, 2, c["acc"] if self.active else c["line"])
             self.hits.append(((x - 4, y - 6, w + 8, 26), ("tab", t)))
             x += w + 20
-        p.text(x1, y, "×", c["dim"] if self.hover != "close" else c["text"], align="r")
-        self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
+        if not stack_on():
+            p.text(x1, y, "×", c["dim"] if self.hover != "close" else c["text"], align="r")
+            self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
         if self.tab == "items":                 # вид: общий / списком (клик или v)
             label = "вид: " + ("списком" if self.view_mode == "list" else "общий")
             hov = self.hover == ("view",)
@@ -2137,7 +2177,7 @@ class App(Gtk.Application):
             self.win.view.reload_style()
             self.win.set_tab(tab)
             self.win.redraw()
-        self.win.present()
+        present_unmin(self.win)
         return 0
 
 

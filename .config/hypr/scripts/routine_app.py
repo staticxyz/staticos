@@ -244,6 +244,18 @@ def run_out(*cmd):
 
 # ── модели ────────────────────────────────────────────────────────────────────
 
+def present_unmin(win):
+    """present() окна, свёрнутого в стопке, уводил niri на стол свёрнутых — окно появлялось
+    «багованно» (22.10.2026). Такое окно возвращает stack_mode.py unmin (wm.raise_own)."""
+    try:
+        import wm
+        if wm.raise_own():
+            return
+    except Exception:
+        pass
+    win.present()
+
+
 class Model:
     """Расписание будильника."""
 
@@ -2709,7 +2721,7 @@ class App(Gtk.Application):
             if tab:
                 self.win.set_tab(tab)
                 self.win.redraw()
-        self.win.present()
+        present_unmin(self.win)
         return 0
 
 
