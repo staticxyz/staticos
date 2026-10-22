@@ -443,7 +443,7 @@ def beta_colors(c):
                 tile_ink="#f4f4fa", t0=tiles[0], t1=tiles[1], t2=tiles[2], tiles=tiles)
 
 
-# «Пуск» Windows 11 (компактный) — у панели Centered minimal, вид один на все стили
+# «Пуск» Windows 11 (компактный) — у панели Centered max, вид один на все стили
 W11_CSS = """
 .w11 {
     background-color: transparent; border: none;
@@ -888,7 +888,7 @@ class StartMenu(Gtk.Window):
 
     def open(self, center=False):
         """Показать (встроенное меню — заранее построенное, поэтому мгновенно).
-        center — панель в виде Centered minimal: меню посередине, над «Пуском» в ряду значков."""
+        center — панель в виде Centered max: меню посередине, над «Пуском» в ряду значков."""
         self.holder.set_halign(Gtk.Align.CENTER if center else Gtk.Align.START)
         self.w11_on = center
         if center and self.w11_catch is None:
@@ -1062,7 +1062,7 @@ class StartMenu(Gtk.Window):
     # ── «Пуск» как в Windows 11 ──────────────────────────────────────────
     # 21.10.2026, просьба: «Пуск… как в Windows новых, только для вида по центру… в стиле
     # Windows 11, но компактную версию — в Windows 11 она слишком большая». Своя панель в том
-    # же окне, только у нижней панели Centered minimal: поиск сверху, закреплённые сеткой,
+    # же окне, только у нижней панели Centered max: поиск сверху, закреплённые сеткой,
     # «Рекомендуем» (частые за неделю), внизу пользователь и питание. «Все ›» — список всех
     # программ по алфавиту на месте сетки. Закреплённые — те же, что в «Пуске» XP.
     # Тот же день, позже: «перестарался с компактностью… можешь сделать Пуск побольше,

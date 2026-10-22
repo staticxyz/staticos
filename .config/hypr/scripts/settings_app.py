@@ -5109,10 +5109,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
             with open(sl_f, "w") as f:
                 f.write(k + "\n")
         return self.row(c, "Вид нижней панели",
-                 self.segments([("classic", "Left sided"), ("centered", "Centered minimal")],
+                 self.segments([("classic", "Left sided"), ("centered", "Centered max")],
                                cur_sl if cur_sl in ("classic", "centered") else "classic", set_sl),
                  "XP-панель в режиме Stack. Left sided — «Пуск» слева, кнопки окон с названиями. "
-                 "Centered minimal — «Пуск» и окна одними значками, крупнее, по центру экрана, "
+                 "Centered max — «Пуск» и окна одними значками, крупнее, по центру экрана, "
                  "под открытыми окнами полоска, как в Windows 10; закреплённые программы "
                  "остаются, название окна — во всплывающей подсказке.",
                  icon="\U000f0570", default="classic")

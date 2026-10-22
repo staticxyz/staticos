@@ -40,7 +40,7 @@ size and tab exactly as before; widgets keep working either way.
 
 The bottom panel comes in two looks. Pick one in Settings → DE → Bottom panel look:
 
-| Left sided | Centered minimal |
+| Left sided | Centered max |
 |:-:|:-:|
 | ![Stack mode, left-sided panel with the Start menu](assets/stack-mode-left.png) | ![Stack mode, centered panel with the Start menu](assets/stack-mode-centered.png) |
 | XP-style taskbar: Start on the left, a button with a title for every window | Icons in the middle and a Windows 11-style Start |
@@ -56,7 +56,7 @@ The bottom panel comes in two looks. Pick one in Settings → DE → Bottom pane
 - **Left sided taskbar.** Minimized windows fly to their button and back.
   - Buttons can be dragged and pinned (right-click → Pin).
   - A pinned app stays as an icon when it has no window.
-- **Centered minimal taskbar.** Icons sit in the middle of the panel. The Start menu is modeled on
+- **Centered max taskbar.** Icons sit in the middle of the panel. The Start menu is modeled on
   Windows 11 but kept compact.
   - The menu has search, a grid of pinned apps, recommended apps (the ones you used most this
     week) and an A–Z list of everything.
