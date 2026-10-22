@@ -6009,6 +6009,23 @@ class SettingsWindow(Gtk.ApplicationWindow):
         gap_rev.set_reveal_child(show != "hover")
         xcard.pack_start(gap_rev, False, False, 0)
         self.only_in("scroll", gap_rev)         # зазор двигает рабочую область стопки
+        # Молния pomo в трее (22.10.2026, просьба: «переключатель на вкл/выкл иконки молнии»):
+        # флаг state/xpbar-pomo-bolt-off, xpbar.py следит за ним и прячет сразу.
+        bolt_off = os.path.expanduser("~/.config/hypr/state/xpbar-pomo-bolt-off")
+
+        def set_bolt(on):
+            try:
+                if on:
+                    os.remove(bolt_off)
+                else:
+                    open(bolt_off, "w").close()
+            except OSError:
+                pass
+        self.row(xcard, "Молния помидора",
+                 self.pill(not os.path.exists(bolt_off), set_bolt),
+                 "Пиксельная молния справа на панели, у часов: видна, пока идёт pomo (работа "
+                 "или перерыв), на паузе бледнеет. Выключено — молнии нет, помидор идёт как шёл.",
+                 icon="\U000f140b")
         # Тексты песен — только в XP-панели (lyrics_bar.py on|off, флаг lyrics-off).
         lyr = os.path.join(HERE, "lyrics_bar.py")
         self.row(xcard, "Тексты песен",

@@ -1004,6 +1004,13 @@ def restore(st):
             col = [x for x in rows if not x["floating"] and x["ws"] == r["ws"] and x["col"] == r["col"]]
             tab = [r["ws"], r["col"]] in snap["tabbed"]
             last = len(col) > 1 and r["row"] == max(x["row"] for x in col)   # нижнее берёт остаток
+            if len(col) == 1 and not tab:
+                # Одно окно в колонке — авто-высота, не SetFixed: с жёсткой высотой окно не
+                # растягивалось, когда Super+S убирал нижнюю панель (22.10.2026, просьба:
+                # «раз нижняя панель ушла… это пространство окна должны были сами заполнить»).
+                if not _round:
+                    A("ResetWindowHeight", id=r["id"])
+                continue
             if not tab and not last and abs(got[1] - r["size"][1]) > 1:
                 A("SetWindowHeight", id=r["id"], change={"SetFixed": r["size"][1]})
         time.sleep(0.15)

@@ -2360,6 +2360,9 @@ class PomoBolt(Gtk.DrawingArea):
     заливка акцентом обоев сверху светлее, книзу темнее, тёмный контур и слабое свечение.
     Цвета — LOOK_COLS["skeet"], их пересобирает load_css при смене обоев."""
     STATE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "pomo", "state")
+    # флаг «молнии не надо» — Настройки → Нижняя панель (22.10.2026, просьба: «переключатель
+    # на вкл/выкл иконки молнии»)
+    OFF = os.path.expanduser("~/.config/hypr/state/xpbar-pomo-bolt-off")
     # ровная лесенка: внизу правый край уходит на клетку за строку до острого кончика
     # (19.10.2026, просьба: гладкий контур не понравился, «ровнее снизу», без обрубка)
     SHAPE = ("...###",
@@ -2391,6 +2394,8 @@ class PomoBolt(Gtk.DrawingArea):
             try:
                 PomoBolt._mon = Gio.File.new_for_path(self.STATE).monitor_file(Gio.FileMonitorFlags.NONE, None)
                 PomoBolt._mon.connect("changed", lambda *_a: PomoBolt.refresh_all())
+                PomoBolt._mon_off = Gio.File.new_for_path(self.OFF).monitor_file(Gio.FileMonitorFlags.NONE, None)
+                PomoBolt._mon_off.connect("changed", lambda *_a: PomoBolt.refresh_all())
             except GLib.Error:
                 PomoBolt._mon = False
             GLib.timeout_add_seconds(5, lambda: PomoBolt.refresh_all() or True)
@@ -2404,6 +2409,10 @@ class PomoBolt(Gtk.DrawingArea):
                 st[k] = v
         except OSError:
             pass
+        # pomo пишет перерыв как short / long — в панели это один «break» (22.10.2026,
+        # Просьба: «у меня перерывы в pomo, но он не отображается в ниж. панели»)
+        if st.get("phase") in ("short", "long"):
+            st["phase"] = "break"
         return st
 
     @classmethod
@@ -2415,7 +2424,8 @@ class PomoBolt(Gtk.DrawingArea):
             f(st)
 
     def apply(self, st):
-        on = st.get("phase", "idle") in ("work", "break") and not self.hidden
+        on = (st.get("phase", "idle") in ("work", "break") and not self.hidden
+              and not os.path.exists(self.OFF))
         if self.box is not None and self.box.get_visible() != on:
             self.box.set_visible(on)
         if on:
