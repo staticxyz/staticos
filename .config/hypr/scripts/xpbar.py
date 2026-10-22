@@ -2535,6 +2535,26 @@ class SideTray(Gtk.Box):
         self.pomo_apply(PomoBolt.read_state())
         self.bat_apply()
         GLib.timeout_add_seconds(10, lambda: self.bat_apply() or True)
+        # свечение Savage / «не гасить экран» — сразу по файлам состояния, а не раз в 10 с
+        # (22.10.2026, просьба: «иконка светится с задержкой и пропадает тоже»).
+        # screen_awake пишет через .tmp и rename — поэтому WATCH_MOVES и оба имени.
+        self.bat_mons, self.bat_pending = [], 0
+        for path in ("/tmp/savage_mode.pid", os.path.expanduser("~/.config/hypr/state/screen-awake")):
+            m = Gio.File.new_for_path(path).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+            m.connect("changed", self.on_bat_state)
+            self.bat_mons.append(m)
+
+    def on_bat_state(self, *_a):
+        # пачку событий одной записи — в одну перерисовку; savage_battery пишет pid чуть
+        # раньше, чем systemd-inhibit появится в /proc, — второй взгляд через 400 мс
+        if not self.bat_pending:
+            self.bat_pending = GLib.timeout_add(60, self.bat_state_now)
+
+    def bat_state_now(self):
+        self.bat_pending = 0
+        self.bat_apply()
+        GLib.timeout_add(400, lambda: self.bat_apply() or False)
+        return False
 
     def pomo_apply(self, st):
         phase = st.get("phase", "idle")

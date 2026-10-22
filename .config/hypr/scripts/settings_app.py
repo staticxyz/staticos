@@ -2486,7 +2486,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
         try:
             self._stack_mon = Gio.File.new_for_path(STACK_STATE).get_parent().monitor_directory(
                 Gio.FileMonitorFlags.WATCH_MOVES, None)
-            self._stack_mon.connect("changed", lambda _m, f, *_a: f.get_basename() == "stack-mode.json"
+            # stack_mode.py пишет через .tmp и rename: у события «renamed» f — это .tmp, а
+            # stack-mode.json — во втором файле (22.10.2026: по одному f выход из стопки не
+            # доходил, рамка окна оставалась спрятанной — «не увидел у окна Настроек рамки»)
+            self._stack_mon.connect("changed", lambda _m, f, o, _e: "stack-mode.json" in
+                                    (f.get_basename(), o and o.get_basename())
                                     and GLib.timeout_add(50, self.sync_stack_title))
         except GLib.Error:
             pass

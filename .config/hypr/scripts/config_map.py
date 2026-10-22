@@ -93,7 +93,7 @@ AREAS = [
         build_bar_icons.py build_battery_font.py build_bongo_font.py build_wave_font.py
         build_wolf_font.py build_zen_font.py build_start_font.py build_taskbar_font.py"""),
     ("Плашки бара", "▤", """
-        appmem_popup.py battery_popup.py bluetooth_popup.py bt_stats_popup.py
+        appmem_popup.py battery_popup.py energy_radios.py bluetooth_popup.py bt_stats_popup.py
         calendar_popup.py calendar_app.py control_center.py lan_popup.py mic_popup.py
         notif_log.py player_like.py player_like_key player_popup.py popup_theme.py
         power_view.py router_clients.py router_pass.py volume_popup.py wifi_net_popup.py

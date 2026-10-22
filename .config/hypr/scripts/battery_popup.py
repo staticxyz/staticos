@@ -233,14 +233,26 @@ class BatteryPopup(Gtk.Window):
         vbox.set_size_request(268 if self.compact else 280, -1)
         card.add(vbox)
 
-        parts = [self.build_header(), self.rule(), self.build_brightness(), self.build_night(),
-                 self.rule(), self.build_toggles()]
+        parts = [self.build_header(), self.rule(), self.build_brightness(), self.build_night()]
+        if popup_theme.FROM_XPBAR:
+            # Wi-Fi и Bluetooth — только у нижней панели, под ночным режимом (22.10.2026,
+            # Просьба: «в плашку Энергии добавить Настройки Wifi & Bluetooth», «под ночным
+            # режимом, и до Энергосбережения… открывался прямо в этой же плашке»):
+            # energy_radios.py — тумблер радио; щелчок по строке листает плашку на страницу
+            # со списком и «‹ Назад» (22.10.2026: «открывается новая плашка вместо плашки
+            # Энергия, где будет кнопка Назад»)
+            import energy_radios
+            self.radios = energy_radios.Radios(self)
+            parts += [self.rule(), self.radios.widget()]
+        parts += [self.rule(), self.build_toggles()]
         # Порядок всегда сверху вниз (22.10.2026: снизу вверх пользователь попробовал и вернул).
         # «Вид бара» — только у waybar: нижней панели он не нужен.
         if not popup_theme.FROM_XPBAR:
             parts += [self.rule(), self.build_look()]
+        main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         for part in parts:
-            vbox.pack_start(part, False, False, 0)
+            main.pack_start(part, False, False, 0)
+        vbox.pack_start(self.radios.wrap(main) if getattr(self, "radios", None) else main, True, True, 0)
 
         # События наведения и ухода курсора
         self.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
@@ -347,6 +359,13 @@ class BatteryPopup(Gtk.Window):
                    hover_strong=popup_theme.rgba(p["primary"], 0.16),
                    shade="rgba(0,0,0,0.45)")).encode()
         css += self.skin_css().encode()
+        if popup_theme.FROM_XPBAR:
+            import energy_radios
+            skin = {}
+            if self.style in ("skeet", "beta"):
+                import xp_calendar
+                skin = xp_calendar.colors(self.style)
+            css += energy_radios.css(self.style, p, skin, popup_theme.rgba(p["primary"], 0.08)).encode()
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_screen(
@@ -769,9 +788,6 @@ class BatteryPopup(Gtk.Window):
     def build_toggles(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
 
-        self.power_switch = self.pill(self.get_power_saver_state(), self.on_power_saver_toggled)
-        box.pack_start(self.row("󰌪", "Энергосбережение", self.power_switch), False, False, 0)
-
         savage = is_savage_active()
         self.awake_switch = self.pill(savage, self.on_savage_toggled)
         box.pack_start(self.row("󰓅", "Savage Mode", self.awake_switch), False, False, 0)
@@ -787,6 +803,11 @@ class BatteryPopup(Gtk.Window):
                                      self.screen_switch, sub=True))
         self.screen_rev.set_reveal_child(savage)
         box.pack_start(self.screen_rev, False, False, 0)
+
+        # Savage со спутником — выше энергосбережения (22.10.2026, просьба: «Savage mode
+        # должен стоять выше чем Энергосбережение»)
+        self.power_switch = self.pill(self.get_power_saver_state(), self.on_power_saver_toggled)
+        box.pack_start(self.row("󰌪", "Энергосбережение", self.power_switch), False, False, 0)
 
         # Подсказка о смене раскладки сюда не попадает: она рисуется окном
         # eww, а не уведомлением, поэтому тишина её не глушит.

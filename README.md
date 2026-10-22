@@ -42,7 +42,7 @@ The bottom panel comes in two looks. Pick one in Settings → DE → Bottom pane
 
 | Left sided | Centered max |
 |:-:|:-:|
-| ![Stack mode, left-sided panel with the Start menu](assets/stack-mode-left.png) | ![Stack mode, centered panel with the Start menu](assets/stack-mode-centered.png) |
+| ![Stack mode, left-sided panel with the Start menu](assets/stack-mode-left.png) | ![Stack mode, centered panel with the Start menu, the Energy popup and its Wi-Fi page](assets/stack-mode-centered.png) |
 | XP-style taskbar: Start on the left, a button with a title for every window | Icons in the middle and a Windows 11-style Start |
 
 - **Own title bars and frames** in the system style (Default, Skeet or Beta). Each bar has
@@ -63,6 +63,9 @@ The bottom panel comes in two looks. Pick one in Settings → DE → Bottom pane
   - Behind the menu is a frosted, blurred copy of the wallpaper, and its frame follows the
     system style.
   - Keyboard: arrows or `Ctrl+H/J/K/L` to move, `Enter` to launch.
+- **Wi-Fi and Bluetooth in the Energy popup** of the bottom panel, in the system style. The switch
+  turns the radio on or off; a click on the row turns the popup into a page of the same size with
+  networks or devices, a password field, Connect / Disconnect / Forget and a Back button.
 - **Settings follow the mode.** Options that only matter in stack mode show up only while it is on.
 - **Keys:**
   - `Super+K` maximizes, or brings back the last minimized window.
