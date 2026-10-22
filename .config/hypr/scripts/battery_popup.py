@@ -127,6 +127,28 @@ def get_target_monitor():
     return display.get_primary_monitor() or (display.get_monitor(0) if display.get_n_monitors() > 0 else None)
 
 
+def monitor_name(mon):
+    """Имя выхода niri (eDP-1, DP-4) для GdkMonitor — по x на экране."""
+    try:
+        import system_style
+        x = mon.get_geometry().x if mon else None
+        for name, o in (system_style.niri("outputs") or {}).items():
+            if (o.get("logical") or {}).get("x") == x:
+                return name
+        return system_style.focused()
+    except Exception:
+        return None
+
+
+def monitor_style(mon):
+    """Стиль системы монитора плашки (system_style.py): default / skeet / beta."""
+    try:
+        import system_style
+        return system_style.style_of(monitor_name(mon))
+    except Exception:
+        return "default"
+
+
 def current_look():
     # То же, что `bar_style.py get`, но без отдельного питона.
     try:
@@ -163,24 +185,41 @@ class BatteryPopup(Gtk.Window):
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.NONE)
 
         self.pal = popup_theme.palette()
+        # Вид — по стилю системы монитора (22.10.2026, просьба: «стилизовать под стиль
+        # системы… например выбран Skeet»); default — прежняя круглая карточка.
+        # Только из нижней панели (22.10.2026, просьба: «вид меняется только в нижней
+        # панели»); из waybar — прежняя карточка.
+        self.style = monitor_style(target_mon) if popup_theme.FROM_XPBAR else "default"
         self.apply_css()
 
         # Прозрачная подложка на весь экран: щелчок по ней закрывает панель.
         bg = Gtk.EventBox()
         bg.connect("button-press-event", lambda w, e: self._exit())
         self.add(bg)
-        # Карточка — в правом углу: под баром, а если бар снизу — над ним.
+        # Карточка — в правом углу: под баром, а если бар снизу — над ним. Из «Энергии»
+        # слева на нижней панели (Centered max) — в левом углу (22.10.2026, просьба:
+        # «плашка открывается справа, когда кликаю по Энергии»): JARVIS_POPUP_SIDE=left.
         align = Gtk.Box()
-        align.set_halign(Gtk.Align.END)
-        align.set_margin_end(20)
-        if popup_theme.bar_position() == "bottom":
+        if os.environ.get("JARVIS_POPUP_SIDE") == "left":
+            align.set_halign(Gtk.Align.START)
+            align.set_margin_start(10)
+        else:
+            align.set_halign(Gtk.Align.END)
+            align.set_margin_end(20)
+        self.up = popup_theme.bar_position() == "bottom"
+        if self.up:
             align.set_valign(Gtk.Align.END)
             align.set_margin_bottom(6)
         else:
             align.set_valign(Gtk.Align.START)
             align.set_margin_top(6)
         bg.add(align)
-        popup_theme.add_ears(align)   # «приклеенные» попапы (Настройки → Внешний вид)
+        if self.up and popup_theme.xpbar_attach(align, monitor_name(target_mon), *self.attached_frame()):
+            pass                         # к нижней панели вплотную (Skeet/Beta), рамку рисует popup_theme
+        elif self.style == "default":
+            popup_theme.add_ears(align)   # «приклеенные» попапы (Настройки → Внешний вид)
+        elif popup_theme.minimal() and not self.up:
+            popup_theme.minimal_center(align)   # Skeet/Beta — квадратные, без вогнутых ушек
         card = Gtk.EventBox()
         card.connect("button-press-event", lambda w, e: True)   # щелчок внутри — не закрывать
         align.add(card)
@@ -188,17 +227,20 @@ class BatteryPopup(Gtk.Window):
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         vbox.get_style_context().add_class("card")
-        vbox.set_size_request(280, -1)
+        # Skeet/Beta — чуть компактнее (22.10.2026, просьба: «попробуй сделать компактнее»,
+        # затем «перестарался» — середина между прежним и ужатым)
+        self.compact = self.style in ("skeet", "beta")
+        vbox.set_size_request(268 if self.compact else 280, -1)
         card.add(vbox)
 
-        vbox.pack_start(self.build_header(), False, False, 0)
-        vbox.pack_start(self.rule(), False, False, 0)
-        vbox.pack_start(self.build_brightness(), False, False, 0)
-        vbox.pack_start(self.build_night(), False, False, 0)
-        vbox.pack_start(self.rule(), False, False, 0)
-        vbox.pack_start(self.build_toggles(), False, False, 0)
-        vbox.pack_start(self.rule(), False, False, 0)
-        vbox.pack_start(self.build_look(), False, False, 0)
+        parts = [self.build_header(), self.rule(), self.build_brightness(), self.build_night(),
+                 self.rule(), self.build_toggles()]
+        # Порядок всегда сверху вниз (22.10.2026: снизу вверх пользователь попробовал и вернул).
+        # «Вид бара» — только у waybar: нижней панели он не нужен.
+        if not popup_theme.FROM_XPBAR:
+            parts += [self.rule(), self.build_look()]
+        for part in parts:
+            vbox.pack_start(part, False, False, 0)
 
         # События наведения и ухода курсора
         self.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
@@ -304,11 +346,134 @@ class BatteryPopup(Gtk.Window):
                    hover=popup_theme.rgba(p["primary"], 0.08),
                    hover_strong=popup_theme.rgba(p["primary"], 0.16),
                    shade="rgba(0,0,0,0.45)")).encode()
+        css += self.skin_css().encode()
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    def attached_frame(self):
+        """Рамка Skeet для приклеенной к нижней панели плашки (popup_theme.xpbar_attach):
+        слои как у .card (без внешней светлой линии — её место занимает кромка панели)
+        и полоска трёх тонов под ней. Для Beta — без своей рамки."""
+        if self.style != "skeet":
+            return (), ()
+        import xp_calendar
+        c = xp_calendar.colors("skeet")
+        mix = xp_calendar._mix
+        on = mix(c["line1"], c["acc"], 0.45)
+        return ((c["line2"], c["line2"], c["line2"], on, c["line3"]),
+                (list(c["strip"]), [mix(x, "#000000", 0.55) for x in c["strip"]]))
+
+    def skin_css(self):
+        """Skeet / Beta поверх обычного вида. Цвета — xp_calendar.colors (как у календаря
+        нижней панели); кольцо заряда берёт их же через self.ring."""
+        p = self.pal
+        self.ring = dict(track=p["surface_high"], arc=p["primary"], text=p["on_surface"], square=False)
+        if self.style not in ("skeet", "beta"):
+            return ""
+        import xp_calendar
+        c = dict(xp_calendar.colors(self.style))
+        if self.style == "skeet":
+            # рамка слоями внутрь и полоска трёх тонов сверху — как календарь/Настройки Skeet
+            mix = xp_calendar._mix
+            c.update(strip=", ".join(c["strip"]),
+                     strip_d=", ".join(mix(x, "#000000", 0.55) for x in c["strip"]),
+                     line1_on=mix(c["line1"], c["acc"], 0.45))
+            self.ring = dict(track=c["field_l"], arc=c["acc"], text=c["text"], square=True)
+            return """
+        .card {
+            background-color: %(bg)s; color: %(text)s; font-size: 12px;
+            background-image: linear-gradient(to right, %(strip)s), linear-gradient(to right, %(strip_d)s);
+            background-size: 100%% 1px, 100%% 1px; background-repeat: no-repeat, no-repeat;
+            background-position: 0 6px, 0 7px;
+            box-shadow: inset 0 0 0 6px %(line3)s, inset 0 0 0 5px %(line1_on)s,
+                        inset 0 0 0 4px %(line2)s, inset 0 0 0 1px %(line1_on)s;
+            border: none; border-radius: 0; padding: 13px 12px 9px 12px;
+        }
+        .title { color: %(acc_l)s; font-size: 12px; }
+        .subtitle { color: %(dim)s; }
+        .row { border-radius: 0; padding: 3px 6px; }
+        .row:hover { background-color: %(field)s; }
+        .icon { color: %(acc_l)s; }
+        .name { color: %(text)s; font-size: 12px; }
+        .sub .name { color: %(dim)s; }
+        .value { color: %(acc_l)s; background-color: %(field)s; border-radius: 0;
+                 border: 1px solid %(line2)s; font-size: 11px; }
+        .rule { background-color: %(line2)s; box-shadow: 0 1px 0 0 %(line3)s; margin: 4px 4px 5px 4px; }
+        scale { padding: 7px 0; margin: 0 2px; }
+        /* тумблер — скруглённый, тонкий, цвета Skeet (22.10.2026: квадратный в рамке
+           «слишком грубый», галочки Настроек — без рамки; пользователю ближе округлые) */
+        switch { min-width: 30px; min-height: 14px; padding: 0; border-radius: 8px;
+                 border: 1px solid %(line3)s; box-shadow: inset 0 1px 0 0 alpha(black, 0.25);
+                 background-color: %(field_l)s; background-image: none; }
+        switch:hover { border-color: %(acc_d)s; }
+        switch:checked { border-color: %(acc_d)s; background-color: %(acc)s;
+                         background-image: linear-gradient(to bottom, %(acc_l)s, %(acc_d)s); }
+        switch slider { min-width: 10px; min-height: 10px; margin: 2px; border-radius: 6px;
+                        border: none; box-shadow: none; background-image: none;
+                        background-color: %(dim)s; }
+        switch:checked slider { background-color: %(text)s; }
+        /* ползунок — как в Настройках (settings_app.skeet_css): полоса без ручки */
+        scale trough {
+            min-height: 6px; border: 1px solid %(line3)s; border-radius: 0;
+            background-color: %(field)s;
+            background-image: linear-gradient(to bottom, %(field)s, %(field_l)s);
+        }
+        scale highlight {
+            border: none; border-radius: 0; background-color: %(acc)s;
+            background-image: linear-gradient(to bottom, %(acc_l)s, %(acc_d)s);
+        }
+        scale slider {
+            min-width: 2px; min-height: 6px; margin: 0; border: none; border-radius: 0;
+            background: none; background-color: transparent; box-shadow: none;
+        }
+        button.ghost { color: %(dim)s; }
+        button.ghost:hover { color: %(acc_l)s; }
+        label.chev { color: %(dim)s; }
+        button.look-tile { border-radius: 0; border: 1px solid %(gline)s; box-shadow: inset 0 0 0 1px %(gdark)s;
+                           padding: 4px; }
+        button.look-tile:hover { border-color: %(acc_d)s; }
+        button.look-tile.look-active { border: 1px solid %(acc)s; background-color: %(field)s; }
+        label.look-name { color: %(dim)s; }
+        button.look-tile.look-active label.look-name { color: %(acc_l)s; }
+        """ % c
+        # beta — плоско и прямоугольно, Light/Dark общий с системой
+        self.ring = dict(track=c["field"], arc=c["acc"], text=c["text"], square=True)
+        return """
+        .card { background-color: %(bg)s; color: %(text)s; border: 2px solid %(frame)s;
+                border-radius: 0; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45); }
+        .title { color: %(text)s; }
+        .subtitle { color: %(dim)s; }
+        .row { border-radius: 0; padding: 3px 6px; }
+        .row:hover { background-color: %(sel)s; }
+        .icon { color: %(acc)s; }
+        .name { color: %(text)s; }
+        .sub .name { color: %(dim)s; }
+        .value { color: %(on_acc)s; background-color: %(acc)s; border-radius: 0; }
+        .rule { background-color: %(line)s; margin: 3px 4px; }
+        switch { border-radius: 0; background-color: %(field)s; border: 1px solid %(line)s;
+                 padding: 0; min-width: 28px; min-height: 12px; }
+        switch slider { margin: 0; min-width: 12px; min-height: 12px; }
+        scale { padding: 4px 0; }
+        switch:hover { background-color: %(sel)s; }
+        switch:checked { background-color: %(acc)s; border-color: %(acc)s; }
+        switch slider { border-radius: 0; background-color: %(dim)s; }
+        switch:checked slider { background-color: %(on_acc)s; }
+        scale trough { border-radius: 0; background-color: %(field)s; }
+        scale highlight { border-radius: 0; background-color: %(acc)s; }
+        scale slider { border-radius: 0; background-color: %(acc)s; }
+        button.ghost { color: %(dim)s; }
+        button.ghost:hover { color: %(acc)s; }
+        label.chev { color: %(dim)s; }
+        button.look-tile { border-radius: 0; border: 1px solid %(line)s; background-color: %(card)s;
+                           padding: 4px; }
+        button.look-tile:hover { border-color: %(acc)s; }
+        button.look-tile.look-active { border: 1px solid %(acc)s; background-color: %(sel)s; }
+        label.look-name { color: %(dim)s; }
+        button.look-tile.look-active label.look-name { color: %(acc)s; }
+        """ % c
 
     def rule(self):
         """Разделитель-волосок между группами настроек.
@@ -333,6 +498,8 @@ class BatteryPopup(Gtk.Window):
         подошли (12.09.2026), вернулись тумблеры. Обработчики принимают простое
         булево, поэтому переключатель заворачивается здесь, а не наружу.
         """
+        # Skeet — тумблер в рамке (22.10.2026: галочка как в Настройках не прижилась —
+        # «убрал рамки, они должны были быть»)
         sw = Gtk.Switch()
         sw.set_active(active)
         sw.set_valign(Gtk.Align.CENTER)
@@ -349,8 +516,8 @@ class BatteryPopup(Gtk.Window):
         inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         # Воздух между строками: раньше его держала высокая кнопка-таблетка, а
         # тумблер ниже — без этих полей панель снова слипается (12.09.2026).
-        inner.set_margin_top(3)
-        inner.set_margin_bottom(3)
+        inner.set_margin_top(2 if self.compact else 3)
+        inner.set_margin_bottom(2 if self.compact else 3)
         ico = Gtk.Label(label=icon, xalign=0)
         ico.get_style_context().add_class("icon")
         name = Gtk.Label(label=text, xalign=0)
@@ -374,7 +541,7 @@ class BatteryPopup(Gtk.Window):
         head.set_margin_bottom(2)
 
         ring = Gtk.DrawingArea()
-        ring.set_size_request(46, 46)
+        ring.set_size_request(*((42, 42) if self.compact else (46, 46)))
         ring.connect("draw", self.draw_ring)
         head.pack_start(ring, False, False, 0)
 
@@ -414,17 +581,17 @@ class BatteryPopup(Gtk.Window):
         radius = min(w, h) / 2.0 - 3.5
         frac = max(0.0, min(1.0, self.cap / 100.0))
 
-        def rgb(name):
-            c = self.pal[name].lstrip("#")
+        def rgb(role):
+            c = self.ring[role].lstrip("#")
             return tuple(int(c[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
 
         cr.set_line_width(5)
-        cr.set_line_cap(1)  # ROUND
-        cr.set_source_rgb(*rgb("surface_high"))
+        cr.set_line_cap(0 if self.ring["square"] else 1)  # Skeet/Beta — без круглых концов
+        cr.set_source_rgb(*rgb("track"))
         cr.arc(cx, cy, radius, 0, 2 * math.pi)
         cr.stroke()
         if frac > 0:
-            cr.set_source_rgb(*rgb("primary"))
+            cr.set_source_rgb(*rgb("arc"))
             start = -math.pi / 2
             cr.arc(cx, cy, radius, start, start + frac * 2 * math.pi)
             cr.stroke()
@@ -440,7 +607,7 @@ class BatteryPopup(Gtk.Window):
         layout.set_font_description(font)
         layout.set_text(text, -1)
         ink, _ = layout.get_pixel_extents()
-        cr.set_source_rgb(*rgb("on_surface"))
+        cr.set_source_rgb(*rgb("text"))
         cr.move_to(cx - ink.x - ink.width / 2, cy - ink.y - ink.height / 2)
         PangoCairo.show_layout(cr, layout)
         return False
@@ -630,20 +797,21 @@ class BatteryPopup(Gtk.Window):
     # ── вид бара ──────────────────────────────────────────────────────────
     def build_look(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.look_chev = Gtk.Label(label="\U000f0140")
+        self.look_chev = Gtk.Label(label=self.chev(False))
         self.look_chev.get_style_context().add_class("chev")
         self.look_chev.set_valign(Gtk.Align.CENTER)
         btn = Gtk.Button()
         btn.get_style_context().add_class("row-btn")
         btn.add(self.row("", "Вид бара", self.look_chev))
         btn.connect("clicked", self.on_look_toggle)
-        box.pack_start(btn, False, False, 0)
 
         self.look_rev = Gtk.Revealer()
-        self.look_rev.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.look_rev.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP if self.up
+                                          else Gtk.RevealerTransitionType.SLIDE_DOWN)
         self.look_rev.set_transition_duration(200)
         # Сетка в два столбца: семь видов в строку не помещаются.
-        tiles = Gtk.Grid(column_spacing=8, row_spacing=8)
+        gap = 6 if self.compact else 8
+        tiles = Gtk.Grid(column_spacing=gap, row_spacing=gap)
         tiles.set_column_homogeneous(True)
         tiles.set_margin_top(6)
         tiles.set_margin_start(4)
@@ -658,10 +826,14 @@ class BatteryPopup(Gtk.Window):
                 tile.get_style_context().add_class("look-active")
             inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             area = Gtk.DrawingArea()
-            area.set_size_request(90, 32)
+            area.set_size_request(*((84, 28) if self.compact else (90, 32)))
             area.connect("draw", self.draw_look, key)
             name = Gtk.Label(label=title)
             name.get_style_context().add_class("look-name")
+            if self.compact:             # длинное название — в две строки, плитка не шире
+                name.set_line_wrap(True)
+                name.set_max_width_chars(12)
+                name.set_justify(Gtk.Justification.CENTER)
             inner.pack_start(area, False, False, 0)
             inner.pack_start(name, False, False, 0)
             tile.add(inner)
@@ -669,8 +841,17 @@ class BatteryPopup(Gtk.Window):
             tiles.attach(tile, i % 2, i // 2, 1, 1)
             self.look_tiles[key] = tile
         self.look_rev.add(tiles)
-        box.pack_start(self.look_rev, False, False, 0)
+        if self.up:                 # плашка снизу: сетка видов над кнопкой, растёт вверх
+            box.pack_start(self.look_rev, False, False, 0)
+            box.pack_start(btn, False, False, 0)
+        else:
+            box.pack_start(btn, False, False, 0)
+            box.pack_start(self.look_rev, False, False, 0)
         return box
+
+    def chev(self, shown):
+        """Стрелка «Вид бара»: показывает, куда раскроется (или свернётся) сетка."""
+        return "\U000f0143" if shown != self.up else "\U000f0140"
 
     def notification_count(self):
         """Сколько уведомлений лежит в центре swaync (0 — если не ответил)."""
@@ -706,7 +887,7 @@ class BatteryPopup(Gtk.Window):
     def on_look_toggle(self, _btn):
         show = not self.look_rev.get_reveal_child()
         self.look_rev.set_reveal_child(show)
-        self.look_chev.set_text("\U000f0143" if show else "\U000f0140")
+        self.look_chev.set_text(self.chev(show))
 
     def on_look_pick(self, _btn, key):
         for k, tile in self.look_tiles.items():

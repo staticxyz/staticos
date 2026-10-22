@@ -67,7 +67,7 @@ AREAS = [
     ("Цвета по обоям", "◑", """
         theme_changer.sh theme_changer.sh.bak-icons theme_snapshot.sh theme_doctor.py
         gen_term_colors.py broadcast_colors.py gtk_live_colors.py gtk_tint.py gtk_guard.py
-        merge_kdeglobals.py folder_colors.py kitty_icon.py yazi_icon.py widget_accent.py cava_colors.py
+        merge_kdeglobals.py folder_colors.py kitty_icon.py yazi_icon.py md_icon.py settings_icon.py nvim_lang.py widget_accent.py cava_colors.py
         fastfetch_colors.py tide_colors.py reload_btop.py theme-doctor theme-snapshot"""),
     ("Стиль системы и шрифты", "◆", """
         pixel_look.py pixel_mode.py system_style.py app_fonts.py cozette_fit.py

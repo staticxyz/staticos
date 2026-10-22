@@ -49,9 +49,16 @@ def palette():
     try:
         with open(PALETTE, encoding="utf-8") as f:
             p = json.load(f)
-        return {k: p.get(k, v) for k, v in FALLBACK.items()}
+        p = {k: p.get(k, v) for k, v in FALLBACK.items()}
     except Exception:
-        return dict(FALLBACK)
+        p = dict(FALLBACK)
+    if XP_STYLE != "default":         # плашка нижней панели в Skeet/Beta — см. xp_style()
+        global _XP_ROLES
+        if _XP_ROLES is None:
+            _XP_ROLES = {}            # xp_calendar.colors сам зовёт palette() — без петли
+            _XP_ROLES = _xp_roles(XP_STYLE)
+        p.update(_XP_ROLES)
+    return p
 
 
 # Общий каркас: подложка, рамка, кнопки списка, активный элемент, поле ввода,
@@ -358,6 +365,346 @@ def draw_attached(widget, cr, bottom=False):
         g.add_color_stop_rgba(0, *tip, 1)
         g.add_color_stop_rgba(1, *rgb(ac), 1)
         cr.set_source(g)
+        cr.fill()
+    cr.restore()
+    return False
+
+
+def xpbar_look(connector):
+    """Вид нижней XP-панели на мониторе — как xpbar.bar_look (без импорта xpbar.py):
+    xp | skeet | beta | dark."""
+    st = os.path.expanduser("~/.config/hypr/state")
+    try:
+        if open(os.path.join(st, "xpbar-look")).read().strip() != "system":
+            return "xp"
+        import system_style
+        style = system_style.style_of(connector)
+    except Exception:
+        return "xp"
+    if style in ("skeet", "beta"):
+        return style
+    try:
+        light = open(os.path.join(st, "settings-mode")).read().strip() == "light"
+    except OSError:
+        light = False
+    return "xp" if light else "dark"
+
+
+XP_LOOK_H = {"skeet": 35}            # xpbar.LOOK_H; остальные виды — 32 (xpbar.H)
+XP_ATTACHED_CSS = """
+.popup-attached.xp-attached > * > .card, .popup-attached.xp-attached > * > .popup-box { padding-bottom: 11px; }
+"""
+
+
+def xpbar_attach(align, connector, inner=(), strip=()):
+    """Плашка нижней XP-панели «прилипает» к ней, как плашки waybar к верхнему бару
+    (22.10.2026, просьба: «чтобы как в waybar плашки снизу… прилипали к панели…
+    гармонично, ровно, чётко. И… эффекты также как в waybar»).
+
+    Только когда включены «приклеенные» попапы (popup-attached) и панель в виде Skeet
+    или Beta. Кромка панели (Skeet — три строки: полоса акцента, она же темнее, чёрная;
+    Beta — линия line_strong) поднимается по бокам плашки и проходит над ней, низ
+    плашки открыт в панель: слой заходит на кромку (exclusive zone −1), под плашкой
+    кромку закрывает заливка цветом панели. Выезд — _AttachedReveal (как у waybar).
+    inner — слои своей рамки плашки внутри «П» кромки (снаружи внутрь, по 1 px), strip —
+    строки полоски под рамкой (остановки градиента по ширине плашки): рамка Skeet
+    остаётся, как у неприклеенной (22.10.2026, просьба: «убрал рамки, они должны были быть»).
+    Возвращает True, если плашка приклеена."""
+    look = xpbar_look(connector)
+    if not FROM_XPBAR or not os.path.exists(ATTACHED_FILE) or look not in ("skeet", "beta"):
+        return False
+    from gi.repository import Gdk, Gtk
+    import rec_style
+    from xpbar_colors import mix
+    c = rec_style.colors(look)
+    if look == "skeet":
+        b = [mix(c["acc_d"], c["bg"], 0.55), mix(c["acc"], c["bg"], 0.5), mix(c["acc"], c["bg"], 0.35)]
+        rows = [[b[0], b[1], b[2], b[1], b[0]],                      # те же три строки, что
+                [mix(x, c["bg"], 0.6) for x in (b[0], b[1], b[2], b[1], b[0])],   # у xpbar.SKEET_BAR_CSS
+                [c["line3"]] * 5]
+        fill = c["bg"]
+    else:
+        rows = [[c["line_strong"]] * 5]
+        fill = c["bar"]
+    align.get_style_context().add_class("popup-attached")
+    align.get_style_context().add_class("xp-attached")
+    prov = Gtk.CssProvider()
+    css = ATTACHED_CSS + XP_ATTACHED_CSS
+    if inner:                         # низ рамки занимает свои строки — отступ на них больше
+        css += (".popup-attached.xp-attached > * > .card, .popup-attached.xp-attached > * > .popup-box "
+                "{ padding-bottom: %dpx; }\n" % (6 + len(inner)))
+    prov.load_from_data(css.encode())
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), prov,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+    edge = len(rows)
+
+    def place(*_a):
+        top = align.get_toplevel()
+        if not isinstance(top, Gtk.Window):
+            return
+        try:
+            import gi
+            gi.require_version("GtkLayerShell", "0.1")
+            from gi.repository import GtkLayerShell
+            if GtkLayerShell.is_layer_window(top):
+                GtkLayerShell.set_exclusive_zone(top, -1)
+                align.set_valign(Gtk.Align.END)
+                align.set_margin_bottom(XP_LOOK_H.get(look, 32) - edge)
+        except Exception:
+            pass
+    place()
+    align.connect("hierarchy-changed", place)
+    align.set_app_paintable(True)
+    align.connect("draw", lambda w, cr: _draw_xp_attached(w, cr, rows, fill, inner, strip))
+    return True
+
+
+XP_STYLE = "default"
+_XP_ROLES = None
+
+
+def monitor_connector(mon):
+    """Имя выхода niri (eDP-1, DP-4) для GdkMonitor — по x на экране."""
+    try:
+        import system_style
+        x = mon.get_geometry().x if mon else None
+        for name, o in (system_style.niri("outputs") or {}).items():
+            if (o.get("logical") or {}).get("x") == x:
+                return name
+        return system_style.focused()
+    except Exception:
+        return None
+
+
+def xp_style(mon=None):
+    """Стиль системы монитора (default / skeet / beta) для плашки, открытой из нижней
+    панели; из waybar — всегда default (22.10.2026, просьба: «вид меняется только в нижней
+    панели»). Запоминается в XP_STYLE, и palette() дальше отдаёт роли в цветах стиля: всё,
+    что красится палитрой (CSS плашки, графики cairo), само становится Skeet/Beta.
+    Звать до первого palette()/css()."""
+    global XP_STYLE
+    if not FROM_XPBAR:
+        return "default"
+    try:
+        import system_style
+        st = system_style.style_of(monitor_connector(mon or pointer_monitor()))
+    except Exception:
+        st = "default"
+    XP_STYLE = st if st in ("skeet", "beta") else "default"
+    return XP_STYLE
+
+
+def _xp_colors(style):
+    import xp_calendar
+    c = dict(xp_calendar.colors(style))
+    if style == "skeet":
+        mix = xp_calendar._mix
+        c.update(strip_l=list(c["strip"]),
+                 strip=", ".join(c["strip"]),
+                 strip_d=", ".join(mix(x, "#000000", 0.55) for x in c["strip"]),
+                 line1_on=mix(c["line1"], c["acc"], 0.45))
+    return c
+
+
+def _xp_roles(style):
+    """Роли палитры matugen → цвета Skeet/Beta (xp_calendar.colors)."""
+    c = _xp_colors(style)
+    if style == "skeet":
+        return dict(surface=c["bg"], on_surface=c["text"], on_surface_variant=c["dim"],
+                    surface_container=c["field"], surface_high=c["field_l"],
+                    surface_highest=c["line1"], outline_variant=c["line2"],
+                    primary=c["acc_l"], on_primary=c["line3"],
+                    secondary=c["strip_l"][1], tertiary=c["strip_l"][2])
+    return dict(surface=c["bg"], on_surface=c["text"], on_surface_variant=c["dim"],
+                surface_container=c["field"], surface_high=c["sel"], surface_highest=c["card"],
+                outline_variant=c["line"], primary=c["acc"], on_primary=c["on_acc"])
+
+
+def xp_frame():
+    """Своя рамка Skeet для приклеенной плашки (xpbar_attach(…, *xp_frame())): слои как у
+    карточки (без внешней светлой линии — её место занимает кромка панели) и полоска
+    трёх тонов под ней. Beta и default — без своей рамки."""
+    if XP_STYLE != "skeet":
+        return (), ()
+    import xp_calendar
+    c = _xp_colors("skeet")
+    return ((c["line2"], c["line2"], c["line2"], c["line1_on"], c["line3"]),
+            (c["strip_l"], [xp_calendar._mix(x, "#000000", 0.55) for x in c["strip_l"]]))
+
+
+def xp_skin_css(box=".popup-box", pad="13px 12px 9px 12px"):
+    """CSS Skeet/Beta для плашки нижней панели поверх её обычного: карточка `box` (рамка
+    слоями и полоска — как «Энергия», календарь, Настройки Skeet), кнопки, поля, ползунки
+    как в Настройках, тумблеры скруглённые тонкие. Для default — пусто."""
+    if XP_STYLE not in ("skeet", "beta"):
+        return ""
+    c = _xp_colors(XP_STYLE)
+    c["box"] = box
+    c["pad"] = pad
+    if XP_STYLE == "skeet":
+        return """
+%(box)s {
+    background-color: %(bg)s; color: %(text)s;
+    background-image: linear-gradient(to right, %(strip)s), linear-gradient(to right, %(strip_d)s);
+    background-size: 100%% 1px, 100%% 1px; background-repeat: no-repeat, no-repeat;
+    background-position: 0 6px, 0 7px;
+    box-shadow: inset 0 0 0 6px %(line3)s, inset 0 0 0 5px %(line1_on)s,
+                inset 0 0 0 4px %(line2)s, inset 0 0 0 1px %(line1_on)s;
+    border: none; border-radius: 0; padding: %(pad)s; margin: 0;
+}
+%(box)s separator { background: %(line2)s; box-shadow: 0 1px 0 0 %(line3)s; }
+%(box)s button { border-radius: 0; background-color: %(field)s;
+                 background-image: linear-gradient(to bottom, %(field_l)s, %(field)s);
+                 border: 1px solid %(line3)s; box-shadow: inset 0 0 0 1px %(line1)s; color: %(dim)s; }
+%(box)s button:hover { color: %(text)s; border-color: %(line3)s; }
+/* главная кнопка — как выбранный сегмент Настроек: акцентный текст и черта снизу (22.10) */
+%(box)s button.go { color: %(acc_l)s; box-shadow: inset 0 0 0 1px %(line1)s, inset 0 -2px 0 0 %(acc)s; }
+%(box)s button.go:hover { color: %(text)s; }
+%(box)s button.go:disabled { color: %(dim)s; box-shadow: inset 0 0 0 1px %(line1)s; }
+%(box)s entry { border-radius: 0; background-color: %(field)s; border: 1px solid %(line3)s; }
+%(box)s progressbar trough { border-radius: 0; border: 1px solid %(line3)s; background-color: %(field)s; }
+%(box)s progressbar progress { border-radius: 0; background-color: %(acc)s;
+                               background-image: linear-gradient(to bottom, %(acc_l)s, %(acc_d)s); }
+%(box)s scale trough { min-height: 6px; border: 1px solid %(line3)s; border-radius: 0;
+                       background-color: %(field)s;
+                       background-image: linear-gradient(to bottom, %(field)s, %(field_l)s); }
+%(box)s scale highlight { border: none; border-radius: 0; background-color: %(acc)s;
+                          background-image: linear-gradient(to bottom, %(acc_l)s, %(acc_d)s); }
+%(box)s scale slider { min-width: 2px; min-height: 6px; margin: 0; border: none; border-radius: 0;
+                       background: none; background-color: transparent; box-shadow: none; }
+%(box)s switch { min-width: 30px; min-height: 14px; padding: 0; border-radius: 8px;
+                 border: 1px solid %(line3)s; box-shadow: inset 0 1px 0 0 alpha(black, 0.25);
+                 background-color: %(field_l)s; background-image: none; }
+%(box)s switch:checked { border-color: %(acc_d)s; background-color: %(acc)s;
+                         background-image: linear-gradient(to bottom, %(acc_l)s, %(acc_d)s); }
+%(box)s switch slider { min-width: 10px; min-height: 10px; margin: 2px; border-radius: 6px;
+                        border: none; box-shadow: none; background-image: none;
+                        background-color: %(dim)s; }
+%(box)s switch:checked slider { background-color: %(text)s; }
+""" % c
+    return """
+%(box)s { background-color: %(bg)s; color: %(text)s; border: 2px solid %(frame)s;
+          border-radius: 0; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45); padding: %(pad)s; }
+%(box)s separator { background: %(line)s; }
+%(box)s button { border-radius: 0; background-image: none; box-shadow: none;
+                 border: 1px solid %(line)s; background-color: %(card)s; color: %(text)s; }
+%(box)s button:hover { background-color: %(sel)s; }
+%(box)s button.go { background-color: %(acc)s; color: %(on_acc)s; border-color: %(acc)s; }
+%(box)s button.go:disabled { background-color: %(field)s; color: %(dim)s; }
+%(box)s entry { border-radius: 0; background-color: %(field)s; border: 1px solid %(line)s; }
+%(box)s progressbar trough, %(box)s progressbar progress { border-radius: 0; }
+%(box)s progressbar progress { background-color: %(acc)s; }
+%(box)s scale trough, %(box)s scale highlight, %(box)s scale slider { border-radius: 0; }
+%(box)s scale trough { background-color: %(field)s; }
+%(box)s scale highlight, %(box)s scale slider { background-color: %(acc)s; }
+%(box)s switch { border-radius: 0; background-color: %(field)s; border: 1px solid %(line)s;
+                 padding: 0; min-width: 28px; min-height: 12px; }
+%(box)s switch:checked { background-color: %(acc)s; border-color: %(acc)s; }
+%(box)s switch slider { border-radius: 0; margin: 0; min-width: 12px; min-height: 12px;
+                        background-color: %(dim)s; }
+%(box)s switch:checked slider { background-color: %(on_acc)s; }
+""" % c
+
+
+def xp_place(window, align, mon=None, left=10, right=None):
+    """Плашку из нижней панели — в левый угол над ней (значки слева, SideTray; right= —
+    в правый угол: громкость, календарь у часов) и, если
+    включены приклеенные плашки и панель Skeet/Beta, вплотную к ней (xpbar_attach).
+    Звать до animate_open. Возвращает True, если приклеена."""
+    from gi.repository import Gtk
+    mon = mon or pointer_monitor()
+    if mon is not None:
+        try:
+            import gi
+            gi.require_version("GtkLayerShell", "0.1")
+            from gi.repository import GtkLayerShell
+            GtkLayerShell.set_monitor(window, mon)
+        except Exception:
+            pass
+    if right is None:
+        align.set_halign(Gtk.Align.START)
+        align.set_margin_start(left)
+    else:
+        align.set_halign(Gtk.Align.END)
+        align.set_margin_end(right)
+    align.set_valign(Gtk.Align.END)
+    align.set_margin_bottom(6 + bottom_overlap())
+    return xpbar_attach(align, monitor_connector(mon), *xp_frame())
+
+
+def _grad_at(stops, t):
+    """Цвет градиента «to right» из равных остановок в точке t (0…1) экрана."""
+    from xpbar_colors import mix
+    t = min(max(t, 0.0), 1.0) * (len(stops) - 1)
+    i = min(int(t), len(stops) - 2)
+    return mix(stops[i], stops[i + 1], t - i)
+
+
+def _draw_xp_attached(widget, cr, rows, fill, inner=(), strip=()):
+    """Фигура плашки над нижней панелью. rows — строки кромки панели сверху вниз, каждая —
+    остановки градиента по ширине экрана. Строка k кромки у края плашки поворачивает вверх
+    столбцом k и идёт поверх плашки строкой k: вложенные «П», без стыков. Нижние len(rows)
+    пикселей align лежат на кромке панели — там внутри плашки заливка цветом панели."""
+    alloc = widget.get_allocation()
+    W, full = alloc.width, alloc.height
+    p = getattr(widget, "_reveal_p", 1.0)
+    H = int(round(full * p))
+    if p < 1:                         # выезд из панели: видна нижняя часть высотой H
+        cr.rectangle(0, full - H, W, H)
+        cr.clip()
+        cr.translate(0, full - H)
+    E = len(rows)
+    if W < 2 * E + 2 or H < 2 * E + 2:
+        return False
+    top = widget.get_toplevel()
+    sw = max(1, top.get_allocated_width()) if top is not None else W
+    x0 = alloc.x                      # align в окне на весь монитор: x — место на экране
+    rgb = lambda h: tuple(int(h.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    cr.save()
+    if p < 1:
+        cr.translate(0, -(full - H))
+    y0 = full - H
+    cr.rectangle(0, y0, W, H)
+    cr.set_source_rgb(*rgb(fill))
+    cr.fill()
+    import cairo
+    for k, stops in enumerate(rows):
+        yk = y0 + k                   # строка k по верху плашки
+        yb = full - E + k             # та же строка кромки панели внизу
+        # верх: градиент по экрану, обрезанный по ширине плашки
+        g = cairo.LinearGradient(-x0, 0, sw - x0, 0)
+        for i, col in enumerate(stops):
+            g.add_color_stop_rgb(i / (len(stops) - 1), *rgb(col))
+        cr.set_source(g)
+        cr.rectangle(k, yk, W - 2 * k, 1)
+        cr.fill()
+        for x, sx in ((k, x0 + k), (W - 1 - k, x0 + W - 1 - k)):
+            cr.set_source_rgb(*rgb(_grad_at(stops, sx / sw)))
+            cr.rectangle(x, yk, 1, yb - yk + 1)      # бок вниз до своей строки кромки
+            cr.fill()
+        # внизу снаружи столбца k строка k кромки продолжается до края плашки
+        cr.set_source(g)
+        cr.rectangle(0, yb, k, 1)
+        cr.rectangle(W - k, yb, k, 1)
+        cr.fill()
+    # своя рамка плашки — замкнутая: низ стоит на кромке панели (22.10, просьба: «вернём
+    # рамку в нижней части тоже»); выезд из панели остаётся
+    for j, col in enumerate(inner):
+        k = E + j
+        yb = full - E - 1 - j
+        cr.set_source_rgb(*rgb(col))
+        cr.rectangle(k, y0 + k, W - 2 * k, 1)
+        cr.rectangle(k, yb, W - 2 * k, 1)
+        cr.rectangle(k, y0 + k, 1, yb - y0 - k + 1)
+        cr.rectangle(W - 1 - k, y0 + k, 1, yb - y0 - k + 1)
+        cr.fill()
+    k = E + len(inner)
+    for j, stops in enumerate(strip):
+        g = cairo.LinearGradient(k, 0, W - k, 0)
+        for i, col in enumerate(stops):
+            g.add_color_stop_rgb(i / max(1, len(stops) - 1), *rgb(col))
+        cr.set_source(g)
+        cr.rectangle(k, y0 + k + j, W - 2 * k, 1)
         cr.fill()
     cr.restore()
     return False

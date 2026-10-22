@@ -413,10 +413,21 @@ class XPCalendar(Gtk.Window):
 
         # Свой угол, а не popup_theme.place_side: тот приклеивает «уши» к верхнему
         # waybar. Здесь — правый нижний угол над XP-панелью, где часы.
-        align.set_valign(Gtk.Align.END)
-        align.set_halign(Gtk.Align.END)
-        align.set_margin_bottom(6 + popup_theme.bottom_overlap())
-        align.set_margin_end(8)
+        # Из нижней панели — вплотную к ней, как «Энергия» (22.10.2026, просьба: «сделать
+        # так же другие плашки нижней панели… стиль системы и прилипание» — «Делай»).
+        if popup_theme.FROM_XPBAR:
+            popup_theme.xp_style(mon)
+            if popup_theme.xp_place(self, align, mon, right=8):
+                prov = Gtk.CssProvider()
+                prov.load_from_data(b".popup-attached .cal-box { padding: 10px 8px 8px 8px; }")
+                Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), prov,
+                                                         Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 2)
+                popup_theme.animate_open(self, align, card)
+        else:
+            align.set_valign(Gtk.Align.END)
+            align.set_halign(Gtk.Align.END)
+            align.set_margin_bottom(6 + popup_theme.bottom_overlap())
+            align.set_margin_end(8)
 
         self.fill_grid()
         self.fill_notifs()

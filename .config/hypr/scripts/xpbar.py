@@ -191,6 +191,7 @@ from gi.repository import PangoCairo  # noqa: E402
 import popup_theme  # noqa: E402
 import pixel_recolor  # noqa: E402
 import lyrics_bar as LB  # noqa: E402
+import nvim_lang  # noqa: E402
 from PIL import Image  # noqa: E402
 
 H = 32                   # высота панели, как у верхнего бара
@@ -347,6 +348,9 @@ button.xptray-item {
 button.xptray-item:hover { border-color: %(tr_light)s; background-color: alpha(%(primary)s, 0.18); }
 .tray label.glyph { font-family: %(nerd)s; font-size: 14px; }
 .tray label.clock { font-size: 12px; }
+/* Значок провода у JetBrainsMono NF шире своей ячейки (17 px против 8) — без запаса справа
+   окно EventBox срезало правую половину (22.10.2026, просьба: «села не полностью»). */
+.tray label.lan { font-size: 12px; padding: 0 6px 0 4px; }
 /* Раскладка — как индикатор языка в трее Windows XP (05.10.2026, просьба: «стали больше,
    хочу как в Windows — помельче и в своей маленькой рамке»): родной кегль шрифта 8 px
    (чёткий), квадратик тонами «Пуска» со светлой кромкой. */
@@ -791,8 +795,35 @@ def load_css():
         print("xpbar: look_css: %r" % e, file=sys.stderr)
     # квадрат стола под перетаскиваемой кнопкой окна — рамка акцентом (19.10.2026); правила
     # сильнее .focused/.empty каждого вида, потому по одному на вид
+    try:                                        # @vivid waybar — sensor_colors.py
+        vivid = re.search(r"@define-color vivid (#[0-9a-fA-F]{6})", open(os.path.expanduser(
+            "~/.cache/matugen/sensor-colors.css")).read()).group(1)
+    except (OSError, AttributeError):
+        vivid = c["primary"]
     for sel, col in [("window", c["st_hi"])] + [("window.xpbar-win.look-" + k, v["acc"])
                                                 for k, v in LOOK_COLS.items()]:
+        # левая группа centered (SideTray): без кромки трея; Savage — подсветка, как в waybar
+        css += ("%(s)s .tray.side { border-left: none; box-shadow: none; background-image: none; "
+                "background-color: transparent; }\n"
+                "%(s)s .tray label.bat.savage { color: %(c)s; text-shadow: 0 0 6px %(c)s; }\n"
+                "%(s)s .tray label.bat.awake { text-shadow: 0 0 2px %(c)s, 0 0 5px %(c)s, "
+                "0 0 6px alpha(%(c)s, 0.8); }\n"
+                # помидор — цвета модуля custom/pomo в waybar (style.css, «без таблеток»)
+                # обычный вид — серый, как помидор рядом; «Не отключать экран» — акцент со
+                # свечением, Savage — светлее акцента и свечение сильнее (22.10.2026, просьба:
+                # «плохо различаю, он включен или нет… в базовом цвет как у pomo»)
+                # в правом трее — акцентом, как соседние значки (22.10.2026, просьба: «иконку
+                # энергии тоже покрась в акцент»); цвет даёт .tray label.glyph вида
+                "%(s)s .tray label.bat { font-size: 18px; }\n"
+                "%(s)s .tray label.bat.awake { color: %(c)s; }\n"
+                "%(s)s .tray label.bat.savage { color: mix(%(c)s, white, 0.35); "
+                "text-shadow: 0 0 3px %(c)s, 0 0 7px %(c)s, 0 0 10px alpha(%(c)s, 0.9); }\n"
+                "%(s)s .tray.side label.pomo { font-family: %(f)s; font-size: 13px; font-weight: 800; "
+                "color: %(v)s; }\n"
+                "%(s)s .tray.side label.pomo-break, %(s)s .tray.side label.pomo-focus { color: %(p)s; }\n"
+                "%(s)s .tray.side label.pomo-paused { color: alpha(%(t)s, 0.55); }\n"
+                "%(s)s .tray.side label.pomo-idle { color: alpha(%(t)s, 0.35); }\n"
+                % dict(s=sel, c=col, f=FONT12, v=vivid, p=c["primary"], t=c["on_surface"]))
         css += ("%(s)s button.ws.drop, %(s)s button.ws.drop.focused, %(s)s button.ws.drop.empty, "
                 "%(s)s button.ws.drop.focused.empty { border-color: %(c)s; "
                 "box-shadow: inset 0 0 0 2px %(c)s; }\n" % dict(s=sel, c=col))
@@ -1124,6 +1155,9 @@ class NiriState:
             if w.get("is_focused"):
                 for o in self.windows.values():
                     o["is_focused"] = False
+            old = self.windows.get(w["id"])
+            if old and old.get("title") != w.get("title") and BROWSER_RE.search(w.get("app_id") or ""):
+                schedule_streams()      # новое видео во вкладке — перечитать заголовки MPRIS (audio_by)
             self.windows[w["id"]] = w
         elif kind == "WindowClosed":
             self.windows.pop(d["id"], None)
@@ -1230,6 +1264,15 @@ def window_icon_id(app_id, title):
     # jarvis-yazi через ~/.local/share/applications/yazi.desktop (yazi_icon.py, 21.10.2026).
     if app_id in TERMINALS and t[:4].lower() == "yazi" and t[4:5] in ("", " ", ":"):
         return "yazi"
+    # btop в терминале (заголовок «btop ~») — значком btop.desktop (21.10.2026, просьба: «у btop
+    # нет иконки в нижней панели»)
+    if app_id in TERMINALS and (t == "btop" or t.startswith("btop ")):
+        return "btop"
+    # файл, открытый в nvim (.md, .java, .py…, заголовок «nvim A.md · B.java»), — значок языка
+    # в цвет обоев (nvim_lang.py, рисует md_icon.py; 21.10.2026); прочий nvim — значком kitty
+    lang_icon = nvim_lang.icon(t, app_id)
+    if lang_icon:
+        return lang_icon
     return app_id
 
 
@@ -2330,6 +2373,7 @@ class PomoBolt(Gtk.DrawingArea):
              "#.....")
     K = 2
     ALL = []
+    LISTENERS = []              # SideTray (centered): тот же файл состояния
     _mon = None
 
     def __init__(self):
@@ -2338,6 +2382,7 @@ class PomoBolt(Gtk.DrawingArea):
         self.set_size_request(len(self.SHAPE[0]) * self.K + 4, 22)
         self.connect("draw", self.on_draw)
         self.box = None             # EventBox в трее — его и прячем
+        self.hidden = False         # centered: помидор показывает SideTray слева
         self.st = {}
         PomoBolt.ALL.append(self)
         self.connect("destroy", lambda *_a: PomoBolt.ALL.remove(self) if self in PomoBolt.ALL else None)
@@ -2366,9 +2411,11 @@ class PomoBolt(Gtk.DrawingArea):
         st = cls.read_state()
         for b in list(cls.ALL):
             b.apply(st)
+        for f in list(cls.LISTENERS):
+            f(st)
 
     def apply(self, st):
-        on = st.get("phase", "idle") in ("work", "break")
+        on = st.get("phase", "idle") in ("work", "break") and not self.hidden
         if self.box is not None and self.box.get_visible() != on:
             self.box.set_visible(on)
         if on:
@@ -2431,6 +2478,177 @@ class PomoBolt(Gtk.DrawingArea):
         return True
 
 
+class SideTray(Gtk.Box):
+    """Левая группа панели в виде Centered max (22.10.2026, просьба: «с левой части
+    панели что-то добавлять, т.к. там теперь появилось место… pomo… плашку Энергия, ПКМ —
+    savage mode, и он также светился бы как сверху»). Слева «Энергия», за ней помидор (с 22.10 «Энергия» — в правом трее, Tray.take_bat). Помидор — как модуль waybar
+    custom/pomo (значок + остаток, те же щелчки), «Энергия» — как custom/battery: ЛКМ —
+    панель «Энергия», ПКМ — Savage, в Savage светится. Видна только в centered."""
+    POMO = os.path.expanduser("~/.local/bin/pomo")
+    HIT = 8
+    POMO_ICON = {"idle": "\U000f051f", "work": "\U000f051f", "break": "\U000f0176",
+                 "paused": "\uf04c"}
+
+    def __init__(self, bar):
+        super().__init__(spacing=26 - 2 * self.HIT)   # «чуть расстояния» между плашками (22.10)
+        self.bar = bar
+        ctx = self.get_style_context()
+        ctx.add_class("tray")
+        ctx.add_class("side")
+        self.set_margin_start(10 - self.HIT)       # отступ от левого края (22.10)
+        clickable = Tray.clickable
+        # одна надпись, как у custom/pomo в waybar: «󰔟 24:49 󰓾», жирно, цвет — по состоянию
+        # (22.10.2026, просьба: «хочу такое же оформление снизу»)
+        self.pomo_l = Gtk.Label()
+        self.pomo_l.get_style_context().add_class("pomo")
+        self.pomo_cls = None
+        self.pomo_box = clickable(self, self.pomo_l, self.on_pomo, scroll=self.on_pomo_scroll)
+        self.add(self.pomo_box)
+        # «Энергия» — один значок, крупнее, без процентов (22.10.2026, просьба: «можно
+        # показывать без цифр заряда, просто иконку… чуть увеличить»); заряд — в подсказке
+        self.bat_g = Gtk.Label()
+        self.bat_g.get_style_context().add_class("glyph")
+        self.bat_g.get_style_context().add_class("bat")
+        self.bat_box = clickable(self, self.bat_g, self.on_bat)
+        self.pack_start(self.bat_box, False, False, 0)
+        self.reorder_child(self.bat_box, 0)        # сначала «Энергия», потом помидор (Пользователь)
+        # своё окно EventBox обрезало рисунок по ячейке: правый край батарейки, свечение
+        # Savage, прицел 󰓾 (22.10.2026, просьба: «рисунок прицела не полностью нарисовался»).
+        # Без видимого окна щелчки ловит окно ввода, а рисует родитель — без обрезки.
+        for eb in (self.bat_box, self.pomo_box):
+            eb.set_visible_window(False)
+        # зона щелчка — не только сам значок: по HIT px с боков (за счёт промежутков, вид
+        # прежний) и вся высота панели (22.10.2026, просьба: «неотзывчивая»)
+        for lab in (self.bat_g, self.pomo_l):
+            lab.set_margin_start(self.HIT)
+            lab.set_margin_end(self.HIT)
+        for eb in (self.bat_box, self.pomo_box):
+            eb.set_valign(Gtk.Align.FILL)
+        # по высоте — на одной линии (замер grim 22.10: батарейка была на 0,5 px выше
+        # середины, песочные часы — на 0,5 px ниже; значки по 11 px, середины 18,5 у
+        # них не бывает — обе на 18)
+        self.pomo_l.set_margin_bottom(1)
+        self.tick = None
+        PomoBolt.LISTENERS.append(self.pomo_apply)
+        self.connect("destroy", lambda *_a: PomoBolt.LISTENERS.remove(self.pomo_apply)
+                     if self.pomo_apply in PomoBolt.LISTENERS else None)
+        self.pomo_apply(PomoBolt.read_state())
+        self.bat_apply()
+        GLib.timeout_add_seconds(10, lambda: self.bat_apply() or True)
+
+    def pomo_apply(self, st):
+        phase = st.get("phase", "idle")
+        try:
+            paused = int(st.get("paused") or 0)
+            left = max(0, int(st.get("started") or 0) + int(st.get("duration") or 0)
+                       - (paused or int(time.time())))
+        except ValueError:
+            paused, left = 0, 0
+        cls = "idle" if phase not in ("work", "break") else "paused" if paused else phase
+        text = self.POMO_ICON[cls] + ("" if cls == "idle" else " %02d:%02d" % (left // 60, left % 60))
+        tip = PomoBolt.tip(st) if cls != "idle" else "Помидор не запущен"
+        focus = self.focus()                         # режим фокуса — как в wb_persist.py pomo
+        if focus:
+            f_left, f_tip = focus
+            if cls == "idle" and f_left is not None:
+                text, cls = "\U000f04fe %s" % self.mmss(f_left), "focus"
+            else:
+                text += " \U000f04fe"
+            tip = f_tip + "\n" + tip
+        self.pomo_l.set_text(text)
+        if cls != self.pomo_cls:
+            c = self.pomo_l.get_style_context()
+            if self.pomo_cls:
+                c.remove_class("pomo-" + self.pomo_cls)
+            c.add_class("pomo-" + cls)
+            self.pomo_cls = cls
+        self.pomo_box.set_tooltip_text(
+            tip + "\nЛКМ — старт/пауза · ПКМ — пропустить · СКМ — стоп · колесо — ±1 мин")
+        run = cls in ("work", "break", "focus") or bool(focus)   # секунды тикают — раз в секунду
+        if run and self.tick is None:
+            self.tick = GLib.timeout_add_seconds(1, self.on_tick)
+        elif not run and self.tick is not None:
+            GLib.source_remove(self.tick)
+            self.tick = None
+
+    @staticmethod
+    def mmss(sec):
+        sec = max(0, int(sec))
+        h, rest = divmod(sec, 3600)
+        return "%d:%02d:%02d" % (h, rest // 60, rest % 60) if h else "%02d:%02d" % (rest // 60, rest % 60)
+
+    @staticmethod
+    def focus():
+        """Режим фокуса (focus_mode.py): (секунды или None, подсказка) либо None."""
+        try:
+            import focus_mode
+            st = focus_mode.load()
+            if not focus_mode.effective(st):
+                return None
+        except Exception:
+            return None
+        now = time.time()
+        if st.get("active") and st.get("until"):
+            return st["until"] - now, "Фокус до " + time.strftime("%H:%M", time.localtime(st["until"]))
+        if st.get("active"):
+            return now - st["started"], "Фокус до отмены"
+        return None, "Фокус на время помидора"
+
+    def on_tick(self):
+        self.tick = None
+        self.pomo_apply(PomoBolt.read_state())      # снова заведёт себя, если идёт отсчёт
+        return False
+
+    def on_pomo(self, e):
+        cmd = {1: "toggle", 2: "stop", 3: "skip"}.get(e.button)
+        if cmd:
+            spawn(self.POMO, cmd)
+
+    def on_pomo_scroll(self, e):
+        d = e.direction
+        if d == Gdk.ScrollDirection.SMOOTH:
+            up = e.get_scroll_deltas()[2] < 0
+        else:
+            up = d == Gdk.ScrollDirection.UP
+        spawn(self.POMO, "add", "1m" if up else "-1m")
+
+    def bat_apply(self):
+        try:
+            import savage_battery as SB
+            info, savage = SB.battery(), SB.is_savage_active()
+            awake = False
+            if savage:
+                import screen_awake
+                awake = screen_awake.get()
+        except Exception:
+            info, savage, awake = None, False, False
+        self.bat_box.set_visible(info is not None)
+        if info is None:
+            return
+        cap, status, on_ac = info["cap"], info["status"], info["on_ac"]
+        level = 0 if cap < 10 else 1 if cap < 35 else 2 if cap < 60 else 3 if cap < 90 else 4
+        if status == "Charging" or on_ac:             # батарейка с молнией / вилкой внутри
+            self.bat_g.set_markup('<span font_family="JarvisBattery">%s</span>'
+                                  % chr((0xE210 if status == "Charging" else 0xE220) + level))
+        else:
+            self.bat_g.set_text("\uf244\uf243\uf242\uf241\uf240"[level])
+        c = self.bat_g.get_style_context()
+        for k, on in (("savage", savage), ("awake", awake)):
+            (c.add_class if on else c.remove_class)(k)
+        self.bat_box.set_tooltip_text("Энергия: %d%% · %s\nЛКМ — «Энергия» · ПКМ — Savage %s"
+                                      % (cap, "Savage (24/7)" if savage else "Standard",
+                                         "выкл" if savage else "вкл"))
+
+    def on_bat(self, e):
+        if e.button == 1:
+            spawn("env", "JARVIS_POPUP_FROM=xpbar", "JARVIS_POPUP_SIDE=right", sys.executable,
+                  os.path.join(HERE, "battery_popup.py"))
+        elif e.button == 3:
+            spawn(sys.executable, os.path.join(HERE, "savage_battery.py"), "--toggle")
+            for ms in (300, 1200):                 # Savage запускается не мгновенно
+                GLib.timeout_add(ms, lambda: self.bat_apply() or False)
+
+
 class Tray(Gtk.Box):
     def __init__(self, bar):
         super().__init__(spacing=14)
@@ -2463,6 +2681,20 @@ class Tray(Gtk.Box):
         nb.add(self.bell_n)
         self.add(self.clickable(nb, self.on_bell,
                                 tip="Уведомления: ЛКМ — «Не беспокоить» вкл/выкл, ПКМ — открыть"))
+        # провод — тот же значок, что network#eth в waybar; щелчок — плашка «Сеть»
+        # (lan_popup.py) над панелью справа в стиле системы. Без кабеля значка нет.
+        # 22.10.2026, просьба: сначала слева между «Энергией» и pomo, потом «перемести в
+        # правую часть панели, между уведомлениями и временем».
+        self.lan_g = Gtk.Label(label="\uef09")
+        self.lan_g.get_style_context().add_class("glyph")
+        self.lan_g.get_style_context().add_class("lan")
+        self.lan_box = self.clickable(self.lan_g, self.on_lan)
+        self.add(self.lan_box)
+        self.lan_up = None
+        self.lan_box.show_all()
+        self.lan_box.set_no_show_all(True)
+        self.lan_apply()
+        GLib.timeout_add_seconds(5, lambda: self.lan_apply() or True)   # interval 5, как в waybar
         self.bolt = PomoBolt()
         self.bolt.box = self.clickable(self.bolt, None)
         self.bolt.box.set_no_show_all(True)
@@ -2473,6 +2705,39 @@ class Tray(Gtk.Box):
         self.clock.get_style_context().add_class("clock")
         self.clock_box = self.clickable(self.clock, self.on_clock)
         self.add(self.clock_box)
+
+    def take_bat(self, box, label):
+        box.get_parent().remove(box)
+        # рисунок батарейки 19 px при ширине знака 11 — вылезает вправо на 8 px; поля
+        # подобраны по снимку grim: до провода и до часов по 18 px, как у соседей
+        label.set_margin_start(4)
+        label.set_margin_end(9)
+        box.set_no_show_all(True)
+        self.add(box)
+        self.reorder_child(box, self.get_children().index(self.lan_box) + 1)
+
+    LAN_IF = "enp3s0"                             # как "interface" у network#eth
+
+    def lan_apply(self):
+        def rd(name):
+            try:
+                with open("/sys/class/net/%s/%s" % (self.LAN_IF, name)) as f:
+                    return f.read().strip()
+            except OSError:
+                return ""
+        up = rd("carrier") == "1"
+        if up != self.lan_up:
+            self.lan_up = up
+            self.lan_box.set_visible(up)
+        if up:
+            sp = rd("speed")
+            self.lan_box.set_tooltip_text("Провод%s\nЛКМ — «Сеть»"
+                                          % (": %s Мбит/с" % sp if sp.isdigit() else ""))
+
+    def on_lan(self, e):
+        if e.button == 1:
+            spawn("env", "JARVIS_POPUP_FROM=xpbar", "JARVIS_POPUP_SIDE=right", sys.executable,
+                  os.path.join(HERE, "lan_popup.py"))
 
     def clickable(self, child, on_click, scroll=None, tip=None):
         eb = Gtk.EventBox()
@@ -2579,7 +2844,7 @@ class Tray(Gtk.Box):
         # дата (01.10.2026). Два монитора: меняются местами, один: сам переключается.
         # Выбор помнится в state/xpbar-clock-swap.
         if e.button == 1:
-            spawn(sys.executable, os.path.join(HERE, "xp_calendar.py"))
+            spawn("env", "JARVIS_POPUP_FROM=xpbar", sys.executable, os.path.join(HERE, "xp_calendar.py"))
         elif e.button == 2:
             swap = not clock_swapped()
             try:
@@ -2830,6 +3095,12 @@ def read_streams():
         data = json.loads(out or "[]")
     except (OSError, subprocess.SubprocessError, ValueError):
         return []
+    try:        # заголовки плееров MPRIS — какое из окон браузера звучит (audio_by)
+        AUDIO["mpris"] = {t for t in subprocess.run(
+            ["playerctl", "-a", "metadata", "--format", "{{title}}"], capture_output=True,
+            text=True, timeout=2).stdout.splitlines() if len(t.strip()) > 2}
+    except (OSError, subprocess.SubprocessError):
+        AUDIO["mpris"] = set()
     res = []
     for s in data:
         p = s.get("properties") or {}
@@ -2976,6 +3247,11 @@ def audio_by(windows, key, src="streams"):
                     if app_volume.same_app(words, app_volume.words_of(w.get("app_id")) - GENERIC_WORDS)]
         if not cand:
             continue
+        # 21.10.2026, просьба: «иконка ноты появляется в браузере где открыт только чат».
+        # Окна Zen — один процесс; звучит то, чей заголовок — заголовок плеера MPRIS
+        # (вкладка с видео открыта в нём). Не нашлось — как раньше, по фокусу
+        hit = [w for w in cand if any(t in (w.get("title") or "") for t in AUDIO.get("mpris") or ())]
+        cand = hit or cand
         # 19.10.2026: окно «картинки в картинке» — того же pid, что браузер. Нота — на
         # главном окне браузера (просьба: «не на картинке в картинке, а в самом браузере»),
         # даже если картинку потом трогали и она была в фокусе позже
@@ -3326,6 +3602,9 @@ NOTIF_LOG = os.path.expanduser("~/.cache/jarvis-notif-log.json")
 BADGE_SEEN = os.path.expanduser("~/.cache/xpbar-badge-seen.json")
 BADGE_RGB = (0.91, 0.07, 0.14)           # #E81123 — красный Windows
 _badge = {"mtime": None, "log": [], "seen": None}
+# Плееры без счётчика: «Music» — смена трека (track_notify.py), каждая песня зажигала бы
+# красную цифру (22.10.2026, просьба: «не надо рисовать для яндекс музыки… это неудобно»).
+NO_BADGE = ("yandexmusic", "spotify", "music")
 
 
 def _norm(s):
@@ -3357,7 +3636,7 @@ def badge_mark_seen(app_id):
 
 
 def badge_count(app_id):
-    if not app_id:
+    if not app_id or any(x in _norm(app_id) for x in NO_BADGE):
         return 0
     try:
         m = os.stat(NOTIF_LOG).st_mtime
@@ -3379,7 +3658,7 @@ def badge_count(app_id):
         if r.get("t", 0) <= since:
             break                             # журнал — новые сверху
         a = _norm(r.get("app"))
-        if a and (a in na or na in a):        # «Telegram Desktop» ↔ org.telegram.desktop, zen ↔ «Zen Browser»
+        if a and a not in NO_BADGE and (a in na or na in a):        # «Telegram Desktop» ↔ org.telegram.desktop, zen ↔ «Zen Browser»
             n += 1
     return n
 
@@ -4089,6 +4368,17 @@ class XPBar(Gtk.Window):
 
         self.tray = Tray(self)
         bar.pack_end(self.tray, False, False, 0)
+        self.side = SideTray(self)                 # слева — только в Centered max
+        self.side.show_all()                       # детей показать до no_show_all: иначе
+        self.side.hide()                           # show_all их пропускает
+        self.side.set_no_show_all(True)
+        bar.pack_start(self.side, False, False, 0)
+        bar.reorder_child(self.side, 0)
+        # «Энергия» — в правом трее между проводом и часами (22.10.2026, просьба: «иконку
+        # Энергии тоже перемести в правую часть, между Ethernet и временем… все должно
+        # ровно стоять»); обработчики остаются у SideTray. С того же вечера — в обоих видах
+        # стопки (просьба: «в Left side режиме тоже добавь иконку Энергии справа»)
+        self.tray.take_bat(self.side.bat_box, self.side.bat_g)
         bar.pack_end(self.lyr, False, False, 0)
 
         if mode == "always":
@@ -4149,6 +4439,19 @@ class XPBar(Gtk.Window):
             if not on:
                 self.bar.reorder_child(self.start, 0)
         self.start_grip.set_visible(not on)
+        self.side.set_visible(on)
+        # текст песни в centered — слева, сразу за «Энергией» и помидором: справа у трея
+        # он сдвигал ряд значков влево от середины (22.10.2026, просьба: «можем выводить в
+        # левой части… а то как будто слева больше места чем справа» — «делай»)
+        self.bar.remove(self.lyr)
+        if on:
+            self.bar.pack_start(self.lyr, False, False, 0)
+            self.bar.reorder_child(self.lyr, 1)    # 0 — SideTray
+        else:
+            self.bar.pack_end(self.lyr, False, False, 0)
+        # молния справа остаётся и при помидоре слева (22.10.2026, просьба: «куда пропала
+        # иконка молнии снизу справа?») — PomoBolt.hidden больше не ставится
+        self.tray.bolt.apply(PomoBolt.read_state())
         (self.start.get_style_context().add_class if on else
          self.start.get_style_context().remove_class)("compact")
         self.apply_start_look()
@@ -4312,17 +4615,19 @@ class XPBar(Gtk.Window):
         return out
 
     def refresh_ws(self):
-        if not self.ws_here:
-            return
         # в стопке стол у монитора один, общий — квадраты столов не нужны, только окна
         # (21.10.2026, просьба: «я не должен видеть столы, ведь стол же общий»)
         hide = stack_on()
-        for wdg in (self.ws_ev, self.ws_grip):
-            if wdg.get_visible() == hide:
-                wdg.set_visible(not hide)
+        # ноты на кнопках окон — и там, где столы не в этой панели (21.10.2026, просьба: «на
+        # втором мониторе иконка ноты не появляется» — у ноутбука столы в верхнем баре)
         audio = audio_by_win(self.state.windows) if hide else {}
         for wid, b in self.buttons.items():
             b.set_audio(audio.get(wid))
+        if not self.ws_here:
+            return
+        for wdg in (self.ws_ev, self.ws_grip):
+            if wdg.get_visible() == hide:
+                wdg.set_visible(not hide)
         if hide:
             return
         wss = self.ws_list()

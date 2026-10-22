@@ -530,6 +530,7 @@ def turn_on():
     top_hover(True)
     zen_buttons(True)
     csd_buttons(True)
+    app_buttons(True)
     ym_buttons()
     notify("Включена: окон %d, мониторов %d" % (len(snap["windows"]), len(outs)))
     return 0
@@ -603,6 +604,87 @@ def zen_buttons(hide):
         os.replace(ZEN_UI + ".tmp", ZEN_UI)
 
 
+def css_block(path, begin, end, css):
+    """Свой блок между begin и end в конце CSS-файла: css — вписать, None — убрать."""
+    try:
+        text = open(path, encoding="utf-8").read()
+    except FileNotFoundError:
+        text = ""
+    except OSError:
+        return
+    i = text.find(begin)
+    if i >= 0:
+        j = text.find(end, i)
+        tail = text[j + len(end):] if j >= 0 else ""
+        new = text[:i].rstrip("\n") + ("\n" if text[:i].strip() else "") + tail.lstrip("\n")
+    else:
+        new = text
+    if css:
+        new = (new.rstrip("\n") + "\n\n" if new.strip() else "") + "%s\n%s\n%s\n" % (begin, css, end)
+    if new != text:
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            f.write(new)
+        os.replace(path + ".tmp", path)
+
+
+VSCODE_SETTINGS = os.path.expanduser("~/.config/Code/User/settings.json")
+VENCORD_CSS = os.path.expanduser("~/.config/Vencord/settings/quickCss.css")
+OBSIDIAN_VAULT = os.path.expanduser("~/Documents/PersonalOS/.obsidian")
+OBSIDIAN_SNIPPET = "stack-buttons"
+STEAM_CSS = [os.path.expanduser("~/.local/share/Steam/millennium/themes/" + p) for p in
+             ("JarvisPixel/libraryroot.custom.css", "SpaceTheme/src/css/libraryroot.custom.css")]
+APP_BEGIN = "/* STACK-BUTTONS BEGIN — пишет stack_mode.py, руками не править */"
+APP_END = "/* STACK-BUTTONS END */"
+
+
+def app_buttons(hide):
+    """Свои кнопки окна у Electron-программ — в стопке лишние, они есть в полосе
+    (21.10.2026, просьба: «в vscode тоже дублируются кнопки… пройдись по приложениям»).
+    Discord (quickCss Vencord) и Obsidian (сниппет) перечитывают CSS на лету; VS Code —
+    window.controlsStyle, сам просит перезапуск. Telegram — csd_buttons, Zen — zen_buttons,
+    Яндекс Музыка — ym_buttons. Steam — CSS тем Millennium (STEAM_CSS), подхватит после
+    перезапуска Steam; значок Big Picture не трогаем — в полосе его нет. Postman — настройки нет."""
+    if TEST:
+        return
+    for path in STEAM_CSS:
+        if os.path.isfile(path):
+            css_block(path, APP_BEGIN, APP_END,
+                      ".title-area .title-area-icon.minimizeButton, .title-area .title-area-icon.maximizeButton,"
+                      " .title-area .title-area-icon.closeButton { display: none !important; }" if hide else None)
+    css_block(VENCORD_CSS, APP_BEGIN, APP_END,
+              '[class^="winButtons_"], [class^="winButton_"] { display: none !important; }' if hide else None)
+    if os.path.isdir(OBSIDIAN_VAULT):
+        snip = os.path.join(OBSIDIAN_VAULT, "snippets", OBSIDIAN_SNIPPET + ".css")
+        os.makedirs(os.path.dirname(snip), exist_ok=True)
+        css_block(snip, APP_BEGIN, APP_END,
+                  ".titlebar-button-container.mod-right { display: none !important; }" if hide else None)
+        app = os.path.join(OBSIDIAN_VAULT, "appearance.json")
+        try:
+            d = json.load(open(app, encoding="utf-8"))
+            if OBSIDIAN_SNIPPET not in d.setdefault("enabledCssSnippets", []):
+                d["enabledCssSnippets"].append(OBSIDIAN_SNIPPET)    # раз навсегда; включает и выключает содержимое
+                with open(app + ".tmp", "w", encoding="utf-8") as f:
+                    json.dump(d, f, ensure_ascii=False, indent=2)
+                os.replace(app + ".tmp", app)
+        except (OSError, ValueError) as e:
+            log("obsidian appearance.json", e)
+    try:
+        d = json.load(open(VSCODE_SETTINGS, encoding="utf-8"))
+    except FileNotFoundError:
+        return
+    except (OSError, ValueError) as e:                  # комментарии в settings.json — не трогаем
+        log("vscode settings.json", e)
+        return
+    if (d.get("window.controlsStyle") == "hidden") != hide:
+        if hide:
+            d["window.controlsStyle"] = "hidden"
+        else:
+            d.pop("window.controlsStyle", None)
+        with open(VSCODE_SETTINGS + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False, indent=4)
+        os.replace(VSCODE_SETTINGS + ".tmp", VSCODE_SETTINGS)
+
+
 def ym_buttons():
     """Кнопки окна Яндекс Музыки (Electron, рисует их сама) — ym_tweaks.py сам читает
     режим из состояния и прячет или возвращает их в открытом окне (21.10.2026)."""
@@ -667,33 +749,29 @@ def set_top_bar_kind(kind):
 
 
 def top_hover(on):
-    """Верхний бар на время стопки: где он «всегда», там «при наведении» — окна до самого
-    верха, бар выезжает поверх (21.10.2026, пользователь). Мониторы — в st["top_hover"], сам
-    выбор (panels.json / top-bar) не трогается. Выход возвращает бар и ждёт, пока рабочая
-    область вернётся, — до раскладки по снимку."""
+    """Верхний бар на время стопки: остаётся как был, но без столов — в стопке все окна на
+    одном столе, переход на другой её ломает (22.10.2026, просьба: «можно оставить бар если
+    он там был, но убрать столы»; 21.10 «всегда» уходил в «при наведении»). Мониторы, где
+    столы убираются на всех мониторах (panels.stack_top); выбор в panels.json не трогается —
+    его можно менять и в стопке (Настройки → «Показ панелей»). Выход возвращает
+    столы и ждёт бар, пока рабочая область вернётся, — до раскладки по снимку."""
     if TEST:
         return
     st = load_state()
     sys.path.insert(0, HERE)
     import panels
     if on:
-        need = [o for o in st.get("outs") or {} if panels.top_for(o) == "always"]
-        cap = top_bar_kind() == "capsule"
-        if not need and not cap:
-            return
-        st["top_hover"] = need
-        st["capsule"] = cap
+        st["capsule"] = top_bar_kind() == "capsule"
         _save(STATE, st)
         subprocess.Popen([sys.executable, os.path.join(HERE, "panels.py"), "apply", "top"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         return
-    need = st.pop("top_hover", None) or []
-    cap = st.pop("capsule", False)
-    if not need and not cap:
-        return
-    _save(STATE, st)
+    for k in ("top_desks", "top_hover", "capsule"):   # top_desks/top_hover — ключи до 22.10
+        st.pop(k, None)
+    _save(STATE, st)                     # apply ниже перезапускает только изменённые бары
     subprocess.run([sys.executable, os.path.join(HERE, "panels.py"), "apply", "top"],
                    capture_output=True, timeout=60)
+    need = [o for o in st.get("outs") or {} if panels.top_for(o) == "always"]  # место — только «всегда»
     for _ in range(60):                  # бар снова резервирует место
         if all(any(l.get("output") == o and l.get("namespace") == "tb-always" for l in get("Layers") or [])
                for o in need):
@@ -815,6 +893,7 @@ def turn_off():
     top_hover(False)
     zen_buttons(False)
     csd_buttons(False)
+    app_buttons(False)
     st = load_state()
     wss, wins = query()
     remember(st, wss, wins)

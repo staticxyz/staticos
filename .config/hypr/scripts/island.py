@@ -271,6 +271,9 @@ TOOL_RGB = {"rec": (0.94, 0.28, 0.28), "pick": (0.78, 0.55, 0.98), "shot": (0.36
             "note": (0.98, 0.82, 0.30), "pomo": (0.98, 0.45, 0.30)}
 TIMER_PRESETS = (5, 10, 15, 25, 45, 60)            # минуты: щелчок — сразу таймер hub
 CALL_GREEN = (0.30, 0.82, 0.46)
+# значок программы в звонке — её фирменным цветом (21.10.2026, просьба: «почему иконка
+# телеграмма зелёная? Должен быть свой цвет приложения»); зелёный остаётся у звонка
+CALL_BRAND = {G_TG: (0.16, 0.67, 0.93), G_DISCORD: (0.35, 0.40, 0.95), G_WA: (0.15, 0.83, 0.40)}
 
 
 def page_ids(c):
@@ -1630,7 +1633,7 @@ def pill_parts(acts, col):
     kind, d = live[0]
     c = act_color(kind, col) if col else on
     if kind == "call":
-        parts = [("g", d["icon"], CALL_GREEN), ("t", mmss(call_sec(d)), None), ("mic", d["muted"], None)]
+        parts = [("g", d["icon"], CALL_BRAND.get(d["icon"], CALL_GREEN)), ("t", mmss(call_sec(d)), None), ("mic", d["muted"], None)]
     elif kind == "rec":
         parts = [("g", G_PAUSE, (1.0, 0.27, 0.27)) if d["paused"] else ("dot", None, (1.0, 0.27, 0.27)),
                  ("t", mmss(d["sec"]), None)]
@@ -1986,7 +1989,8 @@ def paint_pill(cr, x, top, w, h, st, col, D=None):
                 cr.set_source_rgba(*c, 1)
                 cr.fill()
             elif k == "mic":
-                mc = (1.0, 0.36, 0.36) if v else CALL_GREEN
+                # включённый — акцентом обоев (21.10.2026, пользователь), выключенный — красный
+                mc = (1.0, 0.36, 0.36) if v else col.get("vivid", col["primary"])
                 if ios:
                     cr.arc(cx + 9, cy, 8.5, 0, 2 * math.pi)
                 else:
@@ -2300,7 +2304,7 @@ def paint_card(cr, x, w, h, kind, d, acts, col, a, card_i):
         button(cr, c, by, G_PLAY if d["paused"] else G_PAUSE, col, a, hits, ("rec", "pause"), big=True)
         button(cr, c + 36, by, G_STOP, col, a, hits, ("rec", "halt"))
     elif kind == "call":
-        put_text(cr, d["icon"], 16, x + pad + 8, 30, CALL_GREEN, a, center=True)
+        put_text(cr, d["icon"], 16, x + pad + 8, 30, CALL_BRAND.get(d["icon"], CALL_GREEN), a, center=True)
         put_text(cr, d["app"] + " · звонок", 16, x + pad + 26, 28, col["on_surface"], a, maxw=w - 2 * pad - 26 - 70)
         sub = mic_sub(d)
         put_text(cr, sub, 8, x + pad + 26, 46,

@@ -25,7 +25,7 @@ T−5 проверка (окно с фразой на всех монитора�
     wake_alarm.py woke [ЧЧ:ММ] [ДАТА] — записать подъём вручную («-» — стереть)
     wake_alarm.py watch [ДАТА] 07:00-21:00 [МИН] — Сторож: день без сна, проверки каждые МИН (45)
     wake_alarm.py watch off [ДАТА] [--force] | watch — снять Сторожа / список
-    wake_alarm.py watch daily [on | off --reason ТЕКСТ] — ежедневный Сторож: от звонка будильника до 21:00
+    wake_alarm.py watch daily [on | off --reason ТЕКСТ] — ежедневный Сторож: от звонка будильника до 18:00 (14.10: было 21:00)
     wake_alarm.py watch skip [ДАТА] --reason ТЕКСТ | watch skip off [ДАТА] — без Сторожа на день
     wake_alarm.py watch log [N]     — журнал выключений Сторожа (кто, когда, почему)
     wake_alarm.py emergency off --reason ТЕКСТ | emergency on — аварийно (бот): будильник + Сторож на день
@@ -85,7 +85,7 @@ DEFAULT_STATE = {
     # ежедневный Сторож (09.10.2026): проверки «не спите?» каждые every минут до to — от
     # дневного сна. С 14.10 начинается со звонком (после утренней серии), нет звонка в этот
     # день — нет и Сторожа; from не используется. watch_skip — дни, где его выключили на день
-    "watch_daily": {"enabled": True, "from": "06:00", "to": "21:00", "every": 45},
+    "watch_daily": {"enabled": True, "from": "06:00", "to": "18:00", "every": 45},
     "watch_skip": [],
 }
 
@@ -172,17 +172,18 @@ SLEEP_MARGIN = 40 / 60   # часов: ближе к проверке idle_suspe
 RTC_SYS = "/sys/class/rtc/rtc0"
 
 
-def wake_event(now=None):
-    """Ближайший момент, когда ноутбук должен не спать: первая проверка утренней серии
-    (T−PRE), начало Сторожа или его следующая проверка. datetime или None."""
+def alarm_events(now=None):
+    """[(datetime, вид, текст)] — когда ноутбук должен не спать ради будильника и Сторожа:
+    первая проверка утренней серии (T−PRE), начало Сторожа или его следующая проверка;
+    идёт серия — сейчас."""
     now = now or dt.datetime.now()
     if series_active():
-        return now
+        return [(now, "series", "идёт серия проверок")]
     s = load()
     ev = []
     t = next_alarm(s, now)
     if t is not None:
-        ev.append(t - dt.timedelta(minutes=PRE))
+        ev.append((t - dt.timedelta(minutes=PRE), "alarm", "будильник %s" % t.strftime("%H:%M")))
     for i in (0, 1, 2):
         day = now.date() + dt.timedelta(days=i)
         w = watch_for(s, day)
@@ -196,19 +197,60 @@ def wake_event(now=None):
         if now < a:
             al = alarm_on(s, day)          # ежедневный ждёт утренней серии — будит она
             if not (w["daily"] and al is not None and last_rung() != day.isoformat()):
-                ev.append(a)
+                ev.append((a, "watch", "Сторож с %s" % w["from"]))
         elif now <= b:                       # Сторож идёт — следующая проверка по сетке
             step = dt.timedelta(minutes=int(w.get("every", WATCH_EVERY)))
-            ev.append(a + -(-(now - a) // step) * step)
-    return min(ev) if ev else None
+            ev.append((a + -(-(now - a) // step) * step, "watch", "проверка Сторожа"))
+    return ev
+
+
+def wake_event(now=None):
+    """Ближайшее из alarm_events — datetime или None."""
+    ev = alarm_events(now)
+    return min(e[0] for e in ev) if ev else None
+
+
+# 21.10.2026: часы будят и ради хаба — таймеры, напоминания, «только дата», повтор в Telegram,
+# отложенный WhatsApp (hublib.wake_events). Будят за HUB_LEAD до срока: сеть успевает
+# подняться, а с закрытой крышкой logind усыпит снова через ~30 с — сообщение успеет уйти.
+HUB_DIR = os.path.join(HOME, ".local/share/hub")
+HUB_LEAD = 20        # секунд
+RTC_WHY = RTC_PLAN + ".why"          # ради чего завели часы — hubd молчит о «плановом включении» хаба
+
+
+def hub_events(now_ts=None):
+    try:
+        if HUB_DIR not in sys.path:
+            sys.path.insert(0, HUB_DIR)
+        import hublib
+        c = hublib.connect()
+        try:
+            return hublib.wake_events(c, now_ts)
+        finally:
+            c.close()
+    except Exception:
+        return []
+
+
+def wake_plan(now=None):
+    """Все плановые пробуждения: [{wake, at, kind, src, title}] по времени пробуждения.
+    at — само событие, wake — когда заведены часы (раньше на RTC_LEAD или HUB_LEAD)."""
+    now = now or dt.datetime.now()
+    out = []
+    for at, kind, title in alarm_events(now):
+        ts = int(at.timestamp())
+        out.append({"wake": ts - RTC_LEAD * 60, "at": ts, "kind": kind, "src": "alarm", "title": title})
+    for ts, kind, title in hub_events(int(now.timestamp())):
+        out.append({"wake": ts - HUB_LEAD, "at": ts, "kind": kind, "src": "hub", "title": title})
+    return sorted(out, key=lambda e: e["wake"])
 
 
 def rtc_wake_at(now=None):
     """Когда разбудить (epoch) или 0 — будить не к чему."""
-    e = wake_event(now)
-    if e is None:
+    plan = wake_plan(now)
+    if not plan:
         return 0
-    return int(max(e.timestamp() - RTC_LEAD * 60, time.time() + 60))
+    return int(max(plan[0]["wake"], time.time() + 60))
 
 
 def rtc_plan_write():
@@ -217,12 +259,16 @@ def rtc_plan_write():
             return
     except (OSError, ValueError):
         pass
-    t = rtc_wake_at()
+    plan = wake_plan()
+    t = int(max(plan[0]["wake"], time.time() + 60)) if plan else 0
     os.makedirs(os.path.dirname(RTC_PLAN), exist_ok=True)
     tmp = RTC_PLAN + ".tmp"
     with open(tmp, "w") as f:
         f.write("%d\n" % t)
     os.replace(tmp, RTC_PLAN)
+    with open(RTC_WHY + ".tmp", "w") as f:
+        json.dump(dict(plan[0], plan=t) if plan else {"plan": 0}, f, ensure_ascii=False)
+    os.replace(RTC_WHY + ".tmp", RTC_WHY)
     return t
 
 
@@ -352,7 +398,7 @@ def watch_for(s, day):
     t = alarm_on(s, day)
     if t is None:
         return None
-    to = w.get("to", "21:00")
+    to = w.get("to", "18:00")
     if t.strftime("%H:%M") >= to:
         return None
     return {"from": t.strftime("%H:%M"), "to": to,
@@ -849,7 +895,7 @@ PHRASES = [
 def math_task():
     """08.10.2026: вместо кода из 6 цифр — пример средней трудности. Код перепечатывается
     с уведомления полусонным, лёжа; пример заставляет подумать — проще встать к ПК
-    (Просьба: «не 2+2, но и не 47×3+18»). Одно действие, с переносом через десяток.
+    (просьба: «не 2+2, но и не 47×3+18»). Одно действие, с переносом через десяток.
     (текст, ответ строкой)."""
     r = secrets.SystemRandom()
     kind = r.choice("+-*")
@@ -931,7 +977,7 @@ def series_build(t, test=False, k=60):
     cap = T + 60 * k if test else 0
     if not test:
         try:
-            to = (load().get("watch_daily") or {}).get("to", "21:00")
+            to = (load().get("watch_daily") or {}).get("to", "18:00")
             cap = dt.datetime.combine(t.date(), dt.time(*map(int, to.split(":")))).timestamp()
         except (ValueError, TypeError):
             pass
@@ -1453,7 +1499,7 @@ class SeriesRun:
             pass
 
     def soft_signal(self):
-        """Проверка: главное — окно (Просьба: «суть не в звуке»), звук тихий и короткий."""
+        """Проверка: главное — окно (просьба: «суть не в звуке»), звук тихий и короткий."""
         if self.window:
             subprocess.run(["niri", "msg", "action", "power-on-monitors"],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1764,7 +1810,7 @@ def main(argv):
             watch_log("alarm-" + cmd, opt("--reason"), opt("--via") or "cli")
         cmd_status()
     elif cmd == "emergency":
-        # 13.10.2026, Просьба: «аварийное выключение через бота должно выключать и Сторожа на
+        # 13.10.2026, просьба: «аварийное выключение через бота должно выключать и Сторожа на
         # этот день. Если я его выключаю — значит, я не дома». Поэтому — и во время серии:
         # будильник выключается до /alarm on, Сторож снимается на сегодня, идущая серия
         # (проверка, звонок) останавливается. Без причины не выполняется.
@@ -1878,7 +1924,7 @@ def main(argv):
                         watch_stop_today("выключена насовсем")
                 print("ежедневный Сторож выключен — до включения")
                 return 0
-            if len(args) == 2 and "-" in args[1]:     # watch daily 06:00-21:00 [МИН]
+            if len(args) in (2, 3) and "-" in args[1]:     # watch daily 06:00-21:00 [МИН]
                 a, _, b = args[1].partition("-")
                 every = int(args[2]) if len(args) > 2 else wd.get("every", WATCH_EVERY)
                 if hm_min(b) <= hm_min(a) or not 10 <= every <= 180:

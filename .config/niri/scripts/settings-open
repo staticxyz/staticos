@@ -29,8 +29,18 @@ if not args:
                 subprocess.run(["niri", "msg", "action", "close-window", "--id", str(win["id"])],
                                timeout=2)
             else:
-                subprocess.run(["niri", "msg", "action", "focus-window", "--id", str(win["id"])],
-                               timeout=2)
+                # 22.10.2026, просьба: «свёрнуто… биндом открываю — багованно появляется». В стопке
+                # свёрнутое окно лежит на столе-кармане, и focus-window показывал сам карман.
+                # Такое окно возвращает stack_mode.py unmin — как щелчок по кнопке на панели.
+                wss = json.loads(subprocess.run(["niri", "msg", "-j", "workspaces"], capture_output=True,
+                                                text=True, timeout=2).stdout or "[]")
+                ws = next((w for w in wss if w.get("id") == win.get("workspace_id")), {})
+                if (ws.get("name") or "").rstrip("\u2060") == "\U000f05b0":   # STACK_MIN_DESK (xpbar.py)
+                    subprocess.run(["/usr/bin/python3", os.path.expanduser("~/.config/hypr/scripts/stack_mode.py"),
+                                    "unmin", str(win["id"])], timeout=5)
+                else:
+                    subprocess.run(["niri", "msg", "action", "focus-window", "--id", str(win["id"])],
+                                   timeout=2)
             sys.exit(0)
     except (OSError, ValueError, subprocess.SubprocessError):
         pass

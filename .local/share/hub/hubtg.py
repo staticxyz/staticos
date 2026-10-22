@@ -8,6 +8,7 @@ import mimetypes
 import os
 import socket
 import subprocess
+import tempfile
 import sys
 import threading
 import time
@@ -181,8 +182,32 @@ def timer_presets():
 
 
 def timer_buttons(iid):
-    return [[{"text": "■ Стоп", "callback_data": "x:%d" % iid},
-             {"text": "+5 мин", "callback_data": "s:%d:300" % iid}]]
+    """21.10.2026, просьба: слева «Добавить» (меню времени, своё тоже), справа «Обновить»
+    (остаток сейчас), снизу «Стоп»."""
+    return [[{"text": "+ Добавить", "callback_data": "ta:%d" % iid},
+             {"text": "↻ Обновить", "callback_data": "tr:%d" % iid}],
+            [{"text": "■ Стоп", "callback_data": "x:%d" % iid}]]
+
+
+TIMER_ADD = [(60, "+1 мин"), (300, "+5 мин"), (600, "+10 мин"),
+             (900, "+15 мин"), (1800, "+30 мин"), (3600, "+1 ч")]
+
+
+def timer_add_menu(iid):
+    return [[{"text": l, "callback_data": "tp:%d:%d" % (iid, v)} for v, l in TIMER_ADD[:3]],
+            [{"text": l, "callback_data": "tp:%d:%d" % (iid, v)} for v, l in TIMER_ADD[3:]],
+            [{"text": "✎ Своё", "callback_data": "tc:%d" % iid},
+             {"text": "← Назад", "callback_data": "tr:%d" % iid}]]
+
+
+def timer_add(c, iid, secs):
+    """Прибавить к идущему таймеру (от срока, не от «сейчас»); вышедший — от «сейчас»."""
+    it = H.get_item(c, iid)
+    if it is None or it["status"] != "open":
+        return None
+    due = max(it["due"] or 0, H.now()) + int(secs)
+    H.snooze(c, iid, until=due, source="tg")
+    return due
 
 
 def tomorrow_9():
@@ -286,6 +311,7 @@ HELP_TEXT = Html(
     "\n<b>■ ПК И ДОМ</b>\n"
     "/pc — состояние, окна, скрин, звук, сон\n"
     "/alarm — будильник и Сторож\n"
+    "/log — журнал файлом: сон, пробуждения, что сработало\n"
     "/away — охрана: «Ухожу» запирает экран и следит\n"
     "\n<b>■ ЗАЩИТА</b>\n"
     "ПК, охрана и WhatsApp просят 6 цифр из аутентификатора\n"
@@ -350,13 +376,18 @@ HELP_ALL = Html(
     "<code>/alarm             </code> пульт будильника и Сторожа\n"
     "<code>/alarm off ПРИЧИНА </code> аварийно выключить\n"
     "<code>/alarm on          </code> включить\n"
+    "\n<b>■ ЖУРНАЛ</b>\n"
+    "<code>/log               </code> файл за 14 дней: сон, пробуждения (плановые тоже), сработавшее, задачи, WhatsApp, охрана\n"
+    "<code>/log 3             </code> только за 3 дня\n"
+    "<i>Старше 2 недель записи удаляются сами. О сне и пробуждении бот больше не пишет — смотрите /log.</i>\n"
     "\n<b>■ ПРОЧЕЕ</b>\n"
     "<code>/help              </code> коротко\n"
     "<code>/help all          </code> эта страница\n"
     "<i>Голосовые понимаю как текст.</i>")
 
 MENU = [("away", "охрана — ухожу из дома"), ("tasks", "пульт задач"), ("timer", "таймеры"), ("words", "словарь"),
-        ("wa", "WhatsApp: отложенные"), ("pc", "управление ПК"), ("alarm", "будильник"), ("help", "справка")]
+        ("wa", "WhatsApp: отложенные"), ("pc", "управление ПК"), ("alarm", "будильник"),
+        ("log", "журнал: сон, пробуждения"), ("help", "справка")]
 
 
 # 13.10.2026, просьба: «аварийно добавить команду боту на выключение будильника (и на вкл)…
@@ -823,6 +854,30 @@ def wait_take(c, bot, chat, text):
         res = tfa_need(c) or hubwa.tg_wait(c, op, iid, text)
         if res is None:
             return False
+    elif op == "tadd":                                # «✎ Своё» у идущего таймера
+        secs = H.parse_duration(text)
+        if not secs or secs > 7 * 86400:
+            wait_set(c, "tadd", iid, w.get("chat"), w.get("mid"))
+            bot.send(chat, "Не понял время, сэр. Например: «7», «1 ч 20», «90 сек».")
+            return True
+        if timer_add(c, iid, secs) is None:
+            bot.send(chat, "Таймер уже остановлен, сэр.")
+            return True
+        # Сообщение таймера переезжает вниз, под ответ, и остаётся под присмотром
+        if w.get("mid"):
+            c.execute("DELETE FROM tgmsgs WHERE chat=? AND mid=?", (w["chat"], w["mid"]))
+        res = render(H.get_item(c, iid))
+        res = ("✓ +%s, сэр.\n%s" % (H.fmt_secs(secs), res[0]), res[1])
+        if w.get("mid"):
+            try:
+                bot.call("deleteMessage", {"chat_id": w["chat"], "message_id": w["mid"]})
+            except Exception:
+                pass
+        r = bot.send(chat, *res)
+        track(c, iid, chat, r["message_id"])
+        c.execute("UPDATE tgmsgs SET sig=? WHERE chat=? AND mid=?",     # «✓ +…» не стирать сразу
+                  (sig_of(H.get_item(c, iid)), chat, r["message_id"]))
+        return True
     elif op == "tname":
         H.meta_set(c, TNAME_KEY, text.strip()[:60])
         res = timer_picker(c, iid or 0, note="✓ Название: %s" % esc(text.strip()[:60]))
@@ -906,6 +961,8 @@ def k_callback(c, bot, chat, mid, cb_id, rest):
         toast = "Остановлено"
     elif act == "tr":
         res = timer_panel(c)
+    elif act == "th":
+        res = timer_history(c)
     elif act == "al":
         res = alarm_panel("")
     elif act == "aon":
@@ -1038,8 +1095,70 @@ def timer_panel(c, note=None):
     out.append("\n<i>Нажмите длительность или напишите «25 чай».</i>")
     rows = timer_presets()
     rows.append([btn("⏱ Свой таймер", "k:tc:0")])
-    rows.append([btn("↻ Обновить", "k:tr")] + ([btn("■ Стоп все", "k:ts")] if its else []))
+    rows.append([btn("↻ Обновить", "k:tr"), btn("📜 История", "k:th")] +
+                ([btn("■ Стоп все", "k:ts")] if its else []))
     return Html("\n".join(out)), rows
+
+
+# 21.10.2026, просьба: «не хватает кнопки История — последние 5 таймеров, если я не замечу
+# какой-то таймер или он пропадёт… где и когда он был выключен». Всё берётся из events
+# (add/drop/done/snooze с источником), сам таймер — из items.
+T_FROM = {"island": "с островка", "widget": "с виджета", "tg": "из Telegram", "pc": "с ПК",
+          "cli": "командой"}
+T_BY = {"island": "на островке", "widget": "виджетом", "tg": "в Telegram",
+        "pc": "на ПК", "cli": "командой"}
+# виджет timer.exe на рабочем столе (таймеру из Telegram он создаётся сам) пишет, чем остановлен
+T_WIDGET = {"click": "щелчком по виджету timer.exe", "close": "крестиком виджета timer.exe",
+            "pause": "паузой в виджете timer.exe", "replay": "повтором (REPLAY) в виджете timer.exe",
+            "new": "новым таймером (NEW) в виджете timer.exe"}
+
+
+def _t_by(data):
+    src, _sp, how = (data or "").partition(" ")
+    if src == "widget":
+        return T_WIDGET.get(how, "виджетом timer.exe на рабочем столе")
+    return T_BY.get(src, src)
+
+
+def _t_day(ts):
+    import datetime as dt
+    d = dt.date.fromtimestamp(ts)
+    td = dt.date.today()
+    return "сегодня" if d == td else "вчера" if d == td - dt.timedelta(days=1) else d.strftime("%d.%m")
+
+
+def timer_history(c, n=5):
+    its = c.execute("SELECT * FROM items WHERE kind='timer' ORDER BY id DESC LIMIT ?", (n,)).fetchall()
+    out = ["<b>◆ %s · ТАЙМЕРЫ · ИСТОРИЯ</b>" % BRAND]
+    if not its:
+        out.append("<i>Таймеров ещё не было, сэр.</i>")
+    t = H.now()
+    for it in its:
+        ev = c.execute("SELECT kind, data, ts FROM events WHERE item_id=? ORDER BY id", (it["id"],)).fetchall()
+        add = next((e for e in ev if e["kind"] == "add"), None)
+        start = add["ts"] if add else it["created"]
+        src = (add["data"] if add else it["source"]) or ""
+        due = it["due"] or start
+        snz = sum(1 for e in ev if e["kind"] == "snooze")
+        out.append("\n⏱ <b>%s</b> — %s" % (esc(it["text"]), _t_day(start)))
+        out.append("<code>%s → %s</code> · %s%s" % (hm(start), hm(due), T_FROM.get(src, src),
+                                                   " · отложен ×%d" % snz if snz else ""))
+        end = next((e for e in reversed(ev) if e["kind"] in ("drop", "done")), None)
+        if it["status"] == "open":
+            out.append("▶ идёт, осталось %s" % H.fmt_secs(due - t) if due > t else
+                       "🔔 <b>звенит с %s, не остановлен</b>" % hm(due))
+        elif end:
+            by = _t_by(end["data"])
+            if end["ts"] >= due:
+                late = end["ts"] - due
+                out.append("■ прозвенел в %s, остановлен в %s %s%s" % (
+                    hm(due), hm(end["ts"]), by, ", спустя %s" % H.fmt_secs(late) if late >= 60 else ""))
+            else:
+                out.append("■ остановлен заранее в %s %s, оставалось %s" % (
+                    hm(end["ts"]), by, H.fmt_secs(due - end["ts"])))
+        else:
+            out.append("■ остановлен (когда — в журнале нет)")
+    return Html("\n".join(out)), [[btn("« Таймеры", "k:tr"), btn("↻ Обновить", "k:th")]]
 
 
 # 14.10.2026, просьба: «добавь кнопку Свой таймер, и там будет интерфейс выбора времени».
@@ -1300,9 +1419,9 @@ def command(c, cmd, arg, bot=None, chat=None):
         tfa.close()
         H.meta_set(c, TFA_KEY, "null")
         return "🔒 Удалённый доступ закрыт. Открыть — /code и 6 цифр.", None
-    if cmd in ("pc", "wa") or (cmd == "away" and arg.lower().split()[:1] not in (["on"], ["вкл"], ["1"])):
+    if cmd in ("pc", "wa", "log") or (cmd == "away" and arg.lower().split()[:1] not in (["on"], ["вкл"], ["1"])):
         # 17.10.2026, просьба: /away — как /pc, код раз в неделю
-        g = tfa_need(c, "/%s %s" % (cmd, arg), "pc" if cmd in ("pc", "away") else None)
+        g = tfa_need(c, "/%s %s" % (cmd, arg), "pc" if cmd in ("pc", "away", "log") else None)
         if g:
             return g
     if cmd == "wa":
@@ -1312,6 +1431,8 @@ def command(c, cmd, arg, bot=None, chat=None):
         return pc_command(c, arg)
     if cmd == "alarm":
         return alarm_panel(arg)
+    if cmd == "log":
+        return log_file(c, arg)
     if cmd == "away":
         a = arg.lower().split()
         sub = a[0] if a else ""
@@ -1339,6 +1460,19 @@ def command(c, cmd, arg, bot=None, chat=None):
             n += H.drop(c, it["id"], "tg")
         return ("Остановлено таймеров: %d." % n) if n else "Таймеров нет.", None
     return "Не знаю такой команды. /help", None
+
+
+def log_file(c, arg=""):
+    """/log [дней] — журнал хаба файлом: сон и пробуждения (плановые тоже), что сработало,
+    действия с задачами, WhatsApp, охрана (21.10.2026). Старше 14 дней журнал стирает сам."""
+    a = arg.strip().split()
+    days = max(1, min(H.JOURNAL_DAYS, int(a[0]))) if a and a[0].isdigit() else H.JOURNAL_DAYS
+    text, summary = H.log_report(c, days, os.path.join(os.path.dirname(os.path.abspath(__file__)), "guard-log"))
+    d = tempfile.mkdtemp(prefix="hub-log-")
+    path = os.path.join(d, "hub-log-%s.txt" % time.strftime("%Y-%m-%d_%H%M"))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return "📜 " + summary, {"document": path}
 
 
 # ───────────────────────────── квиз ─────────────────────────────
@@ -1472,6 +1606,45 @@ def handle_callback(c, bot, chat, mid, cb_id, data):
     if k == "v":                                    # старые кнопки пульта (до 14.10 вечера)
         k_callback(c, bot, chat, mid, cb_id, "r")
         return
+    if k in ("ta", "tr", "tp", "tc"):                # кнопки идущего таймера (21.10.2026)
+        iid, _, v = rest.partition(":")
+        iid = int(iid)
+        # Взять под присмотр, только если ещё не: track() обнуляет sig, и следующий тик демона
+        # (sync_messages) перерисовывал сообщение — меню «Добавить» мигало и пропадало (21.10.2026)
+        it = H.get_item(c, iid)
+        if chat and mid and not c.execute("SELECT 1 FROM tgmsgs WHERE chat=? AND mid=?", (chat, mid)).fetchone():
+            track(c, iid, chat, mid)
+            if it is not None:                          # и сразу с подписью — тик не перерисует
+                c.execute("UPDATE tgmsgs SET sig=? WHERE chat=? AND mid=?", (sig_of(it) + (
+                    "|over" if it["due"] and it["due"] <= H.now() else ""), chat, mid))
+        if k == "tp":
+            due = timer_add(c, iid, int(v))
+            bot.answer(cb_id, "+%s · до %s" % (H.fmt_secs(int(v)), hm(due)) if due else "Таймер уже остановлен")
+            sync_messages(c, bot)                       # срок сменился — сообщение перерисует само
+            return
+        elif k == "ta":
+            bot.answer(cb_id)
+            if it is not None and it["status"] == "open":
+                text, _ = render(it)
+                bot.edit(chat, mid, text + "\n\nСколько добавить, сэр?", timer_add_menu(iid))
+                return
+        elif k == "tc":
+            bot.answer(cb_id)
+            if it is not None and it["status"] == "open":
+                wait_set(c, "tadd", iid, chat, mid)
+                bot.edit(chat, mid, "⏱ %s — сколько добавить?\nНапишите: «7», «1 ч 20», «90 сек»." % it["text"],
+                         [[{"text": "← Назад", "callback_data": "tr:%d" % iid}]])
+                return
+        if k == "tr":
+            w = _jget(c, WAIT_KEY, None)
+            if w and w.get("op") == "tadd" and w.get("id") == iid:   # «← Назад» из «Своё»
+                H.meta_set(c, WAIT_KEY, "null")
+            if data.startswith("tr:"):
+                bot.answer(cb_id, ("осталось " + H.fmt_secs(it["due"] - H.now()))
+                           if it is not None and it["status"] == "open" and it["due"] > H.now() else "")
+            text, b = render(it)
+            bot.edit(chat, mid, text, b)
+        return
     if k in ("d", "s", "x") and chat and mid:
         track(c, int(rest.split(":")[0]), chat, mid)     # осиротевшее сообщение снова под присмотром
     if k == "d":
@@ -1537,6 +1710,12 @@ def handle_callback(c, bot, chat, mid, cb_id, data):
 
 def send_pc_result(bot, chat, res):
     text, extra = res
+    if isinstance(extra, dict) and extra.get("document"):     # /log — файлом
+        path = extra["document"]
+        try:
+            return bot.call("sendDocument", {"chat_id": chat, "caption": text[:1000]}, {"document": path})
+        finally:
+            os.unlink(path)
     if isinstance(extra, str) and os.path.exists(extra):
         try:
             return bot.photo(chat, extra, text)

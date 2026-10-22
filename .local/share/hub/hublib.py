@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS words(
 CREATE TABLE IF NOT EXISTS events(
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL,
   item_id INTEGER, data TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS journal(          -- сон, пробуждения, доставки: /log (21.10.2026)
+  id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS journal_ts ON journal(ts);
 CREATE TABLE IF NOT EXISTS outbox(
   id INTEGER PRIMARY KEY, created INTEGER NOT NULL, payload TEXT NOT NULL,
   sent_at INTEGER, tries INTEGER NOT NULL DEFAULT 0);
@@ -162,6 +165,85 @@ def meta_set(c, k, v):
 
 def log(c, kind, item_id=None, data=""):
     c.execute("INSERT INTO events(ts,kind,item_id,data) VALUES(?,?,?,?)", (now(), kind, item_id, str(data)))
+
+
+# ───────────────────────────── журнал /log ─────────────────────────────
+# 21.10.2026, просьба: «/log — просматривать все логи, пробуждения, в том числе плановые…
+# бот не будет каждый раз отправлять сообщение, он просто напишет в лог. Лог — файлом.
+# Удаляются каждые 2 недели, не полностью, а старые». Сон и пробуждения пишет hubd в
+# journal, действия с пунктами уже лежат в events; отчёт собирает оба и журнал охраны.
+
+JOURNAL_DAYS = 14
+NOTE_KINDS = {"power": "питание", "wake": "пробуждение", "fire": "сработало"}
+EVENT_NAMES = {"add": "новое", "done": "сделано", "drop": "удалено", "snooze": "отложено",
+               "edit": "изменено", "prio": "важность", "reopen": "вернуто", "repeat": "повтор",
+               "repeat-next": "следующий повтор", "pc": "ПК", "word": "слово",
+               "wa_add": "WhatsApp: в очередь", "wa_sent": "WhatsApp: отправлено",
+               "wa_edit": "WhatsApp: изменено", "wa_cancel": "WhatsApp: отменено",
+               "wa_stop": "WhatsApp: остановлено", "wa_clear": "WhatsApp: очищено"}
+WEEKDAY_NAMES = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
+
+
+def note(c, kind, text, ts=None):
+    """Запись в журнал /log; старше JOURNAL_DAYS дней тут же уходит."""
+    t = ts or now()
+    c.execute("INSERT INTO journal(ts,kind,text) VALUES(?,?,?)", (t, kind, str(text)))
+    c.execute("DELETE FROM journal WHERE ts<?", (t - JOURNAL_DAYS * 86400,))
+
+
+def log_report(c, days=JOURNAL_DAYS, guard_dir=None):
+    """Текст файла /log за days дней (по возрастанию времени) и короткая сводка для подписи."""
+    since = now() - days * 86400
+    rows = [(r["ts"], NOTE_KINDS.get(r["kind"], r["kind"]), r["text"])
+            for r in c.execute("SELECT ts, kind, text FROM journal WHERE ts>=? ORDER BY ts, id", (since,))]
+    for r in c.execute("SELECT e.ts, e.kind, e.item_id, e.data, i.text AS itext, w.name AS wname "
+                       "FROM events e LEFT JOIN items i ON i.id=e.item_id AND e.kind NOT LIKE 'wa_%' "
+                       "LEFT JOIN wa w ON w.id=e.item_id AND e.kind LIKE 'wa_%' "
+                       "WHERE e.ts>=? ORDER BY e.ts, e.id", (since,)):
+        what = EVENT_NAMES.get(r["kind"], r["kind"]) if r["kind"] != "pc" else "команда"
+        obj = r["itext"] or r["wname"] or ""
+        line = what + (" «%s»" % _cut(obj, 70) if obj else "")
+        if r["data"]:
+            line += " · " + _cut(r["data"], 60)
+        cat = "whatsapp" if r["kind"].startswith("wa_") else {"pc": "пк", "word": "словарь"}.get(r["kind"], "задачи")
+        rows.append((r["ts"], cat, line))
+    rows.sort(key=lambda x: x[0])
+    power = [x for x in rows if x[1] in ("питание", "пробуждение")]
+    planned = sum(1 for x in power if x[1] == "пробуждение" and "по часам" in x[2])
+    fired = sum(1 for x in rows if x[1] == "сработало")
+    out = ["staticOS hub · журнал за %d дн (%s — %s)" % (
+               days, time.strftime("%d.%m %H:%M", time.localtime(since)), time.strftime("%d.%m.%Y %H:%M")),
+           "Сон и питание: %d · плановых пробуждений: %d · сработало: %d · всего записей: %d" % (
+               len(power), planned, fired, len(rows)),
+           "Старше %d дней журнал удаляет сам." % JOURNAL_DAYS]
+    day = None
+    for ts, kind, text in rows:
+        lt = time.localtime(ts)
+        d = time.strftime("%d.%m", lt)
+        if d != day:
+            day = d
+            out += ["", "── %s, %s ──" % (d, WEEKDAY_NAMES[lt.tm_wday])]
+        out.append("%s  %-12s %s" % (time.strftime("%H:%M:%S", lt), kind, text))
+    if not rows:
+        out.append("Записей нет.")
+    if guard_dir and os.path.isdir(guard_dir):
+        for name in sorted(os.listdir(guard_dir)):
+            try:
+                if time.mktime(time.strptime(name[:10], "%Y-%m-%d")) + 86400 < since:
+                    continue
+                body = open(os.path.join(guard_dir, name), encoding="utf-8", errors="replace").read().strip()
+            except (ValueError, OSError):
+                continue
+            if body:
+                out += ["", "── Охрана · %s ──" % name[:10], body]
+    summary = "Журнал за %d дн: сон и питание — %d (плановых пробуждений %d), сработало — %d." % (
+        days, len(power), planned, fired)
+    return "\n".join(out) + "\n", summary
+
+
+def _cut(t, n):
+    t = " ".join(str(t).split())
+    return t if len(t) <= n else t[:n - 1] + "…"
 
 
 # ───────────────────────────── разбор времени ─────────────────────────────
@@ -544,6 +626,55 @@ def repeat_catchup(c):
         log(c, "repeat-next", it["id"], str(last))
         moved.append(it["id"])
     return moved
+
+
+# Пробуждение ноутбука ради хаба (21.10.2026, просьба: «Делай. Для задач только дата тоже
+# можно будить»). Всё, что хаб сделает сам в будущем: wake_alarm.py заводит на ближайшее часы
+# RTC, вкладка Wakeups в App list показывает список. Прошедшее сюда не входит — его hubd
+# отработает на первом же тике после пробуждения.
+WAKE_KINDS = {"timer": "Таймер", "task": "Напоминание", "allday": "Только дата",
+              "esc": "Повтор в Telegram", "wa": "WhatsApp", "outbox": "Недоставленное в Telegram"}
+WAKE_ESC_MIN = 5            # как DEFAULT_ESC_MIN в hubd.py
+WAKE_RETRY = 300            # недоставленное в Telegram — попробовать снова через 5 мин…
+WAKE_RETRY_FOR = 1800       # …но не дольше получаса после создания (без сети не будить по кругу)
+
+
+def wake_events(c, t=None):
+    """[(epoch, вид, текст)] по времени: когда хабу нужно, чтобы ноутбук не спал."""
+    t = t or now()
+    esc = int(cfg("esc_min", WAKE_ESC_MIN)) * 60
+    ev = []
+    for it in c.execute("SELECT * FROM items WHERE status='open' AND due IS NOT NULL").fetchall():
+        txt = it["text"]
+        if it["allday"] and it["kind"] == "task":
+            day = dt.datetime.fromtimestamp(it["due"]).date()
+            if it["fired_pc"] is None:
+                at = it["due"]
+            else:
+                at = next((x for x in (int(dt.datetime.combine(day, dt.time(h)).timestamp())
+                                       for h in ALLDAY_HOURS) if x > it["fired_pc"]), None)
+            if at and at > t:
+                ev.append((at, "allday", txt))
+        elif it["fired_pc"] is None:
+            if it["due"] > t:
+                ev.append((it["due"], it["kind"] if it["kind"] == "timer" else "task", txt))
+        elif it["repeat"]:
+            base = rbase(it)
+            nxt = _next_due(base, it["repeat"], dt.datetime.fromtimestamp(base))
+            if nxt and nxt > t:
+                ev.append((nxt, it["kind"] if it["kind"] == "timer" else "task", txt))
+        if it["kind"] == "task" and it["fired_pc"] is not None and it["fired_tg"] is None \
+                and not it["seen"] and it["fired_pc"] + esc > t:
+            ev.append((it["fired_pc"] + esc, "esc", txt))
+    for m in c.execute("SELECT due, next_try, name, text FROM wa WHERE status='pending'").fetchall():
+        at = m["next_try"] or m["due"]
+        if at > t:
+            ev.append((at, "wa", "%s: %s" % (m["name"], m["text"])))
+    n = c.execute("SELECT count(*) FROM outbox WHERE sent_at IS NULL AND created>?",
+                  (t - WAKE_RETRY_FOR,)).fetchone()[0]
+    if n:
+        ev.append((t + WAKE_RETRY, "outbox", "%d сообщ." % n))
+    return sorted(ev)
 
 
 def snooze(c, iid, secs=None, until=None, source="cli", ts=None):

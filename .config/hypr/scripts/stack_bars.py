@@ -27,6 +27,7 @@ if HERE not in sys.path:
 import stack_mode as sm  # noqa: E402
 import rec_menu  # noqa: E402  (GTK, слои, цвета стилей)
 import close_cap  # noqa: E402
+import nvim_lang  # noqa: E402
 from rec_menu import Gdk, GLib, Gtk, GtkLayerShell, Pango, PangoCairo, cairo, mix  # noqa: E402
 
 NAMESPACE = "jarvis-stack"
@@ -379,7 +380,9 @@ class Painter:
         x, y, w, C = it["x"], it["y"], it["w"], self.C
         self.background(cr, x, y, w, it["focused"], bool(it.get("F")))
         glyph = APP_GLYPH.get(it.get("app_id"))
-        pb = None if glyph else self.icon(it.get("app_id"))
+        # файл в nvim — значок языка, как в нижней панели (nvim_lang.py, 21.10.2026)
+        pb = None if glyph else self.icon(nvim_lang.icon(it.get("title"), it.get("app_id"))
+                                          or it.get("app_id"))
         ix = x + 7
         if glyph:
             self.glyph(cr, glyph, ix, y, it["focused"])
@@ -479,14 +482,28 @@ class Ghost:
             GtkLayerShell.set_anchor(w, e, True)
         GtkLayerShell.set_exclusive_zone(w, -1)
         GtkLayerShell.set_keyboard_mode(w, GtkLayerShell.KeyboardMode.NONE)
+        w.set_decorated(False)
+        w.set_resizable(False)
         w.connect("draw", self.on_draw)
-        w.connect("realize", lambda *_a: w.input_shape_combine_region(cairo.Region()))
+        # Щелчки сквозь слой. Не только при realize: после hide() и нового show() GTK
+        # мог выставить поверхность без пустой области ввода, и курсор над нижней панелью
+        # на время полёта становился ↕ (21.10.2026, просьба: «кликаю на окно в панели, а
+        # курсор меняет вид»). Курсор слоя — обычная стрелка на случай, если ввод всё же дойдёт
+        w.connect("realize", self.no_input)
+        w.connect("map", self.no_input)
+
+    def no_input(self, w):
+        w.input_shape_combine_region(cairo.Region())
+        gw = w.get_window()
+        if gw is not None:
+            gw.set_cursor(Gdk.Cursor.new_from_name(gw.get_display(), "default"))
 
     def start(self, it, src, dst, done=None, ms=ANIM_MS):
         a = {"it": it, "src": src, "dst": dst, "t0": None, "done": done, "k": 0.0, "ms": ms}
         self.anims.append(a)
         if not self.win.get_visible():
             self.win.show_all()
+            self.no_input(self.win)
         if self.tick_id is None:
             self.tick_id = self.win.add_tick_callback(self.on_tick)
         # кадры не пошли (слой не показался) — действие всё равно выполнить
@@ -553,6 +570,7 @@ class OutBar:
         self.P = Painter(self.style)
         self.items = []          # снизу вверх: {id, x, y, w, tile:(x,y,w,h), …}
         self.visible = False
+        self.desk_vis = False    # стол стопки на экране; visible — ещё и не спрятан полным экраном
         self.hover = None
         self.press = None        # {id, zone, x, y, moved, last}
         self.z = []              # порядок окон снизу вверх — свой, niri его не отдаёт
@@ -679,10 +697,47 @@ class OutBar:
         self.mgr.schedule()
         return False
 
+    def set_fs_layer(self, fs):
+        """Полный экран на столе стопки: niri рисует его поверх слоя TOP, а плавающие окна — всё
+        равно поверх него, и они оставались голыми, без полос и рамок (21.10.2026, просьба: «когда
+        видео на полный экран, окно появляется без рамок»). Пока он есть — полосы в OVERLAY.
+        Слой не зависит от фокуса: смена слоя у полос, спрятанных под полным экраном, выходила
+        на экран с опозданием ~0,27 с («рамки отстают от окна»), поэтому при фокусе на полном
+        экране полосы в OVERLAY просто гаснут (visible), а не уходят вниз — см. apply_fs."""
+        if fs != getattr(self, "fs_layer", False):
+            self.fs_layer = fs
+            GtkLayerShell.set_layer(self.win, GtkLayerShell.Layer.OVERLAY if fs else GtkLayerShell.Layer.TOP)
+            self.win.queue_draw()
+            sm.log("bars: полосы", "над полным экраном" if fs else "обычным слоем", self.out)
+
+    def apply_fs(self, fid):
+        """Слой и видимость полос по фокусу fid (по последнему опросу niri). На столе с полным
+        экраном фокус на нём — niri прячет плавающие под него, и полосы гаснут: иначе висели бы
+        пустыми рамками поверх видео (Alt+Tab, Image 441). True — видимость поменялась."""
+        S, wins, size = getattr(self, "fs_snap", (None, (), None))
+        fs = bool(self.desk_vis and size and any(
+            w.get("workspace_id") == S and not w.get("is_floating") and sm.wsize(w) == list(size) for w in wins))
+        foc = next((w for w in wins if w["id"] == fid), None)
+        self.set_fs_layer(fs)
+        vis = bool(self.desk_vis and (not fs or (foc and foc.get("is_floating"))))
+        changed, self.visible = vis != self.visible, vis
+        return changed
+
+    def fs_focus(self, fid):
+        """Фокус сменился — сразу, не дожидаясь refresh: через цикл обновления полосы
+        появлялись позже окна (21.10.2026, просьба: «рамки отстают от окна»)."""
+        S, wins, _size = getattr(self, "fs_snap", (None, (), None))
+        if any(w["id"] == fid and w.get("workspace_id") == S for w in wins) and self.apply_fs(fid):
+            self.set_input()
+            self.win.queue_draw()
+
     def update(self, wss, wins):
         S = sm.so(self.st, self.out).get("desk")
         act = next((d for d in sm.desks(wss, self.out) if d.get("is_active")), None)
-        self.visible = bool(S and act and act["id"] == S and not self.mgr.overview)
+        self.desk_vis = bool(S and act and act["id"] == S and not self.mgr.overview)
+        size = (getattr(self.mgr, "out_size", None) or {}).get(self.out)
+        self.fs_snap = (S, wins, size)
+        self.apply_fs(act.get("active_window_id") if act else None)
         ox, oy = sm.offset(self.st, self.out)
         mx = self.st.get("max") or {}
         desk = [w for w in wins if S is not None and w.get("workspace_id") == S
@@ -1020,7 +1075,8 @@ class OutBar:
                     sm.log("bars: тяну", b.out, "курсор", int(ev.x), int(ev.y), "→", nx, ny)
             return True
         it, zone = self.hit(ev.x, ev.y)
-        self.set_cursor(zone[3:] if zone and zone.startswith("rs:") else None)
+        edge = zone[3:] if zone and zone.startswith("rs:") else None
+        self.set_cursor(edge)
         if zone and zone.startswith("rs:"):
             zone = "title"                       # ручка — не кнопка, без подсветки
         h = (it["id"], zone) if it and zone != "title" else None
@@ -1146,6 +1202,7 @@ class Bars:
         self.buf = b""
         self.bars = {}
         self.pins = {}           # id → {proc, out, sent}: окна «поверх всех», зеркало stack_pin.py
+        subprocess.Popen([sys.executable, PIN_HELPER, "--sweep"], stdout=subprocess.DEVNULL)  # хвосты прошлого запуска
         self.sync_outputs()
         self.events()
         GLib.timeout_add(700, self.tick)
@@ -1252,6 +1309,7 @@ class Bars:
             if proc.poll() is None:
                 proc.kill()
                 proc.wait()
+                subprocess.Popen([sys.executable, PIN_HELPER, "--sweep"], stdout=subprocess.DEVNULL)
             return False
         GLib.timeout_add(1500, reap)
 
@@ -1351,6 +1409,10 @@ class Bars:
                     sm.A("CloseOverview")
             if "KeyboardLayoutSwitched" in ev or "KeyboardLayoutsChanged" in ev:
                 continue
+            fid = (ev.get("WindowFocusChanged") or {}).get("id")
+            if fid is not None:
+                for b in self.bars.values():
+                    b.fs_focus(fid)
             self.schedule()
         return True
 

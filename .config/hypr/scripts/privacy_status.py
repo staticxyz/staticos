@@ -101,15 +101,21 @@ def scan_mic():
     outputs = run_json(["pactl", "-f", "json", "list", "source-outputs"])
     if outputs is None:
         return None  # pactl недоступен — оставить прежнее состояние
-    monitors = set()
+    monitors, real = set(), set()
     for s in sources or []:
         name = s.get("name") or ""
+        real.add(s.get("index"))
         if s.get("monitor_of_sink") not in (None, "", "n/a") or name.endswith(".monitor"):
             monitors.add(s.get("index"))
     apps = []
     for o in outputs:
         p = o.get("properties") or {}
         if o.get("source") in monitors or p.get("stream.capture.sink") == "true":
+            continue
+        # Запись не с источника, а с потока программы (pw-record --target <поток>: так
+        # lyrics_sync.py пишет песню плеера) — у pactl источник «нет» (4294967295).
+        # Это не микрофон (22.10.2026, просьба: «откуда взялась иконка микрофона?»).
+        if sources is not None and o.get("source") not in real:
             continue
         if o.get("corked") or p.get("node.passive") == "true":
             continue

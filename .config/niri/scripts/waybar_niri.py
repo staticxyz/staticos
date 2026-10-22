@@ -549,7 +549,7 @@ def ensure_icon_font():
         subprocess.run(["python3", builder], capture_output=True)
 
 
-def top_bar_mode(s, mode=None, ws=None):
+def top_bar_mode(s, mode=None, ws=None, stack=False):
     """Режим верхнего бара и место столов (03.10.2026, hypr/scripts/top_bar.py).
 
     hover — бар стартует спрятанным и не резервирует место (ложится поверх окон, когда
@@ -566,7 +566,8 @@ def top_bar_mode(s, mode=None, ws=None):
     if mode == "hover":
         s = s.replace('"layer": "top",', '"layer": "top",\n    "exclusive": false,\n    "start_hidden": true,', 1)
     # ws — панели по мониторам: место столов именно этого монитора (panels.ws_for)
-    if mode == "off" or (ws or read("ws-place", "top")) == "bottom":
+    # stack — стопка окон: столы с бара убраны, все окна на одном (panels.stack_top, 22.10.2026)
+    if mode == "off" or stack or (ws or read("ws-place", "top")) == "bottom":
         s = re.sub(r'\n[ \t]*"niri/workspaces",[ \t]*(?=\n[ \t]*"custom/ribbon")', "", s, count=1)
     return s
 
@@ -616,7 +617,14 @@ def main():
     s = minimal_bar(s, desks=mini == "look") if mini else fix_margins(s)
     head = "// СОБРАНО АВТОМАТИЧЕСКИ из config.jsonc скриптом ~/.config/niri/scripts/waybar_niri.py.\n" \
            "// Не править: при следующем входе в niri файл будет перезаписан.\n"
-    write_if_changed(DST, head + top_bar_mode(s))
+    try:
+        import sys
+        sys.path.insert(0, os.path.expanduser("~/.config/hypr/scripts"))
+        import panels
+        stack = panels.stack_top()
+    except Exception:
+        stack = False
+    write_if_changed(DST, head + top_bar_mode(s, stack=stack))
     per_output(s, head)
 
 
@@ -640,7 +648,8 @@ def per_output(s, head):
                 t = re.sub(r'"output"\s*:\s*\[[^\]]*\]', '"output": ["%s"]' % out, s, count=1)
                 t = t.replace('"layer": "top",', '"layer": "top",\n    "name": "tb-%s",' % mode, 1)
                 path = panels.bar_config(out)
-                write_if_changed(path, head + top_bar_mode(t, mode, ws=panels.ws_for(out, d)))
+                write_if_changed(path, head + top_bar_mode(t, mode, ws=panels.ws_for(out, d),
+                                                              stack=panels.stack_top(out)))
                 keep.add(path)
     except Exception as e:
         print("waybar_niri: панели по мониторам: %r" % e, file=sys.stderr)

@@ -37,6 +37,8 @@ class VolumePopup(Gtk.Window):
         # Гамма и каркас CSS — общие для попапов бара, см. popup_theme.py.
         # Ручка шкалы — tertiary, а не secondary: в scheme-fidelity secondary
         # обычно совпадает с primary, и ручка сливалась бы с заполнением.
+        # Из нижней панели — в стиле системы монитора и вплотную к панели (22.10.2026)
+        self.xp = popup_theme.FROM_XPBAR and popup_theme.xp_style() != "default"
         css = popup_theme.css(
             popup_theme.SCALE_CSS + """
         /* Компактнее (30.09.2026: «слишком крупно»): пиксельный шрифт
@@ -55,6 +57,11 @@ class VolumePopup(Gtk.Window):
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        if self.xp:
+            skin = Gtk.CssProvider()
+            skin.load_from_data(popup_theme.xp_skin_css(pad="12px 15px 9px 15px").encode())
+            Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), skin,
+                                                     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
 
         self.bg = Gtk.EventBox()
         self.bg.connect("button-press-event", lambda w, e: self._exit())
@@ -65,7 +72,10 @@ class VolumePopup(Gtk.Window):
         # попапов бара, см. popup_theme.place_under_cursor. Раньше здесь были
         # отступ 34 сверху (слой и так начинается под панелью, так что попап
         # висел на полосу ниже) и жёсткий отступ от правого края.
-        popup_theme.place_under_cursor(self.align)
+        if self.xp:
+            popup_theme.xp_place(self, self.align, right=8)
+        else:
+            popup_theme.place_under_cursor(self.align)
         self.bg.add(self.align)
 
         self.popup_event = Gtk.EventBox()
@@ -119,9 +129,7 @@ class VolumePopup(Gtk.Window):
 
         if groups:
             vbox.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
-            sec = Gtk.Label(label="Активные источники", xalign=0)
-            sec.get_style_context().add_class("section")
-            vbox.pack_start(sec, False, False, 0)
+            # без подписи «Активные источники» (22.10.2026, просьба: «лишний»)
             for app_name, streams in groups.items():
                 media_name = streams[0].proplist.get('media.name', '')
                 if (len(streams) == 1 and media_name

@@ -5,6 +5,8 @@
 (~/.config/hub/env) и owner (config.json). Без них — только ПК.
 Опрос раз в 2 с; после сна просроченное выходит одной пачкой."""
 import datetime as dt
+import glob
+import json
 import os
 import signal
 import subprocess
@@ -18,7 +20,6 @@ import hublib as H  # noqa: E402
 import hubtg as T  # noqa: E402
 import hubguard  # noqa: E402
 import hubwa  # noqa: E402
-from idle_guard import video_in_focus  # noqa: E402
 import session_env  # noqa: E402
 
 TICK = 2
@@ -28,7 +29,6 @@ DIGEST_ON = False                  # утренняя сводка выключ�
 NAG_DAYS = [3, 7, 14, 30]            # ступени «запылился» для пунктов без срока
 RING_MAX = 300
 SOUND = "/usr/share/sounds/freedesktop/stereo/complete.oga"
-PRESENCE_IDLE = 300                  # простоя без видео — считаем, что ПК не рядом
 INPUT_FILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()), "jarvis-input")
 
 stop = threading.Event()
@@ -42,21 +42,56 @@ def locked():
     return hubguard.locked()
 
 
-def pc_present():
-    """Рядом ли с ПК: простой меньше 5 мин (hypridle пишет jarvis-input), или в фокусе
-    играет видео — тогда и звук, и экран ПК всё равно смотрят/слушают. Иначе — только телефон,
-    без звука и уведомления на ПК. Нет данных о простое — считаем, что рядом (меньше риска тишины)."""
+RUN_DIR = os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
+SCREENS_OFF = os.path.join(RUN_DIR, "jarvis-screens-off.json")    # «Погасить» в боте (idle_dim off)
+SCREEN_DIM = os.path.expanduser("~/.cache/screen-dim")             # приглушение по простою (screen_gamma)
+WOKE = {"at": 0}                     # плановое пробуждение (RTC): до первого ввода после него — вас нет
+
+
+def screen_away():
+    """Почему экран ПК сейчас никто не смотрит, или None. 21.10.2026, просьба: «уберём нажатия
+    с логики уведомлений. Будет считаться, что я за ПК, если на экране нет заставки или экрана
+    блокировки, или же любые затемнения»."""
+    if hubguard.locked():
+        return "блокировка"
+    try:
+        out = subprocess.run(["niri", "msg", "-j", "layers"], capture_output=True, text=True, timeout=2).stdout
+        if '"jarvis-screensaver"' in out:
+            return "заставка"
+        if '"hyprlock"' in out or '"jarvis-lock' in out:
+            return "блокировка"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if os.path.exists(SCREENS_OFF):
+        return "экраны погашены"
+    try:
+        if open(SCREEN_DIM).read().strip() in ("soft", "deep"):
+            return "затемнение"
+    except OSError:
+        pass
+    return None
+
+
+def input_since(t):
+    """Был ли ввод (клавиши, мышь) после t — по jarvis-input от hypridle."""
     try:
         state, ts = open(INPUT_FILE).read().split()
-        idle_for = H.now() - int(ts) if state == "idle" else 0
+        return state == "active" and int(ts) > t
     except (OSError, ValueError):
-        return True
-    if idle_for < PRESENCE_IDLE:
-        return True
-    try:
-        return bool(video_in_focus())
-    except Exception:
-        return True
+        return False
+
+
+def pc_present():
+    """За ПК ли пользователь: на экране нет заставки, блокировки, затемнения и экраны не погашены.
+    Иначе — только телефон, без звука и уведомления на ПК. После планового пробуждения (часы
+    разбудили ПК ради будильника или напоминания) — нет, пока не тронули клавиатуру или мышь:
+    перед сном экран запирается (before_sleep_cmd), но если блокировка не встала, напоминание
+    всё равно уйдёт в Telegram."""
+    if WOKE["at"]:
+        if not input_since(WOKE["at"]):
+            return False
+        WOKE["at"] = 0
+    return screen_away() is None
 
 
 _mean_db = {}
@@ -130,24 +165,30 @@ DOUBLE_GUARD = 0.6
 _last_press = {"t": 0.0, "nid": None}
 
 
-def notify(title, body, iid, critical=False, timer=False, again=False, rep=False):
+def notify(title, body, iid, critical=False, timer=False, again=False, rep=False, group=None):
     """Уведомление на ПК. notify-send -A ждёт реакции в потоке: кнопка или закрытие = «увидел».
     again — показ заново после смены DND: без звонка, реакция та же. rep — повторяющееся:
-    кнопки «Отметить» (срок → следующий раз) и «Закрыть цикл» (14.10.2026)."""
+    кнопки «Отметить» (срок → следующий раз) и «Закрыть цикл» (14.10.2026). group — сводка
+    «На сегодня» (allday_fire): номера её пунктов, кнопка «Открыть список»."""
     if not timer and not again:
         chime()                                    # у таймера свой звонок — ring()
     def work():
         cmd = ["notify-send", "-a", "hub", "-u", "critical" if critical else "normal", "-p"]
-        if iid:                                     # у сводки (iid 0) пункта нет — и кнопок тоже
+        if group:                                   # сводка «На сегодня»: щелчок или кнопка — окно hub
+            cmd += ["-A", "default=Открыть", "-A", "open=☰ Открыть список"]
+        elif iid:                                   # у сводки (iid 0) пункта нет — и кнопок тоже
             # 15.10.2026, просьба: «не будем вообще ничего удалять… если я закрою уведомление,
             # это и будет Скрыть». У напоминания две кнопки: «Сделано» (→ «Выполненные»;
             # у повторяющегося — срок на следующий раз) и «+1 час»; закрыть = скрыть.
-            # «■ Стоп» остался только у таймера.
-            cmd += ["-A", "done=✓ Отметить" if rep else "done=✓ Сделано", "-A", "later=+1 час"]
+            # «■ Стоп» остался только у таймера. У таймера «Сделано» убрано (21.10.2026, просьба:
+            # «как будто дубль») — то же, что «Стоп»: звонок молкнет, выполненные таймеры нигде
+            # не видны. Как в Telegram: «■ Стоп» и отсрочка.
             if timer:
-                cmd += ["-A", "stop=■ Стоп"]
+                cmd += ["-A", "stop=■ Стоп", "-A", "later=+1 час"]
+            else:
+                cmd += ["-A", "done=✓ Отметить" if rep else "done=✓ Сделано", "-A", "later=+1 час"]
         cmd += ["-w", title, body]
-        entry, key = {"nid": None, "again": False, "iid": iid}, object()
+        entry, key = {"nid": None, "again": False, "iid": iid, "group": group}, object()
         try:
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                  stdin=subprocess.DEVNULL, text=True)
@@ -169,7 +210,17 @@ def notify(title, body, iid, critical=False, timer=False, again=False, rep=False
             gate = entry.get("gate")
             if gate is not None:
                 gate.wait(5)                        # сперва hide-all убирает призраков
-            notify(title, body, iid, critical, timer, again=True, rep=rep)
+            notify(title, body, iid, critical, timer, again=True, rep=rep, group=group)
+            return
+        if group:                                   # закрыл или открыл — увидел все пункты сводки
+            c = H.connect()
+            for i in group:
+                H.mark_seen(c, i)
+            c.close()
+            if act in ("open", "default"):
+                subprocess.Popen([os.path.expanduser("~/.local/bin/hub-open")], start_new_session=True,
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
             return
         if not iid:
             return
@@ -267,8 +318,8 @@ def unshow_all(c):
     for e in items:
         try:
             close_nid(e["nid"])
-            if e["iid"]:
-                c.execute("UPDATE items SET fired_pc=NULL WHERE id=? AND status='open'", (e["iid"],))
+            for i in ([e["iid"]] if e["iid"] else []) + list(e.get("group") or []):
+                c.execute("UPDATE items SET fired_pc=NULL WHERE id=? AND status='open'", (i,))
         except Exception:
             pass
     if items:
@@ -282,6 +333,11 @@ def close_stale(c):
     with shown_lock:
         items = list(shown.values())
     for e in items:
+        if e.get("group") and not e.get("gone"):
+            if not any((H.get_item(c, i) or {"status": ""})["status"] == "open" for i in e["group"]):
+                e["gone"] = True
+                close_nid(e["nid"])
+            continue
         if not e["iid"] or e.get("gone"):
             continue
         it = H.get_item(c, e["iid"])
@@ -362,6 +418,8 @@ def fire(c, it):
     here = pc_present()
     c.execute("UPDATE items SET fired_pc=? WHERE id=?", (t, it["id"]))
     log("fire", it["id"], it["text"], "pc" if here else "телефон")
+    H.note(c, "fire", "%s «%s» → %s" % ("таймер" if it["kind"] == "timer" else "напоминание",
+                                        " ".join(it["text"].split())[:80], "на ПК" if here else "в Telegram"))
     if here:
         # critical — висит, пока не нажмёшь (у swaync timeout-critical 0). 13.10.2026: просьба
         # Пользователя, у normal таймаут 9 с, и напоминание пропадало само, как у таймеров — нет.
@@ -379,29 +437,112 @@ def send_tg(c, it):
     T.enqueue(c, text, btn, it["id"])
 
 
-def allday_again(c):
-    """«Только дата» (15.10.2026, пользователь): в 9, 12, 15 и 18 своего дня напомнить снова,
-    пока не отмечено. Прежнее уведомление (если висит) — закрыть, чтобы не копились."""
+ALLDAY_SHOW = 3                      # строк в сводке «На сегодня» на ПК, остальное — «и ещё N»
+
+
+def allday_today(c):
+    """Открытые «только дата» на сегодня (уже наступившие, с 09:00): сперва важные, внутри —
+    порядок окна hub (order_open)."""
+    t0 = int(dt.datetime.combine(dt.date.today(), dt.time(0)).timestamp())
+    rows = c.execute("SELECT i.*, l.name AS list FROM items i JOIN lists l ON l.id=i.list_id "
+                     "WHERE i.status='open' AND i.kind='task' AND i.allday=1 AND i.due>=? AND "
+                     "i.due<? AND i.due<=?", (t0, t0 + 86400, H.now())).fetchall()
+    return sorted(T.order_open(rows), key=lambda r: -(r["prio"] or 0))
+
+
+def is_allday_today(it):
+    return bool(it["allday"]) and it["kind"] == "task" and it["due"] is not None and \
+        dt.datetime.fromtimestamp(it["due"]).date() == dt.date.today()
+
+
+def _n_tasks(n):
+    w = "задача" if n % 10 == 1 and n % 100 != 11 else \
+        "задачи" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "задач"
+    return "%d %s" % (n, w)
+
+
+def _short(t, n=44):
+    t = " ".join((t or "").split())
+    return t if len(t) <= n else t[:n - 1].rstrip() + "…"
+
+
+def _done_today(c):
+    t0 = int(dt.datetime.combine(dt.date.today(), dt.time(0)).timestamp())
+    return c.execute("SELECT COUNT(*) FROM items WHERE allday=1 AND status='done' AND done_at>=?",
+                     (t0,)).fetchone()[0]
+
+
+def allday_text(c, rows, full=False):
+    """(заголовок, текст) сводки. На ПК — первые ALLDAY_SHOW и «и ещё N», в Telegram — все."""
+    head = "На сегодня: " + _n_tasks(len(rows))
+    show = rows if full else rows[:ALLDAY_SHOW]
+    lines = [("🔴 " if full and (r["prio"] or 0) == 2 else "🟡 " if full and (r["prio"] or 0) == 1
+              else "• ") + (r["text"] if full else _short(r["text"])) for r in show]
+    if len(rows) > len(show):
+        lines.append("и ещё %d" % (len(rows) - len(show)))
+    k = _done_today(c)
+    if k:
+        lines.append("Сделано сегодня: %d" % k)
+    return head, "\n".join(lines)
+
+
+def send_tg_allday(c, rows):
+    """Одна сводка в Telegram вместо сообщения на каждую задачу; кнопка — список на сегодня."""
+    t = H.now()
+    for r in rows:
+        c.execute("UPDATE items SET fired_tg=? WHERE id=?", (t, r["id"]))
+    head, body = allday_text(c, rows, full=True)
+    T.enqueue(c, head + ", сэр.\n\n" + body, [[T.btn("■ Список на сегодня", "k:per:today")]])
+
+
+def allday_fire(c, rows):
+    """Показать задачи «на день» разом: две и больше — одной сводкой, одна — обычным
+    напоминанием (с «Сделано»/«+1 час»). Прежние карточки этих пунктов закрываются."""
+    ids = {r["id"] for r in rows}
+    with shown_lock:
+        old = [e for e in shown.values() if not e.get("gone") and
+               (e["iid"] in ids or set(e.get("group") or ()) & ids)]
+    for e in old:
+        e["gone"] = True
+        close_nid(e["nid"])
+    t = H.now()
+    for r in rows:
+        c.execute("UPDATE items SET fired_pc=?, fired_tg=NULL, seen=0 WHERE id=?", (t, r["id"]))
+    if len(rows) == 1:
+        fire(c, rows[0])
+        return
+    here = pc_present()
+    log("allday: сводка", sorted(ids), "pc" if here else "телефон")
+    if here:
+        head, body = allday_text(c, rows)
+        notify(head, body, 0, critical=True, group=sorted(ids))
+    elif T.token():
+        send_tg_allday(c, rows)
+
+
+def allday_tick(c):
+    """«Только дата» (15.10.2026): в 9, 12, 15 и 18 своего дня напомнить, пока не отмечено.
+    21.10.2026, просьба: «прилетают стопкой все сразу… давай одно общее уведомление, где будет
+    краткая сводка» — теперь в каждый такой час одна сводка со всеми неотмеченными на сегодня.
+    Новая задача на сегодня, записанная после 9, ждёт ближайшего часа (H._quiet)."""
+    rows = allday_today(c)
+    if not rows:
+        return
     t = H.now()
     today = dt.date.today()
-    for it in c.execute("SELECT i.*, l.name AS list FROM items i JOIN lists l ON l.id=i.list_id "
-                        "WHERE i.status='open' AND i.allday=1 AND i.due IS NOT NULL AND "
-                        "i.fired_pc IS NOT NULL", ()).fetchall():
-        d = dt.datetime.fromtimestamp(it["due"]).date()
-        if d != today:
-            continue
+    due = False
+    for it in rows:
+        if it["fired_pc"] is None:
+            due = True
+            break
         fired = dt.datetime.fromtimestamp(it["fired_pc"])
-        nxt = next((x for x in (dt.datetime.combine(d, dt.time(h)) for h in H.ALLDAY_HOURS)
+        nxt = next((x for x in (dt.datetime.combine(today, dt.time(h)) for h in H.ALLDAY_HOURS)
                     if x > fired), None)
-        if nxt is None or nxt.timestamp() > t:
-            continue
-        with shown_lock:
-            old = [e for e in shown.values() if e["iid"] == it["id"] and not e.get("gone")]
-        for e in old:
-            e["gone"] = True
-            close_nid(e["nid"])
-        c.execute("UPDATE items SET fired_tg=NULL, seen=0 WHERE id=?", (it["id"],))
-        fire(c, it)
+        if nxt is not None and nxt.timestamp() <= t:
+            due = True
+            break
+    if due:
+        allday_fire(c, rows)
 
 
 def tick(c):
@@ -418,8 +559,9 @@ def tick(c):
     for it in c.execute("SELECT i.*, l.name AS list FROM items i JOIN lists l ON l.id=i.list_id "
                         "WHERE i.status='open' AND i.due IS NOT NULL AND i.due<=? AND i.fired_pc IS NULL",
                         (t,)).fetchall():
-        fire(c, it)
-    allday_again(c)
+        if not is_allday_today(it):                 # задачи на сегодня — сводкой (allday_tick)
+            fire(c, it)
+    allday_tick(c)
     close_stale(c)
     if not T.token():
         return
@@ -427,8 +569,18 @@ def tick(c):
     for it in c.execute("SELECT i.*, l.name AS list FROM items i JOIN lists l ON l.id=i.list_id "
                         "WHERE i.status='open' AND i.kind='task' AND i.fired_pc IS NOT NULL AND "
                         "i.fired_tg IS NULL AND i.seen=0 AND i.fired_pc<=?", (t - esc,)).fetchall():
+        if is_allday_today(it):
+            continue
         send_tg(c, it)
         log("escalate", it["id"])
+    late = [r for r in allday_today(c) if r["fired_pc"] is not None and r["fired_tg"] is None
+            and not r["seen"] and r["fired_pc"] <= t - esc]
+    if len(late) == 1:
+        send_tg(c, late[0])
+        log("escalate", late[0]["id"])
+    elif late:
+        send_tg_allday(c, late)
+        log("escalate: сводка", [r["id"] for r in late])
 
 
 def digest(c):
@@ -532,67 +684,63 @@ def photo(caption):
             pass
 
 
-# 14.10.2026: «ПК уходит в сон (02:05)» пришло в 07:25 — logind ждёт перед сном не дольше
-# InhibitDelayMaxSec (было 5 с), а путь до Telegram (напрямую 6 с + Tor) длиннее: ноутбук
-# уснул посреди отправки, она доехала после пробуждения. Теперь о сне — только вовремя:
-# свой бюджет, в очередь не кладём, а доехавшее после сна — удаляем. Сон по простою и из
-# меню (idle_suspend, power_menu) сообщает заранее командой `hubd.py sleep-notice`, до сна.
-SLEEP_BUDGET = 12          # logind с 14.10 ждёт до 15 с (logind.conf.d/50-jarvis-delay.conf)
+# 21.10.2026, просьба: «/log … бот не будет каждый раз отправлять сообщение, он просто
+# напишет в лог». Сон, выключение и пробуждения больше не пишутся в Telegram — только в
+# журнал хаба (hublib.note → /log файлом). Скрипты, усыпляющие ПК (idle_suspend по
+# простою, power_menu), заранее называют причину: `hubd.py sleep-notice idle|menu`.
 RTC_PLAN = os.path.expanduser("~/.local/state/jarvis-wake/rtc-wake")
+SLEEP_SRC = {"idle": "по простою", "menu": "из меню питания"}
 
 
-def say_in_time(text, budget):
-    """Отправить за budget секунд или никак. True — ушло вовремя."""
-    tok = T.token()
-    if not tok or not T.owner_ids():
-        return False
-    t0 = time.time()
-    res = []
-
-    def run():
-        bot = T.Bot(tok)
-        for ch in T.owner_ids():
-            try:
-                m = bot.call("sendMessage", {"chat_id": ch, "text": text}, timeout=budget)
-            except Exception as e:
-                log("say_in_time:", repr(e))
-                continue
-            if time.time() - t0 > budget + 20:      # доехало после сна — уже не нужно
-                try:
-                    bot.call("deleteMessage", {"chat_id": ch, "message_id": m["message_id"]}, timeout=20)
-                except Exception:
-                    pass
-            else:
-                res.append(1)
-    th = threading.Thread(target=run, daemon=True)
-    th.start()
-    th.join(budget)
-    return bool(res)
-
-
-def sleep_text(hm):
-    nxt = ""
-    try:
-        t = int(open(RTC_PLAN).read().strip() or 0)
-        if t > time.time():
-            nxt = " Плановое включение — %s." % time.strftime(
-                "%H:%M" if time.localtime(t)[:3] == time.localtime()[:3] else "%d.%m %H:%M",
-                time.localtime(t))
-    except (OSError, ValueError):
-        pass
-    return "ПК уходит в сон (%s). Пока он спит, я не отвечу, сэр.%s" % (hm, nxt)
-
-
-def sleep_notice():
-    """`hubd.py sleep-notice` — перед systemctl suspend из своих скриптов: сообщить до сна."""
-    ok = say_in_time(sleep_text(time.strftime("%H:%M")), 15)
+def jnote(kind, text):
+    log("журнал:", text)
     try:
         c = H.connect()
-        H.meta_set(c, "sleep_noticed", H.now() if ok else 0)
+        H.note(c, kind, text)
+        c.close()
+    except Exception as e:
+        log("журнал не записан:", repr(e))
+
+
+def hm_of(t):
+    return time.strftime("%H:%M" if time.localtime(t)[:3] == time.localtime()[:3] else "%d.%m %H:%M",
+                         time.localtime(t))
+
+
+def plan_text():
+    """« · проснётся по часам 04:25 — будильник 05:00» по свежему плану или «»."""
+    try:
+        t = int(open(RTC_PLAN).read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return " · проснётся только вручную"
+    if t <= time.time():
+        return " · проснётся только вручную"
+    why = rtc_why()
+    return " · проснётся по часам в %s%s" % (hm_of(t), (" — " + why["title"]) if why.get("title") else "")
+
+
+def sleep_notice(src=""):
+    """`hubd.py sleep-notice idle|menu` — перед systemctl suspend из своих скриптов: причина сна."""
+    try:
+        c = H.connect()
+        H.meta_set(c, "sleep_src", "%s %d" % (src or "menu", H.now()))
         c.close()
     except Exception:
+        return 1
+    return 0
+
+
+def sleep_src():
+    try:
+        c = H.connect()
+        v = (H.meta_get(c, "sleep_src", "") or "").split()
+        H.meta_set(c, "sleep_src", "")
+        c.close()
+        if len(v) == 2 and H.now() - int(v[1]) < 120:
+            return SLEEP_SRC.get(v[0], v[0])
+    except Exception:
         pass
-    return 0 if ok else 1
+    return "крышка закрыта" if lid_closed() else "кнопка или команда"
 
 
 def rtc_planned():
@@ -611,62 +759,126 @@ def rtc_planned():
     return None
 
 
-def wake_text(sleep_at):
-    now = time.time()
-    hm = time.strftime("%H:%M")
-    slept = ""
-    if sleep_at and 0 < now - sleep_at < 30 * 86400:
-        slept = "Спал %s (%s–%s)." % (H.fmt_secs(now - sleep_at), time.strftime(
-            "%H:%M" if time.localtime(sleep_at)[:3] == time.localtime()[:3] else "%d.%m %H:%M",
-            time.localtime(sleep_at)), hm)
-    t = rtc_planned()
-    if t and abs(now - t) < 180:
-        return "Плановое включение отработало, сэр. " + ("ПК с" + slept[1:] if slept else "(%s)" % hm)
-    return "ПК проснулся (%s). %s" % (hm, slept) if slept else "ПК проснулся (%s)." % hm
+def rtc_why():
+    """Ради чего завели часы (wake_alarm.py пишет rtc-wake.why): {src: alarm|hub, kind, title…}."""
+    try:
+        return json.load(open(RTC_PLAN + ".why"))
+    except (OSError, ValueError):
+        return {}
+
+
+def quiet_wake():
+    """Плановое пробуждение ради напоминания или таймера хаба, к ПК никто не подходил, — о сне
+    и пробуждении боту не писать: на каждое напоминание по два лишних сообщения. Будильник
+    (src alarm) сообщается, как раньше."""
+    return bool(WOKE["at"]) and (WOKE.get("why") or {}).get("src") == "hub" and not input_since(WOKE["at"])
+
+
+WAKE_HOLD_MAX = 120                  # дольше не держим ПК проснувшимся ради доставки, с
+WAKE_HOLD_MIN = 8
+
+
+def lid_closed():
+    for f in glob.glob("/proc/acpi/button/lid/*/state"):
+        try:
+            if "closed" in open(f).read():
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def wake_hold(woke_at, why):
+    """После пробуждения ради хаба не дать logind сразу усыпить ПК снова (крышка закрыта —
+    через ~30 с) — пока напоминание не сработало и Telegram не принял всё из очереди, не
+    дольше WAKE_HOLD_MAX. Потом, если к ПК никто не подошёл, — обратно в сон через
+    idle_suspend, без сообщения «ПК засыпает» (21.10.2026)."""
+    lock = subprocess.Popen(["systemd-inhibit", "--what=sleep:handle-lid-switch", "--mode=block", "--who=hub",
+                             "--why=доставить напоминание", "sleep", str(WAKE_HOLD_MAX)],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # сеть поднимается за секунды; такт хаба — 2 с, напоминание срабатывает к at+2
+    ready = max(woke_at + WAKE_HOLD_MIN, float(why.get("at") or 0) + 4)
+    try:
+        while not stop.wait(2) and time.time() < woke_at + WAKE_HOLD_MAX:
+            if input_since(woke_at):
+                jnote("wake", "после пробуждения вы за ПК — не усыплял")
+                return
+            if time.time() < ready:
+                continue
+            c = H.connect()
+            left = c.execute("SELECT count(*) FROM outbox WHERE sent_at IS NULL AND created>?",
+                             (H.now() - 1800,)).fetchone()[0]
+            c.close()
+            if not left:
+                break
+    finally:
+        lock.terminate()
+    if stop.is_set() or input_since(woke_at):
+        return
+    jnote("wake", "доставлено, обратно в сон (крышка %s)" % ("закрыта" if lid_closed() else "открыта"))
+    # idle_suspend сам смотрит Savage Mode, игру, будильник и заводит часы на следующее
+    subprocess.run([os.path.expanduser("~/.config/hypr/scripts/idle_suspend")],
+                   env=dict(os.environ, HUB_QUIET_SLEEP="1"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def plan_refresh():
+    """Перед сном пересчитать план пробуждения (wake_alarm.py rtc check) — пока держим задержку
+    logind, хук jarvis-rtc-wake ещё не читал файл."""
+    try:
+        subprocess.run([sys.executable, os.path.expanduser("~/.config/hypr/scripts/wake_alarm.py"), "rtc", "check"],
+                       capture_output=True, timeout=3)
+    except (OSError, subprocess.SubprocessError) as e:
+        log("план пробуждения перед сном:", e)
 
 
 def power_watch():
-    """Следит за сном/выключением через logind (сигналы PrepareForSleep/Shutdown) и говорит боту
-    заранее, держа задерживающую блокировку (до 5 с у logind), чтобы сообщение успело уйти.
-    Тишина бота = ПК выключен или спит; последнее сообщение объясняет, почему."""
+    """Следит за сном/выключением через logind (сигналы PrepareForSleep/Shutdown) и пишет их в
+    журнал /log, держа задерживающую блокировку logind, пока план пробуждения пересчитывается.
+    До 21.10.2026 о каждом сне и пробуждении писал в Telegram."""
     from gi.repository import Gio, GLib
 
     def take():
         return subprocess.Popen(["systemd-inhibit", "--what=sleep:shutdown", "--mode=delay", "--who=hub",
-                                 "--why=сообщить боту", "sleep", "infinity"],
+                                 "--why=записать сон в журнал", "sleep", "infinity"],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     st = {"lock": take()}
 
     def on_signal(_c, _s, _p, _i, name, params, *_a):
         going = params.unpack()[0]
         member = "sleep" if name == "PrepareForSleep" else "shutdown"
-        hm = time.strftime("%H:%M")
         if going:
             st["sleep_at"] = time.time()
             try:
                 c = H.connect()
-                noticed = int(H.meta_get(c, "sleep_noticed", 0) or 0)
                 H.meta_set(c, "heartbeat", H.now())
                 H.meta_set(c, "down_reason", member)
                 c.close()
             except Exception:
-                noticed = 0
+                pass
             if member == "sleep":
-                if H.now() - noticed > 120:      # свой скрипт уже сообщил — не повторять
-                    say_in_time(sleep_text(hm), SLEEP_BUDGET)
+                plan_refresh()                   # таймер, заведённый перед самой крышкой, — тоже в план
+                why = "снова, после пробуждения ради хаба" if quiet_wake() else sleep_src()
+                jnote("power", "сон (%s)%s" % (why, plan_text()))
             else:
-                say_in_time("ПК выключается или перезагружается (%s). Пока он выключен, я не "
-                            "отвечу, сэр." % hm, SLEEP_BUDGET)
+                jnote("power", "выключение или перезагрузка")
             st["lock"].terminate()
         elif member == "sleep":
-            try:
-                c = H.connect()
-                H.meta_set(c, "sleep_noticed", 0)
-                c.close()
-            except Exception:
-                pass
             hubguard.resumed()                   # охране: ввод в первые секунды — не человек
-            say(wake_text(st.get("sleep_at")))
+            t = rtc_planned()
+            if t and abs(time.time() - t) < 180:
+                WOKE["at"] = time.time()         # проснулись по часам — вас нет до первого ввода
+                WOKE["why"] = rtc_why()
+            slept = st.get("sleep_at")
+            slept = " · спал %s, с %s" % (H.fmt_secs(time.time() - slept), hm_of(slept)) \
+                if slept and 0 < time.time() - slept < 30 * 86400 else ""
+            if quiet_wake():
+                jnote("wake", "пробуждение по часам ради хаба: %s%s" % (WOKE["why"].get("title") or "—", slept))
+                threading.Thread(target=wake_hold, args=(WOKE["at"], WOKE["why"]), daemon=True).start()
+            elif t and abs(time.time() - t) < 180:
+                w = WOKE.get("why") or {}
+                jnote("wake", "пробуждение по часам%s%s" % ((": " + w["title"]) if w.get("title") else "", slept))
+            else:
+                jnote("power", "проснулся%s" % slept)
             st["lock"] = take()
     bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
     for name in ("PrepareForSleep", "PrepareForShutdown"):
@@ -675,6 +887,39 @@ def power_watch():
     loop = GLib.MainLoop()
     threading.Thread(target=lambda: (stop.wait(), loop.quit()), daemon=True).start()
     loop.run()
+
+
+def journal_seed(c):
+    """Один раз (21.10.2026): журнал /log начинается с истории хука jarvis-rtc-wake за 2 недели."""
+    if H.meta_get(c, "journal_seeded"):
+        return
+    try:
+        out = subprocess.run(["journalctl", "-t", "jarvis-rtc-wake", "--since", "-14d", "-o", "json", "--no-pager", "-q"],
+                             capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    plan = None
+    for line in out.splitlines():
+        try:
+            j = json.loads(line)
+            ts, msg = int(j["__REALTIME_TIMESTAMP"]) // 1000000, j.get("MESSAGE") or ""
+        except (ValueError, KeyError, TypeError):
+            continue
+        if msg.startswith("проснуться в "):
+            try:
+                plan = time.mktime(time.strptime(msg[13:32], "%Y-%m-%d %H:%M:%S"))
+            except ValueError:
+                plan = None
+            H.note(c, "power", "сон · проснётся по часам в %s" % (
+                time.strftime("%d.%m %H:%M", time.localtime(plan)) if plan else msg[13:29]), ts)
+        elif msg.startswith("план устарел"):
+            plan = None
+            H.note(c, "power", "сон · проснётся только вручную", ts)
+        elif msg == "проснулся":
+            H.note(c, "wake" if plan and abs(ts - plan) < 180 else "power",
+                   "пробуждение по часам" if plan and abs(ts - plan) < 180 else "проснулся", ts)
+            plan = None
+    H.meta_set(c, "journal_seeded", 1)
 
 
 def main():
@@ -688,10 +933,10 @@ def main():
     if last and H.now() - int(last) > 90:
         gap = H.now() - int(last)
         why = {"sleep": "сон", "shutdown": "выключение или перезагрузка"}.get(reason, "причина неизвестна — возможно, сбой питания")
-        threading.Thread(target=lambda: say("ПК снова в сети (%s). Не был доступен с %s, около %s (%s)." % (
-            time.strftime("%H:%M"), time.strftime("%H:%M", time.localtime(int(last))), H.fmt_secs(gap), why)),
-            daemon=True).start()
+        jnote("power", "хаб снова в сети · не был доступен с %s, около %s (%s)" % (
+            hm_of(int(last)), H.fmt_secs(gap), why))
     H.meta_set(c, "down_reason", "")
+    journal_seed(c)
     threading.Thread(target=power_watch, daemon=True).start()
     def send_file(path, caption="", kind="document"):
         tok = T.token()
@@ -754,5 +999,5 @@ def main():
 
 if __name__ == "__main__":
     if sys.argv[1:2] == ["sleep-notice"]:
-        sys.exit(sleep_notice())
+        sys.exit(sleep_notice(sys.argv[2] if len(sys.argv) > 2 else ""))
     main()

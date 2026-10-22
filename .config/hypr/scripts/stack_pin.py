@@ -14,6 +14,7 @@ org.gnome.Mutter.ScreenCast niri (RecordWindow, без диалога порта
 
     stack_pin.py ID ВЫХОД            зеркало окна ID на мониторе ВЫХОД
     stack_pin.py --frame ID ФАЙЛ     один кадр окна в PNG (проверка без окон на экране)
+    stack_pin.py --sweep             закрыть записи зеркал, убитых без quit (красная рамка)
 """
 import ctypes
 import os
@@ -176,6 +177,8 @@ class Mirror:
         with open(self.mark, "w") as f:          # до записи: niri сообщит о ней сразу
             f.write(str(os.getpid()))
         self.cast = Cast(wid, self.on_node, self.quit)
+        with open(self.mark + ".session", "w") as f:   # для sweep(), если зеркало убьют силой
+            f.write(self.cast.session)
         GLib.io_add_watch(sys.stdin.fileno(), GLib.PRIORITY_DEFAULT, GLib.IO_IN | GLib.IO_HUP, self.on_cmd)
         signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, self.quit)
         signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
@@ -284,15 +287,51 @@ class Mirror:
         if self.pipe is not None:
             self.pipe.set_state(Gst.State.NULL)
         self.cast.stop()
-        try:
-            os.unlink(self.mark)
-        except OSError:
-            pass
+        for path in (self.mark, self.mark + ".session"):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
         Gtk.main_quit()
         return False
 
 
+def sweep():
+    """Закрыть записи мёртвых зеркал. Убитое без quit (SIGKILL, падение) оставляет сессию niri:
+    окно в красной рамке трансляции, пока niri не перезапущен (22.10.2026, просьба: «красная
+    линия» вокруг btop — три забытые записи с опытов 21.10)."""
+    try:
+        names = [n for n in os.listdir(MARKS) if n.endswith(".session")]
+    except OSError:
+        return 0
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    n_closed = 0
+    for n in names:
+        mark = os.path.join(MARKS, n[:-len(".session")])
+        try:
+            os.kill(int(open(mark).read().strip()), 0)
+            continue                             # зеркало живо
+        except (OSError, ValueError):
+            pass
+        try:
+            session = open(os.path.join(MARKS, n)).read().strip()
+            bus.call_sync(MUTTER, session, MUTTER + ".Session", "Stop", None, None,
+                          Gio.DBusCallFlags.NONE, 3000, None)
+            n_closed += 1
+        except (OSError, GLib.Error):
+            pass                                 # сессии уже нет
+        for path in (mark, os.path.join(MARKS, n)):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+    return n_closed
+
+
 def main(argv):
+    if argv[1:] == ["--sweep"]:
+        print("закрыто записей:", sweep())
+        return 0
     if len(argv) == 4 and argv[1] == "--frame":
         return frame(int(argv[2]), argv[3])
     if len(argv) != 3 or not argv[1].isdigit():

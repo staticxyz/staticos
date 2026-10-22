@@ -60,17 +60,22 @@ def _out(*cmd):
 
 
 def video_in_focus():
-    """Название видео, если оно играет в окне в фокусе, иначе None."""
+    """Название видео, если оно играет в окне, которое видно на экране, иначе None.
+    21.10.2026, просьба: экран тускнел, когда видео шло в одном окне браузера, а в фокусе
+    было другое (чат). Теперь годится любое окно на открытом столе любого монитора, не
+    только в фокусе; свёрнутое или на другом столе — нет. Имя функции прежнее — её зовут
+    idle_dim, idle_lock, idle_suspend, island_nudge."""
     try:
-        w = json.loads(_out("niri", "msg", "-j", "focused-window") or "null")
-    except ValueError:
+        wins = json.loads(_out("niri", "msg", "-j", "windows") or "[]")
+        shown = {d["id"] for d in json.loads(_out("niri", "msg", "-j", "workspaces") or "[]")
+                 if d.get("is_active")}
+    except (ValueError, KeyError, TypeError):
         return None
-    if not w:
+    vis = [w for w in wins if w.get("workspace_id") in shown
+           and VIDEO_APPS.search((w.get("app_id") or "").lower())]
+    if not vis:
         return None
-    app, title = (w.get("app_id") or "").lower(), (w.get("title") or "")
-    if not VIDEO_APPS.search(app):
-        return None
-    browser = any(b in app for b in BROWSERS)
+    vbrowser = [w for w in vis if any(b in (w.get("app_id") or "").lower() for b in BROWSERS)]
     loose = None
     for line in _out("playerctl", "-a", "metadata", "--format",
                      "{{playerName}}\t{{status}}\t{{title}}\t{{xesam:url}}").splitlines():
@@ -78,36 +83,36 @@ def video_in_focus():
         if st != "Playing":
             continue
         low = name.lower()
-        if browser:
-            if not any(b in low for b in BROWSERS):
+        if any(b in low for b in BROWSERS):
+            if not vbrowser:
                 continue
-            if t and t.strip()[:40] in title:
+            key = t.strip()[:40]
+            if key and any(key in (w.get("title") or "") for w in vbrowser):
                 return t
             # Плеер во встроенном фрейме (wparty, Kodik и т. п.) называет видео по-своему,
             # и в заголовке окна этого названия нет (07.10.2026: экран тускнел на сериале).
             # Тогда видео засчитывается, если это не музыкальный сайт и название не стоит
-            # в заголовке ДРУГОГО окна браузера — то есть играет не там.
-            if not MUSIC_SITES.search(url) and not _in_other_window(t, w.get("id")):
-                loose = t or url or name
-        elif VIDEO_APPS.search(low) or low.split(".")[0] in app:
+            # в заголовке окна браузера, которого не видно, — то есть играет не там.
+            if not MUSIC_SITES.search(url) and not _in_other_window(t, wins, shown):
+                loose = (t or url or name, vbrowser[0].get("title"))
+        elif any(VIDEO_APPS.search(low) or low.split(".")[0] in (w.get("app_id") or "").lower()
+                 for w in vis if w not in vbrowser):
             return t or name
     if loose:
-        _log("по адресу, без совпадения заголовка: %r в окне %r" % (loose, title))
-    return loose
+        _log("по адресу, без совпадения заголовка: %r в окне %r" % loose)
+        return loose[0]
+    return None
 
 
 MUSIC_SITES = re.compile(r"music\.yandex|music\.youtube|soundcloud|spotify|deezer|bandcamp|"
                          r"vk\.com/(audio|music)|zvuk\.com|music\.apple|tidal\.com", re.I)
 
 
-def _in_other_window(t, focused_id):
+def _in_other_window(t, wins, shown):
+    """Название стоит в заголовке окна браузера на скрытом столе — играет там, не на виду."""
     if not t:
         return False
-    try:
-        wins = json.loads(_out("niri", "msg", "-j", "windows") or "[]")
-    except ValueError:
-        return False
-    return any(x.get("id") != focused_id and t.strip()[:40] in (x.get("title") or "")
+    return any(x.get("workspace_id") not in shown and t.strip()[:40] in (x.get("title") or "")
                and any(b in (x.get("app_id") or "").lower() for b in BROWSERS) for x in wins)
 
 
@@ -188,4 +193,4 @@ if __name__ == "__main__":
         except OSError:
             pass
     else:
-        print(video_in_focus() or "нет видео в фокусе")
+        print(video_in_focus() or "нет видео на экране")

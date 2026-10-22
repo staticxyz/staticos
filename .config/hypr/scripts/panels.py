@@ -122,7 +122,7 @@ def top_for(out, d=None):
     else:
         v = (d["mon"].get(out) or {}).get("top")
         v = v if v in TOP_MODES else global_top()
-    return "hover" if v == "always" and stack_top(out) else v
+    return "hover" if v == "always" and stack_capsule() else v   # капсула стопки — при наведении
 
 
 def stack_capsule():
@@ -140,18 +140,18 @@ def stack_capsule():
 
 
 def stack_top(out=None):
-    """Стопка (stack_mode.py) перевела верхний бар монитора из «всегда» в «при наведении»
-    (21.10.2026, просьба: «в режиме stack mode waybar переводить в режим При наведении, если
-    стоял режим Всегда, на обоих мониторах»). Мониторы — в st["top_hover"]; выбор в
-    panels.json не трогается — выход из стопки его вернёт. out=None — любой монитор."""
+    """Стопка (stack_mode.py) убрала столы с верхнего бара монитора: в ней все окна на одном
+    столе, переход на другой ломает её. Сам бар остаётся как был (22.10.2026, просьба: «можно
+    оставить бар если он там был, но убрать столы»; с 21.10 «всегда» уходил в «при
+    наведении»). Все мониторы сразу — бар могли включить и во время стопки; panels.json
+    не трогается. out оставлен для совместимости."""
     try:
         here = os.path.dirname(os.path.abspath(__file__))
         if here not in sys.path:
             sys.path.insert(0, here)
         import stack_mode
         st = stack_mode.load_state()
-        need = st.get("top_hover") or []
-        return bool(need) and (out is None or out in need) and stack_mode.active(st)
+        return stack_mode.active(st)     # любой монитор: бар могли включить и во время стопки
     except Exception:
         return False
 

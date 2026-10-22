@@ -28,12 +28,12 @@
                      чтобы -Syu не вернул откаченное
 
 Клавиши — как в nvim пользователя (по keycode, раскладка не важна):
-  j/k ↓↑ · gg/G · Ctrl+D/U · H/L, Tab, gt/gT, 1 2 3 — вкладки · / — поиск (Enter, jj, оо,
+  j/k ↓↑ · gg/G · Ctrl+D/U · H/L, Tab, gt/gT, 1–5 — вкладки · / — поиск (Enter, jj, оо,
   Ctrl+E — готово, Esc — сброс) · l, Enter — к версиям, h — назад · o — открыть ·
   u — обновить · r — переустановить · D, dd — удалить · p — закрепить · A — архив ·
   s — сортировка · a — все пакеты · R — проверить обновления · y — копировать · ? · q, Esc
 
-    app_list.py [apps|packages|system]   открыть (второй запуск — закрыть/поднять)
+    app_list.py [apps|packages|cleanup|system|wakeups]   открыть (второй запуск — закрыть/поднять)
     app_list.py --shot F [tab=… sel=N focus=list|versions confirm=remove style=…]
     app_list.py --hold add|del ПАКЕТ     (из терминала, под sudo)
     app_list.py --info                   сведения о системе текстом
@@ -62,8 +62,10 @@ PACCONF = "/etc/pacman.conf"
 CACHE = os.path.join(HOME, ".cache/applist")
 APP_ID = "com.jarvis.applist"
 TERM_ID = "com.jarvis.applist.term"
-TABS = ("apps", "packages", "cleanup", "system")
-TAB_NAMES = {"apps": "Apps", "packages": "Packages", "cleanup": "Cleanup", "system": "System"}
+TABS = ("apps", "packages", "cleanup", "system", "wakeups")
+TAB_NAMES = {"apps": "Apps", "packages": "Packages", "cleanup": "Cleanup", "system": "System",
+             "wakeups": "Wakeups"}
+PLAIN = ("system", "cleanup", "wakeups")      # вкладки без списка пакетов и поиска
 
 # без этих пакетов не загрузится система или сеанс — удалить только после ввода имени
 CRITICAL = re.compile(r"^(linux(-lts|-zen)?(-headers)?|linux-firmware.*|base|base-devel|systemd.*|"
@@ -757,6 +759,63 @@ def system_info(pkgs=None):
     return [(g, [(k, v) for k, v in rows if v and v.strip() not in junk]) for g, rows in G]
 
 
+WAKE_KIND = {"alarm": "будильник", "watch": "Сторож", "series": "серия проверок", "task": "напоминание",
+             "allday": "на день", "timer": "таймер", "esc": "повтор в TG", "wa": "WhatsApp"}
+
+
+def wake_info():
+    """Вкладка Wakeups (21.10.2026): когда ноутбук разбудит себя сам и как просыпался.
+    План — wake_alarm.wake_plan (будильник, Сторож, хаб); история — журнал хука
+    jarvis-rtc-wake и записи hubd о тихих пробуждениях."""
+    import wake_alarm as WA
+    out = {"t": time.time(), "plan": [], "ready": False, "rtc": 0, "why": {}, "hist": []}
+    try:
+        out["plan"] = WA.wake_plan()
+        out["ready"] = WA.rtc_ready()
+    except Exception as e:
+        out["err"] = str(e)
+    try:
+        out["rtc"] = int(open(WA.RTC_PLAN).read().split()[0])
+        out["why"] = json.load(open(WA.RTC_PLAN + ".why"))
+    except (OSError, ValueError, IndexError):
+        pass
+
+    def journal(*args):
+        r = sh("journalctl", *args, "-o", "json", "--no-pager", "-q", timeout=5)
+        ev = []
+        for line in (r or "").splitlines():
+            try:
+                j = json.loads(line)
+                ev.append((int(j["__REALTIME_TIMESTAMP"]) / 1e6, j.get("MESSAGE") or ""))
+            except (ValueError, KeyError, TypeError):
+                pass
+        return ev
+    hist = []
+    for ts, msg in journal("-t", "jarvis-rtc-wake", "-n", "80"):
+        if msg.startswith("проснуться в "):
+            try:
+                at = dt.datetime.strptime(msg[13:32], "%Y-%m-%d %H:%M:%S").timestamp()
+            except ValueError:
+                at = None
+            hist.append({"sleep": ts, "plan": at, "woke": None, "hub": ""})
+        elif msg.startswith("план устарел"):
+            hist.append({"sleep": ts, "plan": None, "woke": None, "hub": ""})
+        elif msg == "проснулся" and hist and hist[-1]["woke"] is None:
+            hist[-1]["woke"] = ts
+    for ts, msg in journal("--user", "-u", "hub", "--since", "-14d"):
+        msg = msg.partition(" ")[2] if msg[:2].isdigit() else msg       # «18:41:16 текст»
+        for h in hist:
+            if h["woke"] and 0 <= ts - h["woke"] < 200:
+                if msg.startswith("пробуждение ради хаба"):
+                    h["hub"] = "ради хаба: " + msg.partition(":")[2].strip()
+                elif msg.startswith("доставлено, обратно в сон"):
+                    h["hub"] += " · доставлено, снова сон"
+                elif msg.startswith("после пробуждения вы за ПК"):
+                    h["hub"] += " · вы подошли — не усыплял"
+    out["hist"] = hist[::-1][:30]
+    return out
+
+
 def info_text(groups):
     out = []
     for g, rows in groups:
@@ -880,6 +939,19 @@ class Data:
                 self.info = system_info(self.pkgs)
             finally:
                 self.info_busy = False
+                self.notify()
+        threading.Thread(target=job, daemon=True).start()
+
+    def fetch_wakes(self):
+        if getattr(self, "wakes_busy", False):
+            return
+        self.wakes_busy = True
+
+        def job():
+            try:
+                self.wakes = wake_info()
+            finally:
+                self.wakes_busy = False
                 self.notify()
         threading.Thread(target=job, daemon=True).start()
 
@@ -1016,7 +1088,7 @@ class View:
         return p["installed"]
 
     def current(self):
-        if self.tab in ("system", "cleanup"):
+        if self.tab in PLAIN:
             return None
         it = self.items()
         if not it:
@@ -1056,6 +1128,8 @@ class View:
             self.draw_system(p, x0, x1, top, bottom)
         elif self.tab == "cleanup":
             self.draw_cleanup(p, x0, x1, top, bottom)
+        elif self.tab == "wakeups":
+            self.draw_wakeups(p, x0, x1, top, bottom)
         else:
             lw = self.list_w()
             self.draw_list(p, x0, x0 + lw, top, bottom)
@@ -1073,7 +1147,8 @@ class View:
         counts = {"cleanup": human(sum(x["size"] for x in cl)) if cl else None,
                   "apps": len(self.d.apps),
                   "packages": sum(1 for q in self.d.pkgs.values() if self.all_pkgs or q["explicit"]),
-                  "system": None}
+                  "system": None,
+                  "wakeups": len((getattr(self.d, "wakes", None) or {}).get("plan") or []) or None}
         for t in TABS:
             on = t == self.tab
             label = TAB_NAMES[t]
@@ -1089,7 +1164,7 @@ class View:
         sw = 230
         sx = x1 - 22 - sw
         searching = self.mode == "search"
-        if self.tab not in ("system", "cleanup"):
+        if self.tab not in PLAIN:
             p.rect(sx, y - 3, sw, 20, c["field"])
             p.box(sx, y - 3, sw, 20, c["acc"] if searching else c["line"])
             txt = self.query if (self.query or searching) else "/ search"
@@ -1408,6 +1483,88 @@ class View:
             self.sb = {"system": (top, view, th, total - view)}
             self.hits.append(((x1 - 10, top, 12, view), ("sbar", "system")))
 
+    def draw_wakeups(self, p, x0, x1, top, bottom):
+        """Самопробуждения: что заведено в часы, весь план и как ноутбук просыпался (21.10.2026)."""
+        c = self.c
+        wk = getattr(self.d, "wakes", None)
+        if wk is None or time.time() - wk["t"] > 10:      # живое: план пересчитывается каждые 10 с
+            self.d.fetch_wakes()
+        if wk is None:
+            p.text((x0 + x1) / 2, (top + bottom) / 2, "собираю план пробуждений…", c["dim"], align="c")
+            return
+        fmt = lambda t, f="%d.%m %H:%M": time.strftime(f, time.localtime(t))   # noqa: E731
+        now = time.time()
+
+        def until(t):
+            m = int((t - now) // 60)
+            if m < 1:
+                return "меньше минуты"
+            return "через %d мин" % m if m < 60 else "через %d ч %02d мин" % (m // 60, m % 60) \
+                if m < 48 * 60 else "через %d дн" % (m // 1440)
+        groups = []
+        nxt = (wk.get("plan") or [None])[0]
+        if not wk.get("ready"):
+            head = [("часы", "хук jarvis-rtc-wake не стоит — из сна сам не проснётся", c["err"])]
+        elif nxt:
+            # часы заводит хук в момент сна по свежему плану — показываем, куда заведёт сейчас
+            head = [("уснёт сейчас —", "проснётся %s (%s)" % (fmt(nxt["wake"], "%d.%m %H:%M:%S"), until(nxt["wake"])),
+                     c["acc_l"]),
+                    ("ради", "%s · %s" % (WAKE_KIND.get(nxt["kind"], nxt["kind"]), nxt["title"]), c["text"])]
+        else:
+            head = [("уснёт сейчас —", "проспит до ручного включения: будить не к чему", c["dim"])]
+        head += [("будильник", "Будильник и Сторож — за 30 мин, ПК не спит до звонка", c["dim"]),
+                 ("хаб", "Напоминания, таймеры, повтор в TG, WhatsApp — за 20 с; "
+                         "после доставки снова сон", c["dim"])]
+        groups.append(("Сейчас", [(k, v, col, None) for k, v, col in head]))
+        plan = [(fmt(e["wake"], "%d.%m %H:%M:%S"),
+                 "%s · %s → %s · %s" % (until(e["wake"]), WAKE_KIND.get(e["kind"], e["kind"]),
+                                        fmt(e["at"], "%H:%M"), e["title"]),
+                 c["acc_l"] if i == 0 else c["text"], "alarm" if e["src"] == "alarm" else "hub")
+                for i, e in enumerate(wk.get("plan") or [])]
+        groups.append(("План — %d" % len(plan), plan or [("", "ничего не запланировано", c["dim"], None)]))
+        hist = []
+        for h in wk.get("hist") or []:
+            if h["woke"] is None:
+                what, col = "спит…", c["dim"]
+            elif h["plan"] and abs(h["woke"] - h["plan"]) < 180:
+                what, col = "по часам", c["acc_l"]
+            else:                       # разбудили руками — не самопробуждение (Пользователь 21.10.2026)
+                continue
+            planned = ("часы на " + fmt(h["plan"])) if h["plan"] else "без часов"
+            same = h["woke"] and fmt(h["woke"], "%d.%m") == fmt(h["sleep"], "%d.%m")
+            line = "→ %s · %s" % (fmt(h["woke"], "%H:%M" if same else "%d.%m %H:%M") if h["woke"] else what,
+                                  planned)
+            hist.append((fmt(h["sleep"]), line + ((" · " + h["hub"].lstrip(" ·")) if h["hub"] else ""), col, None))
+        groups.append(("Пробуждения по часам", hist or [("", "пока не было", c["dim"], None)]))
+        # одна колонка с прокруткой
+        rh = 18
+        total = sum(18 + len(r) * rh + 14 for _g, r in groups)
+        view = bottom - top
+        sc = self.scroll["wakeups"] = max(0, min(self.scroll["wakeups"], max(0, total - view)))
+        p.cr.save()
+        p.cr.rectangle(x0 - 2, top - 10, x1 - x0 + 4, view + 12)
+        p.cr.clip()
+        y = top - sc
+        for g, rows in groups:
+            hgt = 18 + len(rows) * rh
+            if y + hgt >= top - 10 and y <= bottom:
+                self.group(p, x0, y, x1 - x0, hgt, g)
+            ry = y + 12
+            for k, v, col, tag in rows:
+                if top - 20 < ry < bottom:
+                    p.text(x0 + 12, ry, k, c["faint"], maxw=150)
+                    p.text(x0 + 168, ry, v, col, maxw=x1 - x0 - 190)
+                ry += rh
+            y += hgt + 14
+        p.cr.restore()
+        if total > view:
+            th = max(16, view * view // total)
+            ty = top + (view - th) * sc // max(1, total - view)
+            hot = self.free_scroll or self.hover == ("sbar", "wakeups")
+            p.rect(x1 - 4 if hot else x1 - 3, ty, 4 if hot else 2, th, c["acc"])
+            self.sb = {"wakeups": (top, view, th, total - view)}
+            self.hits.append(((x1 - 10, top, 12, view), ("sbar", "wakeups")))
+
     def draw_footer(self, p, x0, x1, y):
         c = self.c
         p.rect(x0, y - 8, x1 - x0, 1, c["line_soft"])
@@ -1427,6 +1584,7 @@ class View:
             n = sum(1 for k in self.d.ups if k in self.d.pkgs)
             status = "%d update%s · checked %s" % (n, "" if n == 1 else "s", time.strftime("%H:%M", time.localtime(self.d.ups_t)))
         hint = {"system": "j/k scroll · y copy all · R refresh · ? keys",
+                "wakeups": "j/k scroll · gg/G · R refresh · обновляется само · ? keys",
                 "cleanup": "j/k choose · Enter clean (asks first) · R recount · ? keys",
                 }.get(self.tab, "o open · u update · r reinstall · D remove · l versions · ? keys")
         p.text(x, y, hint, c["dim"], maxw=x1 - x - p.text_w(status) - 20)
@@ -1479,7 +1637,7 @@ class View:
                     ("cf", "yes") if ok else ("noop", "cf"), accent=ok, dim=not ok)
 
     HELP = (("j k  ↓ ↑", "move"), ("gg  G  Ctrl+D/U", "top · bottom · half page"),
-            ("H L  Tab  gt gT  1–4", "tabs"), ("/", "search (Enter, jj, оо, Ctrl+E — done)"),
+            ("H L  Tab  gt gT  1–5", "tabs"), ("/", "search (Enter, jj, оо, Ctrl+E — done)"),
             ("l  Enter  ·  h", "to versions · back"), ("Enter on a version", "roll back / install it"),
             ("o", "open the app"), ("u", "update (repo app → whole system)"), ("r", "reinstall"),
             ("D  dd", "uninstall (asks first)"), ("p", "hold: -Syu won't touch it"),
@@ -1708,10 +1866,7 @@ class AppListWindow(Gtk.ApplicationWindow):
         which = self.drag_sb
         top, track, th, span = getattr(v, "sb", {}).get(which, (0, 1, 1, 0))
         frac = max(0.0, min(1.0, (y - self.drag_off - top) / max(1, track - th)))
-        if which == "list":
-            v.scroll[v.tab] = round(frac * span)
-        else:
-            v.scroll["system"] = round(frac * span)
+        v.scroll[v.tab if which == "list" else which] = round(frac * span)
         self.redraw()
 
     def on_motion(self, _w, ev):
@@ -1738,7 +1893,7 @@ class AppListWindow(Gtk.ApplicationWindow):
             v = self.view
             self.drag_sb = key[1]
             top, track, th, span = v.sb.get(key[1], (0, 1, 1, 0))
-            cur = v.scroll[v.tab] if key[1] == "list" else v.scroll["system"]
+            cur = v.scroll[v.tab if key[1] == "list" else key[1]]
             ty = top + (track - th) * cur / max(1, span)
             # схватили ползунок — держим за ту же точку; мимо — ползунок встаёт центром под мышь
             self.drag_off = ev.y - ty if ty <= ev.y <= ty + th else th / 2
@@ -1797,8 +1952,8 @@ class AppListWindow(Gtk.ApplicationWindow):
         dy = ev.delta_y if ev.direction == Gdk.ScrollDirection.SMOOTH else (
             -1 if ev.direction == Gdk.ScrollDirection.UP else 1)
         step = 1 if dy > 0 else -1
-        if v.tab == "system":
-            v.scroll["system"] += step * 34
+        if v.tab in ("system", "wakeups"):
+            v.scroll[v.tab] += step * 34
         elif v.tab == "cleanup":
             v.sel["cleanup"] = max(0, v.sel["cleanup"] + step)
         elif v.focus == "versions":
@@ -1813,6 +1968,8 @@ class AppListWindow(Gtk.ApplicationWindow):
         v.tab, v.focus = t, "list"
         if t == "system" and v.d.info is None:
             v.d.fetch_info()
+        if t == "wakeups":
+            v.d.fetch_wakes()
 
     def clean_selected(self):
         v = self.view
@@ -2023,6 +2180,19 @@ class AppListWindow(Gtk.ApplicationWindow):
             if ch == "R":
                 v.d.fetch_cleanup()
                 return
+        if v.tab == "wakeups":
+            sc = {"j": 34, "k": -34, "Down": 34, "Up": -34}.get(name if name in ("Down", "Up") else ch)
+            if ctrl and ch in ("d", "u"):
+                sc = 300 if ch == "d" else -300
+            if sc:
+                v.scroll["wakeups"] += sc
+                return
+            if ch == "G" or (pend == "g" and ch == "g"):
+                v.scroll["wakeups"] = 10 ** 6 if ch == "G" else 0
+                return
+            if ch == "R":
+                v.d.fetch_wakes()
+                return
         if v.tab == "system":
             step = 34
             if ch == "j" or name == "Down":
@@ -2063,9 +2233,9 @@ class AppListWindow(Gtk.ApplicationWindow):
         elif name in ("Tab", "ISO_Left_Tab") or ch in ("L", "H"):
             d = -1 if (name == "ISO_Left_Tab" or ch == "H") else 1
             self.set_tab(TABS[(TABS.index(v.tab) + d) % len(TABS)])
-        elif ch in ("1", "2", "3", "4"):
+        elif ch in ("1", "2", "3", "4", "5"):
             self.set_tab(TABS[int(ch) - 1])
-        elif v.tab in ("system", "cleanup"):
+        elif v.tab in PLAIN:
             if ch in ("q",) or name == "Escape":
                 self.close()
             elif ch == "?":
@@ -2169,11 +2339,13 @@ def shot(path, tab="apps", sel=0, focus="list", confirm=None, style=None, query=
         v.style, v.c = style, R.colors(style)
     v.tab, v.focus, v.query = tab, focus, str(query)
     v.sel[tab] = int(sel)
-    v.scroll["system"] = int(scroll)
+    v.scroll["system"] = v.scroll["wakeups"] = int(scroll)
     if tab == "system":
         d.info = system_info(d.pkgs)
     if tab == "cleanup":
         d.clean = cleanup_items()
+    if tab == "wakeups":
+        d.wakes = wake_info()
     if confirm:
         cf = plan(v, confirm, v.current())
         if cf:

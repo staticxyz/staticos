@@ -108,6 +108,45 @@ gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
+
+# Подсказки не вылезают за окно (22.10.2026, пользователь прислал снимок: подсказка «Оформление
+# панели» торчала за правый край узкого окна). GTK ставит подсказку по центру под курсором
+# и переносит строки на ~70 знаках; здесь ширина — не больше, чем помещается от курсора до
+# ближнего края окна в обе стороны. Подменён set_tooltip_text — так все 16 мест сразу.
+_GTK_SET_TIP = Gtk.Widget.set_tooltip_text
+TIP_CHAR_PX = 9.5           # знак подсказки (пиксельный шрифт 12 px) — с запасом
+
+
+def _tip_query(w, x, y, _kb, tip):
+    text = getattr(w, "_jv_tip", None)
+    if not text:
+        return False
+    top = w.get_toplevel()
+    width = top.get_allocated_width()
+    r = w.translate_coordinates(top, x, y)
+    px = r[0] if r else width / 2
+    chars = int((2 * min(px, width - px) - 24) // TIP_CHAR_PX)
+    lbl = Gtk.Label(label=text)
+    lbl.set_line_wrap(True)
+    lbl.set_max_width_chars(max(24, min(70, chars)))
+    lbl.set_xalign(0)
+    tip.set_custom(lbl)
+    return True
+
+
+def _fit_tip(w, text):
+    w._jv_tip = text
+    if not text:
+        _GTK_SET_TIP(w, None)
+        return
+    w.set_has_tooltip(True)
+    if not getattr(w, "_jv_tipq", False):
+        w._jv_tipq = True
+        w.connect("query-tooltip", _tip_query)
+
+
+Gtk.Widget.set_tooltip_text = _fit_tip
+
 # Имя окна для Hyprland (app_id на Wayland). Без этого окно называлось по
 # имени файла, «settings_app.py», и правило float-settings (класс
 # com.jarvis.settings) к нему не применялось — окно вставало в мозаику.
@@ -4524,6 +4563,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
         scroll, v = self.page("Compositor", "niri: окна, отступы, анимации и размытие; верхний "
                               "бар. Применяется сразу.")
         self.niri_cards(v)
+        if self.stack_now():                 # в стопке «Показ панелей» здесь, а не в DE
+            self.panels_cards(v, True)
         self.section(v, "Форма панели", "\U000f1513")
         c = self.card(v)
         self.row(c, "Форма верхней панели", icon="\U000f1513",
@@ -4649,11 +4690,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
         return scroll
 
     # Visuals
-    def panels_cards(self, v):
-        """Показ панелей по мониторам (top_bar.py, panels.py). С 21.10.2026 на странице DE и
-        только в Scroll mode (просьба: «в стакинге просто не показываем» — стопка сама
-        переводит верхний бар в «при наведении» и включает нижнюю панель, а выбор отсюда
-        спорил бы с ней)."""
+    def panels_cards(self, v, stack=False):
+        """Показ панелей по мониторам (top_bar.py, panels.py). С 21.10.2026 на странице DE.
+        В Stack mode (stack) — на странице Compositor (22.10.2026, просьба: «эти Настройки можно
+        переместить в раздел Compositor») и только вид верхнего бара: столов в нём нет,
+        нижнюю панель держит сама (21.10 карточки прятались целиком — тогда стопка переводила
+        бар в «при наведении»; 22.10.2026, просьба: «можно было решать показывать waybar
+        верхний или нет, но без столов уже»)."""
         # Верхний бар: всегда / при наведении / выключен, и где список столов (03.10.2026,
         # top_bar.py). Применение перезапускает панели — идёт в фоне, по очереди.
         tb = os.path.join(HERE, "top_bar.py")
@@ -4711,16 +4754,21 @@ class SettingsWindow(Gtk.ApplicationWindow):
                                            run("python3", tb, "get")),
                                        lambda k: run_serial(["python3", tb, "set", k])),
                          "При наведении — бар спрятан и выезжает поверх окон у верхнего края. "
-                         "Выключен — бара нет, столы и всё остальное в нижней панели.",
+                         "Выключен — бара нет, столы и всё остальное в нижней панели."
+                         + (" В режиме Stack столов в баре нет: стол один." if stack else ""),
                          icon="\U000f06d0"))
-            pvis["glob"].append(self.row(c, "Список столов",
+            ws_row = self.row(c, "Список столов",
                      self.segments([("top", "В верхнем баре"), ("bottom", "В нижней панели")],
                                    (lambda x: x if x in ("top", "bottom") else "top")(
                                        run("python3", tb, "ws")),
                                    lambda k: run_serial(["python3", tb, "ws", k])),
                      "В нижней панели — столы между «Пуском» и окнами; нижняя панель при этом "
                      "включается (XP, всегда).",
-                     icon="\U000f0570"))
+                     icon="\U000f0570")
+            if stack:
+                ws_row.set_no_show_all(True)
+            else:
+                pvis["glob"].append(ws_row)
             if pn is not None:
                 # Одна группа «Мониторы» во всю ширину: ноутбук слева, MSI справа — рядом,
                 # а не врозь по колонкам (06.10.2026, просьба: «хочу видеть Ноутбук и MSI
@@ -4765,8 +4813,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
                              self.segments([("always", "Всегда"), ("hover", "При наведении"),
                                             ("off", "Выключен")], top,
                                            lambda k, o=out: pn_set(o, "top", k)),
+                             ("Верхний бар на мониторе «%s», в режиме Stack — без столов." % name)
+                             if stack else
                              "Верхний бар на мониторе «%s». Выключен — столы этого монитора "
                              "показывает нижняя XP-панель." % name, icon="\U000f06d0")
+                    if stack:           # нижнюю панель и столы стопка держит сама
+                        hb.pack_start(colbox, True, True, 0)
+                        continue
                     self.row(colbox, "Панель снизу",
                              self.segments([("always", "Всегда"), ("hover", "Наведение"),
                                             ("dock", "Док"), ("off", "Нет")], bot,
@@ -5167,20 +5220,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "заголовок окна; на мониторе без островка окно всё равно на весь экран. "
                  "Уже развёрнутые окна перестраиваются сразу.",
                  icon="\U000f0293", default="full")
-        cur_tb = run("python3", sm_py, "topbar") if stack else "waybar"
-        tb_row = self.row(c, "Верхний бар",
-                 self.segments([("waybar", "Waybar"), ("capsule", "Капсула")],
-                               cur_tb if cur_tb in ("waybar", "capsule") else "waybar",
-                               lambda k: subprocess.run(["python3", sm_py, "topbar", k],
-                                                        capture_output=True)),
-                 "Только в режиме Stack: какой верхний бар выезжает при наведении. Капсула — "
-                 "маленькая чёрная таблетка по центру: время, Wi-Fi, батарея (бывший вид "
-                 "Minimalistic, без столов — в стопке стол один). Режим остаётся «при "
-                 "наведении»; выход из стопки возвращает обычный бар.",
-                 icon="\U000f0bc9", default="waybar")
-        self.only_in("stack", mm_row, tb_row, self.stack_look_row(c))
+        # «Верхний бар: Waybar / Капсула» убран (22.10.2026, просьба: «эту настройку можно
+        # убрать»): бар в стопке — как выбран в «Показе панелей», только без столов.
+        # Капсула осталась командой: stack_mode.py topbar capsule|waybar.
+        self.only_in("stack", mm_row, self.stack_look_row(c))
         self.desk_menu_rows(c)
-        if not stack:
+        if not stack:                        # в стопке — на странице Compositor (22.10.2026)
             self.panels_cards(v)
         self.bottom_cards(v, stack)
         # 21.10.2026, просьба: «Настройки островка можешь переместить в раздел DE»

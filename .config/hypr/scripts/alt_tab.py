@@ -76,6 +76,7 @@ THUMB_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser(
 GAME_APPS = ("steam_app_", "gamescope")
 COLS = 7
 ICON = 40
+NVIM_ICON = 36
 TILE = 72                # 05.10.2026: шире — под подписью короткое имя окна
 CAP = 8                 # знаков в подписи
 # Подгонка под Cozette (cozette_fit.py, 08.10.2026): текст 13 px вместо 16, знак 6 px вместо 8 —
@@ -149,6 +150,7 @@ from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, GtkLayerShell, Pango  
 
 sys.path.insert(0, HERE)
 import xp_calendar  # noqa: E402  — цвета трёх стилей (colors), шрифт
+import nvim_lang  # noqa: E402
 
 STYLES = ("default", "skeet", "beta")
 
@@ -357,9 +359,13 @@ def app_info(app_id):
 # не понимаю, где что») — значок программы по заголовку и короткая подпись ──
 TERMINALS = {"kitty", "foot", "alacritty", "org.wezfurlong.wezterm", "com.mitchellh.ghostty"}
 PROGRAM_ICONS = {"btop": "btop", "btop++": "btop", "htop": "htop", "top": "utilities-system-monitor",
-                 "nvim": "nvim", "vim": "vim", "vi": "vim", "python": "python", "python3": "python",
+                 "python": "python", "python3": "python",
                  "ipython": "python", "git": "git", "lazygit": "git", "yazi": "yazi", "node": "node",
-                 "java": "java", "man": "accessories-text-editor", "nano": "accessories-text-editor"}
+                 "java": "java", "man": "accessories-text-editor", "nano": "accessories-text-editor",
+                 "jchat": "jchat"}   # jchat в kitty — его значком, как в нижней панели (21.10.2026)
+# nvim/vim — значком терминала, как в нижней панели (21.10.2026, просьба: «в alt tab тоже
+# была иконка как снизу в панели»); файл в nvim (.md, .java, .py…) — значок языка в цвет
+# обоев (nvim_lang.py, рисует md_icon.py)
 SHELLS = {"fish", "zsh", "bash", "sh"}
 def short(text):
     text = text.strip()
@@ -384,7 +390,9 @@ def term_view(title):
             if cwd.startswith(("~", "/")):
                 rest = os.path.basename(cwd.rstrip("/")) or cwd if arg in ("", ".") \
                     else os.path.basename(arg.rstrip("/")) or arg
-        return PROGRAM_ICONS.get(base.lower()), short(rest.split(" · ")[0])
+        cur = rest.split(" · ")[0]
+        lg = nvim_lang.lang(cur)
+        return (nvim_lang.PREFIX + lg if lg else None), short(cur)
     return PROGRAM_ICONS.get(base.lower()), short(base)
 
 
@@ -962,7 +970,13 @@ class Switcher:
             cap = window_caption(w, name)
         if img is None:
             img = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.DIALOG)
-        img.set_pixel_size(ICON)
+        if app_id.lower() in TERMINALS and (which or "").startswith(nvim_lang.PREFIX):
+            # плитка значка nvim без полей — на 40 px крупнее соседей, на 32 мелковата — 36
+            # (Пользователь 21.10.2026: «чуть-чуть уменьшить»), место под значок прежнее
+            img.set_pixel_size(NVIM_ICON)
+            img.set_size_request(ICON, ICON)
+        else:
+            img.set_pixel_size(ICON)
         label = Gtk.Label(label=cap)
         label.get_style_context().add_class("at-cap")
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)

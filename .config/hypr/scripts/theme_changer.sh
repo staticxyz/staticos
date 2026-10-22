@@ -275,7 +275,9 @@ fi
 # Следом — kitty в цвет акцента в обеих темах (kitty_icon.py, 13.10.2026).
 ( python3 "$HOME/.config/hypr/scripts/folder_colors.py"
   python3 "$HOME/.config/hypr/scripts/kitty_icon.py" apply >/dev/null 2>&1
-  python3 "$HOME/.config/hypr/scripts/yazi_icon.py" apply >/dev/null 2>&1 ) &   # yazi, 21.10.2026
+  python3 "$HOME/.config/hypr/scripts/yazi_icon.py" apply >/dev/null 2>&1   # yazi, 21.10.2026
+  python3 "$HOME/.config/hypr/scripts/md_icon.py" apply >/dev/null 2>&1   # .md в nvim, 21.10.2026
+  python3 "$HOME/.config/hypr/scripts/settings_icon.py" apply >/dev/null 2>&1 ) &   # Настройки, 22.10.2026
 # Пиксельные значки папок и файлов (тема Jarvis-Pixel) — под новую палитру,
 # только если они выбраны (Настройки → Значки; состояние state/icon-theme).
 # build заодно возвращает тему в kdeglobals: шаблон matugen выше каждый раз

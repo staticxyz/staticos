@@ -66,15 +66,16 @@ def main():
     if dry:
         print("сон бы состоялся (Savage Mode выключен)")
         return 0
-    hub_sleep_notice()
+    if os.environ.get("HUB_QUIET_SLEEP") != "1":  # хаб снова усыпляет после тихого пробуждения
+        hub_sleep_notice()
     subprocess.run(["systemctl", "suspend"])
     return 0
 
 
 def hub_sleep_notice():
-    """Хабу — сообщить в Telegram о сне заранее: внутри самого сна logind ждёт недолго."""
+    """Хабу — причина сна для журнала /log (с 21.10.2026 в Telegram о сне не пишется)."""
     try:
-        subprocess.run([sys.executable, os.path.expanduser("~/.local/share/hub/hubd.py"), "sleep-notice"],
+        subprocess.run([sys.executable, os.path.expanduser("~/.local/share/hub/hubd.py"), "sleep-notice", "idle"],
                        timeout=17, capture_output=True)
     except (OSError, subprocess.SubprocessError):
         pass

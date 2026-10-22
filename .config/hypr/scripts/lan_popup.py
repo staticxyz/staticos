@@ -50,6 +50,7 @@ gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GLib, Gtk, GtkLayerShell, Pango, PangoCairo  # noqa: E402
 
 WIDTH = 344          # 08.10.2026: компактнее (было 380)
+WIDTH_COMPACT = 312  # из нижней панели в Skeet/Beta (22.10.2026)
 TICK_MS = 1000          # трафик и состояние кабеля
 PING_MS = 2000          # пинг роутера и интернета
 DNS_MS = 10000          # проверка DNS
@@ -89,12 +90,19 @@ EXTRA_CSS = """
 /* Вид Omarchy (13.10.2026): значок и имя сети крупно, подписи мелкие и тусклые,
    значения — обычным цветом под ними, кнопки большие (.bak-omarchy-look). */
 label.hicon { font-size: 26px; color: %(primary)s; }
-label.cap { color: %(on_surface_variant)s; letter-spacing: 1px; }
-label.key { color: %(on_surface_variant)s; }
+/* 15.10.2026, просьба: «очень много белого текста, разобраться сложно… заголовки пожирнее,
+   гамма общая». on_surface_variant у пастельных палитр почти белый — подписи берут
+   muted (он же, наполовину к фону), заголовки разделов — акцентом, жирно, с чертой слева. */
+label.cap { color: %(primary)s; letter-spacing: 1px; font-weight: bold;
+            border-left: 2px solid %(primary)s; padding-left: 6px; margin-top: 4px; }
+label.cap.hsub { color: %(muted)s; font-weight: normal; border: none; padding-left: 0;
+                 margin-top: 0; }
+label.key { color: %(muted)s; }
 label { font-weight: normal; font-size: 12px; }
 label.title { font-size: 16px; }
 label.big { font-size: 16px; }
-label.dim { color: %(on_surface_variant)s; }
+label.dim { color: %(muted)s; }
+label.me { color: %(primary)s; }
 label.sec { color: %(primary)s; }
 label.ok { color: %(ok)s; }
 label.warn { color: %(warn)s; }
@@ -115,6 +123,14 @@ progressbar trough { min-height: 6px; border: none; border-radius: 3px;
                      background-color: %(surface_container)s; }
 progressbar progress { min-height: 6px; border: none; border-radius: 3px;
                        background-color: %(primary)s; }
+"""
+
+# Из нижней панели в Skeet/Beta — поверх EXTRA_CSS и xp_skin_css: мельче отступы,
+# значок шапки меньше, кнопки ниже (22.10.2026, «компактнее вид»).
+COMPACT_CSS = """
+label.hicon { font-size: 20px; }
+label.cap { border-left-width: 2px; margin-top: 2px; }
+button.go, button.more { padding: 4px 6px; min-height: 16px; }
 """
 
 
@@ -264,6 +280,35 @@ def fmt_rate(bps):
             v = bps / div
             return ("%.0f %s" if v >= 100 else "%.1f %s") % (v, unit)
     return "%.0f бит/с" % bps
+
+
+def muted_color():
+    """Тусклый для подписей: on_surface_variant на 45 % к фону — в пастельных
+    палитрах matugen он сам почти белый и сливается со значениями."""
+    p = popup_theme.palette()
+    try:
+        a, b = (tuple(int(p[k].lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+                for k in ("on_surface_variant", "surface"))
+    except (KeyError, ValueError):
+        return p.get("on_surface_variant", "#888888")
+    return "#%02x%02x%02x" % tuple(round(x + (y - x) * .45) for x, y in zip(a, b))
+
+
+def fmt_short(bps):
+    """Бит/с -> «131к», «5.2М»: узкая колонка списка устройств."""
+    for div, unit in ((1e9, "Г"), (1e6, "М"), (1e3, "к")):
+        if bps >= div:
+            v = bps / div
+            return ("%.0f%s" if v >= 10 else "%.1f%s") % (v, unit)
+    return "%.0f" % bps
+
+
+def fmt_bytes(n):
+    """Байты -> «12.3 МБ»."""
+    for div, unit in ((1e9, "ГБ"), (1e6, "МБ"), (1e3, "КБ")):
+        if n >= div:
+            return "%.1f %s" % (n / div, unit)
+    return "%.0f Б" % n
 
 
 def fmt_ms(ms):
@@ -631,6 +676,12 @@ class LanPopup(Gtk.Window):
 
     def __init__(self):
         super().__init__(title="Сеть")
+        # Из нижней панели — в стиле системы монитора, компактнее, в левом углу и
+        # вплотную к панели (22.10.2026, просьба: «перенести плашку с Ethernet в нижнюю
+        # панель… адаптированный под стиль системы + компактнее вид. Вместе с эффектами»).
+        # xp_style() — до palette(): роли палитры тогда уже в цветах Skeet/Beta.
+        self.xp = popup_theme.FROM_XPBAR and os.environ.get("JARVIS_POPUP_SIDE") in ("left", "right")
+        self.compact = self.xp and popup_theme.xp_style() != "default"
         self.pal = popup_theme.palette()
         self.iface, self.gw = None, None
         self.wireless = False
@@ -667,9 +718,14 @@ class LanPopup(Gtk.Window):
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.EXCLUSIVE)
 
         provider = Gtk.CssProvider()
-        provider.load_from_data(popup_theme.css(EXTRA_CSS, ok=OK_COLOR, warn=WARN_COLOR))
+        provider.load_from_data(popup_theme.css(EXTRA_CSS, ok=OK_COLOR, warn=WARN_COLOR, muted=muted_color()))
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        if self.compact:
+            skin = Gtk.CssProvider()
+            skin.load_from_data((popup_theme.xp_skin_css(pad="13px 15px 9px 15px") + COMPACT_CSS).encode())
+            Gtk.StyleContext.add_provider_for_screen(
+                Gdk.Screen.get_default(), skin, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
 
         self.bg = Gtk.EventBox()
         self.bg.connect("button-press-event", lambda w, e: self._exit())
@@ -677,8 +733,13 @@ class LanPopup(Gtk.Window):
 
         self.align = Gtk.Box()
         self.bg.add(self.align)
-        # Прямо под баром, серединой под точкой щелчка — см. popup_theme.
-        popup_theme.place_under_cursor(self.align)
+        if self.xp:
+            # над нижней панелью: справа — значок в трее у часов (22.10.2026), слева — прежний
+            right = 8 if os.environ.get("JARVIS_POPUP_SIDE") == "right" else None
+            popup_theme.xp_place(self, self.align, right=right)
+        else:
+            # Прямо под баром, серединой под точкой щелчка — см. popup_theme.
+            popup_theme.place_under_cursor(self.align)
 
         self.popup_event = Gtk.EventBox()
         self.popup_event.connect("button-press-event", lambda w, e: True)
@@ -687,7 +748,7 @@ class LanPopup(Gtk.Window):
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         vbox.get_style_context().add_class("popup-box")
-        vbox.set_size_request(WIDTH, -1)
+        vbox.set_size_request(WIDTH_COMPACT if self.compact else WIDTH, -1)
         self.popup_event.add(vbox)
 
         # ── шапка ──
@@ -700,6 +761,7 @@ class LanPopup(Gtk.Window):
         hb.set_valign(Gtk.Align.CENTER)
         self.hname = self.label("Wi-Fi" if WIFI else "Ethernet", "title")
         self.hsub = self.label("", "cap")
+        self.hsub.get_style_context().add_class("hsub")
         for lb in (self.hname, self.hsub):
             lb.set_ellipsize(Pango.EllipsizeMode.END)
             hb.pack_start(lb, False, False, 0)
@@ -754,12 +816,12 @@ class LanPopup(Gtk.Window):
         vbox.pack_start(Gtk.Separator(), False, False, 0)
         grid = Gtk.Grid(column_spacing=14, row_spacing=1)
         self.info = {}
+        # Адрес и шлюз уже в простом виде, внешний IP и «Где» мало кому нужны — их место
+        # отдано списку устройств (15.10.2026, просьба: «много куча текста, за то нет юзеров»).
         rows = ((("ssid", "Сеть"), ("signal", "Сигнал"), ("band", "Диапазон"),
-                 ("rate", "Связь"), ("air", "Соседи"), ("addr", "Адрес"),
-                 ("gw", "Шлюз"), ("ext", "Внешний IP"), ("isp", "Провайдер"))
+                 ("rate", "Связь"), ("air", "Соседи"), ("isp", "Провайдер"))
                 if WIFI else
-                (("link", "Канал"), ("addr", "Адрес"), ("gw", "Шлюз"), ("dns", "DNS"),
-                 ("ext", "Внешний IP"), ("isp", "Провайдер"), ("geo", "Где")))
+                (("link", "Канал"), ("dns", "DNS"), ("isp", "Провайдер")))
         tips = {"signal": "Сила сигнала у ноутбука, дБм: ближе к нулю — лучше.\n"
                           "−50 и выше отлично, до −67 нормально, ниже −75 плохо.",
                 "rate": "Скорость связи с роутером по воздуху.\n"
@@ -777,9 +839,13 @@ class LanPopup(Gtk.Window):
             grid.attach(v, 1, i, 1, 1)
             self.info[key] = v
         vbox.pack_start(grid, False, False, 0)
-        self.info.setdefault("dns", Gtk.Label())   # в плашке Wi-Fi строк нет —
-        self.info.setdefault("geo", Gtk.Label())   # пишем в невидимые
-        self.info.setdefault("link", Gtk.Label())
+        for key in ("dns", "geo", "link", "addr", "gw", "ext"):   # строк нет —
+            self.info.setdefault(key, Gtk.Label())                # пишем в невидимые
+
+        # ── устройства на роутере (15.10.2026) ──
+        self.dev_grid = Gtk.Grid(column_spacing=8, row_spacing=1)
+        self.dev_sum = {}            # mac → байт за время, что открыта плашка
+        self.dev_t = None
 
         # ── трафик ──
         vbox.pack_start(Gtk.Separator(), False, False, 0)
@@ -854,7 +920,7 @@ class LanPopup(Gtk.Window):
         vbox.pack_start(self.hist_grid, False, False, 2)
         self.fill_history()
 
-        # ── простой вид (13.10.2026, по образцу Omarchy, Просьба: «всю плашку
+        # ── простой вид (13.10.2026, по образцу Omarchy, просьба: «всю плашку
         # заполняет текст»): строка состояния, сетка «подпись над значением» в две
         # колонки, две крупные кнопки. Цепочка, график, пинг, все сведения и
         # замеры — под «Подробнее», каждый блок со своей мелкой надписью.
@@ -863,8 +929,9 @@ class LanPopup(Gtk.Window):
         self.verdict.set_xalign(0)
         self.verdict.set_justify(Gtk.Justification.LEFT)
         self.verdict.set_max_width_chars(34)
-        vbox.pack_start(self.verdict, False, False, 8)
-        cg = Gtk.Grid(column_spacing=16, row_spacing=10, column_homogeneous=True)
+        vbox.pack_start(self.verdict, False, False, 4 if self.compact else 8)
+        cg = Gtk.Grid(column_spacing=16, row_spacing=6 if self.compact else 10,
+                      column_homogeneous=True)
         self.cells = {}
 
         def cell(key, title, col, row, cls=None, tip=None):
@@ -895,26 +962,27 @@ class LanPopup(Gtk.Window):
             box.set_no_show_all(True)
             box.hide()
         vbox.pack_start(cg, False, False, 2)
-        btns = Gtk.Box(spacing=8, homogeneous=True)
+        btns = Gtk.Box(spacing=6 if self.compact else 8, homogeneous=True)
         self.more_btn = Gtk.Button()
         self.more_btn.get_style_context().add_class("more")
         self.more_btn.connect("clicked", lambda *_a: self.set_details(not self.details_on))
         btns.pack_start(self.speed_btn, True, True, 0)
         btns.pack_start(self.more_btn, True, True, 0)
-        vbox.pack_start(btns, False, False, 10)
+        vbox.pack_start(btns, False, False, 6 if self.compact else 10)
         vbox.pack_start(self.progress, False, False, 0)
         vbox.pack_start(self.speed_msg, False, False, 2)
         self.details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         for title, ws in (("Цепочка", ((self.chain_da, 0), (names, 0), (vals, 0))),
                           ("Трафик за %d с" % GRAPH_SEC, ((self.graph, 0),)),
                           ("Пинг", ((pg, 0),)),
+                          ("Устройства", ((self.dev_grid, 0),)),
                           ("Подключение", ((grid, 0),)),
                           ("Замеры, Мбит/с", ((self.hist_grid, 0),))):
             self.details.pack_start(self.label(title.upper(), "cap"), False, False, 6)
             for w, pad in ws:
                 self.details.pack_start(w, False, False, pad)
         vbox.pack_start(self.details, False, False, 0)
-        # Ширина плашки — одна и та же свёрнутой и раскрытой (13.10.2026, Просьба: «когда
+        # Ширина плашки — одна и та же свёрнутой и раскрытой (13.10.2026, просьба: «когда
         # раскрываю Подробнее, вся плашка двигается… как будто размер заново
         # устанавливается»). Было: «100 Мбит/с» в цепочке просил место целиком, плашка
         # раздавалась 344 → 396 px и заново вставала по центру. Сокращаемые подписи
@@ -950,6 +1018,7 @@ class LanPopup(Gtk.Window):
         threading.Thread(target=self.others_loop, daemon=True).start()
         # Кто именно из других качает — из админки роутера (08.10.2026).
         self.router, self.router_why = None, None
+        self.show_devices()
         threading.Thread(target=self.router_loop, daemon=True).start()
 
     def set_details(self, on, save=True):
@@ -1328,7 +1397,13 @@ class LanPopup(Gtk.Window):
         else:
             own = own_macs()
             devs = [x for x in d["devs"] if x["mac"] not in own]
-            self.router = {"t": time.monotonic(), "devs": devs}
+            now = time.monotonic()
+            dt = min(now - self.dev_t, 10) if self.dev_t else 0
+            self.dev_t = now
+            for x in devs:
+                self.dev_sum[x["mac"]] = self.dev_sum.get(x["mac"], 0) + (x["down"] + x["up"]) * dt
+            self.router = {"t": now, "devs": devs}
+        self.show_devices()
         self.show_router()
         return False
 
@@ -1343,6 +1418,49 @@ class LanPopup(Gtk.Window):
             return None
         v, top = max(rate, key=lambda t: t[0])
         return top["name"] if v >= OTHER_NAME_SHARE * total else None
+
+    def show_devices(self):
+        """Устройства на роутере: имя, связь, ↓/↑ сейчас. Сверху — кто качает.
+        Подсказка строки — IP, MAC и сколько прокачано, пока открыта плашка."""
+        g = self.dev_grid
+        for c in g.get_children():
+            g.remove(c)
+        r = self.router
+        if not r:
+            why = self.router_why
+            msg = self.label("Админка роутера: %s" % why if why else "Спрашиваю роутер…", "dim")
+            msg.set_line_wrap(True)
+            msg.set_max_width_chars(1)
+            msg.set_hexpand(True)
+            g.attach(msg, 0, 0, 4, 1)
+            g.show_all()
+            return
+        me = {"name": "этот ноутбук", "type": "me", "mac": None, "ip": self.info["addr"].get_text(),
+              "down": (self.rx[-1] if self.prev else 0) / 8, "up": (self.tx[-1] if self.prev else 0) / 8}
+        devs = sorted(r["devs"], key=lambda x: (-(x["down"] + x["up"]), x["name"].lower()))
+        short = {"0": "каб", "1": "2.4Г", "2": "г2.4", "3": "5Г", "4": "г5", "me": "ПК"}
+        for i, x in enumerate([me] + devs):
+            busy = x["down"] + x["up"] > 0
+            name = self.label(x["name"], "me" if x["type"] == "me" else None if busy else "dim")
+            name.set_hexpand(True)
+            name.set_ellipsize(Pango.EllipsizeMode.END)
+            name.set_max_width_chars(1)
+            tip = ["%s · %s" % (x["name"], RADIO.get(x["type"], "этот ПК"))]
+            if x.get("ip"):
+                tip.append("IP %s" % x["ip"])
+            if x["mac"]:
+                tip.append("MAC %s" % x["mac"].upper())
+                tip.append("За время плашки: %s" % fmt_bytes(self.dev_sum.get(x["mac"], 0)))
+            kind = self.label(short.get(x["type"], "?"), "dim", xalign=1)
+            tip.append("Сейчас ↓ %s  ↑ %s" % (fmt_rate(x["down"] * 8), fmt_rate(x["up"] * 8)))
+            name.set_tooltip_text("\n".join(tip))
+            down = self.label("↓ " + fmt_short(x["down"] * 8) if busy else "—",
+                              "down" if busy else "dim", xalign=1)
+            up = self.label("↑ " + fmt_short(x["up"] * 8) if busy else "",
+                            "up" if busy else "dim", xalign=1)
+            for col, w in enumerate((name, kind, down, up)):
+                g.attach(w, col, i, 1, 1)
+        g.show_all()
 
     def show_router(self):
         name = self.top_other()
@@ -1465,7 +1583,7 @@ class LanPopup(Gtk.Window):
         # 08.10.2026: «а эти графики что означают?» — пунктир соседа не читался).
         # Не влезают рядом со шкалой — не рисуются (подсказка графика остаётся).
         # «система ↓↑» — стрелки цветом своих линий; «-- другие» — образец пунктира.
-        # (Просьба: «а что за я?», потом «не ноут, а система».)
+        # (просьба: «а что за я?», потом «не ноут, а система».)
         segs = [("система ", pal["on_surface_variant"], None, 0), ("↓", pal["primary"], None, 0),
                 ("↑", pal["tertiary"], None, 10)]
         if orx:

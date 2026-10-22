@@ -902,18 +902,21 @@ def register(ns):
         # opts.hub — номер пункта hub (kind timer), opts.auto — виджет создан для таймера
         # с телефона. Отсчёт идёт — пункт открыт со сроком = opts.end. Пауза, сброс, NEW,
         # закрытие виджета — пункт закрывается (у hub паузы нет; продолжили — новый пункт).
-        def hub_drop(self):
+        def hub_drop(self, how=""):
+            # how — чем остановили, в журнал hub («widget click»): История таймеров в Telegram
+            # пишет «щелчком по timer.exe», «крестиком»… (21.10.2026, просьба: «как понять
+            # остановлен виджетом?»)
             iid = self.opts.pop("hub", None)
             h = hub()
             if iid and h:
                 try:
-                    h[0].drop(h[1], int(iid), "widget")
+                    h[0].drop(h[1], int(iid), ("widget " + how).strip())
                 except Exception as e:
                     print("hub drop: %s" % e, file=sys.stderr)
 
         def removed(self):
             """Закрыли крестиком / «Очистить стол» — таймер останавливается и в hub."""
-            self.hub_drop()
+            self.hub_drop("close")
 
         def hub_follow(self, H, c):
             """Раз в 2 с из hub_timer_sync: подогнать виджет под пункт hub или завести пункт."""
@@ -957,7 +960,7 @@ def register(ns):
 
         # действия
         def toggle_pause(self):
-            self.hub_drop()                      # на паузе пункта нет; продолжили — новый
+            self.hub_drop("pause")               # на паузе пункта нет; продолжили — новый
             o = self.opts
             if "paused_left" in o:
                 o["end"] = int(time.time() + o.pop("paused_left"))
@@ -971,7 +974,7 @@ def register(ns):
 
         def replay(self):
             self.stop_alarm()
-            self.hub_drop()
+            self.hub_drop("replay")
             o = self.opts
             dur = int(o.get("dur") or 0)
             if dur > 0:
@@ -991,7 +994,7 @@ def register(ns):
         def set_new(self, words):
             if words:
                 self.stop_alarm()
-                self.hub_drop()
+                self.hub_drop("new")
                 label, end = ns["parse_timer"](words)
                 frame = {k: v for k, v in self.opts.items() if k in ("frame", "title")}
                 self.opts = dict(frame)                 # новый таймер — адрес прежнего не наследует
@@ -1013,7 +1016,7 @@ def register(ns):
 
         def on_click(self, x, y, button=1):
             if self.opts.get("hub") and self.done():
-                self.hub_drop()                # звонит hub: первый щелчок — «Стоп» в hub
+                self.hub_drop("click")         # звонит hub: первый щелчок — «Стоп» в hub
                 self.stop_alarm()              # виджет остаётся на столе (21.10), убирает крестик
                 self.opts["rang"] = True
                 self.keep()

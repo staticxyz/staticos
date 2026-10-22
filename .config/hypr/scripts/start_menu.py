@@ -591,20 +591,25 @@ def taskbar_pins():
         d = {}
     if not isinstance(d, dict):
         d = {}
-    d.setdefault("pins", [])
     d.setdefault("order", {})
+    # закрепы у каждого монитора свои — {монитор: [app_id]}, как в xpbar.pins_load
+    pins = d.get("pins")
+    if isinstance(pins, list):
+        pins = {c: list(pins) for c in d["order"]}
+    d["pins"] = pins if isinstance(pins, dict) else {}
     return d
 
 
-def taskbar_pin_toggle(app):
+def taskbar_pin_toggle(app, conn):
     """Внутри xpbar — его pin_toggle (место на панели не прыгает); иначе — просто файл,
     xpbar подхватит по монитору папки."""
     main = sys.modules.get("__main__")
     if hasattr(main, "pin_toggle") and hasattr(main, "PINS_FILE"):
-        main.pin_toggle(app)
+        main.pin_toggle(app, conn)
         return
     d = taskbar_pins()
-    (d["pins"].remove if app in d["pins"] else d["pins"].append)(app)
+    mine = d["pins"].setdefault(conn, [])
+    (mine.remove if app in mine else mine.append)(app)
     tmp = TASKBAR_PINS + ".tmp"
     with open(tmp, "w") as f:
         json.dump(d, f, ensure_ascii=False, indent=1)
@@ -1531,10 +1536,11 @@ class StartMenu(Gtk.Window):
         m.append(mi)
         # и на панель задач, как в Windows 10 — закрепы нижней панели в стопке (xpbar-pins.json)
         app = taskbar_app_id(a)
-        bar_pins = taskbar_pins()
-        mt = Gtk.MenuItem(label="Открепить от панели задач" if app in bar_pins["pins"]
+        conn = self.w11_out() or ""
+        bar_pins = taskbar_pins()["pins"].get(conn) or []
+        mt = Gtk.MenuItem(label="Открепить от панели задач" if app in bar_pins
                           else "Закрепить на панели задач")
-        mt.connect("activate", lambda _m: taskbar_pin_toggle(app))
+        mt.connect("activate", lambda _m: taskbar_pin_toggle(app, conn))
         m.append(mt)
         m.show_all()
         m.attach_to_widget(self, None)

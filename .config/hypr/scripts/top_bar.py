@@ -91,14 +91,14 @@ def get_mode():
 
 
 def eff_mode():
-    """Общий режим с поправкой на стопку: «всегда» на её время — «при наведении»
-    (panels.stack_top). `top_bar.py get` показывает выбор как есть."""
+    """Общий режим с поправкой на стопку: обычный бар стопка не меняет, только убирает столы
+    (panels.stack_top, 22.10.2026); капсула стопки на месте «всегда» — «при наведении»."""
     m = get_mode()
     if m == "always":
         try:
             sys.path.insert(0, HERE)
             import panels
-            if panels.stack_top():
+            if panels.stack_capsule():
                 return "hover"
         except Exception:
             pass
