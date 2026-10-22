@@ -354,21 +354,40 @@ PROFILE_NAME = {"power-saver": ("Экономия", "saver"), "balanced": ("Ба
 
 def power_get():
     # busctl — 3 мс; powerprofilesctl сам питон-скрипт, 140 мс.
+    # «Мощность» = Savage Mode (savage_power.py: power max + профиль performance).
+    sys.path.insert(0, HERE)
+    import savage_power
+    if savage_power.is_on():
+        return True, "performance"
     p = run("busctl", "get-property", "net.hadess.PowerProfiles", "/net/hadess/PowerProfiles",
             "net.hadess.PowerProfiles", "ActiveProfile").removeprefix("s ").strip('"')
     return p != "balanced" and p in PROFILES, p or None
 
 
+def profile_set(p):
+    """Единый вход для плитки и кнопок «Энергии»: «Мощность» — это Savage Mode (power max),
+    уход с неё — power mid (22.10.2026, просьба: «чтобы не путаться… такой же функционал
+    прикрепить к плитке Мощность/Баланс»)."""
+    sys.path.insert(0, HERE)
+    import savage_power
+    if p == "performance":
+        savage_power.apply(True, wait=True)
+    elif savage_power.is_on():
+        savage_power.apply(False, profile=p, wait=True)
+    else:
+        run("powerprofilesctl", "set", p)
+
+
 def power_toggle(_on):
     """ЛКМ — только «Баланс» ↔ «Мощность» (из «Экономии» — в «Баланс»)."""
     _on, cur = power_get()
-    run("powerprofilesctl", "set", "performance" if cur == "balanced" else "balanced")
+    profile_set("performance" if cur == "balanced" else "balanced")
 
 
 def power_saver(_extra):
     """ПКМ — «Экономия» (повторно — обратно в «Баланс»)."""
     _on, cur = power_get()
-    run("powerprofilesctl", "set", "balanced" if cur == "power-saver" else "power-saver")
+    profile_set("balanced" if cur == "power-saver" else "power-saver")
 
 
 
@@ -1996,7 +2015,7 @@ class PowerPage(Page):
         row, self.night = switch_row(self.pal, I["night"], "Ночной свет", self.set_night,
                                      "вручную — до 22:00 / 5:00")
         c.pack_start(row, False, False, 0)
-        row, self.savage = switch_row(self.pal, I["perf"], "Savage Mode", self.set_savage,
+        row, self.savage = switch_row(self.pal, I["coffee"], "Кофеин", self.set_savage,
                                       "без сна, машина всегда бодрая")
         c.pack_start(row, False, False, 0)
         # Спутник Savage (30.09.2026, просьба пользователя): экран не гаснет и не
@@ -2108,7 +2127,7 @@ class PowerPage(Page):
     def set_profile(self, p):
         for q, btn in self.segs.items():
             set_cls(btn, "on", q == p)
-        self.later(lambda: run("powerprofilesctl", "set", p), lambda _r: self.refresh())
+        self.later(lambda: profile_set(p), lambda _r: self.refresh())
 
     def set_warmth(self, v):
         run(*script("night_mode.py", "on", str(v)), timeout=6)
@@ -3280,10 +3299,10 @@ class ControlCenter(Gtk.Window):
                  right=lambda t, e: t.run_bg(power_saver, None)),
         ]
         tips = ["Wi-Fi вкл/выкл", "Bluetooth вкл/выкл",
-                "ЛКМ — кофеин: Savage Mode, без сна.\n"
+                "ЛКМ — кофеин: без сна.\n"
                 "ПКМ — кофеин + таурин: ещё и экран не гаснет и не запирается",
                 "ЛКМ — ночной свет вкл/выкл.\nПКМ — теплота", "Не беспокоить (swaync)",
-                "ЛКМ — баланс ↔ мощность.\nПКМ — экономия"]
+                "ЛКМ — баланс ↔ мощность (Savage Mode: power max / power mid).\nПКМ — экономия"]
         for i, (t, tip) in enumerate(zip(self.tiles, tips)):
             t.set_tooltip_text(tip)
             grid.attach(t, i % 2, i // 2, 1, 1)

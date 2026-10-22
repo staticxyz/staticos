@@ -1,0 +1,25 @@
+#!/bin/bash
+# Root-часть команды power: ручки процессора для режимов max|mid|quiet. 22.10.2026.
+#
+#   power-helper max|mid|quiet
+#
+# Ставится копией в /usr/local/bin (владелец root — static править её не может), sudo без
+# пароля только на неё (/etc/sudoers.d/power-helper). Зовёт её ~/.local/bin/power через
+# sudo -n — так переключатель Savage Mode и плитка «Мощность» работают из окон, без
+# терминала и без запроса пароля (sudo в фоне без TTY = faillock).
+# Принимает только имя режима, значения зашиты здесь — произвольных записей не делает.
+set -u
+CPU=/sys/devices/system/cpu
+RAPL=/sys/class/powercap/intel-rapl:0
+w() { [ -w "$1" ] && echo "$2" > "$1" 2>/dev/null; return 0; }
+epp() { for f in $CPU/cpu*/cpufreq/energy_performance_preference; do w "$f" "$1"; done; }
+turbo() { w $CPU/intel_pstate/no_turbo $(( 1 - $1 )); }
+perf() { w $CPU/intel_pstate/max_perf_pct "$2"; w $CPU/intel_pstate/min_perf_pct "$1"; }
+rapl() { w $RAPL/constraint_0_power_limit_uw $(( $1 * 1000000 )); w $RAPL/constraint_1_power_limit_uw $(( $2 * 1000000 )); }
+case "${1:-}" in
+  max)   epp performance;         turbo 1; perf 25 100; rapl 45 115 ;;
+  mid)   epp balance_performance; turbo 1; perf 10 100; rapl 40 115 ;;
+  quiet) epp power;               turbo 0; perf 10 55;  rapl 25 35
+         nvidia-smi -i 0 -pl 40 >/dev/null 2>&1 ;;
+  *) echo "power-helper max|mid|quiet" >&2; exit 2 ;;
+esac

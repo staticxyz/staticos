@@ -7,9 +7,9 @@
 #   power quiet   — тихий и холодный
 #   power status  — что сейчас, с замерами (не режим, просто показ)
 #
-# Часть ручек требует root. Скрипт сам вызывает sudo только для них,
-# остальное делает от пользователя. Чтобы не спрашивал пароль, есть
-# правило в /etc/sudoers.d/power-profiles (ставится отдельно).
+# Часть ручек требует root. Они идут одним вызовом /usr/local/bin/power-helper через
+# sudo -n (правило /etc/sudoers.d/power-helper, ставит ~/.local/share/power-helper/install.sh).
+# Без помощника — по ручке через sudo, пароль только в живом терминале.
 
 set -u
 
@@ -21,7 +21,12 @@ c_ok=$'\033[38;5;79m'; c_warn=$'\033[38;5;179m'; c_bad=$'\033[38;5;203m'
 c_dim=$'\033[2m'; c_b=$'\033[1m'; c_off=$'\033[0m'; c_key=$'\033[38;5;245m'
 
 have() { command -v "$1" >/dev/null 2>&1; }
-root() { sudo -n "$@" 2>/dev/null || sudo "$@"; }
+# Пароль спрашиваем только в живом терминале: sudo без TTY (из окон, из фона) упирается
+# в faillock и блокирует учётку. Из окон root-часть идёт через power-helper (sudo -n).
+TTY=0; [ -t 0 ] && [ -t 1 ] && TTY=1
+root() { sudo -n "$@" 2>/dev/null || { [ $TTY = 1 ] && sudo "$@"; }; }
+HELPER=/usr/local/bin/power-helper
+helper() { [ -x $HELPER ] && sudo -n $HELPER "$1" 2>/dev/null; }   # все ручки CPU одним вызовом
 
 # ─────────────────────────── чтение состояния ───────────────────────────
 
@@ -78,6 +83,10 @@ set_rapl() {   # длительный краткий, в ваттах
 set_gpu() { root nvidia-smi -i "$GPU_DEV" -pl "$1" >/dev/null 2>&1; }
 
 set_hz() {
+  # Savage Mode из окон зовёт с POWER_KEEP_HZ=1: смена частоты — это перестройка режима,
+  # MSI гаснет на секунду (22.10.2026, просьба: «экран msi затухает… можно без этого?»).
+  # Обычная частота DP-4 и так 300 Гц (cfg/outputs.kdl, output-mode-fix).
+  [ -n "${POWER_KEEP_HZ:-}" ] && return 0
   if [ -n "$NIRI_SOCKET" ]; then
     # niri хочет точную частоту из списка режимов (300.004, а не 300) — берём ближайшую.
     local mode
@@ -109,10 +118,12 @@ apply_max() {
   # (2.22 с против 2.22 с на синтезе), поэтому её не трогаем: только нагрев.
   echo "${c_b}Максимум${c_off} — для долгой непрерывной нагрузки"
   set_ppd balanced
+  helper max || {
   set_epp performance
   set_turbo 1
   set_perf_pct 25 100      # высокий пол: не даём проваливаться между задачами
   set_rapl 45 115
+  }
   set_hz 300
   echo max > "$STATE"
 }
@@ -120,10 +131,12 @@ apply_max() {
 apply_mid() {
   echo "${c_b}Средний${c_off} — повседневный"
   set_ppd balanced
+  helper mid || {
   set_epp balance_performance
   set_turbo 1
   set_perf_pct 10 100
   set_rapl 40 115
+  }
   set_hz 165
   echo mid > "$STATE"
 }
@@ -131,12 +144,14 @@ apply_mid() {
 apply_quiet() {
   echo "${c_b}Тихий${c_off} — холодно и без шума"
   set_ppd power-saver
+  helper quiet || {
   set_epp power
   set_turbo 0              # турбо — главный источник и жара, и шума
   set_perf_pct 10 55
   set_rapl 25 35
   set_gpu 40               # единственное место, где лимит карты осмыслен:
                            # не ради скорости, а ради тишины и батареи
+  }
   set_hz 60
   echo quiet > "$STATE"
 }

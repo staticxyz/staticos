@@ -88,7 +88,7 @@ AREAS = [
         mpris_common.py mpris_status.py mpris_focus privacy_status.py 70-jarvis-camera.rules rec_status.sh
         ribbon_map.py sensor_colors.py start_button.py start_glyphs.py taskbar.py waybar_clock.py
         ws_labels.py ws_order.py lyrics_bar.py bar_volume.py bar_volume.sh
-        savage_battery.py battery_mini.py"""),
+        savage_battery.py savage_power.py battery_mini.py"""),
     ("Бар: шрифты значков", "Aa", """
         build_bar_icons.py build_battery_font.py build_bongo_font.py build_wave_font.py
         build_wolf_font.py build_zen_font.py build_start_font.py build_taskbar_font.py"""),
@@ -281,7 +281,8 @@ def present(entries):
 
 # Описания файлов без шапки (сверено с кодом 13.10.2026).
 DESC = {
-    "savage_battery.py": "Батарея в баре и переключатель Savage Mode (щелчок по батарее).",
+    "savage_battery.py": "Батарея в баре и Кофеин — без сна (бывший Savage Mode, ПКМ по батарее).",
+    "savage_power.py": "Savage Mode — мощность на максимум: power max + профиль performance, выкл — power mid.",
     "pixel_look.py": "Вид системы: пиксельный, обычный или Minimalistic (капсула) — один переключатель на всё",
     "zen-browser": "Запуск Zen только на Intel (Mesa), чтобы RTX 3050 спала; откат — ссылка на ~/.local/opt/zen/zen",
     "battery_mini.py": "Батарейка-капсула (картинка) в баре вида Minimalistic, без цифр.",

@@ -38,6 +38,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 BAR_STYLE = os.path.join(HERE, "bar_style.py")
 SCREEN_AWAKE = os.path.join(HERE, "screen_awake.py")
 SAVAGE_SCRIPT = os.path.join(HERE, "savage_battery.py")
+import savage_power  # noqa: E402  новый Savage Mode — мощность на максимум (power max)
 NIGHT_MODE = os.path.join(HERE, "night_mode.py")
 MONITOR_BRIGHTNESS = os.path.join(HERE, "monitor_brightness.py")
 # Ночной режим: включает и выключает hyprsunset (расписание 22:00–5:00 — в
@@ -790,9 +791,11 @@ class BatteryPopup(Gtk.Window):
 
         savage = is_savage_active()
         self.awake_switch = self.pill(savage, self.on_savage_toggled)
-        box.pack_start(self.row("󰓅", "Savage Mode", self.awake_switch), False, False, 0)
+        # прежний Savage Mode (без сна) — теперь «Кофеин» (22.10.2026, просьба: «текущий
+        # переключатель Savage Mode переименуй на Кофеин и иконку соответствующую»)
+        box.pack_start(self.row("\U000f0176", "Кофеин", self.awake_switch), False, False, 0)
 
-        # Спутник Savage Mode: пока он выключен, строки просто нет — она
+        # Спутник Кофеина: пока он выключен, строки просто нет — она
         # ничего не делала бы (см. scripts/idle_guard.py, где требуются оба
         # условия сразу).
         self.screen_rev = Gtk.Revealer()
@@ -804,8 +807,14 @@ class BatteryPopup(Gtk.Window):
         self.screen_rev.set_reveal_child(savage)
         box.pack_start(self.screen_rev, False, False, 0)
 
-        # Savage со спутником — выше энергосбережения (22.10.2026, просьба: «Savage mode
-        # должен стоять выше чем Энергосбережение»)
+        # Кофеин со спутником — выше энергосбережения (22.10.2026, просьба: «Savage mode
+        # должен стоять выше чем Энергосбережение»); между ними — новый Savage Mode:
+        # мощность ПК на максимум, savage_power.py (вкл — power max + профиль
+        # performance, выкл — power mid), то же, что плитка «Мощность» в Центре управления
+        self.pill_sync = False
+        self.savage_power_switch = self.pill(savage_power.is_on(), self.on_savage_power_toggled)
+        box.pack_start(self.row("󰓅", "Savage Mode", self.savage_power_switch), False, False, 0)
+
         self.power_switch = self.pill(self.get_power_saver_state(), self.on_power_saver_toggled)
         box.pack_start(self.row("󰌪", "Энергосбережение", self.power_switch), False, False, 0)
 
@@ -1033,8 +1042,27 @@ class BatteryPopup(Gtk.Window):
         except Exception:
             return False
 
+    def pill_set(self, sw, on):
+        """Переставить тумблер, не вызывая его обработчик."""
+        self.pill_sync = True
+        sw.set_active(on)
+        self.pill_sync = False
+
+    def on_savage_power_toggled(self, on):
+        if self.pill_sync:
+            return
+        savage_power.apply(on)
+        if on:                                  # профиль станет performance
+            self.pill_set(self.power_switch, False)
+
     def on_power_saver_toggled(self, on):
+        if self.pill_sync:
+            return
         mode = "power-saver" if on else "balanced"
+        if savage_power.is_on():                # уход с максимума — сперва power mid
+            savage_power.apply(False, profile=mode)
+            self.pill_set(self.savage_power_switch, False)
+            return
         subprocess.run(["powerprofilesctl", "set", mode],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -1045,7 +1073,7 @@ class BatteryPopup(Gtk.Window):
     def on_savage_toggled(self, want):
         if want != is_savage_active():
             subprocess.run(["python3", SAVAGE_SCRIPT, "--toggle"])
-        # Выключенный Savage Mode сбрасывает и спутника (savage_battery.py),
+        # Выключенный Кофеин сбрасывает и спутника (savage_battery.py),
         # поэтому переключатель заодно возвращаем в исходное положение.
         if not want:
             self.screen_switch.set_active(False)

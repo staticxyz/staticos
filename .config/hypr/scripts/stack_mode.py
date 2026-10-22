@@ -748,6 +748,21 @@ def set_top_bar_kind(kind):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
+def top_swap(frm, to):
+    """Режим верхнего бара frm → to на всех мониторах (panels.json) или в общем (state/top-bar);
+    без применения."""
+    import panels
+    d = panels.load()
+    if panels.per_monitor(d):
+        for out in panels.top_outputs(d):
+            if (d["mon"].get(out) or {}).get("top", panels.global_top()) == frm:
+                panels.set_value(out, "top", to)
+    elif panels.global_top() == frm:
+        with open(panels.TOP_FILE + ".tmp", "w") as f:
+            f.write(to + "\n")
+        os.replace(panels.TOP_FILE + ".tmp", panels.TOP_FILE)
+
+
 def top_hover(on):
     """Верхний бар на время стопки: остаётся как был, но без столов — в стопке все окна на
     одном столе, переход на другой её ломает (22.10.2026, просьба: «можно оставить бар если
@@ -760,6 +775,11 @@ def top_hover(on):
     st = load_state()
     sys.path.insert(0, HERE)
     import panels
+    # Вход в стопку: «всегда» → «при наведении», выход: «при наведении» → «всегда»; это
+    # обычный выбор в Настройках, его можно сменить и в стопке, «выключен» не трогается
+    # (22.10.2026, просьба: «при переключении на stack mode пусть бар сверху становится При
+    # наведении по умолчанию, а если обратно в scroll mode то на Всегда»)
+    top_swap(*(("always", "hover") if on else ("hover", "always")))
     if on:
         st["capsule"] = top_bar_kind() == "capsule"
         _save(STATE, st)

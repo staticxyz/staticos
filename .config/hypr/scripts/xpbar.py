@@ -45,6 +45,7 @@ import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+SAVAGE_BLUE = "#5cc8ff"     # «Энергия» при Savage Mode (power max) — голубой
 sys.path.insert(0, HERE)
 SHOW_FILE = os.path.expanduser("~/.config/hypr/state/xpbar-show")
 GAP_FILE = os.path.expanduser("~/.config/hypr/state/xpbar-gap")      # off — окна вплотную
@@ -818,12 +819,19 @@ def load_css():
                 "%(s)s .tray label.bat.awake { color: %(c)s; }\n"
                 "%(s)s .tray label.bat.savage { color: mix(%(c)s, white, 0.35); "
                 "text-shadow: 0 0 3px %(c)s, 0 0 7px %(c)s, 0 0 10px alpha(%(c)s, 0.9); }\n"
+                # новый Savage Mode (power max, savage_power.py) — голубой поверх кофеина
+                # (22.10.2026, просьба: «иконка Энергии в панели должна перекрашиваться в голубой»)
+                "%(s)s .tray label.bat.power { color: %(b)s; "
+                "text-shadow: 0 0 3px alpha(%(b)s, 0.7), 0 0 6px alpha(%(b)s, 0.5); }\n"
+                "%(s)s .tray label.bat.power.savage { "
+                "text-shadow: 0 0 3px %(b)s, 0 0 7px %(b)s, 0 0 10px alpha(%(b)s, 0.9); }\n"
                 "%(s)s .tray.side label.pomo { font-family: %(f)s; font-size: 13px; font-weight: 800; "
                 "color: %(v)s; }\n"
                 "%(s)s .tray.side label.pomo-break, %(s)s .tray.side label.pomo-focus { color: %(p)s; }\n"
                 "%(s)s .tray.side label.pomo-paused { color: alpha(%(t)s, 0.55); }\n"
                 "%(s)s .tray.side label.pomo-idle { color: alpha(%(t)s, 0.35); }\n"
-                % dict(s=sel, c=col, f=FONT12, v=vivid, p=c["primary"], t=c["on_surface"]))
+                % dict(s=sel, c=col, f=FONT12, v=vivid, p=c["primary"], t=c["on_surface"],
+                       b=SAVAGE_BLUE))
         css += ("%(s)s button.ws.drop, %(s)s button.ws.drop.focused, %(s)s button.ws.drop.empty, "
                 "%(s)s button.ws.drop.focused.empty { border-color: %(c)s; "
                 "box-shadow: inset 0 0 0 2px %(c)s; }\n" % dict(s=sel, c=col))
@@ -2561,7 +2569,8 @@ class SideTray(Gtk.Box):
         # (22.10.2026, просьба: «иконка светится с задержкой и пропадает тоже»).
         # screen_awake пишет через .tmp и rename — поэтому WATCH_MOVES и оба имени.
         self.bat_mons, self.bat_pending = [], 0
-        for path in ("/tmp/savage_mode.pid", os.path.expanduser("~/.config/hypr/state/screen-awake")):
+        for path in ("/tmp/savage_mode.pid", os.path.expanduser("~/.config/hypr/state/screen-awake"),
+                     os.path.expanduser("~/.cache/power-mode")):     # Savage Mode = power max
             m = Gio.File.new_for_path(path).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
             m.connect("changed", self.on_bat_state)
             self.bat_mons.append(m)
@@ -2657,13 +2666,14 @@ class SideTray(Gtk.Box):
     def bat_apply(self):
         try:
             import savage_battery as SB
-            info, savage = SB.battery(), SB.is_savage_active()
+            import savage_power
+            info, savage, power = SB.battery(), SB.is_savage_active(), savage_power.is_on()
             awake = False
             if savage:
                 import screen_awake
                 awake = screen_awake.get()
         except Exception:
-            info, savage, awake = None, False, False
+            info, savage, awake, power = None, False, False, False
         self.bat_box.set_visible(info is not None)
         if info is None:
             return
@@ -2675,10 +2685,12 @@ class SideTray(Gtk.Box):
         else:
             self.bat_g.set_text("\uf244\uf243\uf242\uf241\uf240"[level])
         c = self.bat_g.get_style_context()
-        for k, on in (("savage", savage), ("awake", awake)):
+        for k, on in (("savage", savage), ("awake", awake), ("power", power)):
             (c.add_class if on else c.remove_class)(k)
-        self.bat_box.set_tooltip_text("Энергия: %d%% · %s\nЛКМ — «Энергия» · ПКМ — Savage %s"
-                                      % (cap, "Savage (24/7)" if savage else "Standard",
+        # «savage» в классах — прежнее имя Кофеина (без сна); Savage Mode теперь — power
+        self.bat_box.set_tooltip_text("Энергия: %d%%%s · %s\nЛКМ — «Энергия» · ПКМ — Кофеин %s"
+                                      % (cap, " · Savage Mode (power max)" if power else "",
+                                         "Кофеин" if savage else "без кофеина",
                                          "выкл" if savage else "вкл"))
 
     def on_bat(self, e):
