@@ -2480,8 +2480,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
         """В режиме «стопка» полосу заголовка с кнопками рисует stack_bars.py (со значком
         отсюда) — своя прячется, иначе две полосы подряд (21.10.2026, просьба: «в окне
         Настроек дублируются линии с кнопками»)."""
-        self.title_bar.set_no_show_all(True)
+        # сперва показать содержимое, потом запретить show_all окна: у виджета с no_show_all
+        # show_all() не делает ничего — кнопки «Развернуть»/«Закрыть» так и не появлялись,
+        # полоса после стопки возвращалась пустой (22.10.2026)
         self.title_bar.show_all()
+        self.title_bar.set_no_show_all(True)
         self.sync_stack_title()
         try:
             self._stack_mon = Gio.File.new_for_path(STACK_STATE).get_parent().monitor_directory(

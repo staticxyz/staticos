@@ -768,6 +768,9 @@ def top_hover(on):
         return
     for k in ("top_desks", "top_hover", "capsule"):   # top_desks/top_hover — ключи до 22.10
         st.pop(k, None)
+    # «active» снимется позже, в конце turn_off, — без отметки бар собрался бы снова без
+    # столов (22.10.2026: стопку выключили, а столы наверху так и не вернулись)
+    st["top_off"] = True
     _save(STATE, st)                     # apply ниже перезапускает только изменённые бары
     subprocess.run([sys.executable, os.path.join(HERE, "panels.py"), "apply", "top"],
                    capture_output=True, timeout=60)
@@ -1172,6 +1175,26 @@ def heal(st, wss, wins):
     return fixed
 
 
+GAMES = ("steam_app_", "gamescope", "cs2")
+
+
+def is_game(w):
+    return (w.get("app_id") or "").startswith(GAMES)
+
+
+def game_tap():
+    """Одиночный Super (super_tap.py) в стопке при игре в фокусе — свернуть игру (22.10.2026, просьба: «во время запуска игры кс можно его сворачивать на super? в режиме stack mode
+    только»). Вернуть — кнопкой панели или Super+K. True — свернул, «Пуск» не открывать."""
+    if not active():
+        return False
+    f = get("FocusedWindow")
+    if not f or not is_game(f) or hidden(f):
+        return False
+    log("super: свернуть игру", f.get("app_id"), f["id"])
+    minimize(f["id"])
+    return True
+
+
 def minimize(wid):
     st = load_state()
     if not active(st):
@@ -1180,7 +1203,12 @@ def minimize(wid):
     if heal(st, wss, wins):
         wss, wins = query()
     w, o = window_out(wid, wss, wins)
-    if not w or o not in (st.get("outs") or {}) or w.get("workspace_id") != so(st, o)["desk"]:
+    if not w or o not in (st.get("outs") or {}):
+        return
+    # игра во весь экран может стоять и не на столе стопки; места не помним — она в ленте,
+    # вернётся на стол стопки во весь экран (демон полный экран не трогает)
+    game = is_game(w) and not w.get("is_floating")
+    if w.get("workspace_id") != so(st, o)["desk"] and not game:
         return
     M = min_desk(wss, o)
     if M:
@@ -1192,7 +1220,7 @@ def minimize(wid):
         taken = {d.get("name") for d in wss}
         name = next(MIN_NAME + WJ * i for i in range(8) if MIN_NAME + WJ * i not in taken)
         A("SetWorkspaceName", name=name, workspace={"Id": mid})
-    st.setdefault("min", {})[str(wid)] = geom_of(w, st, o)
+    st.setdefault("min", {})[str(wid)] = None if game else geom_of(w, st, o)
     _save(STATE, st)
     A("MoveWindowToWorkspace", window_id=wid, reference={"Id": mid}, focus=False)
 
@@ -1241,7 +1269,7 @@ def stack_key(st, d):
         # Super+F в стопке = кнопка «Развернуть» (туда и обратно): полный экран niri закрыл бы
         # полосу и панель, а демон снимал его по размеру — окно мигало (21.10.2026). Игры —
         # настоящий полный экран, как и вне стопки.
-        if mine and not (f.get("app_id") or "").startswith(("steam_app_", "gamescope")):
+        if mine and not is_game(f):
             main(["max", str(f["id"])])
         else:
             A("FullscreenWindow", **({"id": f["id"]} if f else {}))

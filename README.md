@@ -74,9 +74,10 @@ The bottom panel comes in two looks. Pick one in Settings → DE → Bottom pane
   - `Super+H/L` go to the previous/next window, minimized ones included.
   - `Super+F` maximizes instead of going fullscreen.
   - `Super+D` minimizes all windows, or restores them.
+  - A lone `Super` tap minimizes a running game (Steam, gamescope) instead of opening Start.
   - Alt+Tab lists windows only.
 - **While it is on:**
-  - the top bar shows on hover;
+  - the top bar stays as it was, without workspaces (all windows share one);
   - the island sits under the windows;
   - window sounds play on minimize and maximize.
 

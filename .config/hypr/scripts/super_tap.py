@@ -14,6 +14,7 @@
     его ведёт xpbar.py). Спрятанная панель («по Super+S», «при наведении») —
     Super ничего не открывает.
 Повторный тап при открытом меню его закрывает (start_menu.py — переключатель).
+В стопке при игре в фокусе (CS2) тап сворачивает игру, а не открывает «Пуск» (22.10.2026).
 
 Читаются только клавиатуры (обработчик kbd в /proc/bus/input/devices), не мышь:
 мышь шлёт сотни событий движения в секунду, а связки Super+мышь (перетаскивание,
@@ -82,7 +83,20 @@ def xpbar_pids():
     return out
 
 
+def game_tap():
+    """Стопка и игра в фокусе — тап сворачивает игру (stack_mode.game_tap), «Пуск» не открывается."""
+    try:
+        if HERE not in sys.path:
+            sys.path.insert(0, HERE)
+        import stack_mode
+        return stack_mode.game_tap()
+    except Exception:
+        return False
+
+
 def fire():
+    if game_tap():
+        return
     if not os.path.exists(FLAG):
         return
     # Меню живёт в процессе панели — ей сигнал SIGUSR2, открывается мгновенно.

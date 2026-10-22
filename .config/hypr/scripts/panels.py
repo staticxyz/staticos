@@ -151,7 +151,8 @@ def stack_top(out=None):
             sys.path.insert(0, here)
         import stack_mode
         st = stack_mode.load_state()
-        return stack_mode.active(st)     # любой монитор: бар могли включить и во время стопки
+        # любой монитор: бар могли включить и во время стопки; top_off — стопка выходит
+        return stack_mode.active(st) and not st.get("top_off")
     except Exception:
         return False
 
