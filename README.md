@@ -67,6 +67,20 @@ The bottom panel comes in two looks. Pick one in Settings → DE → Bottom pane
 - **Wi-Fi and Bluetooth in the Energy popup** of the bottom panel, in the system style. The switch
   turns the radio on or off; a click on the row turns the popup into a page of the same size with
   networks or devices, a password field, Connect / Disconnect / Forget and a Back button.
+- **Right side of the bottom panel**, next to the clock:
+
+  ![Right side of the bottom panel: tray, layout, microphone, notifications, network, Energy, date](assets/panel-tray.png)
+
+  - `‹` opens the hidden tray icons;
+  - keyboard layout, click to switch;
+  - microphone with its level: click mutes, the wheel sets the level, middle-click swaps it for
+    speaker volume;
+  - notifications with a count: click toggles Do Not Disturb, right-click opens the list;
+  - **Network** (wired): click opens the Network popup; hidden without a cable;
+  - **Energy**: click opens the popup with power modes, Wi-Fi and Bluetooth; right-click turns on
+    Savage mode, and the icon glows while it is on;
+  - clock: time on the laptop, date on the second screen; middle-click swaps them, click opens
+    the calendar.
 - **Settings follow the mode.** Options that only matter in stack mode show up only while it is on.
 - **Keys:**
   - `Super+K` maximizes, or brings back the last minimized window.
