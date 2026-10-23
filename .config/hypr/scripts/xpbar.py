@@ -397,6 +397,15 @@ _provider = None
 # Высота та же: рамка 1 px + внутренняя линия тенью, поля 1 px — под логотип 26 px
 # (поля 2 px раздували панель на 1–2 px).
 START_BUTTON_FILE = os.path.expanduser("~/.config/hypr/state/start-button-look")
+# надпись на «Пуске»: staticOS (по умолчанию) | start — «Start» (23.10.2026, пользователь)
+START_WORD_FILE = os.path.expanduser("~/.config/hypr/state/start-button-word")
+
+
+def start_word():
+    try:
+        return "start" if open(START_WORD_FILE).read().strip() == "start" else "staticos"
+    except OSError:
+        return "staticos"
 START_LOOK_FILE = os.path.expanduser("~/.config/hypr/state/start-menu-look")
 SQUARE_CSS = """
 button.start {
@@ -983,6 +992,8 @@ def stack_on():
 # центру экрана, «Пуск» — значок первым в этом ряду, закреплённое остаётся. Настройки →
 # «Нижняя панель» → «Вид в стопке»; вне стопки панель всегда прежняя.
 STACK_LOOK_FILE = os.path.expanduser("~/.config/hypr/state/xpbar-stack-look")
+# «Тексты песен» выключены (lyrics_bar.py off) — места под строку нет, окнам вся длина (23.10.2026)
+LYR_OFF_FILE = os.path.expanduser("~/.config/hypr/state/lyrics-off")
 ICON_W = 44              # centered: ширина кнопки-значка
 NOTE_TASK_PX = 12        # значок звука в углу кнопки окна (стопка); было 9, как у стола — «чуть побольше»
 ICON_PX = 24             # и размер значка (пиксельные значки чёткие на 8/16/24)
@@ -1037,7 +1048,7 @@ def pin_toggle(app, conn):
     «p:app», которого нет в сохранённом порядке, и программа уезжала в конец панели."""
     d = pins_load()
     wins = BARS[0].state.windows.values() if BARS else []
-    mine = ["w:%d" % w["id"] for w in wins if (w.get("app_id") or "") == app]
+    mine = ["w:%d" % w["id"] for w in wins if pin_id(w) == app]
     mine_pins = d["pins"].setdefault(conn, [])
     pin = app not in mine_pins
     if pin:
@@ -1298,6 +1309,13 @@ def window_icon_id(app_id, title):
     if not app_id and not t and steam_updater_running():
         return "steam"
     return app_id
+
+
+def pin_id(w):
+    """Чей закреп «занимает» окно — по значку на панели, не по app_id: kitty с Claude, nvim,
+    btop показываются своими значками, и закреп kitty при таких окнах пропадал из панели
+    (23.10.2026, просьба: «закрываю kitty — он исчезает из панели»)."""
+    return window_icon_id(w.get("app_id") or "", w.get("title"))
 
 
 def steam_updater_running():
@@ -4137,6 +4155,16 @@ class PinButton(TaskButton):
         self.info = app_info(app)
         self.set_tooltip_text(self.info.get_display_name() if self.info else app)
 
+    def set_compact(self, on):
+        """Закреп без окна — всегда один значок; в Left sided (classic) шириной PIN_W, как
+        в Centered max (23.10.2026, просьба: «отображаются полным размером»)."""
+        super().set_compact(on)
+        self.lbl.set_no_show_all(True)
+        self.lbl.hide()
+        self.box.set_halign(Gtk.Align.CENTER)
+        if not on:
+            self.set_size_request(PIN_W, -1)
+
     def launch(self):
         if self.info:
             spawn("gtk-launch", self.info.get_id())
@@ -4489,6 +4517,8 @@ class XPBar(Gtk.Window):
             self.hide()              # «по кнопке»: до первого Super+S панели нет
         self.apply_start_look()
         self.lyr_box.hide()   # место под текст остаётся — окна слева не сдвигаются
+        self.lyr.set_no_show_all(True)
+        self.apply_lyr_space()
         self.left.hide()
         self.right.hide()
         if not self.ws_here or stack_on():
@@ -4507,7 +4537,12 @@ class XPBar(Gtk.Window):
         v = start_button_look()
         sq, g = v == "square", start_glyphs.parse(v)
         c = LOOK_COLS.get(self.look) or colors()
-        self.sq_label.set_markup('static<span foreground="%s">OS</span>' % c["st_hi"])
+        if start_word() == "start":
+            self.wordmark.set_text("start")
+            self.sq_label.set_text("start")
+        else:
+            self.wordmark.set_text("staticOS")
+            self.sq_label.set_markup('static<span foreground="%s">OS</span>' % c["st_hi"])
         ctx = self.start.get_style_context()
         ctx.remove_class("badge")
         ctx.remove_class("glyphonly")
@@ -4556,9 +4591,9 @@ class XPBar(Gtk.Window):
          self.start.get_style_context().remove_class)("compact")
         self.apply_start_look()
         for b in list(self.buttons.values()) + list(self.launchers.values()):
-            b.set_compact(on)
-            if not on:
+            if not on and not isinstance(b, PinButton):
                 b.set_size_request(TASK_W, -1)
+            b.set_compact(on)
         self.inner.set_halign(Gtk.Align.START if on else Gtk.Align.FILL)
         self.inner.set_margin_start(0)
         self.btn_w = None
@@ -4948,7 +4983,7 @@ class XPBar(Gtk.Window):
     def slot_pins(self, keys, pins):
         """Значок закрепа, пока у программы есть окна, не виден — его место держим перед её
         первым окном на панели: закрыли все окна — значок встаёт туда, где они были."""
-        app_of = {"w:%d" % i: w.get("app_id") or "" for i, w in self.state.windows.items()}
+        app_of = {"w:%d" % i: pin_id(w) for i, w in self.state.windows.items()}
         for a in pins:
             if not any(app_of.get(k) == a for k in keys):
                 # окон нет — значок виден и стоит там, куда его поставили (21.10.2026, просьба:
@@ -5153,10 +5188,10 @@ class XPBar(Gtk.Window):
                 self.tasks.pack_start(b, False, False, 0)
                 b.show_all()
             b.update(w)
-            b.set_pinned((w.get("app_id") or "") in my_pins)
+            b.set_pinned(pin_id(w) in my_pins)
             if w.get("is_focused"):
                 focused = b
-        have = {w.get("app_id") or "" for w in wins}
+        have = {pin_id(w) for w in wins}
         want = [a for a in my_pins if a not in have]
         for a in list(self.launchers):
             if a not in want:
@@ -5177,21 +5212,25 @@ class XPBar(Gtk.Window):
             # открывались в конце списка»; прежде вставало рядом с её окнами, как в Windows 10)
             # закреп, о котором порядок ещё не знает (закрепили из «Пуска»), — на место
             # первого окна программы, а не в конец
+            # программа — по видимому значку (pin_id): kitty с nvim/Claude не «окно kitty» (23.10.2026,
+            # Пользователь: kitty, переставленный влево, открывался в конце — его место занимали nvim-окна)
+            pid = {b: (pin_id(self.state.windows[b.wid]) if b.wid in self.state.windows else b.app_id)
+                   for b in order}
             wpos = {}
             for b in order:
                 if b.wid is not None and "w:%d" % b.wid in pos:
-                    wpos[b.app_id] = min(wpos.get(b.app_id, 1 << 30), pos["w:%d" % b.wid])
+                    wpos[pid[b]] = min(wpos.get(pid[b], 1 << 30), pos["w:%d" % b.wid])
 
             def rank(b):
                 if b.key in pos:
                     return (pos[b.key], 0, nat[b])
-                if b.wid is None and b.app_id in wpos:
-                    return (wpos[b.app_id], 0, nat[b])
+                if b.wid is None and pid[b] in wpos:
+                    return (wpos[pid[b]], 0, nat[b])
                 # первое окно закреплённой — на место значка; второе и дальше — в конец (21.10.2026:
                 # новый kitty вставал на место «p:kitty» посреди панели). wpos считан до sort:
                 # во время list.sort сам список пуст — обходить order в rank нельзя
-                if b.app_id not in wpos and "p:%s" % b.app_id in pos:
-                    return (pos["p:%s" % b.app_id], 1, nat[b])
+                if pid[b] not in wpos and "p:%s" % pid[b] in pos:
+                    return (pos["p:%s" % pid[b]], 1, nat[b])
                 return (len(saved) + (not b.pinned), 0, nat[b])
             order.sort(key=rank)
             if any(b.key not in pos for b in order) and not any(b.dragging for b in order):
@@ -5291,11 +5330,17 @@ class XPBar(Gtk.Window):
             app = w.get("app_id") or ""
             pinned = app in pins_of(pins_load(), self.connector)
             info = app_info(app)
+            # окно со своим значком (Claude, nvim, btop в kitty) закрепляет саму программу
+            own = pin_id(w) == app
+            name = info.get_display_name() if info else app
+            pin_label = ("Открепить" if pinned else "Закрепить") + (
+                " от панели задач" if pinned and own else " %s от панели задач" % name if pinned else
+                " на панели задач" if own else " %s на панели задач" % name)
             new_win = ([pop_item("Новое окно — " + info.get_display_name(),
                                  lambda: spawn("gtk-launch", info.get_id()))] if info else [])
             self.menu([item("Перейти", "focus-window", "--id", str(wid))] + new_win +
                       [pop_item("Во весь экран", lambda: spawn("python3", STACK_MODE, "max", str(wid))),
-                       pop_item("Открепить от панели задач" if pinned else "Закрепить на панели задач",
+                       pop_item(pin_label,
                                 lambda: pin_toggle(app, self.connector)),
                        POP_SEP,
                        item("Закрыть окно", "close-window", "--id", str(wid))])
@@ -5322,6 +5367,13 @@ class XPBar(Gtk.Window):
         return True
 
     # ── текст песни ───────────────────────────────────────────────────────
+    def apply_lyr_space(self):
+        """Тексты выключены — место LYR_W убрать совсем: окна занимают всю длину панели."""
+        on = not os.path.exists(LYR_OFF_FILE)
+        if self.lyr.get_visible() != on:
+            self.lyr.set_visible(on)
+            self.btn_w = None
+
     def set_lyrics(self, obj):
         # строку уже показывает островок сверху на этом мониторе (живая нить, капсула котика) —
         # здесь не дублировать (20.10.2026, пользователь); не видно сверху — показывать
@@ -5723,6 +5775,9 @@ def main():
                 load_css()                  # beta Light/Dark — другие цвета
             for b in bars:
                 b.apply_look()
+        if START_WORD_FILE in paths:
+            for b in bars:
+                b.apply_start_look()
         if START_BUTTON_FILE in paths:
             load_css()
             for b in bars:
@@ -5734,6 +5789,9 @@ def main():
         if STACK_LOOK_FILE in paths:
             for b in bars:
                 b.apply_task_look()
+        if LYR_OFF_FILE in paths:
+            for b in bars:
+                b.apply_lyr_space()
         if START_LOOK_FILE in paths:
             reset_menus()
             GLib.timeout_add(500, prewarm_menus)     # готово к следующему открытию

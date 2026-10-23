@@ -126,7 +126,10 @@ STYLE = os.path.join(STATE, "desktop-widgets-style.json")
 # shadow — маленькая «пиксельная» тень справа и снизу (03.10.2026, по образцу AngelOS).
 LOOKS = ("xp", "skeet", "beta", "classic")
 STYLE_DEFAULT = {"look": "xp", "looks": {}, "transparent": True, "opacity": 62, "blur": 16,
-                 "under": False, "shadow": False, "guests": True}
+                 "under": False, "shadow": False, "guests": True, "suffix": "exe"}
+# suffix — приставка в заголовке (23.10.2026, просьба: «не .exe а .sh, или вообще без
+# ничего, просто название, три вида»): exe | sh | none.
+SUFFIXES = ("exe", "sh", "none")
 PEEK_FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "desktop-widgets-peek")
 PEEK_RESTORE = PEEK_FLAG + "-restore"       # restart: вернуть «поверх окон» новому сторожу
 
@@ -161,6 +164,7 @@ def load_style():
     st["shadow"] = bool(st["shadow"])
     st["guests"] = bool(st["guests"])
     st["look"] = st["look"] if st["look"] in LOOKS else "xp"
+    st["suffix"] = st["suffix"] if st["suffix"] in SUFFIXES else "exe"
     st["looks"] = {k: v for k, v in (st.get("looks") or {}).items() if v in LOOKS} \
         if isinstance(st.get("looks"), dict) else {}
     return st
@@ -640,6 +644,14 @@ def parse_timer(words):
     return " ".join(label), end
 
 
+def _is_timer_ask(pid):
+    try:
+        argv = open("/proc/%s/cmdline" % pid, "rb").read().split(b"\0")
+    except OSError:
+        return False
+    return any(x.endswith(b"preset_ask.py") for x in argv) and b"--ask" in argv and b"Timer.exe" in argv
+
+
 def ask_timer(prompt="timer.exe"):
     """Окно ввода «название и время» → слова, как их набрали бы в терминале. С 05.10.2026 —
     окно Timer.exe в стиле системы (preset_ask.py --ask, как Preset.exe), а не голый rofi;
@@ -791,6 +803,15 @@ def cli(a):
         words = [x for x in a[1:] if x not in kv]
         url = next((x[4:] for x in kv if x.startswith("url=")), "")
         if any(x.startswith("ask=") for x in kv):
+            # 23.10.2026, просьба: повторный Super+T закрывает открытое окно Timer.exe
+            open_ask = [int(p) for p in os.listdir("/proc") if p.isdigit() and _is_timer_ask(p)]
+            if open_ask:
+                for p in open_ask:
+                    try:
+                        os.kill(p, signal.SIGTERM)
+                    except OSError:
+                        pass
+                return
             words = ask_timer()
             if not words:
                 return
@@ -1008,10 +1029,11 @@ def cli(a):
             v = st.get(a[1], "")
             print(("on" if v else "off") if isinstance(v, bool) else v)
         elif a[1] in STYLE_DEFAULT:
-            if a[1] == "looks" or (a[1] == "look" and a[2] not in LOOKS):
+            if a[1] == "looks" or (a[1] == "look" and a[2] not in LOOKS) or \
+                    (a[1] == "suffix" and a[2] not in SUFFIXES):
                 return
             st[a[1]] = (a[2] in ("1", "on", "true", "yes")) if a[1] in ("transparent", "under", "shadow", "guests") else (
-                a[2] if a[1] == "look" else int(float(a[2])))
+                a[2] if a[1] in ("look", "suffix") else int(float(a[2])))
             if a[1] == "look":
                 st["looks"] = {}             # общий вид задан заново — поштучные сброшены
             save_style(st)
@@ -2081,7 +2103,11 @@ class Widget(Gtk.Window):
         return self.fr()["head"]
 
     def exe(self):
-        return str(self.opts.get("title") or EXE.get(self.spec.get("type"), "widget.exe"))
+        t = str(self.opts.get("title") or EXE.get(self.spec.get("type"), "widget.exe"))
+        suf = (T.get("style") or {}).get("suffix", "exe")
+        if t.endswith(".exe") and suf != "exe":          # «ram.exe» → «ram.sh» / «ram»
+            t = t[:-4] + (".sh" if suf == "sh" else "")
+        return t
 
     # зоны заголовка: (x, y, w, h)
     def zone_close(self):
@@ -4358,6 +4384,13 @@ class Manager:
         same_outs = set(outs) == set(getattr(self, "outs", {}))
         self.zones = None                    # мониторы/раскладка сменились — панели пересчитать
         old = {w.spec.get("name"): w for w in self.widgets}
+        # 23.10.2026, просьба: «менял пресеты и таймеры исчезли» — идущий таймер, которого нет в
+        # новой раскладке, закрывается и в hub с пометкой preset: бот пишет, сколько оставалось.
+        refs = {str((s.get("opts") or {}).get("hub")) for s in conf["widgets"]}
+
+        def lost(w):
+            if hasattr(w, "hub_drop") and w.opts.get("hub") and str(w.opts["hub"]) not in refs:
+                w.hub_drop("preset")
         keep = []
         self.conf, self.outs = conf, outs
         for spec in conf["widgets"]:
@@ -4373,11 +4406,13 @@ class Manager:
                 keep.append(w)
             else:
                 if w is not None:
+                    lost(w)
                     w.close_widget()
                 self.widgets = keep
                 nw = self.spawn(spec)
                 keep = self.widgets if nw else keep
         for w in old.values():
+            lost(w)
             w.close_widget()
         self.widgets = keep
         self.conf["widgets"] = [w.spec for w in self.widgets] + self.offline_specs(conf)
@@ -4440,12 +4475,12 @@ class Manager:
                       ensure_ascii=False, indent=1)
         os.replace(UNDO + ".tmp", UNDO)
         for w in victims:
-            self.remove(w)
+            self.remove(w, "clear")
         return len(victims)
 
-    def remove(self, w):
+    def remove(self, w, how="close"):
         if hasattr(w, "removed"):          # закрыли насовсем (таймер — стоп и в hub)
-            w.removed()
+            w.removed(how)
         self.widgets.remove(w)
         self.gone.add(w.spec.get("name"))
         self.conf["widgets"] = [s for s in self.conf["widgets"] if s is not w.spec]

@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=Reminders
-GenericName=Напоминания и задачи
+GenericName=Reminders and tasks
 Comment=Списки, напоминания, таймеры — без ИИ, своя база
 Exec=hub-open
 Icon=jarvis-hub-reminders
 Terminal=false
 Categories=X-StaticOS;Utility;Office;
 StartupWMClass=com.jarvis.hub
-Keywords=hub;Hub;ргд;Ргд;ХАБ;хаб;напоминание;Напоминание;напоминания;Напоминания;yfgjvbyfybt;yfgjvbyfybz;reminder;Reminder;список;Список;задача;Задача;задачи;Задачи;task;Task;таймер;Таймер;timer;Timer;
+Keywords=hub;Hub;ргд;Ргд;ХАБ;хаб;напоминание;Напоминание;напоминания;Напоминания;yfgjvbyfybt;yfgjvbyfybz;reminder;Reminder;список;Список;задача;Задача;задачи;Задачи;task;Task;таймер;Таймер;timer;Timer;Напоминания;задачи;

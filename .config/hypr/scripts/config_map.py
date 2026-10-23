@@ -169,8 +169,8 @@ AREAS = [
         launcher.py app_launcher.py launcher_term.sh webapp"""),
     ("Экранное время и нагрузка", "◔", """
         screentime.py screentime_daemon.py appmem jtop"""),
-    ("Discipline и hub", "⏱", """
-        routine_app.py focus_mode.py pomo_lock.py alarm discipline routine pomo hub hub-open rem dict wa tfa jchat jchat-tg jchat-wa"""),
+    ("Clocker и hub", "⏱", """
+        routine_app.py focus_mode.py pomo_lock.py alarm clocker discipline routine pomo hub hub-open rem dict wa tfa jchat jchat-tg jchat-wa"""),
     ("Будильник", "⏰", """
         wake_alarm.py jarvis-rtc-wake.sh wake_overlay.py wake-alarm"""),
     # Служебное
@@ -203,7 +203,7 @@ SECTIONS = [
       "Часы и таймеры в терминале", "fetch и забавы в терминале", "Тетрис и тренажёр набора"]),
     ("Инструменты", "applets-screenshooter",
      ["Калькулятор и перевод", "Буфер обмена", "Снимки и запись экрана", "Запуск программ",
-      "Экранное время и нагрузка", "Discipline и hub", "Будильник"]),
+      "Экранное время и нагрузка", "Clocker и hub", "Будильник"]),
     ("Служебное", "utilities-system-monitor",
      ["Самопроверка и сторожа", "Сторонние программы", "Hyprland — не используется", "Прочее"]),
     ("Папки конфигов", "folder", ["Папки конфигов"]),
@@ -946,7 +946,7 @@ AREA_INFO = {
     "Снимки и запись экрана": ("applets-screenshooter", "Снимки, заморозка, Recorder, распознавание текста"),
     "Запуск программ": ("rofi", "Super+X, Super+Space, веб-приложения"),
     "Экранное время и нагрузка": ("utilities-system-monitor", "Сколько сидишь в программах и кто сколько ест"),
-    "Discipline и hub": ("jarvis-discipline", "Фокус, помидор, напоминания, словарь"),
+    "Clocker и hub": ("jarvis-clocker", "Фокус, помидор, напоминания, словарь"),
     "Будильник": ("org.gnome.clocks", "Будильник режима сна и пробуждение по RTC"),
     "Самопроверка и сторожа": ("utilities-system-monitor", "staticos-doctor, сторожа в одном процессе"),
     "Сторонние программы": ("package-x-generic", "Чужие программы в ~/.local/bin"),
@@ -972,7 +972,7 @@ FILE_ICONS = [(re.compile(rx), icon) for rx, icon in (
     (r"notif", "preferences-desktop-notification-bell"), (r"translate", "accessories-character-map"),
     (r"keybind|binds", "preferences-desktop-keyboard-shortcut"), (r"settings", "systemsettings"),
     (r"app_list|applist", "jarvis-applist"), (r"^hub|^rem$", "jarvis-hub-reminders"),
-    (r"^dict$", "jarvis-hub-dict"), (r"routine|discipline|focus|pomo", "jarvis-discipline"),
+    (r"^dict$", "jarvis-hub-dict"), (r"routine|discipline|clocker|focus|pomo", "jarvis-clocker"),
     (r"color|tint|theme", "preferences-desktop-color"), (r"dock|xpbar|bottom_bar|start_", "start-here-kde-plasma"),
     (r"bar|waybar|wb_", "preferences-desktop"), (r"jtetris|jtype|ttyper", "preferences-desktop-gaming"),
     (r"doctor", "utilities-system-monitor"), (r"backup", "folder-backup"),

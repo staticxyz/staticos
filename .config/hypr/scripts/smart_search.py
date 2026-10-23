@@ -54,7 +54,7 @@ SYNONYMS = [
     "клавиши клавиша бинд бинды bind binds hotkey шпаргалка keys сочетание горячие",
     "помидор pomodoro pomo таймер timer",
     "будильник alarm подъем",
-    "фокус focus discipline",
+    "фокус focus discipline clocker клокер",
     "память memory ram озу",
     "подсветка keyboard razer kbd клавиатура",
     "плавающее float floating",

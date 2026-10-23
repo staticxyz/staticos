@@ -176,13 +176,16 @@ def stack_panel(out):
 
 def bottom_for(out, d=None):
     """Режим нижней панели на мониторе: None — общий (как раньше), иначе always|hover|off."""
-    if stack_panel(out):
-        return "always"
     d = d or load()
-    if not per_monitor(d):
-        return None
-    v = (d["mon"].get(out) or {}).get("bottom")
-    return v if v in BOTTOM_MODES else global_bottom()
+    v = None
+    if per_monitor(d):
+        v = (d["mon"].get(out) or {}).get("bottom")
+        v = v if v in BOTTOM_MODES else global_bottom()
+    if stack_panel(out):
+        # стопка: XP-панель обязательна (свёрнутые окна), но выбранное «при наведении»
+        # держится (23.10.2026, просьба: режимы панелей и в Stack mode)
+        return "hover" if (v or global_bottom()) == "hover" else "always"
+    return v
 
 
 def _outputs():

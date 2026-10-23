@@ -348,19 +348,126 @@ def close_stale(c):
                 purge_ghosts()
 
 
+# Своя блокировка — отсрочка (23.10.2026, просьба: «пусть это сообщение выведется в тг не сразу,
+# как только я заблокировал экран, а примерно через 3.5 минуты… если по времени — как обычно»).
+# Блокировку по простою (idle_lock) и из бота (/pc lock) отмечает файл LOCK_AUTO перед
+# loginctl lock-session; нет свежей отметки — запер сам пользователь, таймер ждёт MANUAL_LOCK_GRACE.
+LOCK_AUTO = os.path.join(RUN_DIR, "jarvis-lock-auto")
+MANUAL_LOCK_GRACE = 210
+LOCK_AT = {"t": 0.0, "auto": False}
+
+
+def lock_track():
+    """Когда встала блокировка и сама ли (простой, бот). Зовётся каждый тик."""
+    if not locked():
+        LOCK_AT["t"] = 0.0
+        return
+    if LOCK_AT["t"]:
+        return
+    now = time.time()
+    LOCK_AT["t"] = now
+    try:
+        LOCK_AT["auto"] = now - os.path.getmtime(LOCK_AUTO) < 60
+    except OSError:
+        LOCK_AT["auto"] = False
+    log("блокировка:", "по простою/из бота" if LOCK_AT["auto"] else "своя — таймер в Telegram через %d с"
+        % MANUAL_LOCK_GRACE)
+
+
+def manual_lock_grace():
+    """Своя блокировка моложе MANUAL_LOCK_GRACE — пользователь, скорее всего, рядом."""
+    return bool(LOCK_AT["t"]) and not LOCK_AT["auto"] and time.time() - LOCK_AT["t"] < MANUAL_LOCK_GRACE
+
+
 def announce_away(c):
     """Таймер с виджета на ПК идёт, а вы отошли (pc_present ложно) — один раз прислать
     его в Telegram с кнопкой «■ Стоп» (14.10.2026, пользователь). Сообщение потом само
     подправится под состояние (sync_messages): «Время вышло», «остановлен». fired_tg —
     метка «уже присылал»: при срабатывании fire() всё равно пришлёт «Время вышло»."""
     rows = c.execute("SELECT i.*, l.name AS list FROM items i JOIN lists l ON l.id=i.list_id "
-                     "WHERE i.status='open' AND i.kind='timer' AND i.source IN ('widget','island') AND "
+                     "WHERE i.status='open' AND i.kind='timer' AND i.source IN ('widget','island','clocker') AND "
                      "i.due>? AND i.fired_tg IS NULL", (H.now() + 5,)).fetchall()
-    if not rows or pc_present():
+    if not rows or pc_present() or manual_lock_grace():
         return
     for it in rows:
         send_tg(c, it)
         log("away: таймер в Telegram", it["id"], it["text"])
+
+
+# 23.10.2026, просьба: «если таймер упал на ПК, сбой или я менял пресеты и они исчезли — пусть
+# бот пишет, что они закрыты, сколько оставалось, когда закрыт и во сколько должны были
+# закончиться». Пресет/«Очистить стол» виджеты сами помечают (drop «widget preset|clear»);
+# сбой ловит lost_watch: таймер виджета открыт, а виджетов нет (процесс не запущен) или в их
+# раскладке нет этого таймера дольше LOST_S — пункт закрывается с пометкой lost.
+CLOSED_NOTIFY = ("widget preset", "widget clear", "lost", "lost conf")
+WIDGETS_CONF = os.path.expanduser("~/.config/hypr/state/desktop-widgets.json")
+LOST_S = 90
+LOST = {"miss": {}, "t": 0.0}
+
+
+def widgets_alive():
+    try:
+        out = subprocess.run(["ps", "-u", str(os.getuid()), "-o", "args="], capture_output=True,
+                             text=True, timeout=3).stdout
+    except Exception:
+        return True                      # не знаем — не трогаем
+    return any(ln.split()[-1:] == [os.path.expanduser("~/.config/hypr/scripts/desktop_widgets.py")]
+               or ln.strip().endswith("desktop_widgets.py") for ln in out.splitlines())
+
+
+def lost_watch(c):
+    if time.time() - LOST["t"] < 10:
+        return
+    LOST["t"] = time.time()
+    rows = c.execute("SELECT id, created FROM items WHERE status='open' AND kind='timer' AND "
+                     "source='widget' AND due>?", (H.now(),)).fetchall()
+    if not rows:
+        LOST["miss"].clear()
+        return
+    alive = widgets_alive()
+    try:
+        refs = {str((w.get("opts") or {}).get("hub")) for w in json.load(open(WIDGETS_CONF)).get("widgets", [])}
+    except Exception:
+        refs = None                      # раскладку не прочли — судим только по процессу
+    t = time.time()
+    open_ids = {r["id"] for r in rows}
+    for k in list(LOST["miss"]):
+        if k not in open_ids:
+            del LOST["miss"][k]
+    for r in rows:
+        why = None if alive else "lost"
+        if why is None and refs is not None and str(r["id"]) not in refs and t - r["created"] > 30:
+            why = "lost conf"
+        if why is None:
+            LOST["miss"].pop(r["id"], None)
+            continue
+        since = LOST["miss"].setdefault(r["id"], t)
+        if t - since >= LOST_S:
+            H.drop(c, r["id"], why)
+            LOST["miss"].pop(r["id"], None)
+            log("lost: таймер закрыт", r["id"], why)
+
+
+def announce_closed(c):
+    """Таймер закрыт не вами (пресет, очистка, сбой) и время ещё оставалось — новое сообщение."""
+    last = H.meta_get(c, "tg_closed_ev")
+    top = c.execute("SELECT COALESCE(MAX(id),0) FROM events").fetchone()[0]
+    if last is None:
+        H.meta_set(c, "tg_closed_ev", str(top))
+        return
+    last = int(last)
+    if top <= last:
+        return
+    for ev in c.execute("SELECT * FROM events WHERE id>? AND kind='drop' ORDER BY id", (last,)).fetchall():
+        if ev["data"] not in CLOSED_NOTIFY:
+            continue
+        it = H.get_item(c, ev["item_id"])
+        if it is None or it["kind"] != "timer" or not it["due"] or it["due"] <= ev["ts"] + 5:
+            continue
+        text, _b = T.render(it)
+        T.enqueue(c, text, None, it["id"])
+        log("closed: в Telegram", it["id"], ev["data"])
+    H.meta_set(c, "tg_closed_ev", str(top))
 
 
 def dnd_watch():
@@ -563,9 +670,12 @@ def tick(c):
             fire(c, it)
     allday_tick(c)
     close_stale(c)
+    lock_track()
+    lost_watch(c)
     if not T.token():
         return
     announce_away(c)
+    announce_closed(c)
     for it in c.execute("SELECT i.*, l.name AS list FROM items i JOIN lists l ON l.id=i.list_id "
                         "WHERE i.status='open' AND i.kind='task' AND i.fired_pc IS NOT NULL AND "
                         "i.fired_tg IS NULL AND i.seen=0 AND i.fired_pc<=?", (t - esc,)).fetchall():

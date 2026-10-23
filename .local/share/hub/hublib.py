@@ -827,6 +827,39 @@ def start_timer(c, secs, name="", source="cli"):
     return iid, due
 
 
+# 23.10.2026, просьба: в Clocker галочка «Создать виджет» (по умолчанию да) — без неё таймер
+# идёт без timer.exe на столе (звонит сам hub), и это видно в Telegram. «Обновить виджеты» —
+# заново завести виджеты идущим таймерам, если те пропали. Оба списка — id пунктов в meta.
+def _ids(c, k):
+    try:
+        return [int(x) for x in json.loads(meta_get(c, k, "[]"))]
+    except (ValueError, TypeError):
+        return []
+
+
+def timer_nowidget(c):
+    return set(_ids(c, "timer_nowidget"))
+
+
+def set_nowidget(c, iid, on=True):
+    ids = [x for x in _ids(c, "timer_nowidget") if x != iid] + ([iid] if on else [])
+    meta_set(c, "timer_nowidget", json.dumps(ids[-300:]))
+
+
+def rewidget_ask(c):
+    """Попросить менеджер виджетов (hub_timer_sync, раз в 2 с) завести виджеты заново."""
+    ids = [it["id"] for it in items(c, None, "open", "timer") if it["id"] not in timer_nowidget(c)]
+    meta_set(c, "timer_rewidget", json.dumps(ids))
+    return ids
+
+
+def rewidget_take(c):
+    ids = _ids(c, "timer_rewidget")
+    if ids:
+        meta_set(c, "timer_rewidget", "[]")
+    return set(ids)
+
+
 # ───────────────────────────── словарь ─────────────────────────────
 
 def add_word(c, term, translation, context="", src="en", dst="ru"):

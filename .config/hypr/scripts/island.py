@@ -193,6 +193,8 @@ OSD_FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-islan
 # мониторы, где островок сейчас сам показывает строку песни — там нижняя панель (xpbar) её не
 # дублирует (20.10.2026, просьба: «если вверху и так отображается текст — не показывать снизу»)
 LYR_FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-island-lyrics")
+# «Тексты песен» выключены в Настройках (lyrics_bar.py off) — и сверху их нет (23.10.2026, пользователь)
+LYR_OFF = os.path.expanduser("~/.config/hypr/state/lyrics-off")
 _LYR = {"on": False}            # paint: нарисована полоса строки песни (капсула котика, карточка)
 _CAT = {"s": None}              # paint: состояние кота (обложка, cava) — карточке музыки
 EWW_VOL_OPEN = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "eww-vol.open")
@@ -4144,6 +4146,8 @@ class CatWatch:
         self.titles = {}             # id окна niri → заголовок
         self.poll_id = self.anim_id = None
         self.key = self.art_url = None
+        self.album = None
+        self.lyr_off = os.path.exists(LYR_OFF)
         self.cava = None
         self.no_cava = False
         self.cava_buf = b""
@@ -4292,8 +4296,9 @@ class CatWatch:
         if key == self.key:
             return
         self.key = key
+        self.album = p.album if p is not None else None
         self.s["lines"] = None
-        if key:
+        if key and not self.lyr_off:
             threading.Thread(target=self.load_lyrics, args=(key, p.album), daemon=True).start()
 
     def load_lyrics(self, key, album):
@@ -4312,9 +4317,22 @@ class CatWatch:
         self.GLib.idle_add(lambda: self.set_lines(key, lines) and False)
 
     def set_lines(self, key, lines):
-        if key == self.key:
+        if key == self.key and not self.lyr_off:
             self.s["lines"] = lines or None
             self.app.redraw_cat(resize=True)
+
+    def sync_lyr_off(self):
+        """Флаг lyrics-off сменился — убрать строку песни или загрузить её снова."""
+        off = os.path.exists(LYR_OFF)
+        if off == self.lyr_off:
+            return
+        self.lyr_off = off
+        if off and self.s["lines"]:
+            self.s["lines"] = None
+            self.app.redraw_cat(resize=True)
+        elif not off and self.key:
+            import threading
+            threading.Thread(target=self.load_lyrics, args=(self.key, self.album), daemon=True).start()
             self.kick()
 
     def load_art(self, url):
@@ -4366,6 +4384,7 @@ class CatWatch:
             self.anim_id = self.GLib.timeout_add(CAT_FRAME_MS, self.frame)
 
     def frame(self):
+        self.sync_lyr_off()
         vis = self.visible()
         p = self.s["p"]
         playing = bool(vis) and p is not None and p.status == "Playing"

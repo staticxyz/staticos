@@ -82,13 +82,16 @@ def watch_workspaces():
     threading.Thread(target=run, daemon=True).start()
 FONT = "'JetBrainsMono Nerd Font', 'JetBrainsMono NF', monospace"
 NERD = "'Symbols Nerd Font', 'JetBrainsMono NF'"
+CLASSIC_PINS, CLASSIC_FREQ = 5, 5      # XP-меню (Left sided): крупных строк и мелких под чертой
 DEFAULT_PINS = ["zen.desktop", "zen-browser.desktop", "librewolf.desktop", "kitty.desktop",
                 "org.telegram.desktop.desktop", "org.kde.dolphin.desktop", "obsidian.desktop"]
 # Что это за программа — вторая строка у закреплённых, как «Internet / Internet Explorer».
-ROLES = {"zen": "Интернет", "librewolf": "Интернет", "helium": "Интернет", "firefox": "Интернет",
-         "kitty": "Терминал", "telegram": "Сообщения", "dolphin": "Файлы", "obsidian": "Заметки",
-         "yandex": "Музыка", "music": "Музыка", "steam": "Игры", "mousepad": "Блокнот",
-         "keepassxc": "Пароли"}
+# 23.10.2026, просьба: подписи в «Пуске» — по-английски; без ROLES — GenericName из .desktop.
+ROLES = {"zen": "Internet", "librewolf": "Internet", "helium": "Internet", "firefox": "Internet",
+         "torbrowser": "Internet", "kitty": "Terminal", "telegram": "Messages", "dolphin": "Files",
+         "obsidian": "Notes", "yandex": "Music", "music": "Music", "steam": "Games",
+         "mousepad": "Notepad", "keepassxc": "Passwords", "code.desktop": "Code editor",
+         "postman": "API client", "dbeaver": "Database manager"}
 
 
 
@@ -228,7 +231,7 @@ def pinned():
             if not a:
                 continue
             role = role_of(a)
-            if role == "Интернет" and "Интернет" in seen:
+            if role == "Internet" and "Internet" in seen:
                 continue
             seen.add(role)
             ids.append(d)
@@ -1094,10 +1097,15 @@ class StartMenu(Gtk.Window):
                 lab.set_margin_top(8)
                 self.apps_box.pack_start(lab, False, False, 0)
         else:
+            # прежний вид XP-меню: 5 крупных закреплённых и 5 мелких строк под чертой. Закреплённых
+            # в start-pinned.json 12 (сетка W11) — шестой и дальше идут мелкими строками вместо частых
+            # (23.10.2026, просьба: «у пуска в режиме left sided раньше был другой сетап» — меню
+            # выросло до 12 крупных + 5 частых, когда список закреплённых записали в файл)
             pins = pinned()
-            for a in pins:
+            for a in pins[:CLASSIC_PINS]:
                 self.apps_box.pack_start(self.app_row(a, True), False, False, 0)
-            freq = frequent({a.get_id() for a in pins})
+            freq = pins[CLASSIC_PINS:CLASSIC_PINS + CLASSIC_FREQ]
+            freq += frequent({a.get_id() for a in pins}, CLASSIC_FREQ - len(freq)) if len(freq) < CLASSIC_FREQ else []
             if freq:
                 self.apps_box.pack_start(self.sep(), False, False, 0)
                 for a in freq:
@@ -1117,6 +1125,9 @@ class StartMenu(Gtk.Window):
     W11_PINS = 18
     W11_MIN = 12
     W11_REC = 6
+    # 23.10.2026, просьба: в «Рекомендуем» вместо Claude и Helium — Postman и DBeaver (первыми).
+    W11_REC_FIRST = ("postman.desktop", "io.dbeaver.DBeaver.desktop")
+    W11_REC_HIDE = ("com.anthropic.Claude.desktop", "helium.desktop")
 
     def w11_build(self):
         catch = Gtk.EventBox()
@@ -1465,7 +1476,10 @@ class StartMenu(Gtk.Window):
             ph = Gtk.Box()
             ph.get_style_context().add_class("w11-cell")
             self.w11_grid.attach(ph, i % self.W11_COLS, i // self.W11_COLS, 1, 1)
-        rec = frequent({a.get_id() for a in pins}, self.W11_REC)
+        skip = {a.get_id() for a in pins}
+        first = [a for a in (app_by_id(d) for d in self.W11_REC_FIRST) if a and a.get_id() not in skip]
+        skip |= {a.get_id() for a in first} | set(self.W11_REC_HIDE)
+        rec = (first + frequent(skip, self.W11_REC))[:self.W11_REC]
         for i, a in enumerate(rec):
             row = self.w11_row(a)
             row.set_size_request(272, -1)

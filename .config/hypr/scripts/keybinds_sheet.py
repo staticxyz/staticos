@@ -145,7 +145,7 @@ def category(title):
         return "Браузеры"
     if any(w in t for w in ("снимок", "запись", "gif", "стикер", "replay", "текст с экрана")):
         return SHOT
-    if any(w in t for w in ("помидор", "discipline")):
+    if any(w in t for w in ("помидор", "discipline", "clocker")):
         return "Фокус"
     if any(w in t for w in ("hub", "напомин", "словарь")):
         return "Hub"

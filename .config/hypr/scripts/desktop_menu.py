@@ -1032,9 +1032,28 @@ def run(dry_run=False):
         sound("click")
         launch_quick(aid, info, dry=dry_run, reap=reap)
 
+    # Меню поверх окон (23.10.2026, пользователь прислал снимок: меню рисовалось ПОД окном, но
+    # нажималось). Всплывающее меню niri кладёт в слой родителя, а он — BACKGROUND; поэтому
+    # на время меню поверхность поднимается в TOP и сразу возвращается. Невидимая
+    # поверхность в TOP ловила бы все щелчки монитора — сторож опускает её, как только
+    # меню нет на экране, даже если оно не открылось.
+    def lower(w):
+        if getattr(w, "jarvis_raised", False):
+            w.jarvis_raised = False
+            GtkLayerShell.set_layer(w, GtkLayerShell.Layer.BACKGROUND)
+
+    def raised_guard(w):
+        m = st["menu"]
+        if m is None or not m.get_visible():
+            lower(w)
+            return False
+        return True
+
     def menu_done(_m):
         # Само меню не уничтожаем здесь: GTK шлёт activate пункту уже ПОСЛЕ
         # deactivate меню. Старое меню убирается при следующем открытии.
+        for w in st["wins"]:
+            lower(w)
         if st["restart"]:
             GLib.timeout_add(300, restart)
 
@@ -1138,8 +1157,19 @@ def run(dry_run=False):
         m.connect("deactivate", menu_done)
         st["menu"] = m
         fit_menus(m, ev.y, _w.get_allocated_height())
-        m.popup_at_pointer(ev)
-        sound("menu")
+        _w.jarvis_raised = True
+        GtkLayerShell.set_layer(_w, GtkLayerShell.Layer.TOP)
+        _w.queue_draw()
+        evc = ev.copy()
+
+        def show():
+            # слой меняется со следующим кадром поверхности — меню открывается после него
+            if st["menu"] is m:
+                m.popup_at_pointer(evc)
+                sound("menu")
+            GLib.timeout_add(400, raised_guard, _w)
+            return False
+        GLib.timeout_add(40, show)
         return True
 
     def make(monitor):

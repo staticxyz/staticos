@@ -1,0 +1,4 @@
+#!/bin/sh
+# Окно Clocker (будильник · фокус · помидор; до 23.10.2026 — Discipline); второй запуск поднимает уже открытое.
+#   clocker [alarm|focus|pomo] [--toggle]
+exec python3 $HOME/.config/hypr/scripts/routine_app.py "$@"

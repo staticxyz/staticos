@@ -1,4 +1,3 @@
 #!/bin/sh
-# Окно Discipline (будильник · фокус · помидор); второй запуск поднимает уже открытое.
-#   discipline [alarm|focus|pomo] [--toggle]
-exec python3 $HOME/.config/hypr/scripts/routine_app.py "$@"
+# Старое имя Clocker (до 23.10.2026 — Discipline).
+exec $HOME/.local/bin/clocker "$@"

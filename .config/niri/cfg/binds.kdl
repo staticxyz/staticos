@@ -69,12 +69,13 @@ binds {
     Mod+P hotkey-overlay-title="Помидор: старт/пауза" { spawn-sh "~/.local/bin/pomo toggle"; }
     Mod+Shift+P hotkey-overlay-title="Помидор: пропустить" { spawn-sh "~/.local/bin/pomo skip"; }
     Mod+Alt+P hotkey-overlay-title="Помидор: стоп" { spawn-sh "~/.local/bin/pomo stop"; }
-    Mod+T hotkey-overlay-title="Помидор: окно статуса" { spawn-sh "~/.config/niri/scripts/popup-toggle ~/.local/bin/pomo ask"; }
-    // Discipline на вкладке Alarm (07.10.2026; было Focus), повторное нажатие закрывает (scripts/routine_app.py, 06.10.2026); Super+Alt+T — нет, по выбору пользователя
-    Mod+Alt+F repeat=false hotkey-overlay-title="Discipline: будильник/фокус" { spawn-sh "~/.local/bin/discipline --toggle alarm"; }
+    // 23.10.2026: Super+T — окно Timer.exe (новый виджет-таймер), Pomo.exe переехало на Super+Ctrl+P (сторож pomo — командой pomo watch)
+    Mod+T repeat=false hotkey-overlay-title="Таймер: новый (Timer.exe)" { spawn-sh "python3 ~/.config/hypr/scripts/desktop_widgets.py timer ask=1"; }
+    // Clocker (до 23.10.2026 — Discipline) на вкладке Alarm (07.10.2026; было Focus), повторное нажатие закрывает (scripts/routine_app.py, 06.10.2026); Super+Alt+T — нет, по выбору пользователя
+    Mod+Alt+F repeat=false hotkey-overlay-title="Clocker: будильник/фокус" { spawn-sh "~/.local/bin/clocker --toggle alarm"; }
     // App list — программы, пакеты, версии, сведения о системе (scripts/app_list.py, 06.10.2026)
     Mod+Alt+T repeat=false hotkey-overlay-title="App list" { spawn-sh "~/.local/bin/applist"; }
-    Mod+Ctrl+P hotkey-overlay-title="Помидор: сторож" { spawn-sh "kitty --title pomo -o initial_window_width=52c -o initial_window_height=3c ~/.local/bin/pomo watch"; }
+    Mod+Ctrl+P hotkey-overlay-title="Помидор: новый (Pomo.exe)" { spawn-sh "~/.config/niri/scripts/popup-toggle ~/.local/bin/pomo ask"; }
 
     // ─── Обзор: новое, в Hyprland такого не было ───
     // Зум-вид всех столов и окон. Ещё — левый верхний угол мышью

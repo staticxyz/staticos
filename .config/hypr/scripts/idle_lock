@@ -32,6 +32,12 @@ def main():
     if dry:
         print("экран бы заблокировался")
         return 0
+    # отметка «заперто по простою»: hubd шлёт идущий таймер в Telegram сразу, а при своей
+    # блокировке — через 3,5 мин (23.10.2026)
+    try:
+        open(os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-lock-auto"), "w").close()
+    except OSError:
+        pass
     subprocess.run(["loginctl", "lock-session"])
     return 0
 

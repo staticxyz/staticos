@@ -433,7 +433,7 @@ WLOG_NAMES = {"daily-off": "выключил Сторожа", "daily-on": "вк�
 
 
 def watch_log_line(r):
-    via = {"settings": "Настройки", "discipline": "Discipline", "cli": "терминал",
+    via = {"settings": "Настройки", "clocker": "Clocker", "discipline": "Clocker", "cli": "терминал",
            "tg": "Telegram"}.get(r.get("via"), r.get("via", ""))
     day = r.get("day")
     return "%s  %s%s (%s)%s" % (r["at"][:16], WLOG_NAMES.get(r["action"], r["action"]),
@@ -782,7 +782,7 @@ def run_window(r, record=False):
 # Звонок шага длится до следующей проверки (последний — до получаса); не выключили —
 # шаг «проспан», счёт подряд начинается заново.
 # Факт подъёма — время первого подтверждения; откуда (ПК / только Telegram) — в VIA:
-# подтверждение только из Telegram могло быть из кровати, Discipline рисует его серым.
+# подтверждение только из Telegram могло быть из кровати, Clocker рисует его серым.
 
 SERIES = os.path.join(HOME, ".local/state/jarvis-wake/series.json")
 SLOCK = os.path.join(HOME, ".local/state/jarvis-wake/series.lock")
@@ -1004,7 +1004,7 @@ def series_locks(d=None, now=None):
 
 
 def series_active(d=None, now=None):
-    """Идёт ли сейчас НАСТОЯЩАЯ серия (для Discipline и команд: сегодня трогать нельзя)."""
+    """Идёт ли сейчас НАСТОЯЩАЯ серия (для Clocker и команд: сегодня трогать нельзя)."""
     d = d if d is not None else series_load()
     now = now or time.time()
     if not d or d.get("done") or d.get("test"):

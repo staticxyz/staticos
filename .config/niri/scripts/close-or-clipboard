@@ -60,9 +60,9 @@ if printf '%s' "$layers" | grep -Eq '"namespace": *"jarvis-clipboard"'; then
     fi
 fi
 # Помидор «programming» — окна не закрываются (замок стола, scripts/pomo_lock.py, 20.10.2026).
-# Кроме Discipline и hub (Super+M): они закрываются своими клавишами, Ctrl+Q — так же (20.10.2026).
+# Кроме Clocker и hub (Super+M): они закрываются своими клавишами, Ctrl+Q — так же (20.10.2026).
 if "$HOME/.local/bin/pomo" locked >/dev/null 2>&1; then
     timeout 0.5 niri msg -j focused-window 2>/dev/null \
-        | grep -Eq '"app_id": *"com\.jarvis\.(discipline|routine|hub)"' || exit 0
+        | grep -Eq '"app_id": *"com\.jarvis\.(clocker|discipline|routine|hub)"' || exit 0
 fi
 exec niri msg action close-window

@@ -165,8 +165,8 @@
             "class<(org.ksnip.ksnip|org.kde.spectacle)>": "",
             "class<[^>]*waypaper[^>]*>.*": "",
             // Система и настройки
-            // Discipline — будильник, фокус, помидор (07.10.2026): будильник nf-md-alarm
-            "class<com.jarvis.(discipline|routine)>": "󰀠",
+            // Clocker (до 23.10.2026 — Discipline) — будильник, фокус, помидор (07.10.2026): будильник nf-md-alarm
+            "class<com.jarvis.(clocker|discipline|routine)>": "󰀠",
             "class<(qt6ct|nwg-look|systemsettings|kdesystemsettings|com.jarvis.settings)>": "",
             // jtop — процессы по программам (kitty --class jtop): nf-md-chart_bar;
             // App list — программы и пакеты: nf-md-apps (07.10.2026)

@@ -33,7 +33,7 @@ LAYOUT_SHORT = {"English (US)": "EN", "Russian": "RU"}
 
 
 def theme():
-    """Цвета и стиль — как у Discipline (state/settings-skin)."""
+    """Цвета и стиль — как у Clocker (state/settings-skin)."""
     try:
         import routine_app as ra
         return ra.colors(ra.style_name())

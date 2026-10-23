@@ -51,7 +51,7 @@ layout {
         // (include перекрывает то, что объявлено ВЫШЕ него).
         active-color "#a6c8ff99"
         inactive-color "#a6c8ff22"
-        urgent-color "#9b0000"
+        urgent-color "#a6c8ff22"
     }
 
     // Полоска вкладок колонки (SUPER+SHIFT+T). В Hyprland такого не было.

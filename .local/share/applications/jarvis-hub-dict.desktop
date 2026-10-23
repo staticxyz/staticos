@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=Dictionary
-GenericName=Словарь с повторением
+GenericName=Dictionary with spaced repetition
 Comment=Свои слова и переводы, повторение по Лейтнеру
 Exec=hub-open dict
 Icon=jarvis-hub-dict
 Terminal=false
 Categories=X-StaticOS;Utility;Education;
 StartupWMClass=com.jarvis.hub
-Keywords=hub;Hub;ргд;Ргд;ХАБ;хаб;словарь;Словарь;ckjdfhm;dictionary;Dictionary;слово;Слово;слова;Слова;word;Word;перевод;Перевод;translation;Translation;
+Keywords=hub;Hub;ргд;Ргд;ХАБ;хаб;словарь;Словарь;ckjdfhm;dictionary;Dictionary;слово;Слово;слова;Слова;word;Word;перевод;Перевод;translation;Translation;Словарь;повторением;

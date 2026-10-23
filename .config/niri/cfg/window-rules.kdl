@@ -246,19 +246,27 @@ window-rule {
     default-window-height { fixed 800; }
 }
 
-// «Discipline» — будильник, фокус и помидор (scripts/routine_app.py, 06.10.2026;
+// «Clocker» (до 23.10.2026 — Discipline) — будильник, помидор, таймеры и фокус (scripts/routine_app.py, 06.10.2026;
 // было Alarm, потом Routine). Размер — W и высота раскладки; рамку рисует само окно.
 window-rule {
-    match app-id=r#"^com\.jarvis\.(discipline|routine)$"#
+    match app-id=r#"^com\.jarvis\.(clocker|discipline|routine)$"#
     open-floating true
-    // Размер задаёт само окно (запомненный, state/discipline-size), 07.10.2026: растягивается.
+    // Размер задаёт само окно (запомненный, state/clocker-size), 07.10.2026: растягивается.
     border { off; }
     focus-ring { off; }
 }
 
-// «Hub» — напоминания и словарь (hub_app.py, 09.10.2026). Плавает, как Discipline.
+// «Hub» — напоминания и словарь (hub_app.py, 09.10.2026). Плавает, как Clocker.
 window-rule {
     match app-id="com.jarvis.hub"
+    open-floating true
+    border { off; }
+    focus-ring { off; }
+}
+
+// «WhatsApp» — отложенные сообщения (hub/wa_app.py, 15.10.2026). Плавает, как Hub.
+window-rule {
+    match app-id="com.jarvis.wa"
     open-floating true
     border { off; }
     focus-ring { off; }

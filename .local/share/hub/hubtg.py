@@ -237,6 +237,51 @@ def sig_of(it):
     return "%s|%s|%s" % (it["status"], it["due"], it["text"])
 
 
+# Чем остановили таймер (журнал hub, events.data у drop) → по-человечески.
+STOP_HOW = {"widget close": "крестиком", "widget clear": "«Очистить стол»",
+            "widget preset": "сменилась раскладка виджетов (пресет)", "widget click": "щелчком по виджету",
+            "widget replay": "запущен заново (REPLAY)", "widget new": "заменён новым (NEW)",
+            "widget pause": "пауза", "tg": "из Telegram", "clocker": "в Clocker",
+            "clocker pause": "пауза в Clocker", "clocker delete": "удалён в Clocker", "pc": "закрыли уведомление на ПК",
+            "lost": "сбой: виджеты на ПК не работали", "lost conf": "сбой: виджет таймера пропал"}
+_stop_c = [None]
+
+
+def stop_info(it):
+    """(когда закрыт, как) по последнему drop в журнале hub; нет записи — время правки пункта."""
+    try:
+        if _stop_c[0] is None:
+            _stop_c[0] = H.connect()
+        r = _stop_c[0].execute("SELECT ts, data FROM events WHERE kind='drop' AND item_id=? "
+                               "ORDER BY id DESC LIMIT 1", (it["id"],)).fetchone()
+        if r:
+            return r["ts"], r["data"]
+    except Exception:
+        pass
+    return it["updated_at"] or H.now(), ""
+
+
+def stopped_text(it):
+    """23.10.2026, просьба: если таймер упал, сбой или пресеты сменились — писать, что закрыт,
+    сколько оставалось, когда закрыт и во сколько должен был закончиться."""
+    ts, how = stop_info(it)
+    head = "⏸ Таймер на паузе" if how in ("widget pause", "clocker pause") else "■ Таймер закрыт"
+    lines = ["%s: %s" % (head, it["text"]), "в %s%s" % (hm(ts), " · " + STOP_HOW[how] if how in STOP_HOW else "")]
+    if it["due"] and it["due"] > ts:
+        lines.append("оставалось %s, закончился бы в %s" % (H.fmt_secs(it["due"] - ts), hm(it["due"])))
+    return "\n".join(lines)
+
+
+def bare(it):
+    """« · без виджета»: в Clocker снята галочка «Создать виджет» (23.10.2026) — звонит сам hub."""
+    try:
+        if _stop_c[0] is None:
+            _stop_c[0] = H.connect()
+        return " · без виджета" if it["id"] in H.timer_nowidget(_stop_c[0]) else ""
+    except Exception:
+        return ""
+
+
 def render(it):
     """Текст и кнопки сообщения по ТЕКУЩЕМУ состоянию пункта: сообщение не врёт, что идёт/пришло."""
     if it is None:
@@ -250,13 +295,13 @@ def render(it):
             if it["fired_pc"] and it["due"]:
                 return "⏱ Время вышло в %s: %s\n■ остановлен в %s" % (
                     hm(it["due"]), t, hm(it["updated_at"] or H.now())), None
-            return "■ Таймер остановлен: %s" % t, None
+            return stopped_text(it), None
         if over:
             return "⏱ Время вышло: %s" % t, [[{"text": "+5 мин", "callback_data": "s:%d:300" % it["id"]},
                                               {"text": "■ Стоп", "callback_data": "x:%d" % it["id"]}]]
         # Остаток на момент отправки/правки (16.10.2026, пользователь): в тексте таймера — полный срок
         # («Таймер 3 ч 59 мин»), а сколько осталось, было не видно. Каждый тик не правим: sig без остатка.
-        return "⏱ Идёт: %s\nосталось %s — до %s" % (t, H.fmt_secs(it["due"] - H.now()), hm(it["due"])), \
+        return "⏱ Идёт: %s\nосталось %s — до %s%s" % (t, H.fmt_secs(it["due"] - H.now()), hm(it["due"]), bare(it)), \
             timer_buttons(it["id"])
     if it["status"] == "done":
         return "✓ Сделано: %s" % t, None
@@ -1088,8 +1133,8 @@ def timer_panel(c, note=None):
     if note:
         out.append("<i>%s</i>" % note)
     for i in its:
-        out.append("<code>⏱ до %s</code> %s <i>· осталось %s</i>" % (
-            hm(i["due"]), esc(i["text"]), H.fmt_secs(max(0, i["due"] - H.now()))))
+        out.append("<code>⏱ до %s</code> %s <i>· осталось %s%s</i>" % (
+            hm(i["due"]), esc(i["text"]), H.fmt_secs(max(0, i["due"] - H.now())), bare(i)))
     if not its and not note:
         out.append("<i>Сейчас ни один не идёт, сэр.</i>")
     out.append("\n<i>Нажмите длительность или напишите «25 чай».</i>")
@@ -1103,11 +1148,12 @@ def timer_panel(c, note=None):
 # 21.10.2026, просьба: «не хватает кнопки История — последние 5 таймеров, если я не замечу
 # какой-то таймер или он пропадёт… где и когда он был выключен». Всё берётся из events
 # (add/drop/done/snooze с источником), сам таймер — из items.
-T_FROM = {"island": "с островка", "widget": "с виджета", "tg": "из Telegram", "pc": "с ПК",
+T_FROM = {"island": "с островка", "widget": "с виджета", "tg": "из Telegram", "pc": "с ПК", "clocker": "из Clocker",
           "cli": "командой"}
-T_BY = {"island": "на островке", "widget": "виджетом", "tg": "в Telegram",
+T_BY = {"island": "на островке", "widget": "виджетом", "tg": "в Telegram", "clocker": "в Clocker",
         "pc": "на ПК", "cli": "командой"}
 # виджет timer.exe на рабочем столе (таймеру из Telegram он создаётся сам) пишет, чем остановлен
+T_CLOCKER = {"pause": "паузой в Clocker", "delete": "удалением в Clocker"}
 T_WIDGET = {"click": "щелчком по виджету timer.exe", "close": "крестиком виджета timer.exe",
             "pause": "паузой в виджете timer.exe", "replay": "повтором (REPLAY) в виджете timer.exe",
             "new": "новым таймером (NEW) в виджете timer.exe"}
@@ -1117,6 +1163,8 @@ def _t_by(data):
     src, _sp, how = (data or "").partition(" ")
     if src == "widget":
         return T_WIDGET.get(how, "виджетом timer.exe на рабочем столе")
+    if src == "clocker" and how:
+        return T_CLOCKER.get(how, T_BY["clocker"])
     return T_BY.get(src, src)
 
 
@@ -1141,8 +1189,8 @@ def timer_history(c, n=5):
         due = it["due"] or start
         snz = sum(1 for e in ev if e["kind"] == "snooze")
         out.append("\n⏱ <b>%s</b> — %s" % (esc(it["text"]), _t_day(start)))
-        out.append("<code>%s → %s</code> · %s%s" % (hm(start), hm(due), T_FROM.get(src, src),
-                                                   " · отложен ×%d" % snz if snz else ""))
+        out.append("<code>%s → %s</code> · %s%s%s" % (hm(start), hm(due), T_FROM.get(src, src),
+                                                     " · отложен ×%d" % snz if snz else "", bare(it)))
         end = next((e for e in reversed(ev) if e["kind"] in ("drop", "done")), None)
         if it["status"] == "open":
             out.append("▶ идёт, осталось %s" % H.fmt_secs(due - t) if due > t else

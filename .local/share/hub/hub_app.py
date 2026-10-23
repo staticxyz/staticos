@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""hub_app — окно напоминаний и словаря, в стиле Discipline (cairo, рамка skeet/beta/default,
+"""hub_app — окно напоминаний и словаря, в стиле Clocker (cairo, рамка skeet/beta/default,
 цвета из обоев, управление как в nvim по keycode; вид общий с routine_app.py, код свой —
-Discipline тянет будильник и фокус, hub ничего этого не знает).
+Clocker тянет будильник и фокус, hub ничего этого не знает).
 
     hub_app.py            напоминания            hub_app.py dict   словарь (с выделенным текстом)
 
@@ -25,7 +25,7 @@ j/k — ±день / ±15 минут, h/l у времени — ±1 минута
 повторить) — то же самое, что клавиши выше, просто кликом; «удалить» мышью требует
 повторного клика («точно?»), так как у мыши нет естественного аналога «dd». Перетаскивание
 — за пустое место окна (не за строку и не за кнопку), изменение размера — за край/правый
-нижний уголок, как у Discipline.
+нижний уголок, как у Clocker.
 
     hub_app.py --shot F [tab=items|words sel=N mode=normal|text style=…]   PNG без окна
 """
@@ -78,7 +78,7 @@ for _row, _start in (("1234567890-=", 10), ("qwertyuiop[]", 24), ("asdfghjkl;'",
 KEYS[65] = " "
 
 
-# ── цвета (как у Discipline / Настроек) ────────────────────────────────────────
+# ── цвета (как у Clocker / Настроек) ────────────────────────────────────────
 
 _STACK = [None, False]
 
@@ -979,7 +979,7 @@ class View:
         p.text((x0 + x1) / 2, y1 - 6, "осталось %d" % len(self.quiz), c["faint"], align="c")
 
     def button(self, p, x, y, w, label, key, accent=False):
-        """Полноразмерная кнопка — как в Discipline (button())."""
+        """Полноразмерная кнопка — как в Clocker (button())."""
         c = self.c
         hov = self.hover == key
         if c["frame"] == "skeet":
@@ -1403,7 +1403,7 @@ class HubWindow(Gtk.ApplicationWindow):
         elif action == "snoozetomorrow":
             self.act_snooze_tomorrow()
 
-    # ── отмена/повтор — стек (метка, вперёд, назад), как у Discipline, но
+    # ── отмена/повтор — стек (метка, вперёд, назад), как у Clocker, но
     # для отдельных SQL-операций hublib, а не одного JSON-снимка ──
     def run_action(self, label, forward, backward):
         forward()
@@ -2193,7 +2193,7 @@ class App(Gtk.Application):
         toggle = "--toggle" in args
         args = [a for a in args if a != "--toggle"]
         tab = "words" if "dict" in args else "items"
-        # --toggle (как в Discipline): окно открыто и в фокусе — закрыть;
+        # --toggle (как в Clocker): окно открыто и в фокусе — закрыть;
         # открыто, но под другими окнами — поднять; закрыто — открыть.
         if toggle and self.win is not None and self.win.is_active():
             self.win.close()

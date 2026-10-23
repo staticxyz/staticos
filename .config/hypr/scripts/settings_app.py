@@ -3967,7 +3967,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         """
         sk = self.look == "skeet"
         bt = self.look == "beta"
-        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4 if sk else 6)
+        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         if bt:
             # Beta: поля строки и тонкая линия между строками — в beta_css (.brow);
             # у первой строки карточки линии нет.
@@ -3975,9 +3975,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
             if card.get_style_context().has_class("card") and not card.get_children():
                 wrap.get_style_context().add_class("first")
         else:
-            # skeet: 2 → 4 px (13.10.2026, «настройки зажаты друг к другу»)
-            wrap.set_margin_top(4)
-            wrap.set_margin_bottom(4)
+            # skeet: 2 → 4 px (13.10.2026, «настройки зажаты друг к другу»); 4 → 7 px и 6 px от подписи
+            # до сегментов под ней (23.10.2026, «эти блоки очень сжаты к друг другу»)
+            air = 7 if sk else 4
+            wrap.set_margin_top(air)
+            wrap.set_margin_bottom(air)
         line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8 if sk else 12)
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         if not sk and not bt:                        # у skeet и beta в строках значков нет
@@ -4572,7 +4574,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         scroll, v = self.page("Compositor", "niri: окна, отступы, анимации и размытие; верхний "
                               "бар. Применяется сразу.")
         self.niri_cards(v)
-        if self.stack_now():                 # в стопке «Показ панелей» здесь, а не в DE
+        if self.stack_now():                 # см. page_compositor: в Stack панели по мониторам — здесь
             self.panels_cards(v, True)
         self.section(v, "Форма панели", "\U000f1513")
         c = self.card(v)
@@ -4700,12 +4702,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     # Visuals
     def panels_cards(self, v, stack=False):
-        """Показ панелей по мониторам (top_bar.py, panels.py). С 21.10.2026 на странице DE.
-        В Stack mode (stack) — на странице Compositor (22.10.2026, просьба: «эти Настройки можно
-        переместить в раздел Compositor») и только вид верхнего бара: столов в нём нет,
-        нижнюю панель держит сама (21.10 карточки прятались целиком — тогда стопка переводила
-        бар в «при наведении»; 22.10.2026, просьба: «можно было решать показывать waybar
-        верхний или нет, но без столов уже»)."""
+        """Показ панелей по мониторам (top_bar.py, panels.py). На странице DE в обоих режимах
+        (в Stack — на странице Compositor, 23.10.2026). В Stack mode (stack) —
+        без списка столов (стол один), а нижняя панель — только «Всегда» / «Наведение»: на
+        ней свёрнутые окна, док и «Нет» их бы спрятали (panels.bottom_for)."""
         # Верхний бар: всегда / при наведении / выключен, и где список столов (03.10.2026,
         # top_bar.py). Применение перезапускает панели — идёт в фоне, по очереди.
         tb = os.path.join(HERE, "top_bar.py")
@@ -4826,7 +4826,15 @@ class SettingsWindow(Gtk.ApplicationWindow):
                              if stack else
                              "Верхний бар на мониторе «%s». Выключен — столы этого монитора "
                              "показывает нижняя XP-панель." % name, icon="\U000f06d0")
-                    if stack:           # нижнюю панель и столы стопка держит сама
+                    if stack:           # столов нет; низ — только XP-панель (свёрнутые окна)
+                        self.row(colbox, "Панель снизу",
+                                 self.segments([("always", "Всегда"), ("hover", "Наведение")],
+                                               bot if bot == "hover" else "always",
+                                               lambda k, o=out: pn_set(o, "bottom", k)),
+                                 "XP-панель на мониторе «%s» в режиме Stack: стоит постоянно или "
+                                 "выезжает у нижнего края. Док и «Нет» здесь не выбрать — на "
+                                 "панели свёрнутые окна; в Scroll mode они снова есть." % name,
+                                 icon="\U000f10a9")
                         hb.pack_start(colbox, True, True, 0)
                         continue
                     self.row(colbox, "Панель снизу",
@@ -5234,7 +5242,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # Капсула осталась командой: stack_mode.py topbar capsule|waybar.
         self.only_in("stack", mm_row, self.stack_look_row(c))
         self.desk_menu_rows(c)
-        if not stack:                        # в стопке — на странице Compositor (22.10.2026)
+        # «Показ панелей» и «Мониторы»: в Scroll — здесь, в Stack — на странице Compositor
+        # (23.10.2026, пользователь, со снимком группы «Мониторы» в стопке: «положить в раздел
+        # Compositor»). Вид нижней панели и «Пуска» (bottom_cards) — здесь в обоих режимах.
+        if not stack:
             self.panels_cards(v)
         self.bottom_cards(v, stack)
         # 21.10.2026, просьба: «Настройки островка можешь переместить в раздел DE»
@@ -5596,7 +5607,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
     # Проверки «не спите?» от звонка будильника до 18:00 (14.10: было 21:00) (wake_alarm.py watch daily). Включить —
     # одним щелчком; выключить — только паролем и с причиной: она пишется в журнал,
     # который виден здесь же. Выключение — насовсем, до включения; на один день —
-    # в Discipline. Пароль проверяется не больше двух раз за попытку: третья ошибка
+    # в Clocker. Пароль проверяется не больше двух раз за попытку: третья ошибка
     # подряд заперла бы учётную запись (faillock).
     def watch_section(self, v):
         self.section(v, "Сторож", "\U000f0565",
@@ -5628,7 +5639,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         no.connect("clicked", lambda _b: self.watch_cancel())
         self.row(c, "Проверки «не спите?»", pill,
                  "Выключить можно только паролем и с причиной — она попадёт в журнал. "
-                 "Выключается насовсем, до включения. Только на сегодня — в Discipline "
+                 "Выключается насовсем, до включения. Только на сегодня — в Clocker "
                  "(Super+Alt+F → Alarm).",
                  below=rev, icon="\U000f0565")
         logb = Gtk.Button(label="Открыть")
@@ -5927,7 +5938,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "режиме (отдельный «По Super+S» убран 13.10 — он отличался только тем, что "
                  "панель стартовала скрытой). Если в «Показе "
                  "панелей» снято «На всех мониторах» — режим у каждого монитора свой, там.")
-        self.only_in("scroll", show_row)
+        # в стопке тоже (23.10.2026): «при наведении» panels.bottom_for держит и в ней
         # Оформление XP-панели (15.10.2026, просьба: «под стиль системы… этот оставь как
         # выбор»): bottom_bar.py look system|xp, панель меняется на лету.
         curl = run("python3", BOTTOM_BAR, "look")
@@ -5951,6 +5962,22 @@ class SettingsWindow(Gtk.ApplicationWindow):
                      "символом и надписью) или значок (только символ). Меню «Пуск» само берёт "
                      "стиль монитора.",
                      icon="\U000f035c", default="default")
+            # надпись на кнопке (23.10.2026, просьба: «менять название в Пуске с staticOS на
+            # Start»); xpbar следит за файлом и меняет надпись на лету
+            word_f = os.path.expanduser("~/.config/hypr/state/start-button-word")
+            try:
+                curw = "start" if open(word_f).read().strip() == "start" else "staticos"
+            except OSError:
+                curw = "staticos"
+
+            def set_word(k, f=word_f):
+                with open(f, "w") as fh:
+                    fh.write(k + "\n")
+            self.row(xcard, "Надпись на «Пуске»",
+                     self.segments([("staticos", "staticOS"), ("start", "start")], curw, set_word),
+                     "Что написано на кнопке «Пуск» рядом со значком: staticOS или start, "
+                     "как в Windows. В виде «значок» (только символ) надписи нет.",
+                     icon="\U000f0284", default="staticos")
         # Переход между столами (19.10.2026, просьба: «какой-то один сложно выбрать»): xpbar.py
         # читает state/xpbar-ws-anim при каждом переходе — панель не перезапускается.
         anim_f = os.path.expanduser("~/.config/hypr/state/xpbar-ws-anim")
@@ -6518,6 +6545,16 @@ class SettingsWindow(Gtk.ApplicationWindow):
                                lambda on: dw_style("shadow", 1 if on else 0)),
                      "Маленькая пиксельная тень справа и снизу у виджетов-окон XP.",
                      icon="\U000f0a4d")
+            # Приставка в заголовке (23.10.2026, просьба: «не .exe а .sh, или вообще без ничего,
+            # просто название, три вида»): desktop_widgets.py style suffix exe|sh|none.
+            cur_suf = run("python3", dw, "style", "suffix")
+            self.row(c, "Приставка в заголовке",
+                     self.segments([("exe", ".exe"), ("sh", ".sh"), ("none", "Без неё")],
+                                   cur_suf if cur_suf in ("exe", "sh", "none") else "exe",
+                                   lambda k: dw_style("suffix", k)),
+                     "Что стоит после имени в полосе заголовка виджета: ram.exe, ram.sh или "
+                     "просто ram. Меняется сразу.",
+                     icon="\U000f0284", default="exe")
             # Секунды в clock.exe (05.10.2026): файл state/clock-seconds on|off, часы читают его
             # раз в секунду — меняется сразу, без перезапуска виджетов.
             sec_f = os.path.join(os.path.expanduser("~/.config/hypr/state"), "clock-seconds")

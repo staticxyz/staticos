@@ -11,7 +11,7 @@
   * Super+J/K и прочие шаги по столам — обёртка niri/scripts/ws-step молчит (`pomo locked`);
   * остальные пути (Super+1…9, обзор, Alt+Tab, щелчок по другому монитору) — сторож
     возвращает фокус на стол замка;
-  * новое окно сторож закрывает (кроме Discipline, hub Super+M, polkit, pinentry, диалогов портала);
+  * новое окно сторож закрывает (кроме Clocker, hub Super+M, polkit, pinentry, диалогов портала);
   * закрыть окно: Ctrl+Q (close-or-clipboard), СКМ/меню xpbar, dock, taskbar — молчат.
     Своё закрытие программы (exit в kitty, :q, Ctrl+Shift+W) композитор не видит.
 
@@ -37,9 +37,9 @@ POMO_STATE = os.path.join(RUN, "pomo", "state")
 FLAG = os.path.join(RUN, "pomo", "ws-lock")
 TASKS = os.path.expanduser("~/.config/pomo/lock-tasks")
 LOG = os.path.expanduser("~/.cache/pomo-lock.log")
-# Discipline — чтобы поставить на паузу, hub (Super+M) — там пишутся задачи (20.10.2026);
+# Clocker — чтобы поставить на паузу, hub (Super+M) — там пишутся задачи (20.10.2026);
 # остальное — запросы пароля и диалоги файлов.
-ALLOW_APP = re.compile(r"^com\.jarvis\.(discipline|routine|hub)$|polkit|pinentry|xdg-desktop-portal", re.I)
+ALLOW_APP = re.compile(r"^com\.jarvis\.(clocker|discipline|routine|hub)$|polkit|pinentry|xdg-desktop-portal", re.I)
 
 
 def log(msg):

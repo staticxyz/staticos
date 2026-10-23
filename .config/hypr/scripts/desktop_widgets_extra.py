@@ -914,9 +914,9 @@ def register(ns):
                 except Exception as e:
                     print("hub drop: %s" % e, file=sys.stderr)
 
-        def removed(self):
-            """Закрыли крестиком / «Очистить стол» — таймер останавливается и в hub."""
-            self.hub_drop("close")
+        def removed(self, how="close"):
+            """Закрыли крестиком (close) / «Очистить стол» (clear) — таймер останавливается и в hub."""
+            self.hub_drop(how)
 
         def hub_follow(self, H, c):
             """Раз в 2 с из hub_timer_sync: подогнать виджет под пункт hub или завести пункт."""
@@ -940,7 +940,10 @@ def register(ns):
                 o.pop("hub", None)
                 # 21.10.2026, просьба: виджет таймера с телефона стоит, пока его не закроют
                 # крестиком на столе или кнопкой в боте. Снимаем его только по кнопке бота.
-                if o.get("auto") and (it is None or self.closed_from_tg(c, int(iid))):
+                # 23.10.2026: пауза/стоп/удаление в Clocker снимают и свой виджет — иначе он
+                # встал бы на паузу сам, а «Возобновить» в Clocker завёл бы второй таймер
+                if (o.get("auto") and (it is None or self.closed_from_tg(c, int(iid)))) or \
+                        self.closed_from_tg(c, int(iid), ("clocker",)):
                     self.mgr.remove(self)
                     return
                 if not self.done() and "end" in o:
@@ -1009,10 +1012,11 @@ def register(ns):
             return False
 
         @staticmethod
-        def closed_from_tg(c, iid):
+        def closed_from_tg(c, iid, who=("tg", "clocker")):
             row = c.execute("SELECT data FROM events WHERE item_id=? AND kind IN ('drop','done') "
                             "ORDER BY id DESC LIMIT 1", (iid,)).fetchone()
-            return bool(row and str(row[0]).startswith("tg"))
+            # и «Стоп» во вкладке Timer окна Clocker (23.10.2026) — виджет снимается так же
+            return bool(row and str(row[0]).startswith(who))
 
         def on_click(self, x, y, button=1):
             if self.opts.get("hub") and self.done():
@@ -2079,10 +2083,16 @@ def register(ns):
             linked = {int(w.opts["hub"]) for w in mgr.widgets if isinstance(w, Timer) and w.opts.get("hub")}
             seen = load_seen()
             opened = H.items(c, None, "open", "timer")
+            # 23.10.2026: галочка Clocker «Создать виджет» снята — без виджета; кнопка «Обновить
+            # виджеты» — завести заново пропавшие (любой источник, даже уже виденные)
+            bare = H.timer_nowidget(c) if hasattr(H, "timer_nowidget") else set()
+            again = H.rewidget_take(c) if hasattr(H, "rewidget_take") else set()
             for it in opened:
                 iid = it["id"]
-                # из Telegram и из островка («+» на странице таймера, 20.10.2026)
-                if it["source"] not in ("tg", "island") or iid in linked or iid in seen:
+                if iid in bare or iid in linked:
+                    continue
+                # из Telegram, из островка («+» на странице таймера, 20.10.2026) и из Clocker (23.10.2026)
+                if iid not in again and (it["source"] not in ("tg", "island", "clocker") or iid in seen):
                     continue
                 seen.add(iid)
                 if not it["due"] or it["due"] <= time.time() + 2:

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Clocker
+GenericName=timer, focus, pomodoro
+Comment=Будильник по дням, режим фокуса (блокировка YouTube и прочего), помидор-таймер
+Exec=clocker
+Icon=jarvis-clocker
+Terminal=false
+Categories=X-StaticOS;Utility;Clock;
+StartupWMClass=com.jarvis.clocker
+Keywords=clocker;Clocker;CLOCKER;клокер;Клокер;сдщслук;Сдщслук;discipline;Discipline;DISCIPLINE;дисциплина;Дисциплина;ДИСЦИПЛИНА;вшысздшту;Вшысздшту;timer;Timer;таймер;Таймер;ешьук;время;Время;time;focus;Focus;фокус;Фокус;ащсгы;режим;Режим;regime;routine;Routine;рутина;кщгешту;alarm;Alarm;будильник;Будильник;фдфкь;pomodoro;pomo;Pomo;помидор;Помидор;зщьщ;сон;sleep;подъём;подъем;wake;

@@ -143,6 +143,8 @@ def run(action, arg=""):
         _run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "%d%%" % v])
         return "Громкость %d%%." % v, None
     if a == "lock":
+        # отметка «заперто не руками» — hubd шлёт таймеры в Telegram без отсрочки (23.10.2026)
+        open(os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-lock-auto"), "w").close()
         _run(["loginctl", "lock-session"])
         return "Заблокировано.", None
     # 17.10.2026: питание мониторов (idle_dim off/on), а не яркость; повтор — ничего.
