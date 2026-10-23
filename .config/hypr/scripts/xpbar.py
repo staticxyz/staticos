@@ -1293,7 +1293,23 @@ def window_icon_id(app_id, title):
     lang_icon = nvim_lang.icon(t, app_id)
     if lang_icon:
         return lang_icon
+    # окно «Обновление Steam…» (X11, без WM_CLASS и заголовка) — значком Steam, пока жив
+    # процесс обновлятора (22.10.2026, просьба: «почему иконка localsend стоит у steam?»)
+    if not app_id and not t and steam_updater_running():
+        return "steam"
     return app_id
+
+
+def steam_updater_running():
+    for pid in os.listdir("/proc"):
+        if pid.isdigit():
+            try:
+                with open("/proc/%s/cmdline" % pid, "rb") as f:
+                    if b"-child-update-ui\0" in f.read():
+                        return True
+            except OSError:
+                pass
+    return False
 
 
 def app_icon(app_id):
@@ -1318,7 +1334,9 @@ def app_info(app_id):
             info = None
         if info:
             break
-    if not info:
+    # пустой app_id совпадал с первым .desktop без StartupWMClass — у безымянного окна
+    # обновления Steam был значок LocalSend (22.10.2026)
+    if not info and app_id:
         for a in Gio.AppInfo.get_all():
             if isinstance(a, Gio.DesktopAppInfo) and \
                     (a.get_startup_wm_class() or "").lower() == app_id.lower():

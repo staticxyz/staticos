@@ -72,7 +72,7 @@ AREAS = [
     ("Стиль системы и шрифты", "◆", """
         pixel_look.py pixel_mode.py system_style.py app_fonts.py cozette_fit.py
         rofi_style.py launcher_style.py mixer_style.py wlogout_icons.py icon_theme.py
-        rofi fontprofile fontswap font-sample"""),
+        rofi fontprofile fontswap font-sample xfont_path.py"""),
     ("Курсор", "➤", """
         cursor_colors.py cursor_shake.py cursor_theme.py bit_cursor.py
         tri_cursor.py skeet_cursor.py jarvis_pebble.py yamikai_wall.py"""),
@@ -282,6 +282,7 @@ def present(entries):
 # Описания файлов без шапки (сверено с кодом 13.10.2026).
 DESC = {
     "savage_battery.py": "Батарея в баре и Кофеин — без сна (бывший Savage Mode, ПКМ по батарее).",
+    "xfont_path.py": "Пиксельный PxPlus в окне «Обновление Steam…»: путь X-шрифтов Xwayland, подмена ClearlyU.",
     "savage_power.py": "Savage Mode — мощность на максимум: power max + профиль performance, выкл — power mid.",
     "pixel_look.py": "Вид системы: пиксельный, обычный или Minimalistic (капсула) — один переключатель на всё",
     "zen-browser": "Запуск Zen только на Intel (Mesa), чтобы RTX 3050 спала; откат — ссылка на ~/.local/opt/zen/zen",

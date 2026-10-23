@@ -8,7 +8,8 @@ Discipline тянет будильник и фокус, hub ничего это�
 j/k — вниз/вверх · Tab, Shift+H/L — вкладка · i/a, Ctrl+E — новая запись (ввод обычным
 текстом; Enter, jj (только латиницей), Ctrl+E — сохранить, Esc — отмена, Ctrl+S — тоже сохранить) ·
 x — выполнено · 1/2/3 — важность High/Mid/Default · v — вид (общий/списком) ·
-Alt+j/k — переставить выше/ниже · s — +1 час · Shift+S — на завтра 09:00 · dd — удалить (второе «d» подряд —
+Alt+j/k — переставить выше/ниже · Ctrl+H/L — срок на день назад/вперёд (и в окне ввода) ·
+s — +1 час · Shift+S — на завтра 09:00 · dd — удалить (второе «d» подряд —
 само подтверждение) · u — отменить последнее действие · Ctrl+R — повторить отменённое ·
 z — повторение слов (Space — показать, y — знал, n — не знал) · q, Esc — закрыть.
 Второй запуск поднимает уже открытое окно (GApplication).
@@ -1102,7 +1103,7 @@ class View:
                    % self.n_drafts(), c["acc_l"], maxw=x1 - x0 - bw - 10)
         else:
             hint = self.HINTS.get(self.mode) or (
-                "n новая · e правка · 1-3 / h l важность · v вид · Alt+j/k порядок" if self.tab == "items"
+                "n новая · e правка · ^H ^L срок · 1-3 / h l важность · v вид · Alt+j/k порядок" if self.tab == "items"
                 else "i/a новое · e ред. · z повторить · d удалить · y/p")
             if self.mode == "text" and self.tab == "items":
                 hint = self.FIELD_HINTS["typing" if (self.f_typing and self.field in ("date", "time"))
@@ -1595,6 +1596,34 @@ class HubWindow(Gtk.ApplicationWindow):
             return
         self.act_prio(pr)
 
+    def act_shift_day(self, step):
+        """Ctrl+H/Ctrl+L — срок текущей записи на день назад/вперёд, время то же; без срока —
+        вчера/завтра «на день» (23.10.2026, просьба: «ctrl+h вчера, ctrl+l завтра»). Отмена — u."""
+        v = self.view
+        kind, d = v.current(v.rows())
+        if kind != "item" or d["status"] != "open":
+            return
+        old, old_allday = d["due"], H.is_allday(d)
+        if old:
+            new, allday = int((dt.datetime.fromtimestamp(old) + dt.timedelta(days=step)).timestamp()), old_allday
+        else:
+            day = dt.date.today() + dt.timedelta(days=step)
+            new, allday = int(dt.datetime.combine(day, dt.time(9, 0)).timestamp()), True
+        if fld(d, "_draft"):
+            d["due"], d["allday"] = new, allday
+        else:
+            iid = d["id"]
+            self.run_action("срок", lambda: H.edit(v.conn, iid, due=new, allday=allday, source="pc"),
+                            lambda: H.edit(v.conn, iid, due=old, allday=old_allday, source="pc"))
+            self.select_item(iid)
+        v.flash("срок: " + fmt_due(new, allday))
+
+    def shift_form_date(self, step):
+        """Ctrl+H/Ctrl+L в окне ввода — поле «дата» на день; пустое — от сегодня."""
+        v = self.view
+        d = parse_date(v.f_date) if v.f_date.strip() else None
+        v.f_date = fmt_date((d or dt.date.today()) + dt.timedelta(days=step))
+
     def move_item(self, step):
         """Alt+j/k — переставить открытую запись ниже/выше внутри своего раздела."""
         v = self.view
@@ -1944,6 +1973,8 @@ class HubWindow(Gtk.ApplicationWindow):
                 self.finish_edit()
             else:
                 self.submit_text()
+        elif v.tab == "items" and ctrl and ch in ("h", "l") and not v.f_typing:
+            self.shift_form_date(1 if ch == "l" else -1)
         elif v.tab == "items" and name in ("Tab", "ISO_Left_Tab"):
             k = FIELDS.index(v.field) + (-1 if name == "ISO_Left_Tab" else 1)
             v.field = FIELDS[k % len(FIELDS)]
@@ -2081,6 +2112,9 @@ class HubWindow(Gtk.ApplicationWindow):
             return
         if ctrl and ch in ("d", "u"):                 # как в nvim: полстраницы вниз/вверх
             v.move((1 if ch == "d" else -1) * max(1, v.page_rows // 2))
+            return
+        if ctrl and ch in ("h", "l") and v.tab == "items":
+            self.act_shift_day(1 if ch == "l" else -1)
             return
         if ctrl:
             return

@@ -125,6 +125,9 @@ def wav_seconds(path):
 
 # ─────────────────────────── демон: запись ───────────────────────────
 
+NO_FALLBACK = "{ node.dont-fallback = true node.dont-reconnect = true node.dont-move = true }"
+
+
 def stream_serial(pid):
     """object.serial играющего потока процесса pid (или его исполняемого файла)."""
     names = set()
@@ -242,8 +245,11 @@ def run_daemon():
             os.makedirs(REC, exist_ok=True)
             path = os.path.join(REC, LB.cache_key(*k) + ".wav")
             pos = p.position()
-            proc = subprocess.Popen(["pw-record", "--target", str(serial), "--rate", "44100",
-                                     "--channels", "2", "--format", "s16", path],
+            # Без подмены цели: плеер на паузе закрывает поток, и WirePlumber перецеплял запись
+            # на источник по умолчанию — микрофон (23.10.2026, просьба: «где у меня используется
+            # микрофон?», 4 мин с гарнитуры). dont-fallback/dont-reconnect — нет потока → выход.
+            proc = subprocess.Popen(["pw-record", "--target", str(serial), "-P", NO_FALLBACK,
+                                     "--rate", "44100", "--channels", "2", "--format", "s16", path],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                     preexec_fn=pdeathsig)
             # pw-record начинает писать через ~0,1–0,2 с после запуска
@@ -282,6 +288,9 @@ def run_daemon():
 
         def tick(self):
             try:
+                if self.rec and self.rec["proc"].poll() is not None:
+                    self.rec["seek"] = True               # поток плеера пропал — запись не годится
+                    self.finish()
                 if self.rec:
                     p = self.players.get(self.rec["player"])
                     if p and p.track_key() == self.rec["key"]:

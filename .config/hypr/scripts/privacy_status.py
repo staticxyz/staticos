@@ -17,7 +17,9 @@
     которые niri не видит (gpu-screen-recorder в режиме KMS, например Replay).
 Дочерние процессы получают PDEATHSIG — не переживут скрипт.
 
-Что НЕ считается микрофоном: захват монитора выхода (cava, визуализаторы, звук системы
+Микрофон — только настоящий: источник ALSA/bluez5 (гарнитура, встроенный, Bluetooth).
+Что НЕ считается микрофоном: виртуальные источники, запись потока программы (pw-record
+--target <плеер> у lyrics_sync.py), захват монитора выхода (cava, визуализаторы, звук системы
 в jarvis_rec_mic), измерители уровня (pavucontrol «Peak detect», resample.peaks),
 приостановленные (corked) и пассивные потоки.
 
@@ -127,12 +129,19 @@ def scan_mic():
     outputs = run_json(["pactl", "-f", "json", "list", "source-outputs"])
     if outputs is None:
         return None  # pactl недоступен — оставить прежнее состояние
+    # real — только живые микрофоны: гарнитура, встроенный, Bluetooth (ALSA/bluez5, не
+    # монитор выхода). Виртуальные источники, мониторы и запись чужого потока (pw-record
+    # --target <плеер>) значок не зажигают (23.10.2026, просьба: «значок означает, что
+    # используется именно мой микрофон… гарнитуры или встроенного»).
     monitors, real = set(), set()
     for s in sources or []:
         name = s.get("name") or ""
-        real.add(s.get("index"))
+        props = s.get("properties") or {}
         if s.get("monitor_of_sink") not in (None, "", "n/a") or name.endswith(".monitor"):
             monitors.add(s.get("index"))
+        elif props.get("device.api") in ("alsa", "bluez5") or \
+                name.startswith(("alsa_input.", "bluez_input.")):
+            real.add(s.get("index"))
     apps = []
     for o in outputs:
         p = o.get("properties") or {}

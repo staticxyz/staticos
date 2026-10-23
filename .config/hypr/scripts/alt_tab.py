@@ -339,7 +339,7 @@ def app_info(app_id):
             info = None
         if info:
             break
-    if not info:
+    if not info and app_id:     # пустой app_id совпадал с любым .desktop без StartupWMClass
         for a in Gio.AppInfo.get_all():
             if isinstance(a, Gio.DesktopAppInfo) and \
                     (a.get_startup_wm_class() or "").lower() == app_id.lower():

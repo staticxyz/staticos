@@ -1,0 +1,5 @@
+! Окно «Обновление Steam…» (ubuntu12_32/steam, UpdateUI xwin) просит ClearlyU 12 pt —
+! подменяем на пиксельный PxPlus 8 px (системный шрифт; 16 px не влезает в окно 400 px).
+! Каталог в путь шрифтов Xwayland ставит xfont_path.py (22.10.2026).
+"-mutt-clearlyu-medium-r-normal--17-120-100-100-p-123-iso10646-1" "-jarvis-pxplus-medium-r-normal--8-80-75-75-c-60-iso10646-1"
+"-mutt-clearlyu-medium-r-normal--12-120-75-75-p-80-iso10646-1" "-jarvis-pxplus-medium-r-normal--8-80-75-75-c-60-iso10646-1"

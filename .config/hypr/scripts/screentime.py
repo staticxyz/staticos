@@ -202,7 +202,7 @@ def _desktop_for(app_id):
                 info = None
             if info:
                 return info
-    for a in Gio.AppInfo.get_all():
+    for a in Gio.AppInfo.get_all() if app_id else ():   # пустой совпадал с любым без StartupWMClass
         if isinstance(a, DAI) and (a.get_startup_wm_class() or "").lower() == app_id.lower():
             return a
     return None
