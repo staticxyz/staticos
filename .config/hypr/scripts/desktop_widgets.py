@@ -4388,9 +4388,20 @@ class Manager:
         # новой раскладке, закрывается и в hub с пометкой preset: бот пишет, сколько оставалось.
         refs = {str((s.get("opts") or {}).get("hub")) for s in conf["widgets"]}
 
-        def lost(w):
-            if hasattr(w, "hub_drop") and w.opts.get("hub") and str(w.opts["hub"]) not in refs:
-                w.hub_drop("preset")
+        def lost(w, spec=None):
+            # 23.10.2026: идущий таймер не закрывается — отвязывается и идёт в hub/Clocker
+            # (Timer.removed). Тот же виджет перезапущен командой `timer НАЗВАНИЕ ВРЕМЯ` (имя то же,
+            # opts новые без hub) — прежний пункт закрывается как NEW, иначе оставался сиротой.
+            if not hasattr(w, "removed"):
+                return
+            o = (spec.get("opts") or {}) if spec else {}
+            if spec is not None and spec.get("type") == "timer" and not o.get("hub") and \
+                    str(o.get("label", "")) == str(w.opts.get("label", "")):
+                w.opts.pop("hub_prev", None)
+                w.hub_drop("new")
+            elif (w.opts.get("hub") and str(w.opts["hub"]) not in refs) or \
+                    (not w.opts.get("hub") and "paused_left" in w.opts):
+                w.removed("preset")
         keep = []
         self.conf, self.outs = conf, outs
         for spec in conf["widgets"]:
@@ -4406,7 +4417,7 @@ class Manager:
                 keep.append(w)
             else:
                 if w is not None:
-                    lost(w)
+                    lost(w, spec)
                     w.close_widget()
                 self.widgets = keep
                 nw = self.spawn(spec)
@@ -4479,7 +4490,7 @@ class Manager:
         return len(victims)
 
     def remove(self, w, how="close"):
-        if hasattr(w, "removed"):          # закрыли насовсем (таймер — стоп и в hub)
+        if hasattr(w, "removed"):          # закрыли насовсем (идущий таймер уходит в hub/Clocker)
             w.removed(how)
         self.widgets.remove(w)
         self.gone.add(w.spec.get("name"))

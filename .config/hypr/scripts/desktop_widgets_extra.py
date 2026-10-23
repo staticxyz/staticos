@@ -838,6 +838,7 @@ def register(ns):
         clickable = True
         ALARM = "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"
         ALARM_VOLUME = 0.3                    # прежняя громкость его родного звонка
+        RING_S = 60                           # 23.10.2026: звенит минуту, дальше висит уведомление
         # Громкость звонка — ползунок в Настройках → Applications → «Таймер»
         # (13.10.2026): 0–100 в state/timer-volume, по кубической шкале микшера,
         # как ui_sound. Нет файла — прежние 0.3 (≈ 67 на ползунке).
@@ -908,6 +909,8 @@ def register(ns):
             # остановлен виджетом?»)
             iid = self.opts.pop("hub", None)
             h = hub()
+            if iid and how == "pause":
+                self.opts["hub_prev"] = int(iid)   # продолжат — сообщение бота переедет (relink)
             if iid and h:
                 try:
                     h[0].drop(h[1], int(iid), ("widget " + how).strip())
@@ -915,7 +918,39 @@ def register(ns):
                     print("hub drop: %s" % e, file=sys.stderr)
 
         def removed(self, how="close"):
-            """Закрыли крестиком (close) / «Очистить стол» (clear) — таймер останавливается и в hub."""
+            """Закрыли крестиком (close) / «Очистить стол» (clear) / сменился пресет (preset).
+
+            23.10.2026, просьба: «при удалении виджетов, смене пресетов, закрывании timer.exe
+            пусть не пропадают и не сбрасываются, а крутятся в фоне и видны в Clocker → Timer».
+            Идущий — пункт hub остаётся открытым (звонит сам hub), виджет только отвязывается;
+            на паузе — уходит в Clocker на паузу (timer_park); уже звенит/истёк — стоп, как было."""
+            o = self.opts
+            h = hub()
+            left = self.left()
+            if h and o.get("hub") and left is not None and left > 2 and not self.paused():
+                iid = int(o.pop("hub"))
+                self.stop_alarm()
+                try:
+                    h[0].log(h[1], "detach", iid, "widget " + how)
+                except Exception as e:
+                    print("hub detach: %s" % e, file=sys.stderr)
+                return
+            if h and "paused_left" in o and float(o["paused_left"]) > 2:
+                prev = o.pop("hub_prev", None)
+                label = str(o.get("label") or "")
+                try:
+                    if not prev:                 # пауза без пункта (старая) — завести и сразу закрыть
+                        prev, _due = h[0].start_timer(h[1], int(o["paused_left"]), label, "widget")
+                        h[0].drop(h[1], int(prev), "widget pause")
+                    it = h[0].get_item(h[1], int(prev))
+                    name = it["text"] if it else (label or "Таймер")
+                    dur = int(o.get("dur") or o["paused_left"])
+                    start = it["created"] if it else int(time.time() - dur + float(o["paused_left"]))
+                    h[0].timer_park(h[1], int(prev), float(o["paused_left"]), name, dur, start,
+                                    bare=how == "hide")      # убран значком Clocker — и после паузы без виджета
+                    return
+                except Exception as e:
+                    print("hub park: %s" % e, file=sys.stderr)
             self.hub_drop(how)
 
         def hub_follow(self, H, c):
@@ -932,6 +967,12 @@ def register(ns):
                     print("hub timer: %s" % e, file=sys.stderr)
                     return
                 o["hub"], o["end"] = iid, int(due)
+                prev = o.pop("hub_prev", None)
+                if prev and hasattr(H, "relink"):
+                    try:
+                        H.relink(c, int(prev), int(iid))
+                    except Exception as e:
+                        print("hub relink: %s" % e, file=sys.stderr)
                 self.keep()
                 return
             it = H.get_item(c, int(iid))
@@ -1086,8 +1127,8 @@ def register(ns):
             props = ('{ application.name = "Таймер" node.description = "Таймер" '
                      'media.name = "Таймер" application.icon-name = "alarm-clock" '
                      'state.restore-props = false }')
-            deadline = time.monotonic() + self.ALARM_MAX      # 09.10.2026: не звенеть вечно
-            while not ev.is_set() and time.monotonic() < deadline:
+            stop_at = time.monotonic() + self.RING_S
+            while not ev.is_set() and time.monotonic() < stop_at:
                 if self.mgr.game or not os.path.exists(self.ALARM):
                     ev.wait(2)
                     continue
@@ -2077,6 +2118,27 @@ def register(ns):
             return True
         H, c = h
         try:
+            # timer.exe на паузе из списка Clocker → Timer: «Возобновить» / «Стоп» / «Удалить»
+            for name, act in (H.widget_cmd_take(c) if hasattr(H, "widget_cmd_take") else []):
+                w = next((x for x in mgr.widgets if isinstance(x, Timer) and x.spec.get("name") == name), None)
+                if act == "hide":                    # значок-окошко в Clocker: убрать со стола, таймер идёт
+                    if w is not None:
+                        mgr.remove(w, "hide")
+                    continue
+                if act == "pause":                   # «Пауза» в Clocker — пауза у самого виджета, он остаётся
+                    if w is not None and "end" in w.opts and "paused_left" not in w.opts:
+                        w.toggle_pause()
+                    continue
+                if w is None or "paused_left" not in w.opts:
+                    continue
+                if act == "resume":
+                    w.toggle_pause()
+                    continue
+                prev = w.opts.pop("hub_prev", None)
+                w.opts.pop("paused_left", None)
+                if prev:
+                    H.log(c, "drop", int(prev), "clocker" if act == "stop" else "clocker delete")
+                mgr.remove(w, "clocker")
             for w in list(mgr.widgets):
                 if isinstance(w, Timer) and w in mgr.widgets:
                     w.hub_follow(H, c)

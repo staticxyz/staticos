@@ -503,6 +503,7 @@
         "return-type": "json",
         "restart-interval": 5,
         "on-click": "python3 $HOME/.config/hypr/scripts/battery_popup.py",
+        "on-click-middle": "python3 $HOME/.config/hypr/scripts/savage_power.py toggle",
         "on-click-right": "python3 $HOME/.config/hypr/scripts/savage_battery.py --toggle"
     },
 

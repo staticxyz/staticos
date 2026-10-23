@@ -27,7 +27,7 @@ DEFAULT_ESC_MIN = 5                  # 14.10.2026: не тронул уведо�
 DIGEST_HOUR, DIGEST_MIN = 9, 30
 DIGEST_ON = False                  # утренняя сводка выключена (19.10.2026)
 NAG_DAYS = [3, 7, 14, 30]            # ступени «запылился» для пунктов без срока
-RING_MAX = 300
+RING_MAX = 60                        # 23.10.2026, просьба: звенеть минуту (было 5), дальше висит уведомление
 SOUND = "/usr/share/sounds/freedesktop/stereo/complete.oga"
 INPUT_FILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()), "jarvis-input")
 
@@ -442,10 +442,11 @@ def lost_watch(c):
             LOST["miss"].pop(r["id"], None)
             continue
         since = LOST["miss"].setdefault(r["id"], t)
-        if t - since >= LOST_S:
-            H.drop(c, r["id"], why)
-            LOST["miss"].pop(r["id"], None)
-            log("lost: таймер закрыт", r["id"], why)
+        if t - since >= LOST_S and not LOST.setdefault("said", {}).get(r["id"]):
+            # 23.10.2026, просьба: виджет убрали/пропал — таймер не закрывается, идёт дальше в
+            # hub (и в Clocker → Timer) и звонит сам. Здесь только отметка в журнале.
+            LOST["said"][r["id"]] = why
+            log("lost: таймер идёт без виджета", r["id"], why)
 
 
 def announce_closed(c):
@@ -505,7 +506,7 @@ def timer_amp():
 
 
 def ring(iid, secs=RING_MAX):
-    """Звонок таймера: до 5 минут, но стихает сразу, как пункт остановлен/отложен/увиден
+    """Звонок таймера: минуту (RING_MAX), но стихает сразу, как пункт остановлен/отложен/увиден
     (закрыл уведомление, «Стоп» в Telegram, rem del)."""
     def work():
         c = H.connect()

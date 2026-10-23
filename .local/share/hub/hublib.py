@@ -853,6 +853,74 @@ def rewidget_ask(c):
     return ids
 
 
+def widget_cmd(c, name, act):
+    """Clocker → менеджер виджетов (hub_timer_sync, раз в 2 с): timer.exe на паузе
+    возобновить (resume), остановить (stop) или удалить (delete). 23.10.2026, просьба: «таймеры на паузе тоже должны отображаться в списке активных»."""
+    try:
+        q = json.loads(meta_get(c, "timer_widget_cmd") or "[]")
+    except ValueError:
+        q = []
+    q.append([str(name), str(act)])
+    meta_set(c, "timer_widget_cmd", json.dumps(q))
+
+
+def widget_cmd_take(c):
+    try:
+        q = json.loads(meta_get(c, "timer_widget_cmd") or "[]")
+    except ValueError:
+        q = []
+    if q:
+        meta_set(c, "timer_widget_cmd", "[]")
+    return q
+
+
+def relink(c, old, new):
+    """Таймер продолжили после паузы новым пунктом (у hub паузы нет) — его сообщение в Telegram
+    («⏸ на паузе») переезжает на новый пункт и снова показывает «идёт» (23.10.2026, просьба: «что значит таймер на паузе?» — пауза висела в боте, хотя таймер давно шёл)."""
+    r = c.execute("SELECT fired_tg FROM items WHERE id=?", (old,)).fetchone()
+    if r and r["fired_tg"]:
+        c.execute("UPDATE items SET fired_tg=? WHERE id=? AND fired_tg IS NULL", (r["fired_tg"], new))
+    c.execute("UPDATE tgmsgs SET item_id=?, sig='' WHERE item_id=?", (new, old))
+    # когда таймер создан впервые — для порядка в Clocker (просьба: «по мере создания, сверху
+    # вниз, вне зависимости от времени или состояния»): продолженный встаёт на своё место
+    try:
+        m = json.loads(meta_get(c, "timer_origin") or "{}")
+    except ValueError:
+        m = {}
+    m[str(new)] = timer_origin(c, old, m)
+    if len(m) > 300:
+        m = dict(sorted(m.items(), key=lambda kv: int(kv[0]))[-200:])
+    meta_set(c, "timer_origin", json.dumps(m))
+
+
+def timer_origin(c, iid, m=None):
+    """Время первого создания таймера (через все паузы — цепочку relink)."""
+    if m is None:
+        try:
+            m = json.loads(meta_get(c, "timer_origin") or "{}")
+        except ValueError:
+            m = {}
+    if str(iid) in m:
+        return m[str(iid)]
+    r = c.execute("SELECT created FROM items WHERE id=?", (iid,)).fetchone()
+    return r["created"] if r else 0
+
+
+def timer_park(c, iid, left, name, total, start, bare=False):
+    """Виджет timer.exe на паузе убрали (крестик, «Очистить стол», пресет) — таймер не теряется:
+    уходит в Clocker → Timer на паузу (та же запись clocker_timers, что у паузы в Clocker)."""
+    try:
+        d = json.loads(meta_get(c, "clocker_timers") or "{}")
+    except ValueError:
+        d = {}
+    chains = d.setdefault("chains", {})
+    d.setdefault("hidden", [])
+    k = next((k for k, ch in chains.items() if iid in ch.get("ids", [])), str(iid))
+    ch = chains.setdefault(k, {"name": name, "start": int(start), "total": int(total), "ids": [iid]})
+    ch.update(left=max(1, int(left)), at=now(), bare=bool(bare))
+    meta_set(c, "clocker_timers", json.dumps(d, ensure_ascii=False))
+
+
 def rewidget_take(c):
     ids = _ids(c, "timer_rewidget")
     if ids:

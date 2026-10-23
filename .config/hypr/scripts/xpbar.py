@@ -2724,7 +2724,7 @@ class SideTray(Gtk.Box):
         for k, on in (("savage", savage), ("awake", awake), ("power", power)):
             (c.add_class if on else c.remove_class)(k)
         # «savage» в классах — прежнее имя Кофеина (без сна); Savage Mode теперь — power
-        self.bat_box.set_tooltip_text("Энергия: %d%%%s · %s\nЛКМ — «Энергия» · ПКМ — Кофеин %s"
+        self.bat_box.set_tooltip_text("Энергия: %d%%%s · %s\nЛКМ — «Энергия» · СКМ — Savage Mode · ПКМ — Кофеин %s"
                                       % (cap, " · Savage Mode (power max)" if power else "",
                                          "Кофеин" if savage else "без кофеина",
                                          "выкл" if savage else "вкл"))
@@ -2733,6 +2733,10 @@ class SideTray(Gtk.Box):
         if e.button == 1:
             spawn("env", "JARVIS_POPUP_FROM=xpbar", "JARVIS_POPUP_SIDE=right", sys.executable,
                   os.path.join(HERE, "battery_popup.py"))
+        elif e.button == 2:
+            # СКМ — Savage Mode (power max ⇄ mid; 23.10.2026, просьба). Голубой цвет значка
+            # ставит Gio-монитор ~/.cache/power-mode
+            spawn(sys.executable, os.path.join(HERE, "savage_power.py"), "toggle")
         elif e.button == 3:
             spawn(sys.executable, os.path.join(HERE, "savage_battery.py"), "--toggle")
             for ms in (300, 1200):                 # Savage запускается не мгновенно

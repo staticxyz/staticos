@@ -25,7 +25,7 @@ default), цвета — из обоев. Всё окно рисуется cairo
               x, dd — стоп выбранного (спросит y/n) · X — стоп всех
   ввод        Enter, jj, оо, Esc, Ctrl+E — готово · Backspace — стереть
 
-    routine_app.py [alarm|pomo|timer|focus]   открыть на вкладке (второй запуск поднимает окно)
+    routine_app.py [alarm|pomo|timer|stopwatch|focus]   открыть на вкладке (второй запуск поднимает окно)
     routine_app.py --shot F [tab=focus sel=N mode=… style=…]   PNG без окна
 """
 import datetime as dt
@@ -62,8 +62,24 @@ BIG = 48           # крупные цифры (кратно 8 — без мыл
 SLEEP_H = 8
 STEP = 15
 # 23.10.2026, просьба: Pomo после Alarm, Focus третьим; затем «Добавь вкладку Timer… между Pomo и Focus»
-TABS = ("alarm", "pomo", "timer", "focus")
-TAB_NAMES = {"alarm": "Alarm", "focus": "Focus", "pomo": "Pomo", "timer": "Timer"}
+# … и «после таймера отдельную вкладку для секундомера» (23.10.2026)
+TABS = ("alarm", "pomo", "timer", "stopwatch", "focus")
+TAB_NAMES = {"alarm": "Alarm", "focus": "Focus", "pomo": "Pomo", "timer": "Timer", "stopwatch": "Stopwatch"}
+# Значки вкладок 8×8, клетка 2 px — в шаг пиксельного шрифта (23.10.2026, просьба: «добавь к ним
+# иконки соответствующие»): будильник, помидор, песочные часы, мишень.
+TAB_ICONS = {
+    "alarm": ("XX....XX", "X.XXXX.X", ".X.X..X.", "X..X...X", "X..XXX.X", "X......X", ".X....X.", "X.XXXX.X"),
+    "pomo": ("...XX...", ".XX..XX.", "..XXXX..", ".XXXXXX.", "XXXXXXXX", "XXXXXXXX", ".XXXXXX.", "..XXXX.."),
+    "timer": ("XXXXXXXX", ".X....X.", "..X..X..", "...XX...", "...XX...", "..X..X..", ".XXXXXX.", "XXXXXXXX"),
+    "stopwatch": ("..XXXX..", "...XX...", ".XX..XX.", "X....X.X", "X..XX..X", "X......X", ".XX..XX.", "...XX..."),
+    "focus": ("..XXXX..", ".X....X.", "X......X", "X..XX..X", "X..XX..X", "X......X", ".X....X.", "..XXXX.."),
+}
+TAB_ICON_W = 16
+# Лог во вкладке Timer можно спрятать (23.10.2026): есть файл — скрыт, карточкам больше места
+TLOG_OFF = os.path.join(STATE_DIR, "clocker-timer-log-hidden")
+TSORT_TIME = os.path.join(STATE_DIR, "clocker-timer-sort-time")   # есть — «Идут» по оставшемуся времени
+SW_FILE = os.path.join(STATE_DIR, "clocker-stopwatches.json")      # секундомеры: идут и лог
+SWLOG_OFF = os.path.join(STATE_DIR, "clocker-stopwatch-log-hidden")
 
 W = 440
 PAD = 14
@@ -822,21 +838,182 @@ def timers_active():
     now = time.time()
     d = tstate()
     out = []
+    # есть ли timer.exe на столе (23.10.2026, просьба: «пусть в списке будет видно значком»):
+    # по раскладке виджетов; только что созданный/вызванный — менеджер заводит его за ≤2 с
+    linked = widget_hubs()
+    h = hub()
+    try:
+        bare = h[0].timer_nowidget(h[1]) if h and hasattr(h[0], "timer_nowidget") else set()
+    except Exception:
+        bare = set()
     for it in timers_running():
         if not it["due"]:
             continue
         _k, ch = chain_of(d, it["id"])
         total = ch["total"] if ch else it["due"] - it["created"]
+        soon = W_SHOW.get(it["id"], 0) > now or (it["id"] not in bare and now - it["created"] < 6)
+        pz = W_PAUSING.get(it["id"])
+        if pz and pz[2] > now:                     # пауза отдана виджету — до его ответа уже «на паузе»
+            out.append({"iid": None, "cid": None, "wname": pz[0], "prev": it["id"], "name": tname(it["text"]),
+                        "named": not str(it["text"]).startswith("Таймер "), "left": pz[1], "due": None,
+                        "total": max(1, total), "paused": True, "widget": True})
+            continue
         out.append({"iid": it["id"], "cid": None, "name": tname(it["text"]),
                     "named": not str(it["text"]).startswith("Таймер "), "left": it["due"] - now,
-                    "due": it["due"], "total": max(1, total), "paused": False})
+                    "due": it["due"], "total": max(1, total), "paused": False,
+                    "widget": (it["id"] in linked and W_HIDE.get(it["id"], 0) < now) or soon})
     for k, ch in sorted(d["chains"].items(), key=lambda kv: kv[1].get("at") or 0):
         if ch.get("left") is None:
             continue
+        # на паузе виджета нет; значок — появится ли он при «Продолжить»
         out.append({"iid": None, "cid": k, "name": tname(ch["name"]),
                     "named": not str(ch["name"]).startswith("Таймер "), "left": ch["left"], "due": None,
-                    "total": max(1, ch.get("total") or ch["left"]), "paused": True})
+                    "total": max(1, ch.get("total") or ch["left"]), "paused": True,
+                    "widget": not ch.get("bare")})
+    out += timers_widget_paused()
+    # порядок — по мере создания, сверху вниз, что бы ни было с таймером (23.10.2026, просьба:
+    # «пусть не меняются в списке»): пауза/продолжение (новый пункт hub) место не меняют
+    h = hub()
+    if h and hasattr(h[0], "timer_origin"):
+        try:
+            m = json.loads(h[0].meta_get(h[1], "timer_origin") or "{}")
+            for t in out:
+                ch = d["chains"].get(t["cid"]) if t["cid"] else None
+                first = ch["ids"][0] if ch and ch.get("ids") else t["iid"] or t.get("prev")
+                t["born"] = ((h[0].timer_origin(h[1], first, m) if first else 0) or now, first or 0)
+            out.sort(key=lambda t: t["born"])
+        except Exception as e:
+            print("timer order: %s" % e, file=sys.stderr)
+    if os.path.exists(TSORT_TIME):              # «По времени»: скоро кончится — выше, паузы — ниже
+        out.sort(key=lambda t: (t["paused"], t["left"]))
     return out
+
+
+WIDGETS_CONF = os.path.join(STATE_DIR, "desktop-widgets.json")
+W_PEND = {}                                  # имя timer.exe → до какого времени не показывать
+W_RESUMING = {}                              # имя timer.exe → (новый срок, до какого времени)
+
+
+def timers_widget_paused():
+    """timer.exe на паузе, что стоит на столе (23.10.2026, просьба: «таймеры на паузе тоже должны
+    отображаться в списке активных»): у hub паузы нет — их видно только в раскладке виджетов.
+    Кнопки шлют команду менеджеру виджетов (hub widget_cmd), он применяет её за ≤2 с."""
+    try:
+        ws = json.load(open(WIDGETS_CONF)).get("widgets", [])
+    except (OSError, ValueError):
+        return []
+    now = time.time()
+    out = []
+    for sp in ws:
+        o = sp.get("opts") or {}
+        if sp.get("type") != "timer" or "paused_left" not in o or W_PEND.get(sp.get("name"), 0) > now:
+            continue
+        label = str(o.get("label") or "")
+        left = float(o["paused_left"])
+        due = W_RESUMING.get(sp.get("name"), (0, 0))
+        go = due[1] > now                          # «Продолжить» отдан виджету — до его ответа уже идёт
+        out.append({"iid": None, "cid": None, "wname": sp.get("name"), "prev": o.get("hub_prev"),
+                    "name": label or fmt_hms_words(int(o.get("dur") or left)),
+                    "named": bool(label), "left": due[0] - now if go else left, "due": due[0] if go else None,
+                    "total": max(1, int(o.get("dur") or left)), "paused": not go, "widget": True})
+    return out
+
+
+W_SHOW = {}                                  # iid → до какого времени считать виджет «уже идёт»
+W_HIDE = {}                                  # iid → … «уже убран» (менеджер применит за ≤2 с)
+W_PAUSING = {}                               # iid → (имя timer.exe, осталось, до какого времени)
+
+
+def widget_hubs():
+    """{пункт hub: имя timer.exe} по раскладке виджетов."""
+    try:
+        ws = json.load(open(WIDGETS_CONF)).get("widgets", [])
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for sp in ws:
+        o = sp.get("opts") or {}
+        if sp.get("type") == "timer" and o.get("hub"):
+            try:
+                out[int(o["hub"])] = sp.get("name")
+            except (TypeError, ValueError):
+                pass
+    return out
+
+
+def widgets_up():
+    """Менеджер виджетов не запущен — поднять. → "" или почему не выйдет."""
+    if os.path.exists(os.path.join(STATE_DIR, "desktop-widgets-off")):
+        return "виджеты выключены в Настройках"
+    if not any(a.endswith("desktop_widgets.py") for a in run_out("ps", "-u", str(os.getuid()), "-o",
+                                                                  "args=").splitlines()):
+        run_bg(sys.executable, os.path.join(HERE, "desktop_widgets.py"), "on")
+    return ""
+
+
+def timer_show_widget(t):
+    """Значок-окошко на карточке: виджета нет — вернуть timer.exe на стол (23.10.2026, просьба: «кнопку, чтобы обратно показать таймер на раб. столе, если я закрыл его или он сам закрылся»),
+    есть — убрать со стола, таймер идёт дальше («при повторном нажатии пусть обратно убирает»).
+    Менеджер виджетов применяет за ≤2 с: новый — hub timer_rewidget (как «Обновить виджеты», только
+    для одного), убрать — hub widget_cmd «hide». На паузе в Clocker — переключает, будет ли виджет
+    после «Продолжить». → текст для строки состояния."""
+    h = hub()
+    if not h:
+        return "hub недоступен"
+    H, c = h
+    if t.get("wname"):                             # timer.exe на паузе — убрать, пауза уйдёт в Clocker
+        if not hasattr(H, "widget_cmd"):
+            return "hub старый — нет команды"
+        timer_widget_cmd(t, "hide")
+        return "«%s» — виджет убран, таймер на паузе здесь" % t["name"]
+    if t.get("cid"):
+        d = tstate()
+        ch = d["chains"].get(t["cid"])
+        if not ch:
+            return "таймер уже закрыт"
+        ch["bare"] = not ch.get("bare")
+        tsave(d)
+        return "без виджета после «Продолжить»" if ch["bare"] else "виджет появится после «Продолжить»"
+    iid = t["iid"]
+    wname = widget_hubs().get(iid)
+    if wname and W_HIDE.get(iid, 0) < time.time():
+        try:
+            if hasattr(H, "set_nowidget"):
+                H.set_nowidget(c, iid, True)
+            H.widget_cmd(c, wname, "hide")
+        except Exception as e:
+            print("hide widget: %s" % e, file=sys.stderr)
+            return "не вышло: %s" % e
+        W_HIDE[iid] = time.time() + 5
+        W_SHOW.pop(iid, None)
+        return "«%s» — виджет убран со стола, таймер идёт" % t["name"]
+    W_HIDE.pop(iid, None)
+    try:
+        if hasattr(H, "set_nowidget"):
+            H.set_nowidget(c, iid, False)
+        try:
+            ids = [int(x) for x in json.loads(H.meta_get(c, "timer_rewidget") or "[]")]
+        except (ValueError, TypeError):
+            ids = []
+        H.meta_set(c, "timer_rewidget", json.dumps(sorted(set(ids) | {iid})))
+    except Exception as e:
+        print("show widget: %s" % e, file=sys.stderr)
+        return "не вышло: %s" % e
+    W_SHOW[iid] = time.time() + 5
+    why = widgets_up()
+    return why or "«%s» — виджет на столе дашборда" % t["name"]
+
+
+def timer_widget_cmd(t, act):
+    h = hub()
+    if not h or not hasattr(h[0], "widget_cmd"):
+        return False
+    h[0].widget_cmd(h[1], t["wname"], act)
+    if act == "resume":
+        W_RESUMING[t["wname"]] = (time.time() + t["left"], time.time() + 4)
+    else:
+        W_PEND[t["wname"]] = time.time() + 4
+    return True
 
 
 TIMER_SRC = {"widget": "виджет", "tg": "Telegram", "island": "островок", "clocker": "Clocker",
@@ -920,16 +1097,12 @@ def timer_rewidget():
     if not h or not hasattr(h[0], "rewidget_ask"):
         return "hub недоступен"
     ids = h[0].rewidget_ask(h[1])
-    if os.path.exists(os.path.join(STATE_DIR, "desktop-widgets-off")):
-        return "виджеты выключены в Настройках"
-    alive = any(a.endswith("desktop_widgets.py") for a in run_out("ps", "-u", str(os.getuid()), "-o",
-                                                                     "args=").splitlines())
-    if not alive:
-        run_bg(sys.executable, os.path.join(HERE, "desktop_widgets.py"), "on")
+    why = widgets_up()
+    if why:
+        return why
     if not ids:
-        return "идущих таймеров нет" + ("" if alive else " · виджеты запущены")
-    return "виджеты: проверю %d таймер%s" % (len(ids), "" if len(ids) == 1 else "а" if len(ids) < 5 else "ов") + \
-        ("" if alive else " · менеджер запущен")
+        return "идущих таймеров нет"
+    return "виджеты: проверю %d таймер%s" % (len(ids), "" if len(ids) == 1 else "а" if len(ids) < 5 else "ов")
 
 
 def timer_stop(t):
@@ -939,6 +1112,8 @@ def timer_stop(t):
         return False
     if t.get("iid"):
         return bool(h[0].drop(h[1], t["iid"], "clocker"))
+    if t.get("wname"):
+        return timer_widget_cmd(t, "stop")
     d = tstate()
     ch = d["chains"].get(t["cid"])
     if not ch or ch.get("left") is None:
@@ -959,6 +1134,15 @@ def timer_pause(t):
     left = int(it["due"] - time.time() + 0.5)
     if left < 2:
         return False                               # уже звенит — пауза ни к чему
+    # есть timer.exe на столе — пауза у него самого, виджет остаётся (23.10.2026, просьба: «почему
+    # при нажатии на Паузу в приложении виджет исчезает?»). Без виджета — как было: пункт hub закрыт,
+    # остаток — в цепочке clocker_timers
+    wname = widget_hubs().get(it["id"])
+    if wname and W_HIDE.get(it["id"], 0) < time.time() and hasattr(h[0], "widget_cmd"):
+        h[0].widget_cmd(h[1], wname, "pause")
+        W_PAUSING[it["id"]] = (wname, left, time.time() + 4)
+        W_PEND[wname] = 0
+        return True
     d = tstate()
     k, ch = chain_of(d, it["id"])
     if not ch:
@@ -974,12 +1158,20 @@ def timer_pause(t):
 
 
 def timer_resume(t):
+    if t.get("wname"):
+        return timer_widget_cmd(t, "resume") and (None, time.time() + t["left"])
     d = tstate()
     ch = d["chains"].get(t.get("cid"))
     if not ch or not ch.get("left"):
         return None
     r = timer_start(ch["left"], ch["name"], widget=not ch.get("bare"))
     if r:
+        h = hub()
+        if h and hasattr(h[0], "relink") and ch["ids"]:
+            try:                                   # сообщение бота «⏸ на паузе» → снова «идёт»
+                h[0].relink(h[1], ch["ids"][-1], r[0])
+            except Exception as e:
+                print("relink: %s" % e, file=sys.stderr)
         ch["ids"].append(r[0])
         ch["left"] = ch["at"] = None
         tsave(d)
@@ -992,6 +1184,13 @@ def timer_delete(t=None, iid=None):
     if not h:
         return False
     d = tstate()
+    if t and t.get("wname"):
+        if not timer_widget_cmd(t, "delete"):
+            return False
+        if t.get("prev"):
+            d["hidden"].append(int(t["prev"]))
+            tsave(d)
+        return True
     if t and t.get("iid"):
         iid = t["iid"]
         h[0].drop(h[1], iid, "clocker delete")
@@ -1035,6 +1234,77 @@ def timer_parse(txt):
             if d:
                 return d, " ".join(words[:k] + words[j:])
     return None, txt
+
+
+# ── секундомеры (23.10.2026, просьба: «всё так же списком, почти всё то же самое, только «Новый
+# секундомер» сразу создаёт без настроек»). Свой файл: hub и виджеты им не нужны.
+# {"items": [{"id", "name", "created", "acc", "run"}], "log": [{"id", "name", "start", "end", "total"}], "n"}
+# acc — набежало до последней паузы, run — с какого момента идёт (None — на паузе)
+
+def sw_load():
+    try:
+        d = json.load(open(SW_FILE))
+        if not isinstance(d, dict):
+            d = {}
+    except (OSError, ValueError):
+        d = {}
+    d.setdefault("items", [])
+    d.setdefault("log", [])
+    d.setdefault("n", 0)
+    return d
+
+
+def sw_save(d):
+    d["log"] = d["log"][:200]
+    tmp = SW_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, ensure_ascii=False)
+    os.replace(tmp, SW_FILE)
+
+
+def sw_elapsed(it, now=None):
+    return it["acc"] + ((now or time.time()) - it["run"] if it.get("run") else 0)
+
+
+def sw_new():
+    d = sw_load()
+    d["n"] += 1
+    used = {it["name"] for it in d["items"]}
+    k = next(k for k in range(1, len(used) + 2) if "Секундомер %d" % k not in used)
+    now = time.time()
+    it = {"id": d["n"], "name": "Секундомер %d" % k, "created": now, "acc": 0, "run": now}
+    d["items"].append(it)
+    sw_save(d)
+    return it
+
+
+def sw_edit(sid, act, name=""):
+    """act: toggle | stop (в лог) | delete | rename. → изменённый секундомер или None."""
+    d = sw_load()
+    it = next((x for x in d["items"] if x["id"] == sid), None)
+    if not it:
+        return None
+    now = time.time()
+    if act == "toggle":
+        if it.get("run"):
+            it["acc"], it["run"] = sw_elapsed(it, now), None
+        else:
+            it["run"] = now
+    elif act == "rename":
+        it["name"] = name[:60] or it["name"]
+    else:
+        d["items"].remove(it)
+        if act == "stop":
+            d["log"].insert(0, {"id": it["id"], "name": it["name"], "start": it["created"], "end": now,
+                                "total": sw_elapsed(it, now)})
+    sw_save(d)
+    return it
+
+
+def sw_log_delete(r):
+    d = sw_load()
+    d["log"] = [x for x in d["log"] if not (x["id"] == r["id"] and x["end"] == r["end"])]
+    sw_save(d)
 
 
 class Painter:
@@ -1111,14 +1381,20 @@ class View:
     def __init__(self, model):
         self.m = model
         self.tab = "alarm"
-        self.sel = {"alarm": PAST, "focus": 0, "pomo": 0, "timer": 0}
+        self.sel = {"alarm": PAST, "focus": 0, "pomo": 0, "timer": 0, "stopwatch": 0}
         self.col = {"focus": 0, "pomo": 0}       # выбранная клетка в строке-«фишках»/сетке
         self.tpage = "list"                      # Timer: list | new (страница «Новый таймер»)
-        self.tsel, self.tunit, self.tchip = 1, 1, 2    # new: строка, часть времени (ч/м/с), пресет
+        self.tsel, self.tunit, self.tchip = 0, 1, 2    # new: строка, часть времени (ч/м/с), пресет
+        # ввод цифр в «Время» (23.10.2026, просьба: «кликаю на время — ввести цифры сам»):
+        # tfresh — первая цифра стирает старое значение, tedit_was — для Esc
+        self.tedit, self.tfresh, self.tedit_was = False, False, ""
         self.tdig = "000500"                     # ЧЧММСС, набор справа налево
         self.tname = ""
         self.twidget = True                      # галочка «Создать виджет» (по умолчанию да)
         self.tact, self.tlog = [], []
+        self.ttop, self.tcap = 0, 3                    # прокрутка «Идут»: первая видимая, сколько влезает
+        self.swact, self.swlog = [], []          # Stopwatch: идут/на паузе и лог — снимок для щелчков
+        self.swtop, self.swcap = 0, 3
         self.pomo_view = "start"                 # start | stats — статистика помидоров (s)
         self.stats_day = 13                      # выбранный день из 14 (13 — сегодня)
         self.stats_scroll = 0
@@ -1284,14 +1560,26 @@ class View:
     def draw_header(self, p, x0, x1, y):
         c = self.c
         x = x0
+        badges = {t: self.tab_badge(t) for t in TABS}
+        # узкое окно: со значками вкладки не влезают — у неактивных остаётся значок без слова
+        full = sum(TAB_ICON_W + 6 + p.text_w(TAB_NAMES[t]) + (6 + p.text_w(badges[t]) if badges[t] else 0) + 20
+                   for t in TABS)
+        tight = full > x1 - x0 - (24 if not stack_on() else 0)
         for t in TABS:
-            label = TAB_NAMES[t]
-            extra = self.tab_badge(t)
-            w = p.text_w(label)
+            label = TAB_NAMES[t] if not tight or t == self.tab else ""
+            extra = badges[t]
             on = t == self.tab
             hov = self.hover == ("tab", t)
             on_col = c["acc_l"] if self.active else c["text"]
-            p.text(x, y, label, on_col if on else (c["text"] if hov else c["dim"]))
+            col = on_col if on else (c["text"] if hov else c["dim"])
+            for r, line in enumerate(TAB_ICONS.get(t, ())):
+                for k, ch in enumerate(line):
+                    if ch == "X":
+                        p.rect(x + k * 2, y - 1 + r * 2, 2, 2, col)   # центр — на высоте букв
+            lx = x + TAB_ICON_W + 6
+            w = TAB_ICON_W + (6 + p.text_w(label) if label else 0)
+            if label:
+                p.text(lx, y, label, col)
             if extra:
                 ew = p.text(x + w + 6, y, extra, c["acc"] if on else c["faint"])
                 w += 6 + ew
@@ -1314,6 +1602,13 @@ class View:
             if st["phase"] == "idle":
                 return ""
             return ("‖ " if st["paused"] else "") + mmss(st["left"])
+        if t == "stopwatch":
+            act = sw_load()["items"]
+            run = [x for x in act if x.get("run")]
+            if not act:
+                return ""
+            t0 = (run or act)[0]
+            return ("" if run else "‖ ") + mmss(sw_elapsed(t0)) + (" +%d" % (len(act) - 1) if len(act) > 1 else "")
         if t == "timer":
             act = timers_active()
             if not act:
@@ -1421,10 +1716,11 @@ class View:
     def draw_footer(self, p, x0, x1, y):
         c = self.c
         p.rect(x0, y - 8, x1 - x0, 1, c["line_soft"])
-        if self.mode in ("command", "text"):
+        # 23.10.2026, просьба: название таймера внизу не дублировать — оно и так набирается в поле
+        if self.mode in ("command", "text") and not (self.mode == "text" and self.text_for == "tname"):
             prompt = ":" if self.mode == "command" else {"rule": "блокировать: ", "pomo": "pomo ",
                                                          "task": "задача: ", "timer": "таймер: ",
-                                                         "tname": "название: ",
+                                                         "tname": "название: ", "swname": "название: ",
                                                          "allow": "учёба: "}.get(self.text_for, "")
             w = p.text(x0, y, prompt + self.buf, c["text"])
             if int(time.monotonic() * 2) % 2 == 0:
@@ -1442,10 +1738,12 @@ class View:
                 bx -= 8
             p.text(x0, y, self.confirm_text, c["acc_l"], maxw=bx - x0 - 8)
             return
-        badge = {"normal": "NORMAL", "insert": "INSERT", "help": "HELP"}.get(self.mode, "NORMAL")
+        badge = {"normal": "NORMAL", "insert": "INSERT", "help": "HELP", "text": "INSERT"}.get(self.mode, "NORMAL")
+        if self.mode == "normal" and self.tab == "timer" and self.tpage == "new" and self.tedit:
+            badge = "INSERT"
         bw = p.text_w(badge) + 10
-        p.rect(x0, y - 1, bw, 16, c["acc"] if self.mode != "normal" else c["field_l"])
-        p.text(x0 + 5, y, badge, c["bg"] if self.mode != "normal" else c["acc_l"])
+        p.rect(x0, y - 1, bw, 16, c["acc"] if badge != "NORMAL" else c["field_l"])
+        p.text(x0 + 5, y, badge, c["bg"] if badge != "NORMAL" else c["acc_l"])
         if self.msg and time.monotonic() < self.msg_until:
             p.text(x0 + bw + 10, y, self.msg, c["text"], maxw=x1 - x0 - bw - 10)
         else:
@@ -1455,10 +1753,15 @@ class View:
                               else "v подробно · s назад · ? клавиши") if self.pomo_view == "stats"
                              else "s статистика · Space пауза · ? клавиши"),
                     "timer": ("Enter старт · Esc назад · ?" if self.tpage == "new"
-                              else "a новый · p пауза · s стоп · ?")}[self.tab]
+                              else "a новый · p пауза · s стоп · ?"),
+                    "stopwatch": "a новый · p пауза · s стоп · ?"}[self.tab]
             col = c["faint"]
-            if self.mode == "insert":
+            if self.tab == "timer" and self.tpage == "new" and self.tedit:
+                hint = "цифры · Enter — готово · Esc"
+            elif self.mode == "insert":
                 hint = "цифры · Enter/jj — готово · Esc"
+            elif self.mode == "text":
+                hint = "Enter — готово · Esc — отмена"
             elif self.tab == "alarm" and self.m.dirty():
                 hint, col = "не сохранено · Ctrl+S — сохранить", c["acc_l"]
             p.text(x1, y, hint, col, align="r")
@@ -1479,13 +1782,23 @@ class View:
                  ("s", "итоги дня: h l — день, j k — помидор, s — назад"),
                  ("v", "подробно (14 дней) / обратно кратко"),
                  ("dd  x  Del", "в статистике: удалить отрезок (u — вернуть)")],
-        "timer": [("a  +  n", "новый таймер (страница; Super+T — сразу она)"),
+        "timer": [("a  +  n  l", "новый таймер (страница; Super+T — сразу она)"),
                   ("p  Space  Enter", "пауза / возобновить"), ("s  x", "стоп — в лог"),
                   ("dd  Del", "удалить (и таймер, и из лога)"), ("r", "обновить виджеты (пропавшие — заново)"),
+                  ("w  значок окошка", "виджет на столе: горит — есть (щелчок убирает), нет — вернуть"),
+                  ("z", "скрыть / показать лог"), ("o", "порядок: обычный / по времени"),
                   ("i", "одной строкой: «25m чай»"),
-                  ("Новый:  j k", "поле · h l — ч/мин/с или пресет"), ("0–9  ⌫", "время справа налево, как в часах"),
+                  ("Новый:  Ctrl+J/K  ↑ ↓", "поле ниже / выше (Ctrl+D/U — то же; j k — вне «Время»)"),
+                  ("j k  Shift+J/K", "в поле «Время»: −1/+1 · −5/+5 у выбранной части"),
+                  ("h l  ← →", "часы / минуты / секунды · в «Быстро» — пресет"),
+                  ("Ctrl+E", "в «Название»: ввод и обратно"),
+                  ("0–9  ⌫  щелчок по времени", "ввод цифр в выбранную часть (h/l — часть); Enter / Ctrl+E — готово, Esc — отмена"),
                   ("+ −  колесо", "±1 у выбранной части"), ("Enter", "старт · w — галочка виджета"),
-                  ("Esc  q  ←", "назад к списку")],
+                  ("Esc  q  h", "назад к списку (h — из «Название»)")],
+        "stopwatch": [("a  +  n", "новый секундомер — сразу идёт"),
+                      ("p  Space  Enter", "пауза / продолжить"), ("s  x", "стоп — в лог"),
+                      ("dd  Del", "удалить (и секундомер, и из лога)"), ("i  c", "переименовать"),
+                      ("z", "скрыть / показать лог"), ("j k  колесо", "по списку")],
     }
 
     def draw_help(self, p, w, h):
@@ -1493,7 +1806,7 @@ class View:
         f = self.layout_y()["frame"]
         p.rect(f, f + 2, w - 2 * f, h - 2 * f - 2, c["bg"])
         rows = [("Shift+H/L  Tab", "вкладки"), ("j k  g G", "строки")] + self.HELP[self.tab] + [
-            (":", ":q  :alarm  :pomo  :timer  :focus"), ("q  Esc", "закрыть")]
+            (":", ":q  :alarm  :pomo  :timer  :stopwatch  :focus"), ("q  Esc", "закрыть")]
         x0 = f + PAD + 8
         y = f + 22
         p.text(x0, y, "Клавиши · " + TAB_NAMES[self.tab], c["acc_l"])
@@ -1845,6 +2158,10 @@ class View:
     CARD = 66
     NEW_ROWS = ("name", "time", "chips1", "chips2", "widget", "go")
 
+    def sw_pick(self, i=None):
+        i = self.sel["stopwatch"] if i is None else i
+        return self.swact[i] if 0 <= i < len(self.swact) else None
+
     def timer_rows(self):
         if self.tpage == "new":
             return len(self.NEW_ROWS)
@@ -1898,27 +2215,50 @@ class View:
         sel = self.sel["timer"]
         by = L["buttons"] - 10                                  # большая «+» внизу
         self.big_button(p, x0, x1, by, 34, "Новый таймер", "t.plus", plus=True)
-        # «Идут»: до 3 карточек (больше — прокрутка за выбранной), остальное — лог
+        # «Идут»: до 4 карточек, если под логом остаётся 3 строки (23.10.2026, просьба: «максимум 3,
+        # увеличь немного и добавь скролл»); больше — прокрутка колесом и за выбранной (j/k)
         gy = L["hero"] + 4
-        vis = min(A, 3)
-        top = min(max(0, sel - 2), max(0, A - 3)) if sel < A else max(0, A - 3)
+        logs = not os.path.exists(TLOG_OFF)
+        room = by - 14 - gy - 16 + 4
+        cap = max(3, min(4, (room - 14 - 16 - 3 * ROW_H) // (self.CARD + 4))) if logs \
+            else max(3, (room - 14 - 22) // (self.CARD + 4))       # скрытый лог — рамка-заголовок
+        vis = min(A, cap)
+        top = max(0, min(self.ttop, A - cap))
+        if sel < A:                                    # выбранная — всегда видна
+            top = sel if sel < top else sel - cap + 1 if sel >= top + cap else top
+        self.ttop, self.tcap = top, cap
         gh = 8 + (vis * (self.CARD + 4) - 4 if vis else ROW_H) + 8
-        self.group(p, x0, gy, x1 - x0, gh, "Идут" + (" · %d" % A if A > 3 else ""), "↻ Обновить виджеты",
-                   c["acc_l"] if self.hover == "t.rewidget" else None)
-        rw = p.text_w("↻ Обновить виджеты")
-        self.hits.append(((x1 - 18 - rw, gy - 9, rw + 12, 18), "t.rewidget"))
+        self.hits.append(((x0, gy, x1 - x0, gh), "t.cards"))
+        # порядок: «Обычный» — по мере создания, «По времени» — по оставшемуся (o; 23.10.2026).
+        # Кнопка «Обновить виджеты» убрана по просьбе (23.10.2026) — осталась клавиша r
+        st = "Порядок: по времени" if os.path.exists(TSORT_TIME) else "Порядок: обычный"
+        self.group(p, x0, gy, x1 - x0, gh, "Идут" + (" · %d" % A if A > vis else ""), st,
+                   c["acc_l"] if self.hover == "t.sort" else None)
+        sw = p.text_w(st)
+        self.hits.append(((x1 - 20 - sw, gy - 9, sw + 12, 18), "t.sort"))
         if not act:
             p.text(x0 + 12, gy + 8 + (ROW_H - 16) // 2 + 1, "ни один не идёт — «+» внизу или a", c["faint"])
         for k, t in enumerate(act[top:top + vis]):
             i = top + k
             self.draw_tcard(p, x0, x1, gy + 8 + k * (self.CARD + 4), t, i, sel == i, now)
+        if A > vis:                                    # полоса прокрутки у правого края рамки
+            th = gh - 16
+            p.rect(x1 - 4, gy + 8, 2, th, c["field_l"])
+            p.rect(x1 - 4, gy + 8 + round(th * top / A), 2, max(6, round(th * vis / A)), c["acc"])
         # «Лог» — до «+»
-        ly = gy + gh + 14
+        ly = gy + gh + 14 if logs else by - 14 - 22   # скрытый — в самом низу, над «+» (23.10.2026)
         lh = by - 14 - ly
         fit = max(0, (lh - 16) // ROW_H)
-        self.tlog = timers_log(fit) if fit else []
-        if lh >= 8 + ROW_H + 8:
-            self.group(p, x0, ly, x1 - x0, lh, "Лог")
+        self.tlog = timers_log(fit) if fit and logs else []
+        # «Скрыть логи / Показать логи» — на рамке самого лога (23.10.2026, пользователь); z — то же
+        lt = "Скрыть логи" if logs else "Показать логи"
+        lw = p.text_w(lt)
+        self.hits.append(((x1 - 20 - lw, ly - 9, lw + 12, 18), "t.logs"))
+        ltc = c["acc_l"] if self.hover == "t.logs" else None
+        if not logs:
+            self.group(p, x0, ly, x1 - x0, 22, "Лог", lt, ltc)
+        elif lh >= 8 + ROW_H + 8:
+            self.group(p, x0, ly, x1 - x0, lh, "Лог", lt, ltc)
             if not self.tlog:
                 p.text(x0 + 12, ly + 8 + (ROW_H - 16) // 2 + 1, "пока пусто", c["faint"])
             for k, r in enumerate(self.tlog):
@@ -1950,22 +2290,32 @@ class View:
         wid = {"stop": p.text_w("Стоп") + 20, "pause": p.text_w("Возобновить") + 16, "del": p.text_w("Удалить") + 20}
         bx = x1 - 10 - wid["stop"] - wid["pause"] - wid["del"] - 12
         bty = y + 30
+        # значок виджета (23.10.2026): горит — timer.exe на столе, перечёркнут — нет; щелчок/w — вернуть
+        self.widget_button(p, bx - 6 - 30, bty, t, ("t.wid", i))
+        bx_w = bx - 6 - 30
         self.button(p, bx, bty, wid["stop"], "Стоп", ("t.stop", i))
         self.button(p, bx + wid["stop"] + 6, bty, wid["pause"], "Возобновить" if t["paused"] else "Пауза",
                     ("t.pause", i), accent=t["paused"], dim=ring)
         self.button(p, bx + wid["stop"] + wid["pause"] + 12, bty, wid["del"], "Удалить", ("t.del", i))
         # слева: название (или срок блёкло), время крупно, мелко — когда кончится
-        p.text(x0 + 12, y + 6, t["name"], c["text"] if t["named"] else c["dim"], maxw=x1 - x0 - 24 - 80)
         if t["paused"]:
             tag, tcol = "на паузе", c["acc_l"]
         elif ring:
             tag, tcol = "звенит", c["acc_l"]
         else:
             tag, tcol = "до " + time.strftime("%H:%M:%S" if left < 600 else "%H:%M", time.localtime(t["due"])), c["dim"]
+        mw = x1 - x0 - 24 - p.text_w(tag) - 12          # не наезжать на «до HH:MM»
+        if t["named"]:
+            # 23.10.2026, просьба: «когда у таймера есть название, не видно, на сколько он был поставлен»
+            dur = " · " + (fmt_hms_words(t["total"]) or "%d с" % t["total"])
+            nw = p.text(x0 + 12, y + 6, t["name"], c["text"], maxw=max(40, mw - p.text_w(dur)))
+            p.text(x0 + 12 + nw, y + 6, dur, c["dim"], maxw=mw - nw)
+        else:
+            p.text(x0 + 12, y + 6, t["name"], c["dim"], maxw=mw)
         p.text(x1 - 12, y + 6, tag, tcol, align="r")
         s_ = mmss(left)
         # крупно, но не под кнопки: «1:02:04» в узком окне — кегль меньше
-        avail = bx - 10 - (x0 + 12)
+        avail = bx_w - 10 - (x0 + 12)
         px = 30
         need = p.text_w("0", px) * len(s_)
         if need > avail:
@@ -1976,11 +2326,122 @@ class View:
         p.rect(x0 + 12, y + h - 5, x1 - x0 - 24, 2, c["field_l"])
         p.rect(x0 + 12, y + h - 5, round((x1 - x0 - 24) * frac), 2, c["acc"] if not t["paused"] else c["dim"])
 
+    def draw_stopwatch(self, p, x0, x1, L):
+        """Как Timer, но без страницы настроек: «+» сразу заводит идущий секундомер."""
+        c = self.c
+        now = time.time()
+        d = sw_load()
+        act = self.swact = d["items"]
+        A = len(act)
+        sel = self.sel["stopwatch"]
+        by = L["buttons"] - 10
+        self.big_button(p, x0, x1, by, 34, "Новый секундомер", "s.plus", plus=True)
+        gy = L["hero"] + 4
+        logs = not os.path.exists(SWLOG_OFF)
+        room = by - 14 - gy - 16 + 4
+        cap = max(3, min(4, (room - 14 - 16 - 3 * ROW_H) // (self.CARD + 4))) if logs \
+            else max(3, (room - 14 - 22) // (self.CARD + 4))
+        vis = min(A, cap)
+        top = max(0, min(self.swtop, A - cap))
+        if sel < A:
+            top = sel if sel < top else sel - cap + 1 if sel >= top + cap else top
+        self.swtop, self.swcap = top, cap
+        gh = 8 + (vis * (self.CARD + 4) - 4 if vis else ROW_H) + 8
+        self.hits.append(((x0, gy, x1 - x0, gh), "s.cards"))
+        run = sum(1 for x in act if x.get("run"))
+        self.group(p, x0, gy, x1 - x0, gh, "Идут" + (" · %d" % A if A > vis else ""),
+                   ("идут %d · пауза %d" % (run, A - run)) if A else "")
+        if not act:
+            p.text(x0 + 12, gy + 8 + (ROW_H - 16) // 2 + 1, "ни одного — «+» внизу или a", c["faint"])
+        for k, it in enumerate(act[top:top + vis]):
+            i = top + k
+            self.draw_swcard(p, x0, x1, gy + 8 + k * (self.CARD + 4), it, i, sel == i, now)
+        if A > vis:
+            th = gh - 16
+            p.rect(x1 - 4, gy + 8, 2, th, c["field_l"])
+            p.rect(x1 - 4, gy + 8 + round(th * top / A), 2, max(6, round(th * vis / A)), c["acc"])
+        ly = gy + gh + 14 if logs else by - 14 - 22
+        lh = by - 14 - ly
+        fit = max(0, (lh - 16) // ROW_H)
+        self.swlog = d["log"][:fit] if fit and logs else []
+        lt = "Скрыть логи" if logs else "Показать логи"
+        lw = p.text_w(lt)
+        self.hits.append(((x1 - 20 - lw, ly - 9, lw + 12, 18), "s.logs"))
+        ltc = c["acc_l"] if self.hover == "s.logs" else None
+        if not logs:
+            self.group(p, x0, ly, x1 - x0, 22, "Лог", lt, ltc)
+            return
+        if lh < 8 + ROW_H + 8:
+            return
+        self.group(p, x0, ly, x1 - x0, lh, "Лог", lt, ltc)
+        if not self.swlog:
+            p.text(x0 + 12, ly + 8 + (ROW_H - 16) // 2 + 1, "пока пусто", c["faint"])
+        for k, r in enumerate(self.swlog):
+            yy = ly + 8 + k * ROW_H
+            self.row_bg(p, x0, x1, yy, sel == A + k, ("s.row", A + k))
+            ty = yy + (ROW_H - 16) // 2 + 1
+            when = "%s–%s" % (time.strftime("%H:%M", time.localtime(r["start"])),
+                              time.strftime("%H:%M", time.localtime(r["end"])))
+            if time.localtime(r["end"]).tm_yday != time.localtime(now).tm_yday:
+                when = time.strftime("%d.%m ", time.localtime(r["end"])) + when
+            right = mmss(r["total"]) + " · " + when
+            xw = x1 - 30
+            right_w = min(p.text_w(right), (x1 - x0) * 3 // 5)
+            p.text(x0 + 12, ty, r["name"], c["text"], maxw=xw - right_w - x0 - 24)
+            p.text(xw, ty, right, c["dim"], align="r", maxw=right_w)
+            key = ("s.ldel", A + k)
+            p.text(x1 - 16, ty, "×", c["acc_l"] if self.hover == key else c["faint"], align="c")
+            self.hits.append(((x1 - 26, yy, 22, ROW_H), key))
+
+    def draw_swcard(self, p, x0, x1, y, it, i, sel, now):
+        c = self.c
+        h = self.CARD
+        self.row_bg(p, x0, x1, y, sel, ("s.row", i), h=h)
+        going = bool(it.get("run"))
+        el = sw_elapsed(it, now)
+        wid = {"stop": p.text_w("Стоп") + 20, "pause": p.text_w("Продолжить") + 16, "del": p.text_w("Удалить") + 20}
+        bx = x1 - 10 - wid["stop"] - wid["pause"] - wid["del"] - 12
+        bty = y + 30
+        self.button(p, bx, bty, wid["stop"], "Стоп", ("s.stop", i))
+        self.button(p, bx + wid["stop"] + 6, bty, wid["pause"], "Пауза" if going else "Продолжить",
+                    ("s.pause", i), accent=not going)
+        self.button(p, bx + wid["stop"] + wid["pause"] + 12, bty, wid["del"], "Удалить", ("s.del", i))
+        p.text(x0 + 12, y + 6, it["name"], c["text"], maxw=x1 - x0 - 24 - 80)
+        tag = ("с " + time.strftime("%H:%M", time.localtime(it["created"]))) if going else "на паузе"
+        p.text(x1 - 12, y + 6, tag, c["dim"] if going else c["acc_l"], align="r")
+        s_ = mmss(el)
+        avail = bx - 10 - (x0 + 12)
+        px = 30
+        need = p.text_w("0", px) * len(s_)
+        if need > avail:
+            px = max(16, int(px * avail / need))
+        p.digits(x0 + 12, y + 24 + (30 - px) // 2, s_, c["acc_l"] if going else c["dim"], px=px)
+        # полоска по низу — бег секундной стрелки: заполняется за минуту
+        frac = (el % 60) / 60
+        p.rect(x0 + 12, y + h - 5, x1 - x0 - 24, 2, c["field_l"])
+        p.rect(x0 + 12, y + h - 5, round((x1 - x0 - 24) * frac), 2, c["acc"] if going else c["dim"])
+
+    def widget_button(self, p, x, y, t, key):
+        """Квадратная кнопка с окошком 9×7 клеток: акцент — виджет есть, блёкло и косая черта — нет."""
+        c = self.c
+        on = t.get("widget")
+        self.button(p, x, y, 30, "", key)
+        col = (c["acc_l"] if on else c["text"]) if self.hover == key else (c["acc_l"] if on else c["faint"])
+        ox, oy = x + 6, y + 5
+        for r in range(7):
+            for k in range(9):
+                edge = r in (0, 6) or k in (0, 8) or r == 1
+                if edge:
+                    p.rect(ox + k * 2, oy + r * 2, 2, 2, col)
+        if not on:
+            for k in range(8):                   # косая черта поверх окошка
+                p.rect(ox + 1 + k * 2, oy + 12 - k * 2 + 1, 2, 2, col)
+
     def draw_back(self, p, x, y, key):
         """Кнопка «назад» — стрелка влево линиями (23.10.2026, просьба: «обязательно обратной стрелкой»)."""
         c = self.c
         hov = self.hover == key
-        w, h = 34, 24
+        w, h = 46, 30                            # 23.10.2026, просьба: «чуть больше, чтобы было видно» (было 34×24)
         if c["frame"] == "skeet":
             p.rect(x, y, w, h, c["line3"])
             p.rect(x + 1, y + 1, w - 2, h - 2, c["acc"] if hov else c["line"])
@@ -1994,15 +2455,15 @@ class View:
             p.cr.stroke()
         cr = p.cr
         p.rgb(c["acc_l"])
-        cr.set_line_width(2)
+        cr.set_line_width(3)
         cr.set_line_cap(cairo.LINE_CAP_SQUARE)
-        mx, my = x + 10, y + h / 2
-        cr.move_to(x + w - 10, my)
+        mx, my = x + 12, y + h / 2
+        cr.move_to(x + w - 12, my)
         cr.line_to(mx, my)
         cr.stroke()
-        cr.move_to(mx + 6, my - 6)
+        cr.move_to(mx + 8, my - 8)
         cr.line_to(mx, my)
-        cr.line_to(mx + 6, my + 6)
+        cr.line_to(mx + 8, my + 8)
         cr.stroke()
         cr.set_line_cap(cairo.LINE_CAP_BUTT)
         self.hits.append(((x, y, w, h), key))
@@ -2011,8 +2472,10 @@ class View:
         c = self.c
         cur = self.NEW_ROWS[self.tsel]
         y = L["hero"] - 6
-        self.draw_back(p, x0, y, "t.back")
-        p.text(x0 + 46, y + 4, "Новый таймер", c["acc_l"])
+        self.draw_back(p, x0, y - 3, "t.back")
+        # 23.10.2026, просьба: «вместо Новый таймер напиши К списку»; надпись — часть кнопки
+        tw = p.text(x0 + 58, y + 4, "К списку", c["acc_l"])
+        self.hits.append(((x0 + 46, y - 3, tw + 18, 30), "t.back"))
         # Название (необязательно)
         gy = y + 24 + 22
         gh = 8 + ROW_H + 8
@@ -2036,6 +2499,12 @@ class View:
         tw = cell * 8
         tx = round((x0 + x1) / 2 - tw / 2)
         d6 = self.tdig.rjust(6, "0")[-6:]
+        ed = self.tedit and cur == "time"
+        if ed:                                  # ввод цифр: рамка у выбранной части и мигающий курсор
+            dy0, ux = gy + 8 + 14, tx + self.tunit * 3 * cell
+            p.box(ux - 5, dy0 - 3, cell * 2 + 14, BIG + 6, c["acc"])
+            if int(time.monotonic() * 2) % 2 == 0:
+                p.rect(ux + cell * 2 + 3, dy0, 3, BIG, c["acc_l"])
         for u in range(3):
             ux = tx + u * 3 * cell
             on = cur == "time" and self.tunit == u
@@ -2043,9 +2512,9 @@ class View:
                                                 ("▼", ("t.dn", u), gy + 8 + 14 + BIG + 2))):
                 p.text(ux + cell, yy, sym, c["acc_l"] if self.hover == key or on else c["faint"], align="c")
                 self.hits.append(((ux, yy - 2, cell * 2, 16), key))
-            col = c["acc_l"] if on else c["text"]
+            col = (c["dim"] if self.tfresh else c["acc_l"]) if ed and on else c["acc_l"] if on else c["text"]
             p.digits(ux, gy + 8 + 14, d6[u * 2:u * 2 + 2], col)
-            if on:
+            if on and not ed:
                 p.rect(ux + 2, gy + 8 + 14 + BIG - 2, cell * 2 - 4, 2, c["acc"])
             self.hits.append(((ux, gy + 8 + 14, cell * 2, BIG), ("t.unit", u)))
             if u < 2:
@@ -2564,6 +3033,12 @@ class RoutineWindow(Gtk.ApplicationWindow):
             self.begin_resize_drag(self.EDGES[edge], ev.button, int(ev.x_root), int(ev.y_root), ev.time)
             return True
         key = self.hit(ev.x, ev.y)
+        if v.mode == "text" and v.text_for == "tname" and key != "t.name":
+            # 23.10.2026, просьба: «задаю название — не появляется в виджете»: набрали и сразу
+            # «Старт» (или пресет) мышью без Enter — название терялось. Щелчок мимо поля — принять
+            self.finish_text()
+        if v.tedit and not (key == "t.time" or (isinstance(key, tuple) and key[0] in ("t.unit", "t.up", "t.dn"))):
+            self.tedit_end()                    # щелчок мимо времени — ввод готов
         if key is None:
             if ev.button == 1:
                 self.begin_move_drag(ev.button, int(ev.x_root), int(ev.y_root), ev.time)
@@ -2605,14 +3080,23 @@ class RoutineWindow(Gtk.ApplicationWindow):
                 v.sel["timer"] = val
                 if dbl and val < len(v.tact):
                     self.timer_pause_toggle(val)
-            elif kind in ("t.stop", "t.pause", "t.del", "t.ldel"):
+            elif kind in ("t.stop", "t.pause", "t.del", "t.ldel", "t.wid"):
                 v.sel["timer"] = val
-                {"t.stop": self.timer_stop_sel, "t.pause": self.timer_pause_toggle,
+                {"t.stop": self.timer_stop_sel, "t.pause": self.timer_pause_toggle, "t.wid": self.timer_widget_sel,
                  "t.del": self.timer_delete_sel, "t.ldel": self.timer_delete_sel}[kind](val)
-            elif kind in ("t.unit", "t.up", "t.dn"):
+            elif kind == "s.row":
+                v.sel["stopwatch"] = val
+                if dbl and val < len(v.swact):
+                    self.sw_act("toggle", val)
+            elif kind in ("s.stop", "s.pause", "s.del", "s.ldel"):
+                v.sel["stopwatch"] = val
+                self.sw_act({"s.stop": "stop", "s.pause": "toggle", "s.del": "delete", "s.ldel": "delete"}[kind], val)
+            elif kind == "t.unit":
+                self.tedit_start(val)
+            elif kind in ("t.up", "t.dn"):
+                self.tedit_end()
                 v.tsel, v.tunit = 1, val
-                if kind != "t.unit":
-                    self.tnew_step(1 if kind == "t.up" else -1)
+                self.tnew_step(1 if kind == "t.up" else -1)
             elif kind == "t.chip":
                 v.tsel, v.tchip = 2 + val // ((len(TIMER_DURS) + 1) // 2), val
                 v.tdig = "%06d" % int(secs_digits(TIMER_DURS[val][1]) or 0)
@@ -2635,10 +3119,38 @@ class RoutineWindow(Gtk.ApplicationWindow):
                 else (-1 if ev.delta_y > 0 else 1 if ev.delta_y < 0 else 0) \
                 if ev.direction == Gdk.ScrollDirection.SMOOTH else 0
             if dy:
+                self.tedit_end()
                 self.view.tsel = 1
                 if isinstance(key, tuple):
                     self.view.tunit = key[1]
                 self.tnew_step(dy)
+                self.redraw()
+            return True
+        v = self.view
+        if v.tab == "timer" and v.tpage == "list" and (key == "t.cards" or (
+                isinstance(key, tuple) and key[0] in ("t.row", "t.stop", "t.pause", "t.del", "t.wid")
+                and key[1] < len(v.tact))):
+            dy = 1 if ev.direction == Gdk.ScrollDirection.DOWN else -1 if ev.direction == Gdk.ScrollDirection.UP \
+                else (1 if ev.delta_y > 0 else -1 if ev.delta_y < 0 else 0) \
+                if ev.direction == Gdk.ScrollDirection.SMOOTH else 0
+            A = len(v.tact)
+            if dy and A > v.tcap:
+                v.ttop = max(0, min(A - v.tcap, v.ttop + dy))
+                if v.sel["timer"] < A:                 # выбор едет вместе с видимой частью
+                    v.sel["timer"] = max(v.ttop, min(v.ttop + v.tcap - 1, v.sel["timer"]))
+                self.redraw()
+            return True
+        if v.tab == "stopwatch" and (key == "s.cards" or (
+                isinstance(key, tuple) and key[0] in ("s.row", "s.stop", "s.pause", "s.del")
+                and key[1] < len(v.swact))):
+            dy = 1 if ev.direction == Gdk.ScrollDirection.DOWN else -1 if ev.direction == Gdk.ScrollDirection.UP \
+                else (1 if ev.delta_y > 0 else -1 if ev.delta_y < 0 else 0) \
+                if ev.direction == Gdk.ScrollDirection.SMOOTH else 0
+            A = len(v.swact)
+            if dy and A > v.swcap:
+                v.swtop = max(0, min(A - v.swcap, v.swtop + dy))
+                if v.sel["stopwatch"] < A:
+                    v.sel["stopwatch"] = max(v.swtop, min(v.swtop + v.swcap - 1, v.sel["stopwatch"]))
                 self.redraw()
             return True
         if not (isinstance(key, tuple) and key[0] == "a.row"):
@@ -2733,13 +3245,21 @@ class RoutineWindow(Gtk.ApplicationWindow):
             self.tnew_open()
         elif key == "t.back":
             v.tpage = "list"
+        elif key == "s.plus":
+            self.sw_new_go()
+        elif key == "s.logs":
+            self.sw_logs_toggle()
         elif key == "t.rewidget":
             v.flash(timer_rewidget(), 4)
+        elif key == "t.logs":
+            self.timer_logs_toggle()
+        elif key == "t.sort":
+            self.timer_sort_toggle()
         elif key == "t.name":
             v.tsel = 0
             self.start_text("tname", v.tname)
         elif key == "t.time":
-            v.tsel = 1
+            self.tedit_start()
         elif key == "t.widget":
             v.tsel = 4
             v.twidget = not v.twidget
@@ -2914,6 +3434,15 @@ class RoutineWindow(Gtk.ApplicationWindow):
                     else "не встал на паузу — уже закрыт?")
         v.tact = timers_active()
 
+    def timer_widget_sel(self, i=None):
+        v = self.view
+        t = self.timer_pick(i)
+        if not t:
+            v.flash("выберите таймер (j/k)" if v.tact else "таймеров нет")
+            return
+        v.flash(timer_show_widget(t), 4)
+        v.tact = timers_active()
+
     def timer_stop_sel(self, i=None):
         v = self.view
         t = self.timer_pick(i)
@@ -2944,18 +3473,84 @@ class RoutineWindow(Gtk.ApplicationWindow):
         v = self.view
         if v.mode == "text":
             v.mode, v.buf, v.text_for = "normal", "", None
-        v.tab, v.tpage, v.tsel, v.tname, v.twidget = "timer", "new", 1, "", True
+        # 23.10.2026, просьба: «по умолчанию в названии, а не на времени»
+        v.tab, v.tpage, v.tsel, v.tname, v.twidget = "timer", "new", 0, "", True
+        v.tedit = False
+
+    def tedit_start(self, unit=None):
+        v = self.view
+        if v.mode == "text" and v.text_for == "tname":
+            self.finish_text()
+        v.tsel = 1
+        if unit is not None:
+            v.tunit = unit
+        if not v.tedit:
+            v.tedit, v.tedit_was = True, v.tdig
+        v.tfresh = True                         # новая часть — первая цифра пишет её заново
+
+    def tedit_end(self, cancel=False):
+        v = self.view
+        if v.tedit and cancel:
+            v.tdig = v.tedit_was
+        v.tedit = v.tfresh = False
+
+    def keys_tedit(self, ch, ctrl, name):
+        """Ввод цифр в «Время» — по частям (23.10.2026, просьба: «выбрал часы — меняются только
+        часы, перешёл в минуты — только минуты»). h/l — часть, j/k — ±1. True — клавиша съедена."""
+        v = self.view
+        d6 = v.tdig.rjust(6, "0")[-6:]
+        parts = [d6[k:k + 2] for k in (0, 2, 4)]
+        u, top = v.tunit, (24, 60, 60)[v.tunit]
+        d = ch if ch.isdigit() else name[3:] if name.startswith("KP_") and name[3:].isdigit() else ""
+        if d and not ctrl:
+            x = ("0" + d) if v.tfresh else (parts[u][-1] + d)
+            parts[u] = x if int(x) < top else "0" + d      # 75 минут не бывает — начинаем с 5
+            v.tfresh = False
+        elif name == "BackSpace":
+            parts[u] = "00" if v.tfresh else "0" + parts[u][0]
+            v.tfresh = False
+        elif name == "Delete":
+            parts[u], v.tfresh = "00", False
+        elif name in ("Left", "Right") or (ch in ("h", "l") and not ctrl):
+            v.tunit = max(0, min(2, u + (-1 if name == "Left" or ch == "h" else 1)))
+            v.tfresh = True
+            return True
+        elif ch in ("j", "k") and not ctrl:
+            self.tnew_step((5 if ch != ch.lower() else 1) * (1 if ch == "k" else -1))
+            v.tfresh = True
+            return True
+        elif name in ("Return", "KP_Enter") or (ctrl and ch == "e"):
+            self.tedit_end()
+            return True
+        elif name == "Escape":
+            self.tedit_end(cancel=True)
+            return True
+        elif name in ("Shift_L", "Shift_R", "Control_L", "Control_R"):
+            return True
+        else:
+            self.tedit_end()                    # прочие клавиши — ввод готов, клавиша работает как обычно
+            return False
+        v.tdig = "".join(parts)
+        return True
 
     def tnew_step(self, d):
         v = self.view
         d6 = v.tdig.rjust(6, "0")[-6:]
         parts = [int(d6[k:k + 2]) for k in (0, 2, 4)]
         top = (24, 60, 60)[v.tunit]
-        parts[v.tunit] = (min(parts[v.tunit], top - 1) + d) % top
+        x = min(parts[v.tunit], top - 1)
+        if abs(d) > 1:                       # Shift+J/K — к ближайшему кратному шагу: 58 → 0 / 55
+            x = (x // d + 1) * d if d > 0 else ((x - 1) // -d) * -d
+            parts[v.tunit] = x % top
+        else:
+            parts[v.tunit] = (x + d) % top
         v.tdig = "%02d%02d%02d" % tuple(parts)
 
     def tnew_go(self):
         v = self.view
+        if v.mode == "text" and v.text_for == "tname":
+            self.finish_text()                     # название набрано, Enter не нажимали
+        self.tedit_end()
         secs = hms_secs(v.tdig)
         if not 1 <= secs <= 86400:
             v.flash("время от 1 секунды до суток")
@@ -3018,6 +3613,11 @@ class RoutineWindow(Gtk.ApplicationWindow):
         if what == "tname":
             v.tname = txt[:60]                     # пусто — без названия
             v.tsel = 1
+            return
+        if what == "swname":
+            it = v.sw_pick()
+            if it and txt and sw_edit(it["id"], "rename", txt):
+                v.flash("переименован: " + txt[:60])
             return
         if not txt:
             return
@@ -3156,7 +3756,10 @@ class RoutineWindow(Gtk.ApplicationWindow):
         v = self.view
         if name == "Escape" or (ctrl and ch == "e" and v.mode == "text"):
             if v.mode == "text" and name != "Escape":
+                keep = v.text_for == "tname"
                 self.finish_text()
+                if keep:
+                    v.tsel = 0                    # Ctrl+E — обратно на «Название», не к времени
             else:
                 v.mode, v.buf, v.text_for = "normal", "", None
         elif name in ("Return", "KP_Enter"):
@@ -3185,6 +3788,13 @@ class RoutineWindow(Gtk.ApplicationWindow):
         pend = self.pending if now - self.pending_t < 1.0 else ""
         self.pending = ""
         tab = v.tab
+        if tab == "timer" and v.tpage == "new" and v.tedit:
+            if shift and ch in ("j", "k") and not ctrl:
+                self.tnew_step(5 if ch == "k" else -5)    # Shift+J/K — ±5 и в режиме ввода
+                v.tfresh = True
+                return
+            if self.keys_tedit(ch, ctrl, name):
+                return
         if name == "ISO_Left_Tab" or (name == "Tab" and shift):
             self.cycle_tab(-1)
             return
@@ -3203,6 +3813,9 @@ class RoutineWindow(Gtk.ApplicationWindow):
         if ctrl and ch == "s":
             m.save()
             v.flash("сохранено")
+            return
+        if ctrl and tab == "timer" and v.tpage == "new":
+            self.keys_tnew(ch, shift, name, ctrl=True)
             return
         if ctrl:
             if tab == "alarm":
@@ -3235,7 +3848,7 @@ class RoutineWindow(Gtk.ApplicationWindow):
             self.keys_pomo(ch, shift, name, pend, now)
             return
         rows = {"alarm": DAYS + 1, "focus": v.focus_rows(), "pomo": v.pomo_rows(),
-                "timer": v.timer_rows()}[tab]
+                "timer": v.timer_rows(), "stopwatch": len(v.swact) + len(v.swlog)}[tab]
         if name == "Down" or (ch == "j" and not shift):
             v.sel[tab] = min(rows - 1, v.sel[tab] + 1)
             if tab == "focus":
@@ -3430,14 +4043,20 @@ class RoutineWindow(Gtk.ApplicationWindow):
         elif name in ("Return", "KP_Enter", "space") or ch in (" ", "p"):
             if v.sel["timer"] < len(v.tact):
                 self.timer_pause_toggle()
-        elif ch in ("a", "o", "n", "+", "=") or name in ("plus", "KP_Add"):
-            self.tnew_open()
+        elif ch in ("a", "n", "+", "=", "l") or name in ("plus", "KP_Add", "Right"):
+            self.tnew_open()                   # l — «вглубь», на страницу нового (23.10.2026, пользователь)
         elif ch == "i":
             self.start_text("timer")
         elif ch in ("s", "x"):
             self.timer_stop_sel()
         elif ch == "r":
             v.flash(timer_rewidget(), 4)
+        elif ch == "w":
+            self.timer_widget_sel()
+        elif ch == "z":
+            self.timer_logs_toggle()
+        elif ch == "o":
+            self.timer_sort_toggle()
         elif name == "Delete":
             self.timer_delete_sel()
         elif ch == "d":
@@ -3446,12 +4065,122 @@ class RoutineWindow(Gtk.ApplicationWindow):
             else:
                 self.pending, self.pending_t = "d", now
 
-    def keys_tnew(self, ch, shift, name):
+    def timer_sort_toggle(self):
+        v = self.view
+        try:
+            if os.path.exists(TSORT_TIME):
+                os.unlink(TSORT_TIME)
+            else:
+                open(TSORT_TIME, "w").close()
+        except OSError:
+            pass
+        v.tact = timers_active()
+        v.flash("по времени: скоро кончится — выше" if os.path.exists(TSORT_TIME) else "обычный: по мере создания")
+
+    def timer_logs_toggle(self):
+        v = self.view
+        try:
+            if os.path.exists(TLOG_OFF):
+                os.unlink(TLOG_OFF)
+            else:
+                open(TLOG_OFF, "w").close()
+        except OSError:
+            pass
+        v.sel["timer"] = min(v.sel["timer"], max(0, len(v.tact) - 1))
+        v.flash("лог скрыт" if os.path.exists(TLOG_OFF) else "лог показан")
+
+    # Stopwatch
+    def keys_stopwatch(self, ch, shift, name, pend, now):
+        v = self.view
+        if name in ("Return", "KP_Enter") and not v.swact:
+            self.sw_new_go()
+        elif name in ("Return", "KP_Enter", "space") or ch in (" ", "p"):
+            self.sw_act("toggle")
+        elif ch in ("a", "n", "+", "=") or name in ("plus", "KP_Add"):
+            self.sw_new_go()
+        elif ch in ("i", "c"):
+            it = v.sw_pick()
+            if it:
+                self.start_text("swname", it["name"])
+            else:
+                v.flash("выберите секундомер (j/k)")
+        elif ch in ("s", "x"):
+            self.sw_act("stop")
+        elif ch == "z":
+            self.sw_logs_toggle()
+        elif name == "Delete":
+            self.sw_act("delete")
+        elif ch == "d":
+            if pend == "d":
+                self.sw_act("delete")
+            else:
+                self.pending, self.pending_t = "d", now
+
+    def sw_new_go(self):
+        v = self.view
+        it = sw_new()
+        v.swact = sw_load()["items"]
+        v.sel["stopwatch"] = len(v.swact) - 1
+        v.flash("«%s» — пошёл" % it["name"])
+
+    def sw_act(self, act, i=None):
+        v = self.view
+        i = v.sel["stopwatch"] if i is None else i
+        A = len(v.swact)
+        if act == "delete" and A <= i < A + len(v.swlog):
+            r = v.swlog[i - A]
+            sw_log_delete(r)
+            v.flash("из лога: «%s»" % r["name"])
+            v.sel["stopwatch"] = max(0, i - 1) if i - A >= len(v.swlog) - 1 else i
+            return
+        it = v.sw_pick(i)
+        if not it:
+            v.flash("выберите секундомер (j/k)" if v.swact else "секундомеров нет — a")
+            return
+        r = sw_edit(it["id"], act)
+        if r:
+            v.flash({"toggle": ("«%s» — дальше" % r["name"]) if r.get("run")
+                     else ("«%s» на паузе, %s" % (r["name"], mmss(sw_elapsed(r)))),
+                     "stop": "«%s» — %s, в логе" % (r["name"], mmss(sw_elapsed(r))),
+                     "delete": "«%s» удалён" % r["name"]}[act])
+        v.swact = sw_load()["items"]
+        if act != "toggle":
+            v.sel["stopwatch"] = min(i, max(0, len(v.swact) - 1))
+
+    def sw_logs_toggle(self):
+        v = self.view
+        try:
+            if os.path.exists(SWLOG_OFF):
+                os.unlink(SWLOG_OFF)
+            else:
+                open(SWLOG_OFF, "w").close()
+        except OSError:
+            pass
+        v.sel["stopwatch"] = min(v.sel["stopwatch"], max(0, len(v.swact) - 1))
+        v.flash("лог скрыт" if os.path.exists(SWLOG_OFF) else "лог показан")
+
+    def keys_tnew(self, ch, shift, name, ctrl=False):
         """Страница «Новый таймер»: j/k — поле, цифры — время справа налево, Enter — старт."""
         v = self.view
         row = View.NEW_ROWS[v.tsel]
         per = (len(TIMER_DURS) + 1) // 2
-        if name == "Down" or (ch == "j" and not shift):
+        if ctrl and ch == "e" and row == "name":
+            # 23.10.2026, просьба: «в названии Ctrl+E — режим ввода, и обратно той же кнопкой»
+            self.start_text("tname", v.tname)
+            return
+        if ctrl and ch == "e" and row == "time":
+            self.tedit_start()                  # то же для «Время»: ввод цифр, выход — Ctrl+E/Enter
+            return
+        if ctrl and ch in ("j", "k", "u", "d"):
+            # 23.10.2026, пользователь (окончательно): «Ctrl+J/K — вниз/вверх по кнопкам, j/k — время,
+            # h/l — к часам или секундам»; Ctrl+U/D — то же, что Ctrl+K/J
+            ch, name = "", ("Up" if ch in ("k", "u") else "Down")
+        if ctrl and name not in ("Up", "Down"):
+            return
+        if row == "time" and ch in ("j", "k"):
+            # j/k — время вниз/вверх у выбранной части, Shift+J/K — до кратного 5
+            self.tnew_step((5 if shift else 1) * (1 if ch == "k" else -1))
+        elif name == "Down" or (ch == "j" and not shift):
             v.tsel = min(len(View.NEW_ROWS) - 1, v.tsel + 1)
             if View.NEW_ROWS[v.tsel] == "chips2":
                 v.tchip = min(len(TIMER_DURS) - 1, v.tchip % per + per)
@@ -3461,20 +4190,19 @@ class RoutineWindow(Gtk.ApplicationWindow):
             v.tsel = max(0, v.tsel - 1)
             if View.NEW_ROWS[v.tsel] == "chips1":
                 v.tchip %= per
+        elif row == "name" and (name == "Left" or ch == "h") and not shift:
+            v.tpage = "list"                    # 23.10.2026, просьба: «в названии h — обратно в список»
         elif name in ("Left", "Right") or ch in ("h", "l"):
             d = -1 if name == "Left" or ch == "h" else 1
-            if row == "time":
+            if row == "time":                   # h/l, ←→ — часы / минуты / секунды
                 v.tunit = max(0, min(2, v.tunit + d))
             elif row in ("chips1", "chips2"):
                 lo = 0 if row == "chips1" else per
                 v.tchip = max(lo, min(min(lo + per, len(TIMER_DURS)) - 1, v.tchip + d))
                 v.tdig = "%06d" % int(secs_digits(TIMER_DURS[v.tchip][1]) or 0)
-        elif ch.isdigit() and ch:
-            v.tsel = 1
-            v.tdig = (v.tdig.rjust(6, "0") + ch)[-6:]
-        elif name == "BackSpace":
-            v.tsel = 1
-            v.tdig = ("0" + v.tdig.rjust(6, "0"))[:6]
+        elif (ch.isdigit() and ch) or name == "BackSpace":
+            self.tedit_start()                  # цифра с клавиатуры — тоже ввод с чистого листа
+            self.keys_tedit(ch, False, name)
         elif ch in ("+", "=", "-") or name in ("plus", "minus", "KP_Add", "KP_Subtract"):
             v.tsel = 1
             self.tnew_step(-1 if ch == "-" or name in ("minus", "KP_Subtract") else 1)
