@@ -1,0 +1,5 @@
+#!/bin/sh
+# Telegram с доступностью Qt (26.10.2026): островок читает окно звонка через AT-SPI —
+# значок выключенного микрофона собеседника (island_tgmute.py). Пара:
+# ~/.local/share/dbus-1/services/org.telegram.desktop.service
+QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 exec /usr/bin/Telegram "$@"

@@ -27,6 +27,7 @@ T−5 проверка (окно с фразой на всех монитора�
     wake_alarm.py watch off [ДАТА] [--force] | watch — снять Сторожа / список
     wake_alarm.py watch daily [on | off --reason ТЕКСТ] — ежедневный Сторож: от звонка будильника до 18:00 (14.10: было 21:00)
     wake_alarm.py watch skip [ДАТА] --reason ТЕКСТ | watch skip off [ДАТА] — без Сторожа на день
+    (--with-alarm — и без звонка будильника в этот день; кнопка «Сторож» в Clocker)
     wake_alarm.py watch log [N]     — журнал выключений Сторожа (кто, когда, почему)
     wake_alarm.py emergency off --reason ТЕКСТ | emergency on — аварийно (бот): будильник + Сторож на день
     wake_alarm.py check             — зовёт таймер wake-alarm.timer раз в минуту
@@ -1885,10 +1886,12 @@ def main(argv):
             print("не звонит")
     elif cmd == "watch":
         # wake-alarm watch [ДАТА] 07:00-21:00 [МИН] | watch off [ДАТА] [--force] | watch
-        args, reason, via = [], "", "cli"
+        args, reason, via, with_alarm = [], "", "cli", False
         it = iter(argv[2:])
         for a in it:
-            if a == "--reason":
+            if a == "--with-alarm":       # 27.10.2026: skip Сторожа заодно снимает/возвращает звонок дня
+                with_alarm = True
+            elif a == "--reason":
                 reason = next(it, "").strip()
             elif a == "--via":
                 via = next(it, "cli")
@@ -1947,7 +1950,11 @@ def main(argv):
                     sk.remove(day.isoformat())
                     save(s)
                     watch_log("skip-off", reason, via, day.isoformat())
-                print("%s — Сторож снова на посту" % day.strftime("%d.%m"))
+                if with_alarm and day.isoformat() in s["skip"]:
+                    s["skip"].remove(day.isoformat())
+                    save(s)
+                print("%s — Сторож снова на посту%s" % (day.strftime("%d.%m"),
+                                                        " и будильник тоже" if with_alarm else ""))
                 return 0
             if not reason:
                 print("Без причины Сторож не выключается, сэр: --reason «почему»")
@@ -1955,6 +1962,11 @@ def main(argv):
             if day == dt.date.today() and watch_busy():
                 print("Сейчас идёт проверка Сторожа — сначала ответьте на неё, сэр.")
                 return 1
+            if with_alarm and series_locked_day(day, argv):     # утренняя серия идёт — не снимать
+                return 1
+            if with_alarm and day.isoformat() not in s["skip"]:
+                s["skip"].append(day.isoformat())
+                save(s)
             if day.isoformat() not in sk:
                 sk.append(day.isoformat())
                 cut = (dt.date.today() - dt.timedelta(days=30)).isoformat()
@@ -1963,7 +1975,7 @@ def main(argv):
                 watch_log("skip", reason, via, day.isoformat())
             if day == dt.date.today() and not watch_for(s, day):
                 watch_stop_today("выключена на день")
-            print("%s — без Сторожа" % day.strftime("%d.%m"))
+            print("%s — без Сторожа%s" % (day.strftime("%d.%m"), " и без будильника" if with_alarm else ""))
             return 0
         if args and args[0] == "log":
             rows = watch_log_read(int(args[1]) if len(args) > 1 else 50)

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Обёртка Steam (27.10.2026): перед запуском добивает зависший клиент — иначе steam.sh только
+# пишет в ~/.steam/steam.pipe зависшему, и окно не появляется. Подробно — steam_guard.py.
+python3 "$HOME/.config/hypr/scripts/steam_guard.py" heal -q
+exec /usr/bin/steam "$@"

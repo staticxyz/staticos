@@ -72,6 +72,8 @@ YM_PNG = "/usr/share/icons/hicolor/256x256/apps/yandexmusic.png"
 YM_CODE = 0xE103            # тоже свободен; звезда-вспышка Яндекс Музыки
 CODE_CODE = 0xE104          # свободен; «</>» для окон Neovim, рисуется здесь же
 TOR_CODE = 0xE105           # свободен; луковица Tor Browser, рисуется здесь же (28.09.2026)
+HELIUM_PNG = "/usr/share/icons/hicolor/256x256/apps/helium-browser.png"
+HELIUM_CODE = 0xE106        # свободен; Helium: квадрат с вырезанной звёздочкой (28.10.2026, было U+E743 — Chrome)
 
 # Свой код → символ, с которого снимается рисунок. Нужен льву Brave: U+1F981 для
 # Pango — эмодзи, и он берёт его из цветного Noto Color Emoji, НЕ заглядывая в
@@ -270,6 +272,27 @@ def ym_outline():
     return rec
 
 
+def helium_outline():
+    """Логотип Helium: синий скруглённый квадрат, белая звёздочка в нём — вырезом.
+
+    Одна звёздочка спуталась бы с другими «вспышками», поэтому снят весь квадрат.
+    28.10.2026, просьба: «иконку Helium, а не chrome в столах».
+    """
+    src = Image.open(HELIUM_PNG).convert("RGBA")
+    w, h = src.size
+    bmp = Image.new("L", (w, h), 255)
+    sp, bp = src.load(), bmp.load()
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = sp[x, y]
+            if a > 160 and b > 140 and r < 140:     # подложка синяя (52,80,209), звёздочка белая
+                bp[x, y] = 0
+    with tempfile.TemporaryDirectory() as tmp:
+        pbm = os.path.join(tmp, "m.pbm")
+        bmp.save(pbm)
+        return contours_to_rec(parse_paths(trace(pbm)))
+
+
 
 def widen(rec, f):
     """Растянуть рисунок по ширине в f раз, центр на месте (см. WIDEN)."""
@@ -306,7 +329,7 @@ def main():
     glyphs[".notdef"], metrics[".notdef"] = empty.getCharString(), (ADV, 0)
 
     for code in wanted_codes():
-        if code in (YM_CODE, CODE_CODE, TOR_CODE):   # их нет ни в одном шрифте — рисуются/снимаются ниже
+        if code in (YM_CODE, CODE_CODE, TOR_CODE, HELIUM_CODE):   # их нет ни в одном шрифте — рисуются/снимаются ниже
             continue
         src = ALIASES.get(code, code)
         rec = next((r for r in (record(f, src) for f in fonts) if r and bounds(r)), None)
@@ -328,6 +351,11 @@ def main():
         name = "u%04X" % TOR_CODE
         glyphs[name], lsb = to_standard(tor_outline())
         metrics[name], cmap[TOR_CODE] = (ADV, lsb), name
+
+    if HELIUM_CODE in wanted_codes() and os.path.isfile(HELIUM_PNG):
+        name = "u%04X" % HELIUM_CODE
+        glyphs[name], lsb = to_standard(helium_outline())
+        metrics[name], cmap[HELIUM_CODE] = (ADV, lsb), name
 
     if YM_CODE in wanted_codes() and os.path.isfile(YM_PNG):
         name = "u%04X" % YM_CODE

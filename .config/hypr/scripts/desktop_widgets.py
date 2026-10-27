@@ -834,6 +834,11 @@ def cli(a):
             print(old["name"])
             return
         args = ["add", "timer"] + [x for x in kv if x.startswith("at=")]
+        # 27.10.2026, просьба: «виджет таймер создавался сразу на мониторе от ноута, а не на
+        # msi». Без места щелчка (Super+T) — на ноутбук, а не на монитор с фокусом; ноутбука
+        # нет — как было.
+        if len(args) == 2 and "eDP-1" in (niri_json("outputs") or {}):
+            args.append("eDP-1")
         cli(args + ["%s=%s" % (k, v) for k, v in opts.items()])
     elif a[0] == "preset" and len(a) > 1:
         # preset save|load|delete ИМЯ, preset list, preset ask — именованные пресеты (05.10.2026);
@@ -2049,6 +2054,19 @@ class Widget(Gtk.Window):
         self.resize(int(s["w"]) + sh, h + sh)
         self.queue_resize()
         self.area.queue_draw()
+        if getattr(self, "catcher", None):
+            self.catcher.sync()
+
+    def set_catcher(self, on):
+        """Ловец мыши нужен, пока виджет в подложке (закреплён, обычный режим)."""
+        c = getattr(self, "catcher", None)
+        if on and not c:
+            self.catcher = Catcher(self)
+            self.catcher.show_all()
+        elif not on and c:
+            self.catcher = None
+            c.destroy()
+        self.update_input()
 
     def set_cloaked(self, on):
         if on != self.cloaked:
@@ -2141,6 +2159,11 @@ class Widget(Gtk.Window):
                 reg.union(cairo.RectangleInt(*self.zone_grip()))
             for z in self.hot:
                 reg.union(cairo.RectangleInt(*(int(v) for v in z)))
+        c = getattr(self, "catcher", None)
+        if c is not None:                      # в подложке мышь не доходит — ловит ловец
+            if c.get_window():
+                c.get_window().input_shape_combine_region(reg, 0, 0)
+            reg = cairo.Region()
         win.input_shape_combine_region(reg, 0, 0)
 
     @staticmethod
@@ -2188,9 +2211,9 @@ class Widget(Gtk.Window):
                 name = "nwse-resize" if self.inside(self.zone_grip(), e.x, e.y) else (
                     "default" if self.inside(self.zone_close(), e.x, e.y)
                     or self.inside(self.zone_pin(), e.x, e.y) else "move")
-            if name != getattr(self, "_cursor", None) and self.get_window():
+            if name != getattr(self, "_cursor", None) and _w.get_window():
                 self._cursor = name
-                self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(), name))
+                _w.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(), name))
         return True
 
     def on_release(self, _w, e):
@@ -2248,6 +2271,7 @@ class Widget(Gtk.Window):
         return True
 
     def close_widget(self):
+        self.set_catcher(False)
         self.set_running(False)
         self.cleanup()
         self.destroy()
@@ -3982,6 +4006,65 @@ class Editor(Gtk.Window):
         return True
 
 
+class Catcher(Gtk.Window):
+    """Невидимый ловец мыши закреплённого виджета (27.10.2026).
+
+    Закреплённый виджет лежит в подложке niri (слой background + place-within-backdrop),
+    чтобы при смене стола стоять на месте. Но niri не отдаёт мышь слоям подложки
+    (contents_under пропускает их), а сверху ещё и слой меню рабочего стола. Поэтому
+    щелчки по заголовку, уголку и «горячим» местам ловит этот слой: нижний (над меню
+    рабочего стола, под окнами), на том же месте и того же размера, ничего не рисует и
+    отдаёт события самому виджету — координаты те же."""
+
+    def __init__(self, w):
+        super().__init__()
+        self.w = w
+        GtkLayerShell.init_for_window(self)
+        GtkLayerShell.set_namespace(self, "jarvis-widget-input")
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.BOTTOM)
+        GtkLayerShell.set_monitor(self, w.monitor)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
+        GtkLayerShell.set_exclusive_zone(self, -1)
+        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.NONE)
+        visual = self.get_screen().get_rgba_visual()
+        if visual:
+            self.set_visual(visual)
+        self.set_app_paintable(True)
+        self.connect("draw", self.on_draw)
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK
+                        | Gdk.EventMask.POINTER_MOTION_MASK)
+        self.connect("button-press-event", w.on_press)
+        self.connect("button-release-event", w.on_release)
+        self.connect("motion-notify-event", w.on_motion)
+        for sig in ("realize", "map"):
+            self.connect(sig, lambda *_a: w.update_input())
+        self.monitor = w.monitor
+        self.sync()
+
+    @staticmethod
+    def on_draw(_w, cr):
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        return True
+
+    def sync(self, top=None):
+        """Место, размер и монитор — как у виджета (зовёт Widget.place)."""
+        w = self.w
+        if w.monitor is not self.monitor:
+            self.monitor = w.monitor
+            GtkLayerShell.set_monitor(self, w.monitor)
+        x, y = w.cur_xy()
+        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.LEFT, x)
+        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.TOP,
+                                 y + getattr(w, "dy", 0) if top is None else top)
+        sh = w.shadow()
+        sw, sh2 = int(w.spec["w"]) + sh, int(w.spec["h"]) - getattr(w, "dh", 0) + sh
+        self.set_size_request(sw, sh2)
+        self.resize(sw, sh2)
+
+
 class Ghost(Gtk.Window):
     """Прозрачный слой поверх всего на время переноса/растягивания: рисует снимок
     виджета (или рамку нового размера) там, где он окажется.
@@ -4367,9 +4450,9 @@ class Manager:
         w.orphan = orphan is not None
         if orphan:
             w.go_away(orphan)
-        if self.edit or self.peek:
-            GtkLayerShell.set_layer(w, GtkLayerShell.Layer.TOP if self.edit else GtkLayerShell.Layer.OVERLAY)
-        w.show_all()                       # слой есть всегда; виден ли он — решает «плащ» (refreeze)
+        GtkLayerShell.set_layer(w, self.layer_of(w))   # до показа: правило подложки — с первого кадра
+        w.show_all()
+        self.apply_layer(w)                       # слой есть всегда; виден ли он — решает «плащ» (refreeze)
         self.widgets.append(w)
         return w
 
@@ -4408,7 +4491,9 @@ class Manager:
             w = old.pop(spec.get("name"), None)
             if w is not None and same_outs and all(
                     w.spec.get(k) == spec.get(k) for k in ("type", "output")) and \
+                    bool(w.spec.get("pinned")) == bool(spec.get("pinned")) and \
                     (w.spec.get("opts") or {}) == (spec.get("opts") or {}):
+                # закрепление сменилось — слой заново (подложка ↔ свой стол, см. toggle_pin)
                 w.spec.update(spec)
                 if "guest" not in spec:
                     w.spec.pop("guest", None)
@@ -4693,7 +4778,11 @@ class Manager:
         s["ws"] = None                      # открепили — привяжется к активному столу в refreeze
         if not s["pinned"]:
             s["home"] = s.get("output")     # стол «свой» для этого монитора (см. foreign_desk)
-        w.area.queue_draw()
+        # подложка ↔ свой стол: слой создаётся заново — правило niri (place-within-backdrop)
+        # надёжно применяется к новому слою, а не к сменившему слой на ходу
+        self.widgets.remove(w)
+        w.close_widget()
+        self.spawn(s)
         self.save()
         self.refreeze()
 
@@ -4847,12 +4936,24 @@ class Manager:
         неподвижные виджеты оставались наверху (замерено 02.10.2026)."""
         # расстановка — TOP: слой правки (OVERLAY) обязан быть выше виджетов; на одном
         # слое виджеты, сменившие слой позже, оказывались поверх него и закрывали кнопки
-        layer = GtkLayerShell.Layer.TOP if self.edit else (
-            GtkLayerShell.Layer.OVERLAY if self.peek else GtkLayerShell.Layer.BOTTOM)
         for w in self.widgets:
-            GtkLayerShell.set_layer(w, layer)
-            w.update_input()
+            self.apply_layer(w)
             w.area.queue_draw()
+
+    def apply_layer(self, w):
+        layer = self.layer_of(w)
+        GtkLayerShell.set_layer(w, layer)
+        w.set_catcher(layer == GtkLayerShell.Layer.BACKGROUND)
+
+    def layer_of(self, w):
+        """Слой виджета. Закреплённый — BACKGROUND: правило niri (layer-rules.kdl) кладёт
+        его в подложку, и при смене стола он стоит на месте (27.10.2026); незакреплённый —
+        BOTTOM: нижний слой niri рисует на своём столе, и виджет едет вместе со столом."""
+        if self.edit:
+            return GtkLayerShell.Layer.TOP
+        if self.peek:
+            return GtkLayerShell.Layer.OVERLAY
+        return GtkLayerShell.Layer.BACKGROUND if w.spec.get("pinned") else GtkLayerShell.Layer.BOTTOM
 
     def follow_desks(self):
         """Стол с виджетами перенесли на другой монитор (Super+Ctrl+Shift+H/L) — виджеты

@@ -732,6 +732,8 @@ class CallWatch:
         self.quiet = 0.0             # до этого времени OSD микрофона молчит (нажали кнопку в капсуле)
         self.pin = None              # (muted, до) — нажатое держится, пока pactl применяет
         self.vpin = None             # (громкость, до) — то же для ползунка микрофона
+        self.rmute = None            # микрофон собеседника в Telegram: True/False/None (не видно)
+        self.rproc = None            # island_tgmute.py — живёт, пока идёт звонок Telegram
         self.t = None
         self.busy = False
         try:
@@ -819,11 +821,54 @@ class CallWatch:
             else:
                 for c in new.values():
                     c["vol"] = want
-        sig = lambda d: {k: (v["muted"], tuple(v["ids"]), v["voice"], v["vol"]) for k, v in d.items()}
+        tg = new.get("Telegram")
+        self.tg_watch(bool(tg and not tg["voice"]))
+        if tg:
+            tg["rmute"] = bool(self.rmute) and not tg["voice"]
+        sig = lambda d: {k: (v["muted"], tuple(v["ids"]), v["voice"], v["vol"], v.get("rmute")) for k, v in d.items()}
         changed = sig(new) != sig(self.calls)
         self.calls = new
         if changed:
             self.on_change()
+
+    def tg_watch(self, on):
+        """Микрофон собеседника в звонке Telegram (26.10.2026, просьба: «иконку выключенного
+        микрофона, если он у собеседника выключен»): island_tgmute.py читает окно звонка через
+        AT-SPI и печатает 1/0/na при смене. Запущен только на время звонка."""
+        if on and self.rproc is None:
+            try:
+                self.rproc = subprocess.Popen(["python3", os.path.join(HERE, "island_tgmute.py")],
+                                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                              preexec_fn=pdeathsig)
+            except OSError as e:
+                log("tgmute:", e)
+                return
+            ch = self.GLib.IOChannel.unix_new(self.rproc.stdout.fileno())
+            self.GLib.io_add_watch(ch, self.GLib.PRIORITY_DEFAULT, self.GLib.IO_IN | self.GLib.IO_HUP,
+                                   self.on_rmute, self.rproc)
+        elif not on and self.rproc is not None:
+            p, self.rproc, self.rmute = self.rproc, None, None
+            try:
+                p.kill()
+                p.wait(timeout=1)
+            except (OSError, subprocess.SubprocessError):
+                pass
+
+    def on_rmute(self, _ch, cond, proc):
+        line = proc.stdout.readline() if not cond & self.GLib.IO_HUP else b""
+        if proc is not self.rproc:
+            return False
+        if not line:                            # помощник упал — без значка, до следующего звонка
+            self.rproc, self.rmute = None, None
+            return False
+        v = {b"1": True, b"0": False}.get(line.strip())
+        if v != self.rmute:
+            self.rmute = v
+            tg = self.calls.get("Telegram")
+            if tg:
+                tg["rmute"] = bool(v) and not tg["voice"]
+                self.on_change()
+        return True
 
     def toggle_mute(self):
         """Микрофон системы — как ЛКМ по микрофону в нижней панели (wpctl set-mute
@@ -1637,6 +1682,8 @@ def pill_parts(acts, col):
     c = act_color(kind, col) if col else on
     if kind == "call":
         parts = [("g", d["icon"], CALL_BRAND.get(d["icon"], CALL_GREEN)), ("t", mmss(call_sec(d)), None), ("mic", d["muted"], None)]
+        if d.get("rmute"):                      # у собеседника микрофон выключен (26.10.2026)
+            parts.insert(2, ("g", G_MIC_OFF, (1.0, 0.36, 0.36)))
     elif kind == "rec":
         parts = [("g", G_PAUSE, (1.0, 0.27, 0.27)) if d["paused"] else ("dot", None, (1.0, 0.27, 0.27)),
                  ("t", mmss(d["sec"]), None)]
@@ -5051,7 +5098,11 @@ class Island:
         if self.app.last in keys:
             self.card_i = keys.index(self.app.last)
         else:
-            self.card_i = next((i for i, p in enumerate(pages) if acts and p[0] == acts[0][0]), 0)
+            # страница закрылась (помидор кончился) — следующая по порядку, как у нити (27.10.2026)
+            nxt = self.app.after_ended(self.app.last.split(":", 1)[0])
+            self.card_i = next((i for i, p in enumerate(pages) if nxt and p[0] == nxt), None)
+            if self.card_i is None:
+                self.card_i = next((i for i, p in enumerate(pages) if acts and p[0] == acts[0][0]), 0)
         self.app.pop_until = 0
         if "clip" in page_ids(self.app.conf):   # снимки грузятся заранее, пока карточка раскрывается
             self.app.load_clip()
@@ -6225,16 +6276,20 @@ class App:
             return info
         if info in live:
             return info
-        if live:
-            return live[0]
-        # блок закончился (видео закрыли — музыки нет), других дел нет — следующий по порядку
-        # страниц котик/«Центр», а не пустые часы (21.10.2026, просьба: «закрыл видео, и следующим
-        # блоком должен был быть кот, но… отобразился блок с Таймером»)
+        # блок закончился (видео закрыли — музыки нет) — следующий по порядку страниц котик/«Центр»,
+        # а не пустые часы (21.10.2026, просьба: «закрыл видео, и следующим блоком должен был быть кот,
+        # но… отобразился блок с Таймером»); и не первое идущее дело (27.10.2026: помидор кончился —
+        # шла музыка, хотя котик в порядке раньше)
+        return self.after_ended(info) or (live[0] if live else None)
+
+    def after_ended(self, kind):
+        """Блок kind закончился — следующий за ним по порядку страниц из идущих дел и котика/«Центра»."""
         ids = page_ids(self.conf)
-        if info in ids:
-            n = ids.index(info)
-            return next((k for k in ids[n + 1:] + ids[:n] if k in ("cat", "cc")), None)
-        return None
+        if kind not in ids:
+            return None
+        live = {k for k, _d in self.acts if k in PAGES}
+        n = ids.index(kind)
+        return next((k for k in ids[n + 1:] + ids[:n] if k in live or k in ("cat", "cc")), None)
 
     def pill_acts(self):
         """Дела для живой нити: блок pill_focus — первым."""

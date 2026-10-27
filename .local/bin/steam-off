@@ -1,0 +1,4 @@
+#!/bin/sh
+# Выключить Steam правильно (steam -shutdown, остатки — KILL), чтобы не ел память в фоне.
+# Вместо `kill steam`: тот оставлял клиент зависшим в выходе (27.10.2026).
+exec python3 "$HOME/.config/hypr/scripts/steam_guard.py" off

@@ -286,9 +286,13 @@ PAM_HELPER = (
 
 
 def watch_daily_on():
+    """Включён ли хоть кто-то, кто может зазвонить: будильник (с его утренней серией
+    «не спите?») или ежедневный Сторож. 27.10.2026: выключатель стал общим — раньше он
+    снимал только Сторожа, и 25.10 будильник в 05:00 звонил при «выключенном»."""
     try:
         with open(WAKE_STATE) as f:
-            return bool(json.load(f).get("watch_daily", {}).get("enabled", True))
+            s = json.load(f)
+        return bool(s.get("enabled", True) or s.get("watch_daily", {}).get("enabled", True))
     except (OSError, ValueError):
         return True
 
@@ -5604,15 +5608,19 @@ class SettingsWindow(Gtk.ApplicationWindow):
         return scroll
 
     # ── Сторож (09.10.2026) ──────────────────────────────────────────────
-    # Проверки «не спите?» от звонка будильника до 18:00 (14.10: было 21:00) (wake_alarm.py watch daily). Включить —
+    # Проверки «не спите?» от звонка будильника до 18:00 (14.10: было 21:00) (wake_alarm.py watch daily).
+    # 27.10.2026, просьба: выключил здесь — «и потом она всё равно прозвенела»: строка
+    # снимала только Сторожа, а утренний будильник со своей серией звонил. Теперь это
+    # «Выключатель» обоих: wake_alarm.py on/off + watch daily on/off. Включить —
     # одним щелчком; выключить — только паролем и с причиной: она пишется в журнал,
     # который виден здесь же. Выключение — насовсем, до включения; на один день —
     # в Clocker. Пароль проверяется не больше двух раз за попытку: третья ошибка
     # подряд заперла бы учётную запись (faillock).
     def watch_section(self, v):
         self.section(v, "Сторож", "\U000f0565",
-                     "В день с будильником — от звонка до 18:00 проверка «не спите?» примерно раз "
-                     "в 45 минут, когда вы не за компьютером. Нет будильника — нет и Сторожа.")
+                     "Утренний будильник с проверками «не спите?», а после него до 18:00 — проверка "
+                     "примерно раз в 45 минут, когда вы не за компьютером. Нет будильника — "
+                     "нет и Сторожа.")
         c = self.card(v)
         pill = self.pill(watch_daily_on(), lambda on: self.watch_toggle(on))
         rev = Gtk.Revealer()
@@ -5637,10 +5645,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
         go.connect("clicked", lambda _b: self.watch_next())
         entry.connect("activate", lambda _e: self.watch_next())
         no.connect("clicked", lambda _b: self.watch_cancel())
-        self.row(c, "Проверки «не спите?»", pill,
-                 "Выключить можно только паролем и с причиной — она попадёт в журнал. "
-                 "Выключается насовсем, до включения. Только на сегодня — в Clocker "
-                 "(Super+Alt+F → Alarm).",
+        self.row(c, "Выключатель", pill,
+                 "Будильник и Сторож вместе. Выключить можно только паролем и с причиной — "
+                 "она попадёт в журнал. Выключается насовсем, до включения. Только на "
+                 "сегодня — в Clocker (Super+Alt+F → Alarm).",
                  below=rev, icon="\U000f0565")
         logb = Gtk.Button(label="Открыть")
         logb.get_style_context().add_class("fontpick")
@@ -5654,8 +5662,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         if on:
             if w["step"]:                # это откат выключателя при вводе пароля, не «включить»
                 return
-            subprocess.run(["python3", WAKE_ALARM, "watch", "daily", "on", "--via", "settings"],
-                           capture_output=True, timeout=10)
+            for cmd in (["on"], ["watch", "daily", "on"]):      # будильник и Сторож
+                subprocess.run(["python3", WAKE_ALARM] + cmd + ["--via", "settings"],
+                               capture_output=True, timeout=10)
             w["rev"].set_reveal_child(False)
             return
         # выключение — сперва пароль; выключатель остаётся «вкл», пока не пройдены оба шага.
@@ -5663,7 +5672,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # пришло бы вторым уведомлением уже без блокировки и включило бы Сторожа «назад»
         GLib.idle_add(lambda: (w["pill"].rs["put"](True), False)[1])
         w.update(step="pass", tries=0)
-        w["msg"].set_text("Чтобы выключить Сторожа, введите пароль от системы.")
+        w["msg"].set_text("Чтобы выключить будильник и Сторожа, введите пароль от системы.")
         w["entry"].set_text("")
         w["entry"].set_visibility(False)
         w["entry"].set_placeholder_text("пароль")
@@ -5707,11 +5716,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
         if len(reason) < 3:
             w["msg"].set_text("Без причины не выключу. Напишите, почему выключаете.")
             return
-        out = subprocess.run(["python3", WAKE_ALARM, "watch", "daily", "off", "--reason", reason,
-                              "--via", "settings"], capture_output=True, text=True, timeout=10)
-        if out.returncode != 0:
-            w["msg"].set_text(out.stdout.strip() or "Не вышло выключить.")
-            return
+        # сперва будильник: во время его серии wake_alarm откажет — тогда Сторож не трогаем
+        for cmd in (["off"], ["watch", "daily", "off"]):
+            out = subprocess.run(["python3", WAKE_ALARM] + cmd + ["--reason", reason,
+                                  "--via", "settings"], capture_output=True, text=True, timeout=10)
+            if out.returncode != 0:
+                w["msg"].set_text(out.stdout.strip().splitlines()[-1:][0] if out.stdout.strip()
+                                  else "Не вышло выключить.")
+                return
         w.update(step=None)
         w["entry"].set_text("")
         w["rev"].set_reveal_child(False)
@@ -5724,7 +5736,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             return False
         if ok:
             w["step"] = "reason"
-            w["msg"].set_text("Пароль верный. Почему выключаете Сторожа? Причина попадёт в журнал.")
+            w["msg"].set_text("Пароль верный. Почему выключаете? Причина попадёт в журнал.")
             w["entry"].set_visibility(True)
             w["entry"].set_placeholder_text("причина")
             w["go"].set_label("Выключить")

@@ -1,0 +1,5 @@
+# Свой запуск Telegram (26.10.2026): QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 — окно звонка видно
+# через AT-SPI, островок по нему показывает выключенный микрофон собеседника (island_tgmute.py).
+[D-BUS Service]
+Name=org.telegram.desktop
+Exec=/usr/bin/env QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 /usr/bin/Telegram

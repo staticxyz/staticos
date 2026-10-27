@@ -536,13 +536,14 @@ def fire(c, it):
         if it["kind"] == "timer":
             ring(it["id"])
     elif T.token():
-        send_tg(c, it)                              # не рядом — сразу на телефон, без звука на ПК
+        # не рядом — сразу на телефон, без звука на ПК; «Идёт» от announce_away заменяется
+        send_tg(c, it, replace=it["kind"] == "timer")
 
 
-def send_tg(c, it):
+def send_tg(c, it, replace=False):
     c.execute("UPDATE items SET fired_tg=? WHERE id=?", (H.now(), it["id"]))
     text, btn = T.render(H.get_item(c, it["id"]))
-    T.enqueue(c, text, btn, it["id"])
+    T.enqueue(c, text, btn, it["id"], replace=replace)
 
 
 ALLDAY_SHOW = 3                      # строк в сводке «На сегодня» на ПК, остальное — «и ещё N»
@@ -684,7 +685,18 @@ def tick(c):
             continue
         send_tg(c, it)
         log("escalate", it["id"])
-    late = [r for r in allday_today(c) if r["fired_pc"] is not None and r["fired_tg"] is None
+    # 27.10.2026, просьба: «если таймер покажется на ПК и я никак не отреагирую — придёт на
+    # телефон?» Прозвеневший на ПК таймер, который никто не остановил, — в Telegram через
+    # esc_min минут или сразу, как вы отошли (заставка/замок/экраны погасли).
+    rang = c.execute("SELECT i.*, l.name AS list FROM items i JOIN lists l ON l.id=i.list_id "
+                     "WHERE i.status='open' AND i.kind='timer' AND i.fired_pc IS NOT NULL AND "
+                     "i.fired_tg IS NULL AND i.seen=0 AND i.due<=?", (t,)).fetchall()
+    away = bool(rang) and not pc_present() and not manual_lock_grace()
+    for it in rang:
+        if away or it["fired_pc"] <= t - esc:
+            send_tg(c, it, replace=True)
+            log("escalate: таймер", it["id"], "отошли" if away else "%d мин без ответа" % (esc // 60))
+    late =[r for r in allday_today(c) if r["fired_pc"] is not None and r["fired_tg"] is None
             and not r["seen"] and r["fired_pc"] <= t - esc]
     if len(late) == 1:
         send_tg(c, late[0])

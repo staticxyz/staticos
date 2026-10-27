@@ -22,7 +22,7 @@
   "fit-to-screen": false,
   "relative-timestamps": true,
   "control-center-width": 360,
-  "control-center-height": 480,
+  "control-center-height": -1,
   "notification-window-width": 360,
   "keyboard-shortcuts": true,
   "notification-grouping": true,
@@ -65,7 +65,7 @@
   ],
   "widget-config": {
     "notifications": {
-      "vexpand": true
+      "vexpand": false
     },
     "inhibitors": {
       "text": "Inhibitors",

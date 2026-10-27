@@ -748,19 +748,27 @@ def set_top_bar_kind(kind):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
-def top_swap(frm, to):
+def top_swap(frm, to, only=None):
     """Режим верхнего бара frm → to на всех мониторах (panels.json) или в общем (state/top-bar);
-    без применения."""
+    без применения. only — список из прошлого вызова: менять только там («" — общий режим).
+    Возвращает, где поменял. 27.10.2026, просьба: «waybar начал появляться всегда, а не по
+    наведению. На мониторе MSI» — выход из стопки делал «всегда» и там, где «при наведении»
+    было выбрано до входа; теперь вход запоминает, что менял, выход возвращает только это."""
     import panels
     d = panels.load()
+    done = []
     if panels.per_monitor(d):
         for out in panels.top_outputs(d):
-            if (d["mon"].get(out) or {}).get("top", panels.global_top()) == frm:
+            if (only is None or out in only) and \
+                    (d["mon"].get(out) or {}).get("top", panels.global_top()) == frm:
                 panels.set_value(out, "top", to)
-    elif panels.global_top() == frm:
+                done.append(out)
+    elif (only is None or "" in only) and panels.global_top() == frm:
         with open(panels.TOP_FILE + ".tmp", "w") as f:
             f.write(to + "\n")
         os.replace(panels.TOP_FILE + ".tmp", panels.TOP_FILE)
+        done.append("")
+    return done
 
 
 def top_hover(on):
@@ -779,14 +787,16 @@ def top_hover(on):
     # обычный выбор в Настройках, его можно сменить и в стопке, «выключен» не трогается
     # (22.10.2026, просьба: «при переключении на stack mode пусть бар сверху становится При
     # наведении по умолчанию, а если обратно в scroll mode то на Всегда»)
-    top_swap(*(("always", "hover") if on else ("hover", "always")))
     if on:
+        st["top_swapped"] = top_swap("always", "hover")
         st["capsule"] = top_bar_kind() == "capsule"
         _save(STATE, st)
         subprocess.Popen([sys.executable, os.path.join(HERE, "panels.py"), "apply", "top"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         return
-    for k in ("top_desks", "top_hover", "capsule"):   # top_desks/top_hover — ключи до 22.10
+    # стопка, включённая до 27.10, списка не помнит — как раньше, все «при наведении»
+    top_swap("hover", "always", st.get("top_swapped"))
+    for k in ("top_desks", "top_hover", "capsule", "top_swapped"):   # top_desks/top_hover — ключи до 22.10
         st.pop(k, None)
     # «active» снимется позже, в конце turn_off, — без отметки бар собрался бы снова без
     # столов (22.10.2026: стопку выключили, а столы наверху так и не вернулись)

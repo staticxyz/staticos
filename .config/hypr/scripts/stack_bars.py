@@ -1204,10 +1204,15 @@ class Bars:
         self.pins = {}           # id → {proc, out, sent}: окна «поверх всех», зеркало stack_pin.py
         subprocess.Popen([sys.executable, PIN_HELPER, "--sweep"], stdout=subprocess.DEVNULL)  # хвосты прошлого запуска
         self.sync_outputs()
+        self.mon_t = None
+        disp = Gdk.Display.get_default()
+        disp.connect("monitor-added", self.on_monitors)
+        disp.connect("monitor-removed", self.on_monitors)
         self.events()
         GLib.timeout_add(700, self.tick)
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, 10, self.dump)     # SIGUSR1
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, 12, self.on_req)   # SIGUSR2: свернуть/вернуть
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, 1, lambda: self.on_monitors() or True)  # SIGHUP: как смена мониторов
         self.fs_seen = {}        # id → когда последний раз видели во весь экран (для журнала)
         self.was_float = set()   # id, что лежали плавающими на столе стопки
         self.fs_wait = {}        # id → с какого времени ждём, не полный ли это экран
@@ -1355,6 +1360,28 @@ class Bars:
             if (g.x, g.y) == (lg.get("x"), lg.get("y")):
                 return m
         return None
+
+    def on_monitors(self, *_a):
+        """Монитор отключился/подключился (26.10.2026: мигнул свет, MSI пропал на 5 с — слои
+        остались на старом GdkMonitor, niri закрывал каждую новую полосу «no output for new
+        layer surface», рамки окон пропали; Просьба: «Сделай чтобы такое не повторялось»).
+        Через 2 с после последней смены демон перезапускает себя тем же pid — как ручной
+        перезапуск; зеркала «поверх всех» снимает --sweep нового запуска."""
+        if self.mon_t:
+            GLib.source_remove(self.mon_t)
+        self.mon_t = GLib.timeout_add(2000, self.reexec)
+
+    def reexec(self):
+        self.mon_t = None
+        sm.log("bars: мониторы сменились — перезапуск демона")
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.execv(sys.executable, [sys.executable, os.path.join(HERE, "stack_mode.py"), "daemon"])
+        return False
 
     def sync_outputs(self):
         """Слой на каждый монитор из st["outs"]; монитор отключили — слой убрать."""

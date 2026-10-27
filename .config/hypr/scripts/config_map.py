@@ -71,13 +71,13 @@ AREAS = [
         fastfetch_colors.py tide_colors.py reload_btop.py theme-doctor theme-snapshot"""),
     ("Стиль системы и шрифты", "◆", """
         pixel_look.py pixel_mode.py system_style.py app_fonts.py cozette_fit.py
-        rofi_style.py launcher_style.py mixer_style.py wlogout_icons.py icon_theme.py
+        rofi_style.py launcher_style.py mixer_style.py eww_edge_watch.py wlogout_icons.py icon_theme.py
         rofi fontprofile fontswap font-sample xfont_path.py"""),
     ("Курсор", "➤", """
         cursor_colors.py cursor_shake.py cursor_theme.py bit_cursor.py
         tri_cursor.py skeet_cursor.py jarvis_pebble.py yamikai_wall.py"""),
     ("Уведомления и звуки интерфейса", "✉", """
-        notif_style.py track_notify.py island.py island_dl.py island_nudge.py island_sys.py dnd_sounds.py auto_dnd.py ui_sound.py
+        notif_style.py track_notify.py island.py island_dl.py island_nudge.py island_sys.py island_tgmute.py Telegram dnd_sounds.py auto_dnd.py ui_sound.py
         ui_sound_retro.py ui_sound_watch.py layout_osd notif-look notify-send"""),
     # Панели
     ("Бар: устройство", "▔", """
@@ -143,7 +143,7 @@ AREAS = [
         kitty_shader.py kitty_shader_colors.py kitty_shared.sh term_font.sh termlook
         susanoo_bake.py"""),
     ("Steam и игры", "◉", """
-        steam_space.py game_guard.py game-clip-push"""),
+        steam_space.py game_guard.py game-clip-push steam_guard.py steam steam-off"""),
     ("Другие программы", "□", """
         keepassxc_style.py vscode_colors.py obsidian_opacity.py mousepad_retheme.sh
         notepad.sh office_setup.sh ttyper_colors.py keepassxc keepassxc-setup"""),
@@ -282,6 +282,10 @@ def present(entries):
 # Описания файлов без шапки (сверено с кодом 13.10.2026).
 DESC = {
     "savage_battery.py": "Батарея в баре и Кофеин — без сна (бывший Savage Mode, ПКМ по батарее).",
+    "eww_edge_watch.py": "Сторож полоски правого микшера eww: уехала с MSI или пропала — пересоздаёт окна eww.",
+    "steam_guard.py": "Steam: выключить как надо (steam-off, «kill steam» в fish) и добить клиент, зависший в выходе.",
+    "steam": "Обёртка запуска Steam: сначала steam_guard.py heal, потом /usr/bin/steam.",
+    "steam-off": "Выключить Steam правильно (steam -shutdown, остатки — KILL).",
     "xfont_path.py": "Пиксельный PxPlus в окне «Обновление Steam…»: путь X-шрифтов Xwayland, подмена ClearlyU.",
     "savage_power.py": "Savage Mode — мощность на максимум: power max + профиль performance, выкл — power mid.",
     "pixel_look.py": "Вид системы: пиксельный, обычный или Minimalistic (капсула) — один переключатель на всё",

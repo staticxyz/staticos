@@ -3314,10 +3314,11 @@ class RoutineWindow(Gtk.ApplicationWindow):
         if ws is None:
             v.flash("Сторож выключен в Настройках → Config")
             return
+        # 27.10.2026, просьба: кнопка снимает на день и Сторожа, и будильник (--with-alarm)
         cmd = [sys.executable, os.path.join(HERE, "wake_alarm.py"), "watch", "skip"]
         if ws == "skip":
-            run_out(*cmd, "off", "--via", "clocker")
-            v.flash("Сторож снова на посту")
+            run_out(*cmd, "off", "--with-alarm", "--via", "clocker")
+            v.flash("Сторож и будильник снова на посту")
             return
         if wa.watch_busy():
             v.flash("идёт проверка Сторожа — сначала ответьте")
@@ -3330,9 +3331,9 @@ class RoutineWindow(Gtk.ApplicationWindow):
             self._doubt = None
 
         def go():
-            out = run_out(*cmd, "--reason", "на день, из Clocker", "--via", "clocker")
-            v.flash("сегодня без Сторожа" if "без" in out else (out or "не вышло"))
-        v.confirm_text = "Выключить Сторожа на сегодня?"
+            out = run_out(*cmd, "--with-alarm", "--reason", "на день, из Clocker", "--via", "clocker")
+            v.flash("сегодня без Сторожа и будильника" if "без" in out else (out or "не вышло"))
+        v.confirm_text = "Выключить Сторожа и будильник на сегодня?"
         v.doubt = self._doubt
         v.mode = "confirm"
         self.confirm_action = go

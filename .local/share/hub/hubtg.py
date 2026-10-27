@@ -1899,6 +1899,17 @@ def flush_outbox(c, bot):
         p = json.loads(r["payload"])
         try:
             for ch in chats:
+                if p.get("replace") and p.get("item"):
+                    # 26.10.2026, просьба: «почему пришли сразу 2 сообщения о таймере?» — «Идёт» (вы
+                    # отошли) и «Время вышло» потом правились в один и тот же текст. Старое убираем:
+                    # в чате остаётся одно сообщение таймера, и новое всё равно звенит на телефоне
+                    for o in c.execute("SELECT mid FROM tgmsgs WHERE item_id=? AND chat=?",
+                                       (p["item"], ch)).fetchall():
+                        try:
+                            bot.call("deleteMessage", {"chat_id": ch, "message_id": o["mid"]})
+                        except Exception:
+                            pass
+                        c.execute("DELETE FROM tgmsgs WHERE chat=? AND mid=?", (ch, o["mid"]))
                 m = bot.send(ch, Html(p["text"]) if p.get("html") else p["text"], p.get("buttons"))
                 if p.get("item") and m:
                     track(c, p["item"], ch, m["message_id"])
@@ -1908,7 +1919,8 @@ def flush_outbox(c, bot):
             break
 
 
-def enqueue(c, text, buttons=None, item=None, html=False):
+def enqueue(c, text, buttons=None, item=None, html=False, replace=False):
+    """replace — прежние сообщения этого пункта в чате удалить (новое встаёт вместо них)."""
     c.execute("INSERT INTO outbox(created,payload) VALUES(?,?)",
-              (H.now(), json.dumps({"text": text, "buttons": buttons, "item": item, "html": html},
-                                   ensure_ascii=False)))
+              (H.now(), json.dumps({"text": text, "buttons": buttons, "item": item, "html": html,
+                                    "replace": replace}, ensure_ascii=False)))

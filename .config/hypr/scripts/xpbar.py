@@ -3794,6 +3794,8 @@ def badge_holder(wins):
         if wins else None
     if not pick and last and last.get("summary") == "Claude Code":
         pick = [w for w in wins if (w.get("title") or "").startswith("\u2733")]
+        if not pick:                         # нужного окна нет — значок не на чужом окне
+            return None
     return max(pick or wins, key=ts)["id"] if wins else None
 
 
@@ -4002,9 +4004,11 @@ class TaskButton(Gtk.Button):
         own = title_count(self.app_id, self.title)      # свой счётчик — виден и в фокусе
         n = own if own is not None else 0 if self.focused else badge_count(self.app_id)
         if n and self.wid is not None and own is None:
-            mine = [w for w in self.bar.state.windows_on(self.bar.connector)
-                    if (w.get("app_id") or "") == self.app_id]
-            if len(mine) > 1 and badge_holder(mine) != self.wid:
+            # окна программы на всех мониторах (27.10.2026, просьба: «почему у окна btop засветилась
+            # красная иконка?» — уведомление пришло от kitty, нужное окно было на MSI, а
+            # на панели ноутбука из kitty был один btop — счётчик встал на него)
+            mine = [w for w in self.bar.state.windows.values() if (w.get("app_id") or "") == self.app_id]
+            if badge_holder(mine) != self.wid:
                 n = 0
         if not n and not self.urgent:
             return False
@@ -4228,9 +4232,41 @@ MENU = {"prov": None, "opened": 0.0}
 def _set_open(bar, on):
     ctx = bar.start.get_style_context()
     (ctx.add_class if on else ctx.remove_class)("open")
+    # Пока открыт «Пуск», панель — слоем OVERLAY: поверх окна во весь экран видна и она, с окнами
+    # (27.10.2026, просьба: «в полноэкранном режиме при нажатии на Пуск показывать ещё и нижнюю панель»).
+    GtkLayerShell.set_layer(bar, GtkLayerShell.Layer.OVERLAY if on else GtkLayerShell.Layer.TOP)
+    _commit_now(bar)
     if getattr(bar, "spark", None) is not None:
         bar.spark.queue_draw()
         bar.glyph.queue_draw()
+
+
+def _commit_now(win):
+    """wl_surface.commit сразу. Слой (и другое состояние layer-shell) применяется только с коммитом,
+    а GTK рисует по кадровому сигналу niri, который окну под полноэкранным приходит раз в ~секунду:
+    панель поднималась через пару секунд после меню (27.10.2026, просьба: «надо вместе, синхронно,
+    моментально»). Коммит без нового буфера — только применяет ждущее состояние."""
+    import ctypes
+    try:
+        gw = win.get_window()
+        if gw is None:
+            return
+        cap = ctypes.pythonapi.PyCapsule_GetPointer
+        cap.restype, cap.argtypes = ctypes.c_void_p, [ctypes.py_object, ctypes.c_char_p]
+        gdk = ctypes.CDLL("libgdk-3.so.0")
+        gdk.gdk_wayland_window_get_wl_surface.restype = ctypes.c_void_p
+        gdk.gdk_wayland_window_get_wl_surface.argtypes = [ctypes.c_void_p]
+        gdk.gdk_wayland_display_get_wl_display.restype = ctypes.c_void_p
+        gdk.gdk_wayland_display_get_wl_display.argtypes = [ctypes.c_void_p]
+        surf = gdk.gdk_wayland_window_get_wl_surface(cap(gw.__gpointer__, None))
+        dpy = gdk.gdk_wayland_display_get_wl_display(cap(gw.get_display().__gpointer__, None))
+        if not surf or not dpy:
+            return
+        wl = ctypes.CDLL("libwayland-client.so.0")
+        wl.wl_proxy_marshal(ctypes.c_void_p(surf), ctypes.c_uint32(6))   # 6 = wl_surface.commit
+        wl.wl_display_flush(ctypes.c_void_p(dpy))
+    except Exception as e:
+        print("xpbar: commit:", e, file=sys.stderr)
 
 
 def menu_for(bar):
@@ -4266,6 +4302,11 @@ def toggle_menu(conn):
     _set_open(bar, True)
     MENU["opened"] = time.monotonic()
     m.open(center=bar.centered)
+    # Слой меню на весь экран и новее панели — он сверху и ловил бы щелчки по ней. Полоса панели —
+    # дыра во вводе меню: щелчок достаётся панели (окно, кнопка), а menu_tap закрывает меню.
+    g = bar.monitor.get_geometry()
+    hb = max(bar.get_allocated_height(), 1)
+    m.input_shape_combine_region(cairo.Region(cairo.RectangleInt(0, 0, g.width, max(g.height - hb, 0))))
     ui_click("menu")
 
 
@@ -4342,6 +4383,15 @@ class XPBar(Gtk.Window):
         self.order = []
         self.menu_open = False
         self.hide_id = None
+        # Щелчок по панели при открытом «Пуске» (его видно и поверх полноэкранного) — меню закрыть
+        # после того, как щелчок отработает. Нажатие самой кнопки «Пуск» меню закрывает само.
+        self.menu_tap = Gtk.GestureMultiPress.new(self)
+        self.menu_tap.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.menu_tap.set_button(0)
+        self.menu_tap.connect("pressed", lambda *_a: setattr(
+            self, "menu_was", any(m.get_visible() for m in MENUS.values())))
+        self.menu_tap.connect("released", lambda *_a: getattr(self, "menu_was", False)
+                              and GLib.timeout_add(60, lambda: close_menus() and False))
         self.get_style_context().add_class("xpbar-win")
         self.look = bar_look(connector)
         self.get_style_context().add_class("look-" + self.look)
