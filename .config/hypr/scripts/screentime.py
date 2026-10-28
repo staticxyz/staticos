@@ -264,15 +264,17 @@ def focus_line(st):
     return " · ".join(parts)
 
 
-# Браузер, который виджеты показывают по сайтам (--sites, 28.10.2026, просьба: «отличать
-# вкладки Zen Browser… если youtube — YouTube, если hh.kz — hh.kz»).
-SPLIT_APPS = {"zen": "Zen"}
+# Браузеры, которые виджеты показывают по сайтам (--sites, 28.10.2026, просьба: «отличать
+# вкладки Zen Browser… если youtube — YouTube, если hh.kz — hh.kz», затем «Добавь Helium
+# тоже»). Один сайт из разных браузеров — одна строка («site:YouTube»); новая вкладка и
+# прочее — у каждого браузера своё.
+SPLIT_APPS = {"zen": "Zen", "helium": "Helium"}
 SPLIT_NAMES = {"Новая вкладка": "%s: новая вкладка", "Другие страницы": "%s: другие",
                "Другое": "%s: другие", "Картинка в картинке": "%s: картинка в картинке"}
 
 
 def split_sites(apps, details):
-    """{app: сек} → то же, но Zen разложен на строки по сайтам: «zen:YouTube» и т.д.
+    """{app: сек} → то же, но браузеры разложены на строки по сайтам: «site:YouTube» и т.д.
     Время без подписи (до 30.09) остаётся строкой «Zen: другие»."""
     out = {}
     for a, sec in apps.items():
@@ -281,7 +283,7 @@ def split_sites(apps, details):
             continue
         rest = sec
         for k, v in (details.get(a) or {}).items():
-            key = "%s:%s" % (a, SPLIT_NAMES.get(k, "%s") % SPLIT_APPS[a] if k in SPLIT_NAMES else k)
+            key = "%s:%s" % (a, SPLIT_NAMES[k] % SPLIT_APPS[a]) if k in SPLIT_NAMES else "site:" + k
             v = min(v, rest)
             out[key] = out.get(key, 0) + v
             rest -= v
@@ -291,8 +293,20 @@ def split_sites(apps, details):
     return out
 
 
+def site_rows(apps, details):
+    """Строки для --sites: одинаковые имена сливаются (приложение Telegram и web.telegram.org)."""
+    named = {}
+    for a, sec in split_sites(apps, details).items():
+        n = row_name(a)
+        k, v = named.get(n, (a, 0))
+        named[n] = (k, v + sec)
+    return [{"app_id": k, "name": n, "seconds": round(v)}
+            for n, (k, v) in sorted(named.items(), key=lambda x: -x[1][1])]
+
+
 def row_name(a):
-    return a.split(":", 1)[1] if ":" in a and a.split(":", 1)[0] in SPLIT_APPS else app_name(a)
+    pre, _, rest = a.partition(":")
+    return rest if rest and (pre in SPLIT_APPS or pre == "site") else app_name(a)
 
 
 def summary(kind, sites=False):
@@ -307,8 +321,7 @@ def summary(kind, sites=False):
         if sites:
             return {"period": kind, "from": dates[0].isoformat(), "to": today.isoformat(),
                     "total": round(sum(apps.values())),
-                    "apps": [{"app_id": a, "name": row_name(a), "seconds": round(s)}
-                             for a, s in ranked(split_sites(apps, det))]}
+                    "apps": site_rows(apps, det)}
         return {
             "period": kind, "from": dates[0].isoformat(), "to": today.isoformat(),
             "total": round(sum(apps.values())),
@@ -322,8 +335,7 @@ def summary(kind, sites=False):
     if sites:
         return {"period": "today", "date": today.isoformat(),
                 "total": round(sum(day["apps"].values())),
-                "apps": [{"app_id": a, "name": row_name(a), "seconds": round(s)}
-                         for a, s in ranked(split_sites(day["apps"], day["details"]))]}
+                "apps": site_rows(day["apps"], day["details"])}
     return {
         "period": "today", "date": today.isoformat(),
         "total": round(sum(day["apps"].values())),

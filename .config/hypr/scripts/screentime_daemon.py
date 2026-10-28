@@ -110,11 +110,13 @@ def log(*a):
     print(time.strftime("%H:%M:%S"), *a, file=sys.stderr, flush=True)
 
 
-# Сайт вкладки Zen — по адресу из сессии браузера (28.10.2026, просьба: «отличать вкладки
-# Zen Browser… если hh.kz, то hh.kz»). Заголовок окна сайта не называет («Работа в Алматы…»),
-# а в sessionstore-backups/recovery.jsonlz4 у каждой вкладки есть заголовок и адрес. Файл —
-# mozlz4 (заголовок + блок lz4), распаковывает системная liblz4 через ctypes (~12 мс);
-# читается заново, только если изменился, и не чаще раза в 10 с. Нет вкладки с таким
+# Сайт вкладки браузера — по адресу из его сессии (28.10.2026, просьба: «отличать вкладки
+# Zen Browser… если hh.kz, то hh.kz», затем «Добавь Helium тоже»). Заголовок окна сайта не
+# называет («Работа в Алматы…»), а в файле сессии у каждой вкладки есть заголовок и адрес.
+# Zen: sessionstore-backups/recovery.jsonlz4 — mozlz4 (заголовок + блок lz4), распаковывает
+# системная liblz4 через ctypes (~12 мс). Helium (Chromium): Sessions/Session_* — журнал
+# команд SNSS, команда 6 — переход вкладки (адрес + заголовок), поздние перекрывают ранние.
+# Файл читается заново, только если изменился, и не чаще раза в 10 с. Нет вкладки с таким
 # заголовком (только что открыта) — как раньше, по словам заголовка.
 ZEN_SESSIONS = [os.path.expanduser(d) for d in ("~/.config/zen", "~/.zen")]
 # Имена для известных адресов; остальные — домен без поддомена: almaty.hh.kz → hh.kz
@@ -127,7 +129,6 @@ SITE_HOSTS = {"youtube.com": "YouTube", "youtu.be": "YouTube", "github.com": "Gi
               "kinopoisk.ru": "Кинопоиск", "notion.so": "Notion", "leetcode.com": "LeetCode",
               "wiki.archlinux.org": "ArchWiki", "aur.archlinux.org": "AUR", "linkedin.com": "LinkedIn"}
 TWO_LEVEL = {"co.uk", "com.kz", "org.kz", "com.ru", "co.jp", "com.au", "com.tr", "com.br"}
-_zen = {"at": 0.0, "mtime": None, "map": {}}
 
 
 def _mozlz4(path):
@@ -149,6 +150,8 @@ def site_of_url(url):
     """https://almaty.hh.kz/… → hh.kz; известные — по SITE_HOSTS; не сайт — None."""
     m = re.match(r"^https?://([^/:?#]+)", url or "")
     if not m:
+        if (url or "").startswith(("chrome://newtab", "about:newtab", "about:home")):
+            return "Новая вкладка"
         return "Файлы" if (url or "").startswith("file:") else None
     host = m.group(1).lower()
     if host.startswith("www."):
@@ -163,31 +166,69 @@ def site_of_url(url):
     return SITE_HOSTS.get(base, base)
 
 
-def zen_site(title):
-    """Сайт вкладки Zen с таким заголовком — по её адресу в сессии; не нашли — None."""
+def _zen_pairs(path):
+    for w in _mozlz4(path).get("windows", []):
+        for tab in w.get("tabs", []):
+            for e in tab.get("entries") or []:
+                yield e.get("url"), e.get("title")
+
+
+def _snss_pairs(path):
+    import struct
+    with open(path, "rb") as f:
+        b = f.read()
+    if b[:4] != b"SNSS":
+        raise ValueError("not SNSS")
+    i = 8
+    while i + 2 <= len(b):
+        size = struct.unpack_from("<H", b, i)[0]
+        i += 2
+        if not size or i + size > len(b):
+            break
+        cid, p = b[i], b[i + 1:i + size]
+        i += size
+        if cid != 6:
+            continue
+        try:  # Pickle: размер, вкладка, индекс, адрес (utf-8, выравнивание 4), заголовок (utf-16)
+            n = struct.unpack_from("<i", p, 12)[0]
+            url = p[16:16 + n].decode("utf-8", "replace")
+            o = 16 + ((n + 3) & ~3)
+            n = struct.unpack_from("<i", p, o)[0]
+            yield url, p[o + 4:o + 4 + 2 * n].decode("utf-16-le", "replace")
+        except struct.error:
+            continue
+
+
+# браузер → (шаблоны файла сессии; берётся самый свежий по времени записи, чтение)
+SESSIONS = {
+    "zen": ([os.path.join(d, "*", "sessionstore-backups", "recovery.jsonlz4") for d in ZEN_SESSIONS],
+            _zen_pairs),
+    "helium": ([os.path.expanduser("~/.config/net.imput.helium/*/Sessions/Session_*")], _snss_pairs),
+}
+_sessions = {}
+
+
+def session_site(app, title):
+    """Сайт вкладки с таким заголовком — по её адресу в сессии браузера; не нашли — None."""
+    c = _sessions.setdefault(app, {"at": 0.0, "mtime": None, "map": {}})
     now = time.monotonic()
-    if now - _zen["at"] >= 10:
-        _zen["at"] = now
+    if now - c["at"] >= 10:
+        c["at"] = now
         try:
             import glob
-            # профиль, где сессия писалась последней (у Zen папка вида «xxxx.Default (release)»)
-            path = max((p for d in ZEN_SESSIONS
-                        for p in glob.glob(os.path.join(glob.escape(d), "*", "sessionstore-backups",
-                                                        "recovery.jsonlz4"))),
-                       key=os.path.getmtime)
+            pats, pairs = SESSIONS[app]
+            path = max((p for pat in pats for p in glob.glob(pat)), key=os.path.getmtime)
             mt = (path, os.stat(path).st_mtime)
-            if mt != _zen["mtime"]:
+            if mt != c["mtime"]:
                 m = {}
-                for w in _mozlz4(path).get("windows", []):
-                    for tab in w.get("tabs", []):
-                        for e in tab.get("entries") or []:
-                            site = site_of_url(e.get("url"))
-                            if site and e.get("title"):
-                                m[e["title"].strip()] = site
-                _zen["map"], _zen["mtime"] = m, mt
+                for url, t in pairs(path):
+                    site = site_of_url(url)
+                    if site and t and t.strip():
+                        m[t.strip()] = site
+                c["map"], c["mtime"] = m, mt
         except (OSError, ValueError, KeyError, AttributeError) as e:
-            log("zen session:", e)
-    return _zen["map"].get(title)
+            log(app, "session:", e)
+    return c["map"].get(title)
 
 
 def detail_of(app, title):
@@ -216,8 +257,8 @@ def detail_of(app, title):
             return "Новая вкладка"
         if title == "Picture-in-Picture":
             return "Картинка в картинке"
-        if app == "zen":
-            site = zen_site(title)
+        if app in SESSIONS:
+            site = session_site(app, title)
             if site:
                 return site
         low = title.lower()
