@@ -96,6 +96,7 @@ TYPES = {
     "weather": ("Погода", 400, 200),
     "screentime": ("Экранное время", 320, 196),
     "screenweek": ("Экранное время за неделю", 320, 196),
+    "screenmonth": ("Экранное время за месяц", 320, 196),
     "appmem": ("Память по программам", 320, 196),
     "appcpu": ("Процессор по программам", 320, 196),
     "miku": ("Мику", 200, 236),
@@ -108,7 +109,7 @@ EXE = {"clock": "clock.exe", "date": "today.exe", "pomo": "pomodoro.exe", "matri
        "cava": "visualizer.exe", "sprite": "octopus.exe", "sysinfo": "fetch.exe",
        "sysmon": "sysmon.exe", "banner": "banner.exe", "player": "player.exe", "playermini": "nowplaying.exe",
        "calendar": "calendar.exe", "timer": "timer.exe", "weather": "weather.exe", "screentime": "screentime.exe",
-       "screenweek": "screenweek.exe",
+       "screenweek": "screenweek.exe", "screenmonth": "screenmonth.exe",
        "appmem": "ram.exe", "appcpu": "cpu.exe",
        "miku": "miku.exe", "fire": "fire.exe", "life": "life.exe", "cmd": "cmd.exe"}
 # Общий вид плашек (Настройки → Visuals → Виджеты): прозрачный фон или сплошной,

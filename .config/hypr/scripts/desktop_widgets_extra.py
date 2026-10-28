@@ -16,6 +16,7 @@ argv и стартует сторожем; поэтому всё нужное п
     timer       timer.exe       таймер (или секундомер) крупными цифрами, со звонком
     screentime  screentime.exe  экранное время сегодня: всего и первые программы
     screenweek  screenweek.exe  то же за 7 дней
+    screenmonth screenmonth.exe то же за 30 дней, больше суток — в днях
     appmem      ram.exe         программы по памяти (PSS) — вживую, как Super+Alt+X
     appcpu      cpu.exe         программы по процессору — вживую
     miku        miku.exe        пиксельная Мику с «Пуска», в гамме обоев
@@ -1285,16 +1286,26 @@ def register(ns):
                         col, al = (T["primary"], 0.85) if c >= 5 else (T["fg"], 0.9)
                     text(cr, str(day), cx, cy + (rh - px) // 2, px, col, al, center=cw)
 
-    # ── screentime.exe ──────────────────────────────────────────────────────
+    # ── screentime.exe / screenweek.exe / screenmonth.exe ───────────────────
+    def st_dur(sec, days=False):
+        """Как fmt_dur в screentime.py: «2 ч 13 мин», «13 мин»; days — с суток в днях:
+        «1 д 7 ч» (screenmonth.exe, просьба: «считай в днях, если больше 24 часов»)."""
+        h, m = sec // 3600, (sec % 3600) // 60
+        if days and h >= 24:
+            return "%d д %d ч" % (h // 24, h % 24) if h % 24 else "%d д" % (h // 24)
+        return ("%d ч %d мин" % (h, m) if m else "%d ч" % h) if h else "%d мин" % m
+
     class ScreenTime(Widget, SecondTicker):
         """Экранное время сегодня: всего и первые программы. Раз в минуту спрашивает
-        screentime.py --text (тот же отчёт текстом)."""
-        LABEL = "TODAY"
+        screentime.py --json today --sites: Zen Browser — не одной строкой, а по сайтам
+        (28.10.2026, просьба: «если youtube — YouTube, если hh.kz — hh.kz»)."""
+        LABEL, PERIOD, EVERY = "TODAY", "today", 60
         SHOW_TOTAL = True
+        DAYS = False
 
         def setup(self):
             self.total, self.rows = "", []
-            self.n = 59
+            self.n = self.EVERY - 1
             self.busy = False
             self.start_seconds()
 
@@ -1303,25 +1314,23 @@ def register(ns):
 
         def second(self):
             self.n += 1
-            if self.n % 60 == 0 and not self.busy and not self.mgr.game:
+            if self.n % self.EVERY == 0 and not self.busy and not self.mgr.game:
                 self.busy = True
                 threading.Thread(target=self.fetch, daemon=True).start()
             return False
 
         def fetch(self):
-            import re
             total, rows = "", []
             try:
-                out = subprocess.run([sys.executable, os.path.join(ns["HERE"], "screentime.py"), "--text"],
+                out = subprocess.run([sys.executable, os.path.join(ns["HERE"], "screentime.py"),
+                                      "--json", self.PERIOD, "--sites"],
                                      capture_output=True, text=True, timeout=20).stdout
-                for l in out.splitlines():
-                    m = re.match(r"^Экранное время сегодня.*?:\s*(.+)$", l)
-                    if m:
-                        total = m.group(1)
-                    m = re.match(r"^  (\S.*?)\s{2,}(\S.*?)\s+(\d+)%\s*$", l)
-                    if m:
-                        rows.append((m.group(1), m.group(2), int(m.group(3))))
-            except (OSError, subprocess.SubprocessError):
+                d = json.loads(out)
+                all_s = max(1, d.get("total", 0))
+                total = st_dur(d.get("total", 0), self.DAYS)
+                rows = [(a["name"], st_dur(a["seconds"], self.DAYS), round(100 * a["seconds"] / all_s))
+                        for a in d.get("apps", []) if a.get("seconds", 0) >= 60]
+            except (OSError, ValueError, KeyError, subprocess.SubprocessError):
                 pass
             GLib.idle_add(self.got, total, rows)
 
@@ -1346,43 +1355,18 @@ def register(ns):
                 text(cr, name, x, ry, px, T["fg"], width=w - lw - adv(px))
                 bar(cr, x, ry + px + 2, w, max(2, px // 5), pct / 100, max(3, px // 2))
 
-    # ── screenweek.exe ──────────────────────────────────────────────────────
-    def week_dur(sec):
-        """Как fmt_dur в screentime.py: «2 ч 13 мин», «13 мин»."""
-        h, m = sec // 3600, (sec % 3600) // 60
-        return ("%d ч %d мин" % (h, m) if m else "%d ч" % h) if h else "%d мин" % m
-
     class ScreenWeek(ScreenTime):
-        """Экранное время за 7 дней (28.10.2026, просьба: «тип виджета screentime.exe, но для
-        недельных»): первые программы, вид как у screentime.exe (столбики по дням
-        и сумма в шапке убраны по просьбе: «только список»). Данные — screentime.py --json week, раз в две минуты."""
-        LABEL = "WEEK"
-        SHOW_TOTAL = False      # сумма за неделю тоже не нужна — просьба
+        """За 7 дней (28.10.2026, просьба: «тип виджета screentime.exe, но для недельных»):
+        только список — столбики по дням и сумму в шапке убрал по просьбе. Раз в 2 мин."""
+        LABEL, PERIOD, EVERY = "WEEK", "week", 120
+        SHOW_TOTAL = False
 
-        def setup(self):
-            super().setup()
-            self.n = 119
-
-        def second(self):
-            self.n += 1
-            if self.n % 120 == 0 and not self.busy and not self.mgr.game:
-                self.busy = True
-                threading.Thread(target=self.fetch, daemon=True).start()
-            return False
-
-        def fetch(self):
-            total, rows = "", []
-            try:
-                out = subprocess.run([sys.executable, os.path.join(ns["HERE"], "screentime.py"), "--json", "week"],
-                                     capture_output=True, text=True, timeout=20).stdout
-                d = json.loads(out)
-                all_s = max(1, d.get("total", 0))
-                total = week_dur(d.get("total", 0))
-                rows = [(a["name"], week_dur(a["seconds"]), round(100 * a["seconds"] / all_s))
-                        for a in d.get("apps", []) if a.get("seconds", 0) >= 60]
-            except (OSError, ValueError, KeyError, subprocess.SubprocessError):
-                pass
-            GLib.idle_add(self.got, total, rows)
+    class ScreenMonth(ScreenTime):
+        """За 30 дней (28.10.2026, «такой же виджет за месяц… в днях, если больше 24 часов»).
+        Раз в 5 мин."""
+        LABEL, PERIOD, EVERY = "MONTH", "month", 300
+        SHOW_TOTAL = False
+        DAYS = True
 
     def list_px(w, h):
         """Кегль списков screentime/ram/cpu.exe — только от размера окна (13.10.2026, просьба: «масштаб не должен меняться так странно, он должен быть предсказуемым»). Раньше кегль
@@ -2236,6 +2220,6 @@ def register(ns):
     ns["CLASSES"].update({"sysmon": SysMon, "banner": Banner, "player": Player,
                           "playermini": PlayerMini, "timer": Timer,
                           "calendar": Calendar, "screentime": ScreenTime,
-                          "screenweek": ScreenWeek,
+                          "screenweek": ScreenWeek, "screenmonth": ScreenMonth,
                           "appmem": AppTop, "appcpu": AppTop,
                           "miku": Miku, "fire": Fire, "life": Life})

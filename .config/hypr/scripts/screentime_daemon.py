@@ -110,6 +110,86 @@ def log(*a):
     print(time.strftime("%H:%M:%S"), *a, file=sys.stderr, flush=True)
 
 
+# Сайт вкладки Zen — по адресу из сессии браузера (28.10.2026, просьба: «отличать вкладки
+# Zen Browser… если hh.kz, то hh.kz»). Заголовок окна сайта не называет («Работа в Алматы…»),
+# а в sessionstore-backups/recovery.jsonlz4 у каждой вкладки есть заголовок и адрес. Файл —
+# mozlz4 (заголовок + блок lz4), распаковывает системная liblz4 через ctypes (~12 мс);
+# читается заново, только если изменился, и не чаще раза в 10 с. Нет вкладки с таким
+# заголовком (только что открыта) — как раньше, по словам заголовка.
+ZEN_SESSIONS = [os.path.expanduser(d) for d in ("~/.config/zen", "~/.zen")]
+# Имена для известных адресов; остальные — домен без поддомена: almaty.hh.kz → hh.kz
+SITE_HOSTS = {"youtube.com": "YouTube", "youtu.be": "YouTube", "github.com": "GitHub",
+              "mail.google.com": "Gmail", "google.com": "Google", "web.telegram.org": "Telegram",
+              "chatgpt.com": "ChatGPT",
+              "reddit.com": "Reddit", "twitch.tv": "Twitch", "wikipedia.org": "Wikipedia",
+              "habr.com": "Хабр", "stackoverflow.com": "Stack Overflow", "instagram.com": "Instagram",
+              "vk.com": "VK", "discord.com": "Discord", "netflix.com": "Netflix",
+              "kinopoisk.ru": "Кинопоиск", "notion.so": "Notion", "leetcode.com": "LeetCode",
+              "wiki.archlinux.org": "ArchWiki", "aur.archlinux.org": "AUR", "linkedin.com": "LinkedIn"}
+TWO_LEVEL = {"co.uk", "com.kz", "org.kz", "com.ru", "co.jp", "com.au", "com.tr", "com.br"}
+_zen = {"at": 0.0, "mtime": None, "map": {}}
+
+
+def _mozlz4(path):
+    import ctypes
+    lib = _mozlz4.lib = getattr(_mozlz4, "lib", None) or ctypes.CDLL("liblz4.so.1")
+    with open(path, "rb") as f:
+        b = f.read()
+    if b[:8] != b"mozLz40\0":
+        raise ValueError("not mozlz4")
+    n = int.from_bytes(b[8:12], "little")
+    out = ctypes.create_string_buffer(n)
+    r = lib.LZ4_decompress_safe(b[12:], out, len(b) - 12, n)
+    if r < 0:
+        raise ValueError("lz4")
+    return json.loads(out.raw[:r])
+
+
+def site_of_url(url):
+    """https://almaty.hh.kz/… → hh.kz; известные — по SITE_HOSTS; не сайт — None."""
+    m = re.match(r"^https?://([^/:?#]+)", url or "")
+    if not m:
+        return "Файлы" if (url or "").startswith("file:") else None
+    host = m.group(1).lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if host in SITE_HOSTS:
+        return SITE_HOSTS[host]
+    parts = host.split(".")
+    if len(parts) > 2:
+        base = ".".join(parts[-3:]) if ".".join(parts[-2:]) in TWO_LEVEL else ".".join(parts[-2:])
+    else:
+        base = host
+    return SITE_HOSTS.get(base, base)
+
+
+def zen_site(title):
+    """Сайт вкладки Zen с таким заголовком — по её адресу в сессии; не нашли — None."""
+    now = time.monotonic()
+    if now - _zen["at"] >= 10:
+        _zen["at"] = now
+        try:
+            import glob
+            # профиль, где сессия писалась последней (у Zen папка вида «xxxx.Default (release)»)
+            path = max((p for d in ZEN_SESSIONS
+                        for p in glob.glob(os.path.join(glob.escape(d), "*", "sessionstore-backups",
+                                                        "recovery.jsonlz4"))),
+                       key=os.path.getmtime)
+            mt = (path, os.stat(path).st_mtime)
+            if mt != _zen["mtime"]:
+                m = {}
+                for w in _mozlz4(path).get("windows", []):
+                    for tab in w.get("tabs", []):
+                        for e in tab.get("entries") or []:
+                            site = site_of_url(e.get("url"))
+                            if site and e.get("title"):
+                                m[e["title"].strip()] = site
+                _zen["map"], _zen["mtime"] = m, mt
+        except (OSError, ValueError, KeyError, AttributeError) as e:
+            log("zen session:", e)
+    return _zen["map"].get(title)
+
+
 def detail_of(app, title):
     """Что именно было на экране у программы: для терминала — программа
     в нём, для браузера — сайт. Для остальных — None (без подробностей)."""
@@ -136,6 +216,10 @@ def detail_of(app, title):
             return "Новая вкладка"
         if title == "Picture-in-Picture":
             return "Картинка в картинке"
+        if app == "zen":
+            site = zen_site(title)
+            if site:
+                return site
         low = title.lower()
         for site in SITES:
             if site.lower() in low:

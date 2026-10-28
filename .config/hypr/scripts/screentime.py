@@ -5,7 +5,9 @@
                                       (второй запуск закрывает его)
     screentime.py --week              то же, сразу на вкладке «7 дней»
     screentime.py --text [today|week] сводка простым текстом (для терминала и скриптов)
-    screentime.py --json [today|week] то же в JSON
+    screentime.py --json [today|week|month] [--sites]
+                                      то же в JSON; month — 30 дней; --sites — Zen Browser
+                                      не одной строкой, а по сайтам (для виджетов)
     screentime.py --render PNG [today|week]
                                       нарисовать окно без показа на экране (проверка вида)
 
@@ -262,16 +264,53 @@ def focus_line(st):
     return " · ".join(parts)
 
 
-def summary(kind):
+# Браузер, который виджеты показывают по сайтам (--sites, 28.10.2026, просьба: «отличать
+# вкладки Zen Browser… если youtube — YouTube, если hh.kz — hh.kz»).
+SPLIT_APPS = {"zen": "Zen"}
+SPLIT_NAMES = {"Новая вкладка": "%s: новая вкладка", "Другие страницы": "%s: другие",
+               "Другое": "%s: другие", "Картинка в картинке": "%s: картинка в картинке"}
+
+
+def split_sites(apps, details):
+    """{app: сек} → то же, но Zen разложен на строки по сайтам: «zen:YouTube» и т.д.
+    Время без подписи (до 30.09) остаётся строкой «Zen: другие»."""
+    out = {}
+    for a, sec in apps.items():
+        if a not in SPLIT_APPS:
+            out[a] = out.get(a, 0) + sec
+            continue
+        rest = sec
+        for k, v in (details.get(a) or {}).items():
+            key = "%s:%s" % (a, SPLIT_NAMES.get(k, "%s") % SPLIT_APPS[a] if k in SPLIT_NAMES else k)
+            v = min(v, rest)
+            out[key] = out.get(key, 0) + v
+            rest -= v
+        if rest >= 1:
+            key = "%s:%s" % (a, SPLIT_NAMES["Другие страницы"] % SPLIT_APPS[a])
+            out[key] = out.get(key, 0) + rest
+    return out
+
+
+def row_name(a):
+    return a.split(":", 1)[1] if ":" in a and a.split(":", 1)[0] in SPLIT_APPS else app_name(a)
+
+
+def summary(kind, sites=False):
     poke_daemon()
     today = datetime.date.today()
-    if kind == "week":
-        dates = week_dates(today)
+    if kind in ("week", "month"):
+        dates = week_dates(today) if kind == "week" else \
+            [today - datetime.timedelta(days=i) for i in range(29, -1, -1)]
         days = [load_day(d) for d in dates]
         apps = sum_apps(d["apps"] for d in days)
         det = sum_details(days)
+        if sites:
+            return {"period": kind, "from": dates[0].isoformat(), "to": today.isoformat(),
+                    "total": round(sum(apps.values())),
+                    "apps": [{"app_id": a, "name": row_name(a), "seconds": round(s)}
+                             for a, s in ranked(split_sites(apps, det))]}
         return {
-            "period": "week", "from": dates[0].isoformat(), "to": today.isoformat(),
+            "period": kind, "from": dates[0].isoformat(), "to": today.isoformat(),
             "total": round(sum(apps.values())),
             "days": [{"date": d.isoformat(), "total": round(sum(x["apps"].values()))}
                      for d, x in zip(dates, days)],
@@ -280,6 +319,11 @@ def summary(kind):
                      for a, s in ranked(apps)],
         }
     day = load_day(today)
+    if sites:
+        return {"period": "today", "date": today.isoformat(),
+                "total": round(sum(day["apps"].values())),
+                "apps": [{"app_id": a, "name": row_name(a), "seconds": round(s)}
+                         for a, s in ranked(split_sites(day["apps"], day["details"]))]}
     return {
         "period": "today", "date": today.isoformat(),
         "total": round(sum(day["apps"].values())),
@@ -999,10 +1043,12 @@ def render_png(path, mode):
 def main():
     argv = sys.argv[1:]
     kind = "week" if "week" in argv or "--week" in argv else "today"
+    if "--json" in argv and "month" in argv:
+        kind = "month"
     if "--text" in argv:
         print_text(kind)
     elif "--json" in argv:
-        print(json.dumps(summary(kind), ensure_ascii=False, indent=1))
+        print(json.dumps(summary(kind, sites="--sites" in argv), ensure_ascii=False, indent=1))
     elif "--render" in argv:
         render_png(argv[argv.index("--render") + 1], kind)
     else:

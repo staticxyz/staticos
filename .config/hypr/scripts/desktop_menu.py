@@ -237,6 +237,7 @@ WIDGET_KINDS = [
     ("pomo", "\U000f051b", "pomodoro.exe — помодоро"),
     ("screentime", "\U000f13ab", "screentime.exe — экранное время"),
     ("screenweek", "\U000f13ab", "screenweek.exe — экранное время за неделю"),
+    ("screenmonth", "\U000f13ab", "screenmonth.exe — экранное время за месяц"),
     ("appmem", "\U000f035b", "ram.exe — память по программам"),
     ("appcpu", "\U000f0ee0", "cpu.exe — процессор по программам"),
     ("sysinfo", "\U000f08c7", "fetch.exe — fastfetch"),
