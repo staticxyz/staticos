@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.expanduser("~/.config/hypr/scripts"))
 import hublib as H  # noqa: E402
 import hubtg as T  # noqa: E402
+import growth as G  # noqa: E402
 import hubguard  # noqa: E402
 import hubwa  # noqa: E402
 import session_env  # noqa: E402
@@ -170,9 +171,20 @@ def notify(title, body, iid, critical=False, timer=False, again=False, rep=False
     again — показ заново после смены DND: без звонка, реакция та же. rep — повторяющееся:
     кнопки «Отметить» (срок → следующий раз) и «Закрыть цикл» (14.10.2026). group — сводка
     «На сегодня» (allday_fire): номера её пунктов, кнопка «Открыть список»."""
-    if not timer and not again:
+    hold = critical and not timer and not again   # напоминание/сводка: в DND ждёт (hublib.dnd_wait)
+    if not timer and not again and not hold:
         chime()                                    # у таймера свой звонок — ring()
     def work():
+        if hold:
+            if H.dnd_wait(stop) and iid:          # пока ждали, могли закрыть в Telegram
+                c = H.connect()
+                it = H.get_item(c, iid)
+                c.close()
+                if it is None or it["status"] != "open" or it["seen"]:
+                    return
+            if stop.is_set():
+                return
+            chime()
         cmd = ["notify-send", "-a", "hub", "-u", "critical" if critical else "normal", "-p"]
         if group:                                   # сводка «На сегодня»: щелчок или кнопка — окно hub
             cmd += ["-A", "default=Открыть", "-A", "open=☰ Открыть список"]
@@ -218,7 +230,7 @@ def notify(title, body, iid, critical=False, timer=False, again=False, rep=False
                 H.mark_seen(c, i)
             c.close()
             if act in ("open", "default"):
-                subprocess.Popen([os.path.expanduser("~/.local/bin/hub-open")], start_new_session=True,
+                subprocess.Popen([os.path.expanduser("~/.local/bin/hub-open"), "items"], start_new_session=True,
                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
             return
@@ -654,6 +666,130 @@ def allday_tick(c):
         allday_fire(c, rows)
 
 
+def eve_notify(title, body):
+    """Вечернее «📝 Итоги дня» на ПК (growth.py, 28.10.2026): «Записать» — окно «Better»,
+    «На час позже» — снова через час, закрыли — увидел (в Telegram не уйдёт)."""
+    chime()
+
+    def work():
+        try:
+            r = subprocess.run(["notify-send", "-a", "hub", "-i", "jarvis-hub-better", "-u", "critical", "-w",
+                                "-A", "default=Записать", "-A", "write=📝 Записать",
+                                "-A", "later=⏰ На час позже", title, body],
+                               capture_output=True, text=True, stdin=subprocess.DEVNULL)
+            act = r.stdout.strip()
+        except Exception:
+            return
+        if stop.is_set():
+            return
+        c = H.connect()
+        try:
+            if act == "later":
+                log("итоги дня: на час позже →", G.eve_later(c))
+                return
+            G.eve_done(c)
+            if act in ("write", "default"):
+                subprocess.Popen([os.path.expanduser("~/.local/bin/hub-open"), "growth"], start_new_session=True,
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+        finally:
+            c.close()
+    threading.Thread(target=work, daemon=True).start()
+
+
+def eve_tick(c, esc):
+    """21:00 — напомнить записать показатели дня: на ПК, а нет за ПК / не ответили — в Telegram."""
+    e = G.eve_get(c)
+    t = H.now()
+    if e["done"] or t < e["due"] or e["tg"]:
+        return
+    title, miss = G.eve_text(c)
+    if e["pc"] is None and pc_present():
+        body = ("Не записано:\n" + "\n".join(miss)) if miss else "Всё записано — проверьте цифры."
+        eve_notify(title, body)
+        e["pc"] = t
+        G.eve_set(c, e)
+        log("итоги дня: на ПК")
+        return
+    if not T.token() or (e["pc"] is not None and t - e["pc"] < esc and pc_present()):
+        return
+    text = "<b>%s</b>\n\n%s" % (T.esc(title), ("Не записано, сэр:\n" + "\n".join(
+        "· " + T.esc(m) for m in miss)) if miss else "Всё записано — проверьте цифры, сэр.")
+    T.enqueue(c, text, [[T.btn("📝 Записать", "g:eve"), T.btn("⏰ На час позже", "g:later")]], html=True)
+    e["tg"] = t
+    G.eve_set(c, e)
+    log("итоги дня: в Telegram")
+
+
+def nudge_send(n):
+    """Предупреждение «Лучше вчера» на ПК; щелчок — окно Better (Super+M)."""
+    cmd = ["notify-send", "-a", "hub", "-i", "jarvis-hub-better", "-w", "-A", "default=Открыть"]
+    if n["through"]:
+        cmd += ["-h", "int:SWAYNC_BYPASS_DND:1"]
+    chime()
+
+    def work():
+        try:
+            r = subprocess.run(cmd + [n["title"], n["body"]], capture_output=True, text=True,
+                               stdin=subprocess.DEVNULL)
+        except Exception:
+            return
+        if r.stdout.strip() == "default":
+            subprocess.Popen([os.path.expanduser("~/.local/bin/hub-open"), "growth"], start_new_session=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    threading.Thread(target=work, daemon=True).start()
+
+
+_nudge = {"t": 0}
+
+
+def nudge_tick(c):
+    """Раз в минуту: «до красной чуть-чуть» (growth.nudges, 29.10.2026)."""
+    if time.monotonic() - _nudge["t"] < 60:
+        return
+    _nudge["t"] = time.monotonic()
+    here = pc_present()
+    for n in G.nudges(c, at_pc=here):
+        if here:
+            nudge_send(n)
+        elif T.token():
+            T.enqueue(c, "<b>%s</b>\n%s" % (T.esc(n["title"]), T.esc(n["body"])), html=True)
+        log("better: предупреждение", n["key"], "ПК" if here else "TG")
+
+
+_obs = {"t": 0}
+
+
+def obs_tick(c):
+    """«Better» → Obsidian (Развитие/Better) раз в 10 минут и сразу после любой записи (штамп
+    growth); пульт /better в Telegram — тоже (29.10.2026: «полная синхронизация с ботом и десктопом»)."""
+    if WOKE.get("input") and input_since(WOKE["input"]):
+        try:
+            ts = int(open(INPUT_FILE).read().split()[1])
+        except (OSError, ValueError, IndexError):
+            ts = H.now()
+        WOKE["input"] = 0
+        H.note(c, "input", "первый ввод после пробуждения по часам — встали", ts)
+        G.invalidate()
+    st = G.stamp()
+    changed = st != _obs.get("s")
+    if not changed and time.monotonic() - _obs["t"] < 600 and _obs["t"]:
+        if T.token() and time.monotonic() - _obs.get("tg", 0) >= 60:
+            _obs["tg"] = time.monotonic()
+            G.tg_sync(c, T.Bot(T.token()))           # время идёт — цифры экранного времени тоже
+        return
+    _obs["t"], _obs["s"], _obs["tg"] = time.monotonic(), st, time.monotonic()
+    if T.token():
+        try:
+            if G.tg_sync(c, T.Bot(T.token())):
+                log("better → пульт в Telegram обновлён")
+        except Exception as e:
+            log("better → пульт:", repr(e))
+    ch = G.obsidian_export(c)
+    if ch:
+        log("better → obsidian:", ", ".join(os.path.basename(x) for x in ch))
+
+
 def tick(c):
     t = H.now()
     esc = int(H.cfg("esc_min", DEFAULT_ESC_MIN)) * 60
@@ -671,6 +807,18 @@ def tick(c):
         if not is_allday_today(it):                 # задачи на сегодня — сводкой (allday_tick)
             fire(c, it)
     allday_tick(c)
+    try:
+        eve_tick(c, esc)
+    except Exception as e:
+        log("итоги дня:", repr(e))
+    try:
+        nudge_tick(c)
+    except Exception as e:
+        log("better → предупреждения:", repr(e))
+    try:
+        obs_tick(c)
+    except Exception as e:
+        log("better → obsidian:", repr(e))
     close_stale(c)
     lock_track()
     lost_watch(c)
@@ -990,6 +1138,7 @@ def power_watch():
             t = rtc_planned()
             if t and abs(time.time() - t) < 180:
                 WOKE["at"] = time.time()         # проснулись по часам — вас нет до первого ввода
+                WOKE["input"] = WOKE["at"]       # первый ввод → журнал 'input' (подъём в growth.py)
                 WOKE["why"] = rtc_why()
             slept = st.get("sleep_at")
             slept = " · спал %s, с %s" % (H.fmt_secs(time.time() - slept), hm_of(slept)) \

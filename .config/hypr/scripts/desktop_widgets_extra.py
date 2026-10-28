@@ -1302,12 +1302,45 @@ def register(ns):
         LABEL, PERIOD, EVERY = "TODAY", "today", 60
         SHOW_TOTAL = True
         DAYS = False
+        # 29.10.2026, просьба: «кнопку справа для переключения week/day и сделать один виджет
+        # screentime, а screenweek убрать». Кнопка в шапке: D — сегодня, W — неделя;
+        # выбор — opts.period. Старые screenweek в раскладке переведены в screentime.
+        TOGGLE = (("today", "TODAY", 60), ("week", "WEEK", 120))
+        # круглый диск и лучи с зазором — как значок подъёма в Better (прежний 7×7 был снежинкой)
+        SUN = ("....#....", ".#.....#.", "...###...", "..#####..", "#.#####.#", "..#####..",
+               "...###...", ".#.....#.", "....#....")
+        WEEK = (".#.....#.", "#########", "#########", "#.......#", "#.#.#.#.#", "#.......#",
+                "#.#.#.#.#", "#########")
 
         def setup(self):
             self.total, self.rows = "", []
-            self.n = self.EVERY - 1
             self.busy = False
+            self.hot = ()
+            self.apply_period()
             self.start_seconds()
+
+        def apply_period(self):
+            per = self.opts.get("period") if self.TOGGLE else None
+            for p, label, every in self.TOGGLE:
+                if p == per:
+                    self.PERIOD, self.LABEL, self.EVERY = p, label, every
+            self.SHOW_TOTAL = self.PERIOD == "today"
+            self.n = self.EVERY - 1
+
+        def on_click(self, x, y, button=1):
+            if button != 1 or not self.TOGGLE:
+                return
+            per = "week" if self.PERIOD == "today" else "today"
+            self.opts["period"] = per
+            self.spec["opts"] = self.opts
+            self.mgr.save()
+            self.apply_period()
+            self.total, self.rows = "", []
+            self.area.queue_draw()
+            if not self.busy:
+                self.n = 0
+                self.busy = True
+                threading.Thread(target=self.fetch, daemon=True).start()
 
         def cleanup(self):
             self.stop_seconds()
@@ -1321,9 +1354,10 @@ def register(ns):
 
         def fetch(self):
             total, rows = "", []
+            per = self.PERIOD
             try:
                 out = subprocess.run([sys.executable, os.path.join(ns["HERE"], "screentime.py"),
-                                      "--json", self.PERIOD, "--sites"],
+                                      "--json", per, "--sites"],
                                      capture_output=True, text=True, timeout=20).stdout
                 d = json.loads(out)
                 all_s = max(1, d.get("total", 0))
@@ -1332,10 +1366,13 @@ def register(ns):
                         for a in d.get("apps", []) if a.get("seconds", 0) >= 60]
             except (OSError, ValueError, KeyError, subprocess.SubprocessError):
                 pass
-            GLib.idle_add(self.got, total, rows)
+            GLib.idle_add(self.got, total, rows, per)
 
-        def got(self, total, rows):
+        def got(self, total, rows, per=None):
             self.busy = False
+            if per and per != self.PERIOD:            # переключили, пока считалось — заново
+                self.n = self.EVERY - 1
+                return False
             self.total, self.rows = total, rows
             self.area.queue_draw()
             return False
@@ -1347,8 +1384,29 @@ def register(ns):
             rh = px + max(6, px // 2 + 3)
             n = max(0, min(len(self.rows), int((h - px * 1.5) // rh)))
             text(cr, self.LABEL, x, y, px, T["accent"])
+            right = x + w
+            if self.TOGGLE:
+                # значок периода, на который переключит: солнце — день, календарная строка — неделя
+                # (Пользователь 29.10: кнопка вылезала над строкой — теперь внутри неё и компактнее)
+                bits = self.SUN if self.PERIOD == "week" else self.WEEK
+                k = max(2, px // 7)
+                gw, gh = len(bits[0]) * k, len(bits) * k
+                bw = max(gw, gh)                      # без рамки — только значок (Пользователь 29.10)
+                bx, by = right - bw, y + max(0, (px - bw) // 2)
+                cr.set_source_rgba(*T["accent"], 0.95)
+                ox, oy = bx + (bw - gw) // 2, by + (bw - gh) // 2
+                for r, row in enumerate(bits):
+                    for c, ch in enumerate(row):
+                        if ch == "#":
+                            cr.rectangle(ox + c * k, oy + r * k, k, k)
+                cr.fill()
+                hot = (bx - 4, by - 4, bw + 8, bw + 8)
+                if tuple(self.hot) != (hot,):
+                    self.hot = (hot,)
+                    self.update_input()
+                right = bx - adv(px)
             if self.SHOW_TOTAL:
-                text(cr, self.total or "…", 0, y, px, T["fg"], right=x + w)
+                text(cr, self.total or "…", 0, y, px, T["fg"], right=right)
             for i, (name, dur, pct) in enumerate(self.rows[:n]):
                 ry = y + px * 1.5 + i * rh
                 lw, _ = text(cr, dur, 0, ry, px, T["fg"], 0.7, right=x + w)
@@ -1360,6 +1418,7 @@ def register(ns):
         только список — столбики по дням и сумму в шапке убрал по просьбе. Раз в 2 мин."""
         LABEL, PERIOD, EVERY = "WEEK", "week", 120
         SHOW_TOTAL = False
+        TOGGLE = ()                                   # старые раскладки; в меню больше нет
 
     class ScreenMonth(ScreenTime):
         """За 30 дней (28.10.2026, «такой же виджет за месяц… в днях, если больше 24 часов»).
@@ -1367,6 +1426,126 @@ def register(ns):
         LABEL, PERIOD, EVERY = "MONTH", "month", 300
         SHOW_TOTAL = False
         DAYS = True
+        TOGGLE = ()
+
+    # ── better.exe ──────────────────────────────────────────────────────────
+    class Better(Widget, SecondTicker):
+        """«Лучше вчера» на обоях (28.10.2026, просьба: «можно добавить виджет для этого»):
+        счёт дня, серия и строки вкладки Better из hub (Super+M) — значок в цвете строки,
+        значение (зелёное — лучше вчера, красное — хуже) и полоса до цели. Данные —
+        `growth.py --json` раз в минуту в отдельном потоке; в игре не спрашивает.
+        29.10: запись в hub или боте трогает growth-stamp — виджет перечитывает сразу."""
+        GROWTH = os.path.expanduser("~/.local/share/hub/growth.py")
+        STAMP = os.path.expanduser("~/.cache/jarvis/growth-stamp")
+        EVERY = 60
+        SHORT = {"code": "Код", "market": "hh.kz", "fun": "Прокрастинация", "money": "Траты",
+                 "cig": "Сигареты", "lift": "Сила"}
+
+        def setup(self):
+            self.d = None
+            self.n = self.EVERY - 1
+            self.busy = False
+            self.stamp = self.stamp_now()
+            self.start_seconds()
+
+        def stamp_now(self):
+            try:
+                return os.stat(self.STAMP).st_mtime_ns
+            except OSError:
+                return 0
+
+        def cleanup(self):
+            self.stop_seconds()
+
+        def second(self):
+            self.n += 1
+            st = self.stamp_now()
+            if st != self.stamp:
+                self.stamp, self.n = st, 0
+            if self.n % self.EVERY == 0 and not self.busy and not self.mgr.game:
+                self.busy = True
+                threading.Thread(target=self.fetch, daemon=True).start()
+            return False
+
+        def fetch(self):
+            d = None
+            try:
+                out = subprocess.run([sys.executable, self.GROWTH, "--json"], capture_output=True,
+                                     text=True, timeout=20).stdout
+                d = json.loads(out)
+            except (OSError, ValueError, subprocess.SubprocessError):
+                pass
+            GLib.idle_add(self.got, d)
+
+        def got(self, d):
+            self.busy = False
+            if d:
+                self.d = d
+            self.area.queue_draw()
+            return False
+
+        @staticmethod
+        def rgb(h):
+            h = h.lstrip("#")
+            return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
+        @staticmethod
+        def pix(cr, x, y, art, col, s):
+            cr.set_source_rgb(*col)
+            for j, row in enumerate(art):
+                for i, ch in enumerate(row):
+                    if ch == "#":
+                        cr.rectangle(int(x) + i * s, int(y) + j * s, s, s)
+            cr.fill()
+
+        def paint(self, cr, x, y, w, h):
+            px = list_px(w, h)
+            text(cr, "BETTER", x, y, px, T["accent"])
+            d = self.d
+            if not d:
+                text(cr, "…", 0, y, px, T["fg"], right=x + w)
+                return
+            hues = d["hues"]
+            ok, bad = self.rgb(hues["ok"]), self.rgb("#ff6b6b")
+            good, n = d["score"]
+            s = max(1, px // 8)                       # точка значка: 9×9 точек ≈ кегль
+            right = x + w
+            sw, _ = text(cr, "%d/%d" % (good, n), 0, y, px, ok if good * 2 > n else T["fg"], right=right)
+            if d.get("streak"):
+                fl = self.rgb(hues["flame"])
+                tw, _ = text(cr, str(d["streak"]), 0, y, px, fl, right=right - sw - adv(px))
+                self.pix(cr, right - sw - adv(px) - tw - 10 * s, y + (px - 9 * s) // 2,
+                         d["icons"]["flame"], fl, s)
+            rh = px + max(8, px // 2 + 6)
+            rows = d["rows"]
+            k = max(0, min(len(rows), int((h - px * 1.5) // rh)))
+            for i, r in enumerate(rows[:k]):
+                ry = y + px * 1.5 + i * rh
+                col = self.rgb(hues.get(r["key"], hues["chores"]))
+                self.pix(cr, x, ry + (px - 9 * s) // 2, d["icons"][r["key"]], col, s)
+                nx = x + 9 * s + adv(px)
+                met = r["met"]
+                vcol = ok if met else bad if met is False else T["fg"]
+                vw, _ = text(cr, r["value"], 0, ry, px, vcol, 0.9 if met is None else 1.0, right=right)
+                room = right - nx - vw - adv(px)
+                nw, _ = text(cr, self.SHORT.get(r["key"], r["name"]), nx, ry, px, T["fg"], width=room)
+                if r.get("streak") and nw + 12 * s + adv(px) * 2 < room:
+                    fl = self.rgb(hues["flame"])
+                    fx = nx + nw + adv(px) // 2
+                    self.pix(cr, fx, ry + (px - 9 * s) // 2, d["icons"]["flame"], fl, s)
+                    text(cr, str(r["streak"]), fx + 10 * s, ry, px, fl)
+                f = r["frac"] if r["frac"] is not None else (1.0 if met is not None else 0.0)
+                bh = max(2, px // 5)
+                by = ry + px + max(3, px // 4)
+                cr.set_source_rgba(*T["fg"], 0.12)
+                cr.rectangle(nx, by, right - nx, bh)
+                cr.fill()
+                # предел (сигареты, траты, прокрастинация): сверх цели — красная, как в окне Better;
+                # при цели 0 полоса ровно полная (frac 1) — смотреть и на met (29.10.2026)
+                warn_over = r["warn"] and ((r["frac"] or 0) > 1 or met is False)
+                cr.set_source_rgb(*(bad if warn_over or (r["frac"] is None and met is False) else col))
+                cr.rectangle(nx, by, (right - nx) * max(0.0, min(1.0, f)), bh)
+                cr.fill()
 
     def list_px(w, h):
         """Кегль списков screentime/ram/cpu.exe — только от размера окна (13.10.2026, просьба: «масштаб не должен меняться так странно, он должен быть предсказуемым»). Раньше кегль
@@ -2220,6 +2399,6 @@ def register(ns):
     ns["CLASSES"].update({"sysmon": SysMon, "banner": Banner, "player": Player,
                           "playermini": PlayerMini, "timer": Timer,
                           "calendar": Calendar, "screentime": ScreenTime,
-                          "screenweek": ScreenWeek, "screenmonth": ScreenMonth,
+                          "screenweek": ScreenWeek, "screenmonth": ScreenMonth, "better": Better,
                           "appmem": AppTop, "appcpu": AppTop,
                           "miku": Miku, "fire": Fire, "life": Life})

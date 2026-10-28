@@ -290,7 +290,7 @@ class Store:
 
     def day(self, day):
         if day not in self.days:
-            d = {"apps": {}, "hours": {}, "details": {}}
+            d = {"apps": {}, "hours": {}, "details": {}, "hdetails": {}}
             try:
                 with open(self.path(day), encoding="utf-8") as f:
                     raw = json.load(f)
@@ -299,6 +299,10 @@ class Store:
                               for h, m in raw.get("hours", {}).items()}
                 d["details"] = {a: {k: float(v) for k, v in m.items()}
                                 for a, m in raw.get("details", {}).items()}
+                # по часам — для «Лучше вчера» (hub growth.py, 29.10.2026): день считается от
+                # пробуждения до сна, а не от полуночи; приложения не различаем — только сайт
+                d["hdetails"] = {h: {k: float(v) for k, v in m.items()}
+                                 for h, m in raw.get("hdetails", {}).items()}
             except (OSError, ValueError, AttributeError):
                 pass
             self.days[day] = d
@@ -335,6 +339,14 @@ class Store:
                     m.pop(detail, None)
                 if not m:
                     d["details"].pop(app, None)
+                hd = d["hdetails"].setdefault(str(lt.tm_hour), {})
+                v = hd.get(detail, 0.0) + sec
+                if v > 0.05:
+                    hd[detail] = v
+                else:
+                    hd.pop(detail, None)
+                if not hd:
+                    d["hdetails"].pop(str(lt.tm_hour), None)
             self.dirty.add(day)
             t = end
 
@@ -345,7 +357,9 @@ class Store:
                    "hours": {h: {k: round(v, 1) for k, v in m.items()}
                              for h, m in sorted(d["hours"].items(), key=lambda x: int(x[0]))},
                    "details": {a: {k: round(v, 1) for k, v in sorted(m.items(), key=lambda x: -x[1])}
-                               for a, m in d["details"].items()}}
+                               for a, m in d["details"].items()},
+                   "hdetails": {h: {k: round(v, 1) for k, v in m.items()}
+                                for h, m in sorted(d["hdetails"].items(), key=lambda x: int(x[0]))}}
             tmp = self.path(day) + ".tmp"
             try:
                 with open(tmp, "w", encoding="utf-8") as f:

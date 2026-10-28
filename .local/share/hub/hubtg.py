@@ -343,104 +343,120 @@ def sync_messages(c, bot):
 HELP_TEXT = Html(
     "<b>◆ " + BRAND + " · СПРАВКА</b>\n"
     "<i>Пишите как человеку, сэр, — разберу. Голосовые тоже.</i>\n"
+    "\n<b>■ ЛУЧШЕ ВЧЕРА</b>\n"
+    "📈 /better — сегодня против вчера: сон, код, речь, отклики, видео и игры, траты, сигареты, сила, быт\n"
+    "📅 /week — неделя таблицей\n"
     "\n<b>■ ЗАДАЧИ</b>\n"
-    "<code>купить хлеб       </code> новая задача\n"
-    "<code>завтра в 10 звонок</code> со сроком\n"
-    "<code>Покупки: хлеб     </code> в свой список\n"
-    "/tasks — пульт: добавить, изменить, удалить, важность\n"
+    "📝 <code>купить хлеб       </code> новая задача\n"
+    "⏰ <code>завтра в 10 звонок</code> со сроком\n"
+    "🛒 <code>Покупки: хлеб     </code> в свой список\n"
+    "✅ /tasks — пульт: добавить, изменить, удалить, важность\n"
     "\n<b>■ ТАЙМЕРЫ</b>\n"
-    "<code>25 чай            </code> таймер на 25 мин\n"
-    "/timer — длительности и идущие\n"
+    "⏳ <code>25 чай            </code> таймер на 25 мин\n"
+    "⏱ /timer — длительности и идущие\n"
     "\n<b>■ СЛОВАРЬ</b>\n"
-    "<code>/w cat = кот      </code> новое слово\n"
-    "/words — повторить, список\n"
+    "➕ <code>/w cat = кот      </code> новое слово\n"
+    "📖 /words — повторить, список\n"
     "\n<b>■ WHATSAPP</b>\n"
-    "/wa — отложенные сообщения: кому, текст, когда\n"
+    "💬 /wa — отложенные сообщения: кому, текст, когда\n"
     "\n<b>■ ПК И ДОМ</b>\n"
-    "/pc — состояние, окна, скрин, звук, сон\n"
-    "/alarm — будильник и Сторож\n"
-    "/log — журнал файлом: сон, пробуждения, что сработало\n"
-    "/away — охрана: «Ухожу» запирает экран и следит\n"
+    "💻 /pc — состояние, окна, скрин, звук, сон\n"
+    "🔔 /alarm — будильник и Сторож\n"
+    "📜 /log — журнал файлом: сон, пробуждения, что сработало\n"
+    "🚪 /away — охрана: «Ухожу» запирает экран и следит\n"
     "\n<b>■ ЗАЩИТА</b>\n"
-    "ПК, охрана и WhatsApp просят 6 цифр из аутентификатора\n"
-    "/code 123456 — открыть на 15 мин · /lock — закрыть\n"
-    "\n<i>Все команды — /help all</i>")
+    "🔐 ПК, охрана и WhatsApp просят 6 цифр из аутентификатора\n"
+    "🔑 /code 123456 — открыть на 15 мин · /lock — закрыть\n"
+    "\n<i>📚 Все команды — /help all</i>")
 
 # 14.10.2026, просьба: «/help all — посмотреть абсолютно все команды. Просто help — компактная
 # версия, базовый минимум, без дублей». Здесь — всё, с синонимами.
 HELP_ALL = Html(
     "<b>◆ " + BRAND + " · ВСЕ КОМАНДЫ</b>\n"
     "<i>Через «·» — синонимы. N — номер из пульта задач, #74 — номер пункта в базе.</i>\n"
+    "\n<b>■ ЛУЧШЕ ВЧЕРА</b>\n"
+"📈 <code>/better · /growth · /лучше</code> пульт: отметить, быт, неделя\n"
+"📅 <code>/week · /неделя    </code> 7 дней таблицей\n"
+"🧹 <code>/chores · /быт     </code> бытовые дела\n"
+"🚬 <code>/cig · /cig -      </code> +1 · −1 сигарета\n"
+"💸 <code>/spend 1500 обед   </code> трата (2к = 2000)\n"
+"🏋 <code>/lift жим 14 4x8   </code> подход: вес, подходы×повторы\n"
+"🗣 <code>/speech 15 скороговорки</code> речь: минуты практики · /речь\n"
+"😴 <code>/sleep 0730 2330   </code> подъём и отбой руками · /sleep отбой 2340\n"
+"📨 <code>/apply Компания · /hr Имя</code> отклик · разговор с HR (без текста — просто +1)\n"
     "\n<b>■ ЗАДАЧИ</b>\n"
-    "<code>текст              </code> новая задача (срок и «Список:» понимаю)\n"
-    "<code>/tasks · /ls · /l · /reminders</code> пульт, все задачи\n"
-    "<code>/tasks Покупки     </code> пульт одного списка\n"
-    "<code>/today             </code> пульт: только сегодня\n"
-    "<code>/lists             </code> списки и сколько в них открыто\n"
-    "<code>/add · /a текст    </code> записать задачу\n"
-    "<code>/done · /d N       </code> сделано\n"
-    "<code>/snooze · /s N 30м </code> отложить (по умолчанию на 1 ч)\n"
-    "<code>/edit N текст      </code> переписать (срок в тексте тоже)\n"
-    "<code>/del · /rm N       </code> удалить\n"
+"📝 <code>текст              </code> новая задача (срок и «Список:» понимаю)\n"
+"✅ <code>/tasks · /ls · /l · /reminders</code> пульт, все задачи\n"
+"🛒 <code>/tasks Покупки     </code> пульт одного списка\n"
+"📆 <code>/today             </code> пульт: только сегодня\n"
+"🗂 <code>/lists             </code> списки и сколько в них открыто\n"
+"➕ <code>/add · /a текст    </code> записать задачу\n"
+"✔️ <code>/done · /d N       </code> сделано\n"
+"💤 <code>/snooze · /s N 30м </code> отложить (по умолчанию на 1 ч)\n"
+"✏️ <code>/edit N текст      </code> переписать (срок в тексте тоже)\n"
+"🗑 <code>/del · /rm N       </code> удалить\n"
     "\n<b>■ ТАЙМЕРЫ</b>\n"
-    "<code>25 чай             </code> таймер на 25 мин\n"
-    "<code>/timer · /t · /timers</code> пульт таймеров, «Свой таймер»\n"
-    "<code>/timer 1ч30 стирка </code> таймер с названием\n"
-    "<code>/stop              </code> остановить все таймеры\n"
+"⏳ <code>25 чай             </code> таймер на 25 мин\n"
+"⏱ <code>/timer · /t · /timers</code> пульт таймеров, «Свой таймер»\n"
+"🧺 <code>/timer 1ч30 стирка </code> таймер с названием\n"
+"⏹ <code>/stop              </code> остановить все таймеры\n"
     "\n<b>■ СЛОВАРЬ</b>\n"
-    "<code>/w cat = кот       </code> новое слово\n"
-    "<code>/words · /dictionary [поиск]</code> пульт словаря\n"
-    "<code>/quiz · /повторить · /словарь</code> повторение\n"
-    "<code>/delword · /wdel 7 </code> удалить слово по номеру из /words\n"
+"➕ <code>/w cat = кот       </code> новое слово\n"
+"📖 <code>/words · /dictionary [поиск]</code> пульт словаря\n"
+"🔁 <code>/quiz · /повторить · /словарь</code> повторение\n"
+"🗑 <code>/delword · /wdel 7 </code> удалить слово по номеру из /words\n"
     "\n<b>■ WHATSAPP</b>\n"
-    "<code>/wa                </code> пульт: очередь, «Новое сообщение»\n"
-    "<code>/wa мама           </code> сразу к выбору контакта\n"
-    "<code>/wa N              </code> сообщение N из пульта\n"
-    "<code>/wa история        </code> журнал: отправленные и отменённые\n"
-    "<code>/wa clear          </code> очистить журнал (спросит «да/нет»)\n"
-    "<code>/wa stop           </code> остановить все запланированные (/wa resume — вернуть)\n"
+"💬 <code>/wa                </code> пульт: очередь, «Новое сообщение»\n"
+"👤 <code>/wa мама           </code> сразу к выбору контакта\n"
+"🔢 <code>/wa N              </code> сообщение N из пульта\n"
+"📜 <code>/wa история        </code> журнал: отправленные и отменённые\n"
+"🧽 <code>/wa clear          </code> очистить журнал (спросит «да/нет»)\n"
+"⏸ <code>/wa stop           </code> остановить все запланированные (/wa resume — вернуть)\n"
     "<i>Опоздало до часа — уйдёт само; больше — спрошу.</i>\n"
     "\n<b>■ ЗАЩИТА</b>\n"
-    "<code>/code 123456       </code> второй ключ: ПК, охрана, WhatsApp — 15 мин\n"
-    "<code>/lock              </code> закрыть доступ сейчас\n"
+"🔑 <code>/code 123456       </code> второй ключ: ПК, охрана, WhatsApp — 15 мин\n"
+"🔒 <code>/lock              </code> закрыть доступ сейчас\n"
     "<i>5 неверных кодов — заперто до tfa unlock на ноутбуке. Запереть экран и включить охрану можно без кода.</i>\n"
     "\n<b>■ ОХРАНА</b>\n"
-    "<code>/away              </code> пульт охраны\n"
-    "<code>/away on · off     </code> включить · выключить\n"
-    "<code>/away photo        </code> снимок с камеры\n"
-    "<code>/away rec [сек]    </code> видео (10 с)\n"
-    "<code>/away mic [сек]    </code> звук (30 с, до 10 мин)\n"
-    "<code>/away stop         </code> прервать запись — пришлю, что успел\n"
+"🚪 <code>/away              </code> пульт охраны\n"
+"🛡 <code>/away on · off     </code> включить · выключить\n"
+"📷 <code>/away photo        </code> снимок с камеры\n"
+"🎥 <code>/away rec [сек]    </code> видео (10 с)\n"
+"🎙 <code>/away mic [сек]    </code> звук (30 с, до 10 мин)\n"
+"⏹ <code>/away stop         </code> прервать запись — пришлю, что успел\n"
     "\n<b>■ ПК</b>\n"
-    "<code>/pc                </code> пульт ПК\n"
-    "<code>/pc apps           </code> окна (закрыть кнопкой)\n"
-    "<code>/pc shot           </code> снимок экрана\n"
-    "<code>/pc vol 40         </code> громкость\n"
-    "<code>/pc mute · unmute  </code> звук\n"
-    "<code>/pc lock · dark · light</code> замок · погасить · включить экраны\n"
-    "<code>/pc close N        </code> закрыть окно N из /pc apps\n"
-    "<code>/pc sleep · reboot · off</code> сон · перезагрузка · выключение\n"
+"💻 <code>/pc                </code> пульт ПК\n"
+"🪟 <code>/pc apps           </code> окна (закрыть кнопкой)\n"
+"🖼 <code>/pc shot           </code> снимок экрана\n"
+"🔊 <code>/pc vol 40         </code> громкость\n"
+"🔇 <code>/pc mute · unmute  </code> звук\n"
+"🔒 <code>/pc lock · dark · light</code> замок · погасить · включить экраны\n"
+"❌ <code>/pc close N        </code> закрыть окно N из /pc apps\n"
+"🌙 <code>/pc sleep · reboot · off</code> сон · перезагрузка · выключение\n"
     "\n<b>■ БУДИЛЬНИК</b>\n"
-    "<code>/alarm             </code> пульт будильника и Сторожа\n"
-    "<code>/alarm off ПРИЧИНА </code> аварийно выключить\n"
-    "<code>/alarm on          </code> включить\n"
+"🔔 <code>/alarm             </code> пульт будильника и Сторожа\n"
+"🕖 <code>/alarm 07:30 [завтра]</code> время звонка · <code>/alarm всегда 07:00</code>\n"
+"🛡 <code>/alarm watch off [навсегда] ПРИЧИНА</code> · <code>watch on [навсегда]</code> Сторож\n"
+"⏻ <code>/alarm off ПРИЧИНА </code> аварийно выключить\n"
+"✅ <code>/alarm on          </code> включить\n"
     "\n<b>■ ЖУРНАЛ</b>\n"
-    "<code>/log               </code> файл за 14 дней: сон, пробуждения (плановые тоже), сработавшее, задачи, WhatsApp, охрана\n"
-    "<code>/log 3             </code> только за 3 дня\n"
+"📜 <code>/log               </code> файл за 14 дней: сон, пробуждения (плановые тоже), сработавшее, задачи, WhatsApp, охрана\n"
+"🗓 <code>/log 3             </code> только за 3 дня\n"
     "<i>Старше 2 недель записи удаляются сами. О сне и пробуждении бот больше не пишет — смотрите /log.</i>\n"
     "\n<b>■ ПРОЧЕЕ</b>\n"
-    "<code>/help              </code> коротко\n"
-    "<code>/help all          </code> эта страница\n"
+"❓ <code>/help              </code> коротко\n"
+"📚 <code>/help all          </code> эта страница\n"
     "<i>Голосовые понимаю как текст.</i>")
 
-MENU = [("away", "охрана — ухожу из дома"), ("tasks", "пульт задач"), ("timer", "таймеры"), ("words", "словарь"),
-        ("wa", "WhatsApp: отложенные"), ("pc", "управление ПК"), ("alarm", "будильник"),
-        ("log", "журнал: сон, пробуждения"), ("help", "справка")]
+MENU = [("better", "📈 лучше вчера: отметить, неделя"), ("away", "🚪 охрана — ухожу из дома"), ("tasks", "✅ пульт задач"), ("timer", "⏱ таймеры"), ("words", "📖 словарь"),
+        ("wa", "💬 WhatsApp: отложенные"), ("pc", "💻 управление ПК"), ("alarm", "🔔 будильник и Сторож"),
+        ("log", "📜 журнал: сон, пробуждения"), ("help", "❓ справка")]
 
 
 # 13.10.2026, просьба: «аварийно добавить команду боту на выключение будильника (и на вкл)…
 # должен выключать и Сторожа на этот день. Если я его выключаю — значит, я не дома».
 WAKE = os.path.expanduser("~/.config/hypr/scripts/wake_alarm.py")
+WAKE_STATE = os.path.expanduser("~/.config/hypr/state/wake-alarm.json")
 
 
 # 14.10.2026, просьба: «хаб основной, первый запасной» — проверки будильника и Сторожа
@@ -897,6 +913,10 @@ def wait_take(c, bot, chat, text):
         res = card(c, iid, note="✓ Новый срок: %s" % H.fmt_when(due))
     elif op == "alarm_off":
         res = alarm_panel("off " + text)
+    elif op == "alarm_time":
+        res = alarm_panel(text)
+    elif op in ("watch_day", "watch_ever"):
+        res = alarm_panel("watch off " + ("навсегда " if op == "watch_ever" else "") + text)
     elif op.startswith("wa_"):
         import hubwa
         res = tfa_need(c) or hubwa.tg_wait(c, op, iid, text)
@@ -925,6 +945,21 @@ def wait_take(c, bot, chat, text):
         track(c, iid, chat, r["message_id"])
         c.execute("UPDATE tgmsgs SET sig=? WHERE chat=? AND mid=?",     # «✓ +…» не стирать сразу
                   (sig_of(H.get_item(c, iid)), chat, r["message_id"]))
+        return True
+    elif op.startswith("g_"):                         # трата / подход / сон из /better
+        import growth as G
+        ok, res = G.tg_wait(c, op[2:], text)
+        if not ok:
+            wait_set(c, op, iid, w.get("chat"), w.get("mid"))
+            bot.send(chat, res + " Или /better — к пульту.")
+            return True
+        if w.get("mid"):
+            try:
+                bot.call("deleteMessage", {"chat_id": w["chat"], "message_id": w["mid"]})
+            except Exception:
+                pass
+        r = bot.send(chat, *res)
+        G.tg_track(c, chat, (r or {}).get("message_id"), res[0])
         return True
     elif op == "tname":
         H.meta_set(c, TNAME_KEY, text.strip()[:60])
@@ -1015,6 +1050,22 @@ def k_callback(c, bot, chat, mid, cb_id, rest):
         res = alarm_panel("")
     elif act == "aon":
         res = alarm_panel("on")
+    elif act == "atm":
+        wait_set(c, "alarm_time", None, chat, mid)
+        res = prompt("БУДИЛЬНИК · ВРЕМЯ",
+                     "Во сколько, сэр?\n«07:30» — ближайший звонок · «07:30 завтра» — на день\n"
+                     "«всегда 07:00» — для всех дней без своего времени")
+    elif act in ("wdo", "wfo"):
+        ever = act == "wfo"
+        wait_set(c, "watch_ever" if ever else "watch_day", None, chat, mid)
+        res = prompt("СТОРОЖ · " + ("НАВСЕГДА" if ever else "НА ДЕНЬ"),
+                     "Почему, сэр? Одной фразой — уйдёт в журнал.\n" +
+                     ("Сторож выключится до «Включить»." if ever else
+                      "Сторож снимется на %s, будильник останется." % _watch_day_word()))
+    elif act == "wdn":
+        res = alarm_panel("watch on")
+    elif act == "wfn":
+        res = alarm_panel("watch on навсегда")
     elif act == "aoff":
         wait_set(c, "alarm_off", None, chat, mid)
         res = prompt("БУДИЛЬНИК · АВАРИЙНО",
@@ -1286,8 +1337,14 @@ def alarm_panel(arg):
     elif sub in ("on", "вкл"):
         rc, out = _alarm_run(["emergency", "on", "--via", "tg"])
         note = "Будильник включён, Сторож снова на посту, сэр." if rc == 0 else "Не вышло, сэр: " + esc(out)
+    elif sub in ("watch", "сторож"):
+        note = _watch_cmd(a[1] if len(a) > 1 else "")
+    elif sub in ("всегда", "default") or re.match(r"^\d{1,2}[:.]?\d{2}$", sub):
+        note = _alarm_time(arg)
     elif sub not in ("", "status"):
-        note = "Не понял, сэр. /alarm off ПРИЧИНА · /alarm on"
+        note = ("Не понял, сэр. /alarm 07:30 [завтра] · /alarm всегда 07:00 · "
+                "/alarm watch off [навсегда] ПРИЧИНА · /alarm watch on [навсегда] · "
+                "/alarm off ПРИЧИНА · /alarm on")
     rc, out = _alarm_run(["status"])
     if rc:
         return Html("<b>◆ " + BRAND + " · БУДИЛЬНИК</b>\n<i>Не вышло прочитать, сэр:</i>\n<code>%s</code>" % esc(out)), \
@@ -1333,9 +1390,110 @@ def alarm_panel(arg):
         out += ["\n<b>■ ПЛАН</b>"] + plan
     if every:
         out.append("\n<i>Сторож: после звонка проверки «не спите?» каждые %s мин.</i>" % every)
-    rows = [[btn("↻ Обновить", "k:al"),
-             btn("⏻ Аварийно выключить", "k:aoff") if on else btn("⏻ Включить", "k:aon")]]
+    ws = _watch_state()
+    if not ws["daily"]:
+        out.append("<i>Сторож выключен навсегда — до «Включить».</i>")
+    elif ws["skipped"]:
+        out.append("<i>Сторож снят на %s.</i>" % ws["word"])
+    rows = [[btn("⏰ Время звонка", "k:atm"), btn("↻ Обновить", "k:al")],
+            [btn("⛨ Вернуть на " + ws["word"], "k:wdn") if ws["skipped"] else
+             btn("⛨ Снять на " + ws["word"], "k:wdo"),
+             btn("⛨ Включить Сторожа", "k:wfn") if not ws["daily"] else btn("⛨ Выключить навсегда", "k:wfo")],
+            [btn("⏻ Аварийно выключить", "k:aoff") if on else btn("⏻ Включить", "k:aon")]]
     return Html("\n".join(out)), rows
+
+
+def _watch_day():
+    """День, который снимает «Сторож на день»: сегодня, а после конца Сторожа (18:00) —
+    завтра (вечером снимать сегодняшний уже незачем)."""
+    import datetime as dt
+    try:
+        to = json.load(open(WAKE_STATE)).get("watch_daily", {}).get("to", "18:00")
+        h, m = map(int, to.split(":"))
+    except (OSError, ValueError):
+        h, m = 18, 0
+    now = dt.datetime.now()
+    return now.date() + dt.timedelta(days=1 if (now.hour, now.minute) >= (h, m) else 0)
+
+
+def _watch_day_word():
+    import datetime as dt
+    return "сегодня" if _watch_day() == dt.date.today() else "завтра"
+
+
+def _watch_state():
+    try:
+        s = json.load(open(WAKE_STATE))
+    except (OSError, ValueError):
+        s = {}
+    return {"daily": bool(s.get("watch_daily", {}).get("enabled", True)),
+            "skipped": _watch_day().isoformat() in (s.get("watch_skip") or []),
+            "word": _watch_day_word()}
+
+
+def _alarm_time(arg):
+    """«07:30» — ближайший звонок, «07:30 завтра» / «07:30 31.10» — на день,
+    «всегда 07:00» — время по умолчанию (29.10.2026, просьба пользователя)."""
+    import datetime as dt
+    import re
+    a = arg.lower().replace(".", ":", 1).split() if re.match(r"^\d", arg.strip()) else arg.lower().split()
+    always = bool(a) and a[0] in ("всегда", "default")
+    if always:
+        a = a[1:]
+    m = re.match(r"^(\d{1,2}):?(\d{2})$", a[0]) if a else None
+    if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+        return "Не понял время, сэр. Например: «07:30», «07:30 завтра», «всегда 07:00»."
+    hm = "%02d:%02d" % (int(m.group(1)), int(m.group(2)))
+    if always:
+        rc, out = _alarm_run(["default", hm])
+        return ("Теперь по умолчанию — %s, сэр." % hm) if rc == 0 else "Не вышло, сэр: " + esc(out)
+    argv = ["set", hm]
+    if len(a) > 1:
+        d = a[1]
+        if d not in ("сегодня", "завтра", "today", "tomorrow"):
+            dm = re.match(r"^(\d{1,2})[.:/](\d{1,2})$", d)
+            if not dm:
+                return "Не понял день, сэр: «сегодня», «завтра» или «31.10»."
+            today = dt.date.today()
+            try:
+                day = dt.date(today.year, int(dm.group(2)), int(dm.group(1)))
+            except ValueError:
+                return "Нет такой даты, сэр."
+            if day < today:
+                day = day.replace(year=day.year + 1)
+            d = day.isoformat()
+        argv.append(d)
+    rc, out = _alarm_run(argv)
+    if rc:
+        return "Не вышло, сэр: " + esc(out or "идёт утренняя серия — сначала ответьте на неё")
+    return "Звонок %s, сэр." % esc(out.replace(" — ", " в "))
+
+
+def _watch_cmd(rest):
+    """watch off [навсегда] ПРИЧИНА | watch on [навсегда]. «На день» — _watch_day()."""
+    a = rest.split(None, 1)
+    sub = a[0].lower() if a else ""
+    tail = a[1].strip() if len(a) > 1 else ""
+    ever = tail.lower().startswith("навсегда")
+    if ever:
+        tail = tail[len("навсегда"):].strip()
+    day = _watch_day().isoformat()
+    word = _watch_day_word()
+    if sub in ("on", "вкл"):
+        if ever:
+            rc, out = _alarm_run(["watch", "daily", "on", "--via", "tg"])
+            return "Сторож снова на посту каждый день, сэр." if rc == 0 else "Не вышло, сэр: " + esc(out)
+        rc, out = _alarm_run(["watch", "skip", "off", day, "--via", "tg"])
+        return ("Сторож вернулся на %s, сэр." % word) if rc == 0 else "Не вышло, сэр: " + esc(out)
+    if sub in ("off", "выкл"):
+        if len(tail) < 3:
+            return "Нужна причина, сэр: /alarm watch off %sуехал в город." % ("навсегда " if ever else "")
+        if ever:
+            rc, out = _alarm_run(["watch", "daily", "off", "--reason", tail, "--via", "tg"])
+            return "Сторож выключен до «Включить», сэр." if rc == 0 else "Не вышло, сэр: " + esc(out)
+        rc, out = _alarm_run(["watch", "skip", day, "--reason", tail, "--via", "tg"])
+        return ("Сторож снят на %s, будильник остаётся, сэр." % word) if rc == 0 else "Не вышло, сэр: " + esc(out)
+    return "Не понял, сэр. /alarm watch off [навсегда] ПРИЧИНА · /alarm watch on [навсегда]"
 
 
 def item_ref(c, s):
@@ -1389,6 +1547,10 @@ def start_timer_reply(c, secs, name=""):
 
 
 def command(c, cmd, arg, bot=None, chat=None):
+    import growth as G
+    g = G.tg_command(c, cmd, arg, chat)             # «Лучше вчера» (28.10.2026)
+    if g is not None:
+        return g
     if cmd in ("start", "help", "h"):
         return (HELP_ALL if arg.strip().lower() in ("all", "все", "всё") else HELP_TEXT), None
     if cmd in ("tasks", "ls", "l", "reminders"):
@@ -1645,6 +1807,10 @@ def handle_callback(c, bot, chat, mid, cb_id, data):
         bot.answer(cb_id, "Отменено")
         bot.edit(chat, mid, "Отменено.")
         return
+    if k == "g":                                    # «Лучше вчера»: /better (28.10.2026)
+        import growth as G
+        G.tg_callback(c, bot, chat, mid, cb_id, rest)
+        return
     if k == "k":                                    # пульт задач, таймеров, будильника
         k_callback(c, bot, chat, mid, cb_id, rest)
         return
@@ -1838,6 +2004,9 @@ def process_update(c, bot, up):
     sent = send_pc_result(bot, chat, res)
     if _last_item and sent:
         track(c, _last_item, chat, sent["message_id"])
+    if sent and isinstance(res, tuple) and getattr(res[0], "g_view", None):
+        import growth as G                          # пульт /better — hubd обновляет его сам
+        G.tg_track(c, chat, sent.get("message_id"), res[0])
 
 
 def transcribe(bot, voice):

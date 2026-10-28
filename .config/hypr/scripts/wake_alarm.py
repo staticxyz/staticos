@@ -1022,6 +1022,39 @@ def via_load():
         return {}
 
 
+# 29.10.2026: 28.10 подтвердил на ПК в 08:03, дальше с телефона, в 09:42 проспал, встал к 10:53 —
+# а подъёмом осталось 08:03. Проспанный шаг утром стирает «Я встал»; следующее подтверждение
+# на ПК (в этой серии или в Стороже) записывает подъём заново. Днём (дремота) не трогает.
+LOST = os.path.join(HOME, ".local/state/jarvis-wake/lost.json")     # [даты, где подъём проспан]
+LOST_UNTIL_H = 12
+
+
+def lost_load():
+    try:
+        with open(LOST) as f:
+            v = json.load(f)
+        return v if isinstance(v, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def woke_lost(d):
+    try:
+        cut = (dt.date.today() - dt.timedelta(days=120)).isoformat()
+        v = sorted({x for x in lost_load() if x >= cut} | {d["date"]})
+        tmp = LOST + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(v, f)
+        os.replace(tmp, LOST)
+        if woke_load().get(d["date"]):
+            woke_set(dt.date.fromisoformat(d["date"]), None)
+            slog("подъём стёрт: проспали")
+    except OSError:
+        pass
+    d.pop("first_pc", None)
+    d.pop("first", None)
+
+
 def via_set(day, via):
     v = via_load()
     v[day] = via
@@ -1052,12 +1085,14 @@ def confirm(d, via, now=None):
     pc = via == "pc"
     if pc:
         d["streak"] = d.get("streak", 0) + 1
-    if not d.get("test") and not d.get("watch"):
+    if not d.get("test"):
         try:
-            if pc and not d.get("first_pc"):          # подъём — когда дошли до ПК
+            # подъём — когда дошли до ПК; после проспанного шага — заново (и в Стороже)
+            again = d["date"] in lost_load() and not woke_load().get(d["date"])
+            if pc and (not d.get("watch") and not d.get("first_pc") or again):
                 woke_set(dt.date.fromisoformat(d["date"]), time.strftime("%H:%M", time.localtime(now)))
                 via_set(d["date"], "pc")
-            elif not pc and not d.get("first"):
+            elif not pc and not d.get("watch") and not d.get("first"):
                 via_set(d["date"], "tg")
         except OSError:
             pass
@@ -1212,6 +1247,8 @@ def advance(d, now):
             d["streak"] = 0
             ev.append(("fail", st))
             slog("шаг %d проспан" % st["n"])
+            if not d.get("test") and time.localtime(now).tm_hour < LOST_UNTIL_H:
+                woke_lost(d)
             continue
         break
     return ev

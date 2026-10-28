@@ -829,6 +829,7 @@ def info_text(groups):
 
 sys.path.insert(0, HERE)
 import routine_app as R  # noqa: E402  (рамки, цвета стилей, шрифт — как у Routine)
+import title_strip  # noqa: E402
 import gi  # noqa: E402
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
@@ -1051,6 +1052,7 @@ class View:
         self.hover = None
         self.hits = []
         self.active = True
+        self.maxed = False          # развёрнуто — значок «вернуть» на полосе заголовка
         self.w, self.h = W, H              # размер окна (его можно растягивать, 07.10.2026)
         self.free_scroll = False           # полосу тянут мышью: прокрутка ведёт, выбор подстраивается
         self.reload_style()
@@ -1113,9 +1115,14 @@ class View:
     def frame(self):
         return 6 if self.c["frame"] == "skeet" else 1
 
+    def head_y(self):
+        """Строка вкладок — под полосой заголовка как у Настроек (title_strip, 29.10.2026);
+        в стопке полосу рисует stack_bars."""
+        return self.frame() + (0 if stack_on() else title_strip.TITLE_H) + 2 + 10
+
     def body(self):
         f = self.frame()
-        top = f + 2 + 10 + 18 + 22
+        top = self.head_y() + 18 + 22
         foot = self.h - f - 8 - 18
         return top, foot - 14, foot
 
@@ -1133,8 +1140,12 @@ class View:
         p = R.Painter(cr)
         self.draw_frame(p, w, h)
         f = self.frame()
+        if not stack_on():
+            self.hits += title_strip.draw(cr, self.style, f, f, w - 2 * f, "\U000f03d6", "App list",
+                                          self.hover, self.maxed, self.active,
+                                          r=0 if self.c["frame"] == "skeet" else 9)
         x0, x1 = PAD + f, w - PAD - f
-        self.draw_header(p, x0, x1, f + 2 + 10)
+        self.draw_header(p, x0, x1, self.head_y())
         top, bottom, foot = self.body()
         if self.tab == "system":
             self.draw_system(p, x0, x1, top, bottom)
@@ -1174,7 +1185,7 @@ class View:
             x += tw + 22
         # поиск справа
         sw = 230
-        sx = x1 - 22 - sw
+        sx = x1 - sw
         searching = self.mode == "search"
         if self.tab not in PLAIN:
             p.rect(sx, y - 3, sw, 20, c["field"])
@@ -1184,9 +1195,6 @@ class View:
             if searching and int(time.monotonic() * 2) % 2 == 0:
                 p.rect(sx + 8 + tw + 1, y + 1, 6, 13, c["acc_l"])
             self.hits.append(((sx, y - 3, sw, 20), "search"))
-        if not stack_on():
-            p.text(x1, y, "×", c["text"] if self.hover == "close" else c["dim"], align="r")
-            self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
 
     def draw_icon(self, p, gicon, x, y, size, fallback="package-x-generic"):
         pb = self.icons.get(gicon, size, fallback)
@@ -1823,7 +1831,16 @@ class AppListWindow(Gtk.ApplicationWindow):
         self.add(self.area)
         self.connect("key-press-event", self.on_key)
         self.connect("notify::is-active", self.on_active)
+        self.connect("window-state-event", self.on_wstate)
         GLib.timeout_add(1000, self.tick)
+
+    def on_wstate(self, _w, ev):
+        m = bool(ev.new_window_state & Gdk.WindowState.MAXIMIZED) \
+            or title_strip.float_maxed(self)  # TILED не берём: при prefer-no-csd niri шлёт его всем окнам
+        if m != self.view.maxed:
+            self.view.maxed = m
+            self.redraw()
+        return False
 
     def on_active(self, *_a):
         self.view.active = self.is_active()
@@ -1911,6 +1928,13 @@ class AppListWindow(Gtk.ApplicationWindow):
             self.drag_off = ev.y - ty if ty <= ev.y <= ty + th else th / 2
             v.free_scroll = True
             self.sb_drag(ev.y)
+            return True
+        if key == "title":
+            title_strip.on_title(self, ev)
+            return True
+        if key == "max":
+            if ev.button == 1:
+                title_strip.toggle_max(self)
             return True
         if key is None and ev.button == 1 and self.view.mode == "normal" and ev.y < self.view.body()[0] - 8:
             # пустое место шапки — перетащить окно, как у Настроек

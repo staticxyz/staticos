@@ -309,6 +309,44 @@ def row_name(a):
     return rest if rest and (pre in SPLIT_APPS or pre == "site") else app_name(a)
 
 
+HUB_DIR = os.path.expanduser("~/.local/share/hub")
+
+
+def logical_today():
+    """День как в Better (hub growth): от засыпания накануне до засыпания после, сейчас — по
+    «сейчас» (Пользователь 29.10: «пусть дневной screentime считается так же по подъёму и отбою»).
+    Программы — по часам с долей перекрытия (growth.screen_window); сайты браузера — дневные
+    сайты этого браузера в доле его времени, попавшей в окно. (t0, t1, apps, details) | None."""
+    try:
+        if HUB_DIR not in sys.path:
+            sys.path.insert(0, HUB_DIR)
+        import growth
+        import hublib
+        c = hublib.connect()
+        try:
+            t0, t1 = growth.window(c, growth.today(c))
+        finally:
+            c.close()
+    except Exception:
+        return None
+    apps, det = {}, {}
+    d = datetime.date.fromtimestamp(t0)
+    while d <= datetime.date.fromtimestamp(t1):
+        a0, a1 = max(t0, time.mktime(d.timetuple())), min(t1, time.mktime((d + datetime.timedelta(days=1)).timetuple()))
+        if a1 > a0:
+            got, _ = growth.screen_window(a0, a1)
+            day = load_day(d)
+            for a, sec in got.items():
+                apps[a] = apps.get(a, 0) + sec
+                full = day["apps"].get(a) or 0
+                if full > 0 and day["details"].get(a):
+                    o = det.setdefault(a, {})
+                    for k, v in day["details"][a].items():
+                        o[k] = o.get(k, 0) + v * min(1.0, sec / full)
+        d += datetime.timedelta(days=1)
+    return t0, t1, apps, det
+
+
 def summary(kind, sites=False):
     poke_daemon()
     today = datetime.date.today()
@@ -333,6 +371,11 @@ def summary(kind, sites=False):
         }
     day = load_day(today)
     if sites:
+        win = logical_today()
+        if win:
+            t0, t1, apps, det = win
+            return {"period": "today", "date": today.isoformat(), "from_ts": int(t0), "to_ts": int(t1),
+                    "total": round(sum(apps.values())), "apps": site_rows(apps, det)}
         return {"period": "today", "date": today.isoformat(),
                 "total": round(sum(day["apps"].values())),
                 "apps": site_rows(day["apps"], day["details"])}

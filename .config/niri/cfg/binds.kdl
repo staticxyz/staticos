@@ -45,7 +45,7 @@ binds {
     // было наоборот, и пустую приходилось вызывать двумя нажатиями).
     Mod+N hotkey-overlay-title="Блокнот: новая заметка" { spawn-sh "~/.config/hypr/scripts/notepad.sh new"; }
     Mod+M       repeat=false hotkey-overlay-title="Hub: напоминания" { spawn-sh "~/.local/bin/hub-open --toggle"; }
-    Mod+Shift+M repeat=false hotkey-overlay-title="Hub: словарь" { spawn-sh "~/.local/bin/hub-open dict --toggle"; }
+    Mod+Shift+M repeat=false hotkey-overlay-title="Hub: напоминания" { spawn-sh "~/.local/bin/hub-open items --toggle"; }
     Mod+Shift+N hotkey-overlay-title="Блокнот" { spawn-sh "~/.config/hypr/scripts/notepad.sh"; }
     Mod+F6 hotkey-overlay-title="Выбор эмодзи" { spawn "bemoji" "-t"; }
     // Буфер обмена — своё окно с вкладками и избранным (03.10.2026). Прежнее меню на rofi

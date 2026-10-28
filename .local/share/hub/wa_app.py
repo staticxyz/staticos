@@ -38,6 +38,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hub_auth  # noqa: E402
 import hub_app as A  # noqa: E402  стиль, рамка, кнопки, разбор дат — общие с окном hub
+import title_strip  # noqa: E402  (путь к ~/.config/hypr/scripts добавил hub_app)
 import hublib as H  # noqa: E402
 import hubwa as W  # noqa: E402
 from hub_app import (Gdk, Gio, GLib, Gtk, PangoCairo, cairo, colors, edit_line, fmt_date,  # noqa: E402
@@ -108,6 +109,7 @@ class View:
         self.style = style_name()
         self.c = colors(self.style)
         self.active = True
+        self.maxed = False          # развёрнуто — значок «вернуть» на полосе заголовка
         self.hover = None
         self.hits = []
         self.conn = H.connect()
@@ -365,16 +367,18 @@ class View:
         self.draw_frame(p, w, h)
         self.draw_grip(p, w, h, f)
         x0, x1 = PAD + f, w - PAD - f
-        y = f + 12
+        # сверху полоса заголовка как у Настроек (title_strip, 29.10.2026); в стопке её рисует stack_bars
+        if not stack_on():
+            self.hits += title_strip.draw(cr, self.style, f, f, w - 2 * f, "\U000f05a3", "WhatsApp",
+                                          self.hover, self.maxed, self.active,
+                                          r=0 if c["frame"] == "skeet" else 9)
+        y = f + (0 if stack_on() else title_strip.TITLE_H) + 12
         if self.locked:
             return self.draw_lock(p, x0, x1, y, h, f)
-        title = "WhatsApp · " + ("правка #%d" % self.editing if self.editing is not None else "новое сообщение")
+        title = "правка #%d" % self.editing if self.editing is not None else "новое сообщение"
         p.text(x0, y, title, c["acc_l"] if self.active else c["text"])
-        if not stack_on():
-            p.text(x1, y, "×", c["text"] if self.hover == "close" else c["dim"], align="r")
-            self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
         if self.contacts_ok is False:
-            p.text(x1 - 24, y, "не привязан: wa login", c["err"], align="r")
+            p.text(x1, y, "не привязан: wa login", c["err"], align="r")
         y += 30
         y_to = y
         y = self.field_line(p, x0, x1, y, "to") + 10
@@ -426,10 +430,7 @@ class View:
 
     def draw_lock(self, p, x0, x1, y, h, f):
         c = self.c
-        p.text(x0, y, "WhatsApp · вход", c["acc_l"] if self.active else c["text"])
-        if not stack_on():
-            p.text(x1, y, "×", c["text"] if self.hover == "close" else c["dim"], align="r")
-            self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
+        p.text(x0, y, "вход", c["acc_l"] if self.active else c["text"])
         y = max(y + 40, h / 2 - 70)
         p.text((x0 + x1) / 2, y, "Пароль sudo", c["text"], align="c")
         y += 26
@@ -690,6 +691,9 @@ class WaWindow(Gtk.ApplicationWindow):
         self.connect("key-press-event", self.on_key)
         self.connect("notify::is-active", lambda *_: (setattr(self.view, "active", self.is_active()),
                                                       self.redraw()))
+        self.connect("window-state-event", lambda _w, ev: (
+            setattr(self.view, "maxed", bool(ev.new_window_state & Gdk.WindowState.MAXIMIZED) or title_strip.float_maxed(self)),
+            self.redraw(), False)[-1])
         self.n_tick = 0
         self.last_input = time.monotonic()
         GLib.timeout_add(500, self.tick)
@@ -704,6 +708,8 @@ class WaWindow(Gtk.ApplicationWindow):
 
     def save_size(self):
         self.size_save = None
+        if self.view.maxed:                 # развёрнуто — не запоминать как свой размер
+            return False
         try:
             os.makedirs(os.path.dirname(SIZE_FILE), exist_ok=True)
             with open(SIZE_FILE, "w") as f:
@@ -781,6 +787,12 @@ class WaWindow(Gtk.ApplicationWindow):
                 self.begin_move_drag(ev.button, int(ev.x_root), int(ev.y_root), ev.time)
             return True
         if ev.button != 1:
+            return True
+        if key == "title":
+            title_strip.on_title(self, ev)
+            return True
+        if key == "max":
+            title_strip.toggle_max(self)
             return True
         self.last_input = time.monotonic()
         if isinstance(key, tuple) and key[0] == "row":

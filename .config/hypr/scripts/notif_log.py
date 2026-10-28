@@ -68,6 +68,8 @@ def add(payload):
     except (KeyError, ValueError, TypeError):
         return
     hints = hints if isinstance(hints, dict) else {}
+    if hint(hints, "x-jarvis-replay"):        # повтор после «Не беспокоить» (dnd_queue.py) — уже в журнале
+        return
     now = time.time()
     entry = {"t": now, "app": app or "", "summary": summary or "", "body": (body or "")[:BODY_MAX],
              "icon": icon or hint(hints, "image-path") or "", "urgency": hint(hints, "urgency"),

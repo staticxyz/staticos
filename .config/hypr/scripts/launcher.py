@@ -206,7 +206,7 @@ def main():
         if a.get("meta"):
             opts.append("meta\x1f" + a["meta"].replace("\x1f", " "))
         rows.append(name + ("\0" + "\x1f".join(opts) if opts else ""))
-    r = subprocess.run(["rofi", "-dmenu", "-i", "-p", "\U000f0349", "-show-icons", "-no-custom", "-format", "i",
+    r = subprocess.run(["rofi", "-dmenu", "-i", "-p", "\U000f0349", "-show-icons", "-format", "i f",
                         # по началу слов: «тг» — слово-синоним Telegram, а не кусок чужого слова
                         "-matching", "prefix",
                         # пока набирают — лучшие совпадения выше (имя раньше синонимов); пусто —
@@ -214,13 +214,32 @@ def main():
                         "-sort", "-sorting-method", "fzf",
                         *theme_args(), *KEYS],
                        input="\n".join(rows) + "\n", capture_output=True, text=True)
-    out = r.stdout.strip()
-    if r.returncode != 0 or not out.isdigit() or int(out) >= len(apps):
+    idx, _, text = r.stdout.rstrip("\n").partition(" ")
+    if r.returncode != 0 or not idx.lstrip("-").isdigit():
         return 0
-    app = apps[int(out)]
-    launch(app["id"])
-    remember(app["id"])
+    if 0 <= int(idx) < len(apps):
+        app_id = apps[int(idx)]["id"]
+    else:
+        # rofi ничего не нашёл (опечатка, «кс», слово из описания) — Enter ищет как «Пуск»:
+        # синонимы, раскладка, опечатки, частые программы выше (29.10.2026)
+        app_id = best_match(text)
+        if not app_id:
+            return 0
+    launch(app_id)
+    remember(app_id)
     return 0
+
+
+def best_match(text):
+    text = text.strip()
+    if not text:
+        return None
+    try:
+        import start_menu
+        found = start_menu.find_apps(text)
+    except Exception:
+        return None
+    return found[0].get_id() if found else None
 
 
 if __name__ == "__main__":

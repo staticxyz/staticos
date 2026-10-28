@@ -11,6 +11,9 @@
 Текущая аватарка обведена рамкой цвета акцента. Какая стоит, запоминается в
 ~/.cache/avatar-source при выборе; если этой записи нет (аватар поставили
 раньше), картинка находится сравнением уменьшенных копий с ~/.cache/avatar.png.
+
+    avatar_picker.py zen       пересобрать круглый значок Zen
+    avatar_picker.py helium    положить аватар в профиль Helium
 """
 import os
 import subprocess
@@ -35,6 +38,11 @@ EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 # ровно под размер значка. Пересобрать: avatar_picker.py zen
 ZEN_ROUND = os.path.expanduser("~/.config/zen-jarvis/avatar-round.png")
 ZEN_SIZE = 20
+# Аватар профиля Helium (меню профиля, 29.10.2026): у Helium своя картинка профиля —
+# «Custom Avatar Picture.png» 256 px в папке профиля (Local State: is_using_custom_avatar).
+# Браузер читает её при запуске — новая видна после перезапуска Helium.
+HELIUM_AVATAR = os.path.expanduser("~/.config/net.imput.helium/Default/Custom Avatar Picture.png")
+HELIUM_SIZE = 256
 
 CSS = b"""
 button.avatar { padding: 3px; border: 4px solid transparent; border-radius: 10px; }
@@ -170,6 +178,7 @@ class Picker(Gtk.Application):
         try:
             crop_square(path, SIZE).savev(OUT, "png", [], [])
             zen_round()
+            helium_avatar()
             with open(SOURCE, "w") as f:
                 f.write(path)
             self.mark(path)
@@ -193,8 +202,21 @@ def zen_round(size=ZEN_SIZE, ss=8):
         os.replace(tmp, dst)
 
 
+def helium_avatar():
+    """~/.cache/avatar.png → картинка профиля Helium (квадрат 256 px, круг режет сам браузер)."""
+    from PIL import Image
+    if not os.path.isdir(os.path.dirname(HELIUM_AVATAR)):
+        return
+    tmp = HELIUM_AVATAR + ".tmp"
+    Image.open(OUT).convert("RGB").resize((HELIUM_SIZE, HELIUM_SIZE), Image.LANCZOS).save(tmp, "PNG")
+    os.replace(tmp, HELIUM_AVATAR)
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["zen"]:
         zen_round()
+        sys.exit(0)
+    if sys.argv[1:] == ["helium"]:
+        helium_avatar()
         sys.exit(0)
     sys.exit(Picker().run([]))

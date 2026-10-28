@@ -69,6 +69,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)          # dateview.py — шрифты даты
 STATE = os.path.expanduser("~/.config/hypr/state")
+OVERVIEW_SETTLE_MS = 450                 # пружина overview-open-close niri (animations.kdl)
 CONF = os.environ.get("JARVIS_WIDGETS_CONF") or os.path.join(STATE, "desktop-widgets.json")
 OFF = os.path.join(STATE, "desktop-widgets-off")
 CACHE = os.path.expanduser("~/.cache/jarvis-widgets")
@@ -82,7 +83,7 @@ GAMES = (b"cs2", b"gamescope")
 TYPES = {
     "clock": ("Часы", 612, 133),
     "date": ("Дата", 799, 152),
-    "pomo": ("Помодоро", 798, 71),
+    "pomo": ("Помодоро", 300, 64),
     "matrix": ("Матрица", 424, 309),
     "cava": ("Эквалайзер", 900, 155),
     "sprite": ("Осьминог", 440, 409),
@@ -97,6 +98,7 @@ TYPES = {
     "screentime": ("Экранное время", 320, 196),
     "screenweek": ("Экранное время за неделю", 320, 196),
     "screenmonth": ("Экранное время за месяц", 320, 196),
+    "better": ("Лучше вчера", 320, 330),
     "appmem": ("Память по программам", 320, 196),
     "appcpu": ("Процессор по программам", 320, 196),
     "miku": ("Мику", 200, 236),
@@ -109,7 +111,7 @@ EXE = {"clock": "clock.exe", "date": "today.exe", "pomo": "pomodoro.exe", "matri
        "cava": "visualizer.exe", "sprite": "octopus.exe", "sysinfo": "fetch.exe",
        "sysmon": "sysmon.exe", "banner": "banner.exe", "player": "player.exe", "playermini": "nowplaying.exe",
        "calendar": "calendar.exe", "timer": "timer.exe", "weather": "weather.exe", "screentime": "screentime.exe",
-       "screenweek": "screenweek.exe", "screenmonth": "screenmonth.exe",
+       "screenweek": "screenweek.exe", "screenmonth": "screenmonth.exe", "better": "better.exe",
        "appmem": "ram.exe", "appcpu": "cpu.exe",
        "miku": "miku.exe", "fire": "fire.exe", "life": "life.exe", "cmd": "cmd.exe"}
 # Общий вид плашек (Настройки → Visuals → Виджеты): прозрачный фон или сплошной,
@@ -1506,6 +1508,7 @@ class Niri:
                     self.ws[e["workspace_id"]]["active_window_id"] = e.get("active_window_id")
             elif "OverviewOpenedOrClosed" in ev:
                 self.overview = bool(ev["OverviewOpenedOrClosed"].get("is_open"))
+                self.overview_at = time.monotonic()    # начало анимации niri — для OvLayer
             elif "WindowFocusChanged" in ev:
                 self.vm_focus(ev["WindowFocusChanged"].get("id"))
             elif "WindowsChanged" in ev:
@@ -1531,8 +1534,9 @@ class Niri:
                 self.vm_track()
             except Exception as e:             # модель — только для гостей; поток событий не роняем
                 print("модель ленты:", e, file=sys.stderr)
-        # смена стола — срочно (виджеты должны появиться вместе со столом); окна — не к спеху
-        GLib.idle_add(self.on_change, "Workspace" in next(iter(ev)))
+        # смена стола и обзор — срочно (виджеты должны успеть за столом); окна — не к спеху
+        kind = next(iter(ev))
+        GLib.idle_add(self.on_change, "Workspace" in kind or kind == "OverviewOpenedOrClosed")
 
     def views_changed(self):
         """Super+R / Super+A / Настройки сменили вид стола (16.10.2026). niri об этом событий
@@ -2078,8 +2082,9 @@ class Widget(Gtk.Window):
             self.area.queue_draw()
 
     def on_screen(self):
-        """Виджет сейчас показан (его стол активен) — для тех, кто опрашивает данные."""
-        return not self.cloaked
+        """Виджет сейчас показан (его стол активен) — для тех, кто опрашивает данные. В обзоре
+        его копию рисует OvLayer (ov_live) — тоже на экране."""
+        return not self.cloaked or getattr(self, "ov_live", False)
 
     def shadow(self):
         """Ширина тени справа и снизу, px (0 — выключена; у виджета без рамки тени нет)."""
@@ -2263,7 +2268,7 @@ class Widget(Gtk.Window):
 
     def _tick(self):
         try:                                   # исключение сняло бы таймер молча
-            if self.tick() and not self.ghosted:
+            if self.tick() and not self.ghosted and not self.cloaked:
                 r = self.dirty_rect()
                 if r:
                     self.area.queue_draw_area(*r)
@@ -3064,7 +3069,10 @@ class DateW(Widget, SecondTicker):
 
 
 class Pomo(Widget, SecondTicker):
-    """Строка помодоро: состояние читается из файла pomo, без запуска самой программы."""
+    """Помодоро: состояние читается из файла pomo, без запуска самой программы.
+    Вид (29.10.2026, просьба: «почему там написано фокус, хотя название я давал другое;
+    красивее, компактнее»): крупное время акцентом, справа задача и фаза с часом конца,
+    снизу шкала по минутам."""
     STATE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "pomo", "state")
     PHASES = {"work": "Фокус", "break": "Перерыв", "short": "Перерыв", "long": "Длинный перерыв"}
 
@@ -3089,14 +3097,23 @@ class Pomo(Widget, SecondTicker):
         except ValueError:
             started = dur = paused = 0
         if phase == "idle" or not dur:
-            return (0.0, "--:--", "Помодоро не запущен")
-        left = max(0, dur - ((paused or int(time.time())) - started))
-        label = self.PHASES.get(phase, phase) + (" (пауза)" if paused else "")
-        if st.get("task"):
-            label += " · " + st["task"]
+            return (None, 0.0, "--:--", "Фокус", "не запущен", 0)  # «Фокус» вместо «Помодоро» (29.10)
+        now = int(time.time())
+        left = max(0, dur - ((paused or now) - started))
         mm = "%d:%02d:%02d" % (left // 3600, left % 3600 // 60, left % 60) if left >= 3600 \
             else "%02d:%02d" % (left // 60, left % 60)
-        return (1 - left / dur, mm, label)
+        name = self.PHASES.get(phase, phase)
+        task = st.get("task", "").strip()
+        if phase == "work" and task:
+            title, sub = task, name.upper()
+        else:
+            title, sub = name, ""
+        if paused:
+            sub = (sub + " · " if sub else "") + "ПАУЗА"
+        else:
+            sub = (sub + " · " if sub else "") + "до " + time.strftime("%H:%M", time.localtime(now + left))
+        state = "pause" if paused else ("work" if phase == "work" else "break")
+        return (state, 1 - left / dur, mm, title, sub, dur)
 
     def second(self):
         line = self.read()
@@ -3105,38 +3122,79 @@ class Pomo(Widget, SecondTicker):
             return True
         return False
 
-    def paint(self, cr, x, y, w, h):
-        frac, mm, label = self.line or self.read()
-        # что показать — по месту: полная строка → только время; кегль — по высоте,
-        # но не мельче 60 % от неё, пока есть что убрать
-        hp = fit_px(1, w, h)
-        bw = int(w * (0.36 if w >= 420 else 0.26))
-        gap = max(6, hp // 2)
-        choice = None
-        for cand in ("%s  %s" % (mm, label), "%s  %s" % (mm, label.split(" · ")[0]), mm):
-            px = fit_px(len(cand), w - bw - gap, h, top=hp)
-            if px >= max(8, hp * 0.6) or cand == mm:
-                choice = (cand, px)
-                break
-        cand, px = choice
-        bh = max(3, min(px - 2, h - 4))
-        by = y + (h - bh) // 2
-        cr.set_source_rgba(*T["fg"], 0.28)
-        cr.rectangle(x, by, bw, bh)
-        cr.fill()
-        cr.set_source_rgb(*T["accent"])
-        cr.rectangle(x, by, int(bw * frac), bh)
-        cr.fill()
-        crisp(cr)
+    def text(self, cr, s, px, x, y, w, rgba):
         lay = PangoCairo.create_layout(cr)
         lay.set_font_description(font_desc(px))
-        lay.set_text(cand, -1)
-        lay.set_width(max(1, w - bw - gap) * Pango.SCALE)
+        lay.set_text(s, -1)
+        lay.set_width(max(1, int(w)) * Pango.SCALE)
         lay.set_ellipsize(Pango.EllipsizeMode.END)
-        _lw, lh = lay.get_pixel_size()
-        cr.set_source_rgb(*T["fg"])
-        cr.move_to(x + bw + gap, y + (h - lh) // 2)
+        lw, lh = lay.get_pixel_size()
+        cr.set_source_rgba(*rgba)
+        cr.move_to(int(x), int(y))
         PangoCairo.show_layout(cr, lay)
+        return lw, lh
+
+    @staticmethod
+    def sharp(px):
+        """Пиксельный шрифт чёткий только на 8/16/24/32…: 10 и 12 рвали буквы («исследов ания»)."""
+        return px if COZETTE else max(8, px // 8 * 8)
+
+    def paint(self, cr, x, y, w, h):
+        state, frac, mm, title, sub, dur = self.line or self.read()
+        crisp(cr)
+        hot = T["accent"] if state == "work" else T["primary"]
+        if state in (None, "pause"):
+            hot = T["fg"]
+        alpha = 0.45 if state in (None, "pause") else 1.0
+        # шкала снизу: клетка — минута (не больше 30), текущая заполняется по секундам
+        bh = max(2, min(6, h // 12))
+        n = max(1, min(30, dur // 60)) if dur else 25
+        g1 = 1 if w / n < 8 else 2
+        cw = (w - (n - 1) * g1) / n
+        done = frac * n
+        for i in range(n):
+            sx = x + round(i * (cw + g1))
+            sw = round((i + 1) * (cw + g1) - g1) - round(i * (cw + g1))
+            cr.set_source_rgba(*T["fg"], 0.16)
+            cr.rectangle(sx, y + h - bh, sw, bh)
+            cr.fill()
+            part = max(0.0, min(1.0, done - i))
+            if part > 0:
+                cr.set_source_rgba(*hot, alpha)
+                cr.rectangle(sx, y + h - bh, max(1, round(sw * part)), bh)
+                cr.fill()
+        ch = h - bh - max(3, bh)                 # место над шкалой
+        # время — главное: кегль под высоту, но не шире ~половины
+        # время уступает место задаче: берём самый крупный кегль, при котором задача
+        # входит целиком (не мельче 40 % времени), иначе — как влезет, с многоточием
+        top = self.sharp(fit_px(len(mm), w * 0.55, ch, top=96))
+        pick = None
+        for tp in sorted({q for q in map(self.sharp, SIZES) if top * 0.6 <= q <= top}, reverse=True) or [top]:
+            tw = len(mm) * adv(tp)
+            gap = max(8, tp // 3)
+            rw = w - tw - gap
+            sp = self.sharp(fit_px(6, rw, ch // 3, top=max(8, tp // 3)))  # подпись мелко
+            np_ = self.sharp(fit_px(len(title), rw, ch - sp - 2, top=max(8, tp * 2 // 3)))
+            pick = pick or (tp, tw, gap, rw, sp, np_)
+            if len(title) * adv(np_) <= rw and np_ >= max(8, tp * 0.4):
+                pick = (tp, tw, gap, rw, sp, np_)
+                break
+        tp, tw, gap, rw, sp, np_ = pick
+        if rw < 6 * adv(8):                                      # узко — одно время по центру
+            self.text(cr, mm, tp, x + (w - tw) / 2, y + (ch - tp) / 2, tw + 2, (*hot, alpha))
+            return
+        if np_ + sp + 2 > ch:                                    # низко — время и задача в строку
+            np_ = self.sharp(fit_px(len(title), rw, ch, top=max(8, tp * 2 // 3)))
+            self.text(cr, mm, tp, x, y + (ch - tp) / 2, tw + 2, (*hot, alpha))
+            self.text(cr, title, np_, x + tw + gap, y + (ch - np_) / 2, rw,
+                      (*T["fg"], 0.92 if state else 0.5))
+            return
+        ty = y + (ch - tp) / 2
+        self.text(cr, mm, tp, x, ty, tw + 2, (*hot, alpha))
+        block = np_ + 2 + sp
+        by = y + (ch - block) / 2
+        self.text(cr, title, np_, x + tw + gap, by, rw, (*T["fg"], 0.92 if state else 0.5))
+        self.text(cr, sub, sp, x + tw + gap, by + np_ + 2, rw, (*T["fg"], 0.5))
 
 
 class Matrix(Widget):
@@ -4150,6 +4208,170 @@ class Ghost(Gtk.Window):
 
 # ── всё вместе ──────────────────────────────────────────────────────────────
 
+# ── обзор Super+G: обои на столах, рамки skeet, виджеты вместе со столом (29.10.2026) ──
+# С 27.10 обои лежат в подложке niri, а столы прозрачные: в обзоре столы ничем не отличались
+# от размытого фона, и отдаления было не видно (просьба: «на ноуте Super+G ничего не
+# отдаляется», «в столах обои тоже блюрятся»). Нижний слой niri в обзоре рисует на КАЖДОМ
+# столе монитора, поэтому: обои стола — свой фоновый слой без правила подложки (OvWall;
+# одинаковые обои на каждом столе — как и должно быть), закреплённые виджеты — в нижнем
+# слое (они и так на всех столах), откреплённые — одной копией в верхнем слое OvLayer,
+# уменьшенные в рамку своего стола. Геометрия обзора замерена снимком: стол — zoom экрана
+# по центру, соседние столы — шагом (1 + OV_GAP) высоты стола.
+
+NIRI_MISC_KDL = os.path.expanduser("~/.config/niri/cfg/misc.kdl")
+OV_GAP = 0.1                # зазор между столами в обзоре — доля высоты стола
+OV_FRAME = 10               # акцентная рамка по краю стола, px (в обзоре × zoom ≈ 3)
+OV_OPEN_STIFF = 800         # пружины animations.kdl: overview-open-close
+OV_SWITCH_STIFF = 450       # и workspace-switch
+OV_SWITCH_DAMP = 0.85
+OV_LIVE_MS = 66      # копии анимированных виджетов в обзоре — 15 к/с (в 0.3 масштаба хватает)
+
+
+def overview_zoom():
+    try:
+        with open(NIRI_MISC_KDL) as f:
+            m = re.search(r"^overview\s*\{[^}]*?^\s*zoom\s+([\d.]+)", f.read(), re.M | re.S)
+        return float(m.group(1)) if m else 0.5
+    except (OSError, ValueError):
+        return 0.5
+
+
+def spring(t, stiffness, damping=1.0):
+    """Пружина niri (масса 1): какая доля пути пройдена за t секунд. damping < 1 — с
+    перелётом, как у workspace-switch (0.85)."""
+    w0, t = math.sqrt(stiffness), max(0.0, t)
+    if damping >= 1.0:
+        k = w0 * t
+        return 1.0 - (1.0 + k) * math.exp(-k)
+    wd = w0 * math.sqrt(1.0 - damping * damping)
+    return 1.0 - math.exp(-damping * w0 * t) * (math.cos(wd * t) + damping * w0 / wd * math.sin(wd * t))
+
+
+def ov_rect(W, H, z, pos, view):
+    """Рамка стола номер pos (по порядку на мониторе) в обзоре с масштабом z; view —
+    номер стола в центре (дробный, пока едет)."""
+    w, h = W * z, H * z
+    return (W - w) / 2, (H - h) / 2 + (pos - view) * h * (1 + OV_GAP), w, h
+
+
+def ov_wallpaper(output, W, H, cache):
+    """Обои стола такими, как он их показывает: размытые, если «Размытие обоев» на этом
+    мониторе включено, иначе настоящие (с «Пиксельными обоями»). → поверхность cairo."""
+    import wallpaper_blur as wb
+    path = wb.original(output, wb.shown())
+    if not path:
+        return None
+    path = wb.blurred(path) if wb.read_state().get(output, "off") == "on" else wb.pixel_base(path)
+    key = (path, W, H)
+    if cache.get(output, (None,))[0] != key:
+        try:
+            import numpy as np
+            from PIL import Image, ImageOps
+            im = Image.open(path)
+            im.seek(0)
+            im = im.convert("RGB")
+            if im.size != (W, H):
+                im = ImageOps.fit(im, (W, H), Image.BICUBIC)
+            buf = np.ascontiguousarray(np.asarray(im.convert("RGBA"))[..., [2, 1, 0, 3]])
+            surf = cairo.ImageSurface.create_for_data(memoryview(buf), cairo.FORMAT_RGB24, W, H, W * 4)
+            cache[output] = (key, surf, buf)          # буфер держим рядом: cairo его не копирует
+        except Exception as e:
+            print("обои обзора %s: %s" % (output, e), file=sys.stderr)
+            return None
+    return cache[output][1]
+
+
+def ov_layer_window(win, mon, layer, namespace):
+    """Слой во весь монитор, мышь проходит насквозь."""
+    GtkLayerShell.init_for_window(win)
+    GtkLayerShell.set_namespace(win, namespace)
+    GtkLayerShell.set_layer(win, layer)
+    GtkLayerShell.set_monitor(win, mon)
+    for e in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM, GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+        GtkLayerShell.set_anchor(win, e, True)
+    GtkLayerShell.set_exclusive_zone(win, -1)
+    GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.NONE)
+    visual = win.get_screen().get_rgba_visual()
+    if visual:
+        win.set_visual(visual)
+    win.set_app_paintable(True)
+    for sig in ("realize", "map"):
+        win.connect(sig, lambda *_a: win.get_window() and
+                    win.get_window().input_shape_combine_region(cairo.Region(), 0, 0))
+
+
+class OvWall(Gtk.Window):
+    """Обои внутри столов в обзоре: фоновый слой без place-within-backdrop — niri рисует его
+    на каждом столе и уменьшает вместе со столом. Показан только в обзоре."""
+
+    def __init__(self, mgr, mon):
+        super().__init__()
+        self.mgr, self.mon = mgr, mon
+        self.surf = None
+        ov_layer_window(self, mon, GtkLayerShell.Layer.BACKGROUND, "jarvis-ov-wall")
+        self.connect("draw", self.on_draw)
+
+    def on_draw(self, _w, cr):
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        if self.surf is not None:
+            cr.set_source_surface(self.surf, 0, 0)
+        else:
+            cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        # рамка стола — здесь, а не в OvLayer: этот слой niri двигает вместе со столом,
+        # и рамка не отстаёт при переключении столов (Пользователь 29.10: «рамки с задержкой»)
+        g = self.mon.get_geometry()
+        ov_frame(cr, 0, 0, g.width, g.height, 1.0 if self.mgr.ov_target else 0.0)
+        return True
+
+
+class OvLayer(Gtk.Window):
+    """Верхний слой обзора: откреплённые виджеты одной копией
+    в рамке своего стола (Manager.ov_paint). Едет той же пружиной, что и обзор niri."""
+
+    def __init__(self, mgr, name, mon):
+        super().__init__()
+        self.mgr, self.name, self.mon = mgr, name, mon
+        self.drawn = False
+        self.tick_id = None
+        self.box = None                      # что нарисовано сейчас — повреждаем только его
+        self.painted_at = 0.0
+        ov_layer_window(self, mon, GtkLayerShell.Layer.TOP, "jarvis-ov-frames")
+        self.connect("draw", self.on_draw)
+
+    def on_frame(self, _w, _clock):
+        """Кадр монитора (144 Гц ноутбука, 300 Гц MSI): раньше таймер 16 мс — копии шли
+        60 к/с и дёргались на фоне плавного обзора niri."""
+        return self.mgr.ov_frame_tick(self)
+
+    def on_draw(self, _w, cr):
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        try:
+            self.drawn = self.mgr.ov_paint(self.name, self.mon, cr)
+        except Exception as e:
+            print("обзор %s: %r" % (self.name, e), file=sys.stderr)
+        return True
+
+
+def ov_frame(cr, x, y, w, h, alpha):
+    """Рамка стола акцентом обоев (primary) по краю внутри стола; в обзоре niri уменьшает
+    её вместе со столом (OV_FRAME px → OV_FRAME × zoom). Skeet-рамку пользователь убрал 29.10."""
+    if alpha <= 0:
+        return
+    b = OV_FRAME
+    cr.save()
+    cr.set_operator(cairo.OPERATOR_OVER)
+    cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+    cr.set_source_rgba(*T["primary"], alpha)
+    cr.rectangle(x, y, w, h)
+    cr.rectangle(x + b, y + b, w - 2 * b, h - 2 * b)
+    cr.fill()
+    cr.restore()
+
+
 class Manager:
     def __init__(self):
         self.widgets, self.editors = [], []
@@ -4167,6 +4389,7 @@ class Manager:
         self.backdrop = Backdrop()
         self.niri = Niri(self.schedule)
         self.build()
+        GLib.timeout_add_seconds(3, self.ov_prewarm)
         self.style_mon = Gio.File.new_for_path(STYLE).monitor_file(Gio.FileMonitorFlags.NONE, None)
         self.style_mon.connect("changed", lambda *_a: self.theme_soon())
         GLib.timeout_add_seconds(10, self.check_game)
@@ -4899,6 +5122,9 @@ class Manager:
         окон сыплются пачками (заголовок терминала меняется по нескольку раз в секунду) —
         их копим 150 мс."""
         if fast:
+            if bool(self.niri.overview) != getattr(self, "ov_target", False) \
+                    or getattr(self, "ov_target", False):
+                self.overview_layers()       # обзор и копии виджетов — сразу, не ждут пересчёта
             if self.pending is not None:
                 GLib.source_remove(self.pending)
             self.pending = GLib.timeout_add(10, self.refreeze)
@@ -4946,7 +5172,10 @@ class Manager:
     def apply_layer(self, w):
         layer = self.layer_of(w)
         GtkLayerShell.set_layer(w, layer)
-        w.set_catcher(layer == GtkLayerShell.Layer.BACKGROUND)
+        w.set_catcher(layer == GtkLayerShell.Layer.BACKGROUND and not self.in_overview())
+
+    def in_overview(self):
+        return bool(getattr(self, "layers_overview", False))
 
     def layer_of(self, w):
         """Слой виджета. Закреплённый — BACKGROUND: правило niri (layer-rules.kdl) кладёт
@@ -4956,6 +5185,11 @@ class Manager:
             return GtkLayerShell.Layer.TOP
         if self.peek:
             return GtkLayerShell.Layer.OVERLAY
+        # обзор Super+G (29.10.2026): нижний слой — уменьшается вместе со столом. niri рисует
+        # его на КАЖДОМ столе монитора: закреплённым так и надо (они на всех столах), а
+        # откреплённые на это время сняты — их одной копией рисует OvLayer (см. ov_paint)
+        if self.in_overview():
+            return GtkLayerShell.Layer.BOTTOM
         return GtkLayerShell.Layer.BACKGROUND if w.spec.get("pinned") else GtkLayerShell.Layer.BOTTOM
 
     def follow_desks(self):
@@ -5197,10 +5431,291 @@ class Manager:
                     return True
         return False
 
+    # ── обзор Super+G ─────────────────────────────────────────────────────
+    def ov_init(self):
+        if not hasattr(self, "ov_target"):
+            self.ov_target = False          # niri сказал: обзор открыт
+            self.ov_cloak = False           # откреплённые сняты — их рисует OvLayer
+            self.ov_anim = (1.0, 1.0, 0.0)  # (откуда, куда, начало) масштаба столов
+            self.ov_full = 0.5
+            self.ov_views = {}              # монитор → [откуда, куда, начало] номера стола в центре
+            self.ov_wins = {}               # монитор → (OvWall, OvLayer)
+            self.ov_walls = {}              # кэш обоев
+            self.ov_snap_id = self.overview_timer = None
+
+    def ov_prewarm(self):
+        """Обои обзора готовим заранее: картинка 1920×1080 считается ~0,1 с — на открытии
+        обзора это был бы пропущенный кадр."""
+        self.ov_init()
+        for out, mon in self.outs.items():
+            g = mon.get_geometry()
+            ov_wallpaper(out, g.width, g.height, self.ov_walls)
+            pair = self.ov_wins.get(out)
+            if pair is None or pair[0].mon is not mon:
+                for x in pair or ():
+                    x.destroy()
+                pair = self.ov_wins[out] = (OvWall(self, mon), OvLayer(self, out, mon))
+            pair[1].show_all()               # пустой OvLayer — заранее на экране (ov_hide)
+        return False
+
+    def ov_zoom_now(self):
+        a, b, t0 = self.ov_anim
+        return a + (b - a) * spring(time.monotonic() - t0, OV_OPEN_STIFF)
+
+    def ov_view_now(self, out):
+        v = self.ov_views.get(out)
+        if not v:
+            return 0.0
+        return v[0] + (v[1] - v[0]) * spring(time.monotonic() - v[2], OV_SWITCH_STIFF, OV_SWITCH_DAMP)
+
+    def ov_track_views(self):
+        """Стол в центре обзора сменился (стрелки, колесо) — плавно едем за niri."""
+        now = time.monotonic()
+        moved = False
+        for out in self.outs:
+            wss = self.niri.workspaces(out)
+            pos = next((i for i, w in enumerate(wss) if w.get("is_active")), 0)
+            v = self.ov_views.get(out)
+            if v is None or not self.ov_target and self.ov_zoom_now() > 0.999:
+                self.ov_views[out] = [pos, pos, now]
+            elif v[1] != pos:
+                self.ov_views[out] = [self.ov_view_now(out), pos, now]
+                moved = True
+        if moved:
+            self.ov_start_tick()
+
+    def ov_desk_pos(self, wss, want):
+        if not want or not (want.get("slot") or want.get("name")):
+            return next((i for i, w in enumerate(wss) if w.get("is_active")), None)
+        for i, ws in enumerate(wss):
+            if want.get("slot") and slot_of(ws.get("name")) == want["slot"] \
+                    or not want.get("slot") and same_desk_name(ws.get("name"), want["name"]):
+                return i
+        return None
+
+    def ov_flat(self, w):
+        """Виджет, которого в обзоре рисует OvLayer (откреплённый, у себя дома)."""
+        return not w.spec.get("pinned") and not getattr(w, "orphan", False) and not w.away
+
+    def ov_snap_one(self, w):
+        try:
+            ww, hh = w.size()
+            sh = w.shadow()
+            surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, max(1, ww + sh), max(1, hh + sh))
+            w.render_all(cairo.Context(surf))
+            w.ov_snap, w.ov_snap_at = surf, time.monotonic()
+        except Exception as e:
+            print("обзор, снимок %s: %r" % (w.spec.get("name"), e), file=sys.stderr)
+
+    def ov_snapshot(self):
+        term_dash = dash_mode() == "terminal"
+        for w in self.widgets:
+            w.ov_snap = None
+            if not self.ov_flat(w):
+                continue
+            if term_dash and (w.spec.get("ws") or {}).get("name") in dash_names():
+                continue
+            self.ov_snap_one(w)
+        for _wall, lay in self.ov_wins.values():
+            self.ov_damage(lay)
+        if self.ov_target and self.ov_animated():
+            self.ov_start_tick()             # анимированные копии — каждым кадром
+        return True                          # пока открыт — раз в секунду (часы, надписи)
+
+    def ov_animated(self):
+        """Откреплённые с анимацией (cava, надпись, огонь…) — их копии обновляем ~15 к/с."""
+        return [w for w in self.widgets if getattr(w, "ov_snap", None) is not None
+                and w.interval and w.running]
+
+    def ov_show(self):
+        for out, mon in self.outs.items():
+            pair = self.ov_wins.get(out)
+            if pair and pair[0].mon is not mon:
+                for x in pair:
+                    x.destroy()
+                pair = None
+            if pair is None:
+                pair = self.ov_wins[out] = (OvWall(self, mon), OvLayer(self, out, mon))
+            g = mon.get_geometry()
+            pair[0].surf = ov_wallpaper(out, g.width, g.height, self.ov_walls)
+            for x in pair:
+                x.show_all()
+                x.queue_draw()
+        for out in list(self.ov_wins):
+            if out not in self.outs:
+                for x in self.ov_wins.pop(out):
+                    x.destroy()
+
+    def ov_hide(self):
+        for w in self.widgets:
+            w.ov_snap = None
+        for wall, lay in self.ov_wins.values():
+            wall.hide()
+            self.ov_damage(lay)              # OvLayer остаётся на экране пустым: заново
+                                             # показать — ~2 кадра, а в них — дубли
+        return False
+
+    def ov_start_tick(self):
+        for _wall, lay in getattr(self, "ov_wins", {}).values():
+            if lay.tick_id is None:
+                lay.tick_id = lay.add_tick_callback(lay.on_frame)
+
+    def ov_frame_tick(self, lay):
+        now = time.monotonic()
+        live = self.ov_animated() if self.ov_target or getattr(self, "ov_cloak", False) else []
+        for w in live:                       # копии анимированных — с их частотой, не чаще 15 к/с
+            if now - getattr(w, "ov_snap_at", 0) >= max(OV_LIVE_MS, w.interval) / 1000:
+                self.ov_snap_one(w)
+        moving = now - max([self.ov_anim[2]] + [v[2] for v in self.ov_views.values()]) < 0.6
+        out = lay.name
+        fresh = any(w.cur_out() == out and getattr(w, "ov_snap_at", 0) > lay.painted_at
+                    for w in live)
+        if moving or fresh:
+            self.ov_damage(lay)
+        if moving or any(w.cur_out() == out for w in live):
+            return True
+        lay.tick_id = None
+        return False
+
+    def overview_layers(self):
+        """Обзор открылся/закрылся. Открылся — обои на столы, закреплённые в нижний слой
+        (уменьшаются со столом), откреплённые — в OvLayer. Закрылся — всё обратно, но только
+        после анимации niri: раньше виджеты прыгали на ещё уменьшенном столе."""
+        self.ov_init()
+        self.ov_track_views()
+        on = bool(self.niri.overview)
+        if on == self.ov_target:
+            return
+        self.ov_target = on
+        for wall, _lay in getattr(self, "ov_wins", {}).values():
+            wall.queue_draw()                # рамка столов: есть, пока обзор открыт
+        if on:
+            self.ov_full = overview_zoom()
+        t0 = min(time.monotonic(), getattr(self.niri, "overview_at", 0) or time.monotonic())
+        self.ov_anim = (self.ov_zoom_now(), self.ov_full if on else 1.0, t0)
+        if self.overview_timer:
+            GLib.source_remove(self.overview_timer)
+            self.overview_timer = None
+        if on:
+            self.ov_snapshot()
+            self.ov_show()
+            if self.ov_snap_id is None:
+                self.ov_snap_id = GLib.timeout_add(1000, self.ov_snapshot)
+            if not self.in_overview():
+                self.layers_overview = True
+                self.relayer()
+
+            if all(lay.get_mapped() for _w, lay in self.ov_wins.values()):
+                self.ov_cloak_now()          # OvLayer уже на экране — копии в этом же кадре
+            else:
+                # первый раз: снимаем, когда OvLayer нарисовал копии (ov_paint); таймер —
+                # на случай, если рисовать нечего
+                self.overview_timer = GLib.timeout_add(120, self.ov_cloak_timer)
+        else:
+            def done():
+                self.overview_timer = None
+                if self.ov_target:
+                    return False
+                if self.ov_snap_id is not None:
+                    GLib.source_remove(self.ov_snap_id)
+                    self.ov_snap_id = None
+                self.layers_overview = False
+                self.ov_cloak = False
+                self.relayer()
+                self.refreeze()
+                GLib.timeout_add(40, lambda: self.ov_target or self.ov_hide())
+                return False
+            self.overview_timer = GLib.timeout_add(OVERVIEW_SETTLE_MS, done)
+        self.ov_start_tick()
+
+    def ov_cloak_timer(self):
+        self.overview_timer = None
+        return self.ov_cloak_now()
+
+    def ov_cloak_now(self):
+        """OvLayer уже на экране — снимаем настоящие откреплённые виджеты: раньше — дубли на
+        соседних столах, позже — виджеты пропадают на кадр."""
+        if self.overview_timer is not None and self.ov_target:
+            GLib.source_remove(self.overview_timer)
+            self.overview_timer = None
+        if self.ov_target and not self.ov_cloak:
+            self.ov_cloak = True
+            self.refreeze()
+        return False
+
+    def ov_boxes(self, out, mon):
+        """Копии на мониторе out: (виджет, снимок, рамка стола, x, y, масштаб); None — не рисуем."""
+        z = self.ov_zoom_now()
+        if z > 0.999:
+            if self.ov_target:
+                return None
+            # выход: пружина доходит до 1 за ~330 мс, а настоящие виджеты встают через
+            # OVERVIEW_SETTLE_MS — до ov_hide копии на их местах, иначе виджеты мигали
+            z = 1.0
+        g = mon.get_geometry()
+        W, H = g.width, g.height
+        wss = self.niri.workspaces(out)
+        view = self.ov_view_now(out)
+        boxes = []
+        for w in self.widgets:
+            snap = getattr(w, "ov_snap", None)
+            if snap is None or w.cur_out() != out:
+                continue
+            pos = self.ov_desk_pos(wss, w.spec.get("ws"))
+            if pos is None:
+                continue
+            x, y, rw, rh = ov_rect(W, H, z, pos, view)
+            if y > H or y + rh < 0:
+                continue
+            wx, wy = w.cur_xy()
+            boxes.append((w, snap, (x, y, rw, rh), x + wx * z, y + (wy + getattr(w, "dy", 0)) * z, z))
+        return boxes
+
+    def ov_paint(self, out, mon, cr):
+        boxes = self.ov_boxes(out, mon)
+        for w, snap, clip, tx, ty, z in boxes or ():
+            cr.save()
+            cr.rectangle(*clip)
+            cr.clip()
+            cr.translate(tx, ty)
+            cr.scale(z, z)
+            cr.set_source_surface(snap, 0, 0)
+            cr.get_source().set_filter(cairo.FILTER_GOOD)
+            cr.paint()
+            cr.restore()
+        drawn = bool(boxes)
+        if drawn and self.ov_target and not self.ov_cloak:
+            GLib.idle_add(self.ov_cloak_now)
+        return drawn
+
+    def ov_damage(self, lay):
+        """Перерисовать на слое обзора только место копий (было ∪ стало): полный кадр —
+        8 МБ в niri, и обзор на ноутбуке проседал до ~100 к/с из 144."""
+        box = None
+        for w, snap, (cx, cy, cw, ch), tx, ty, z in self.ov_boxes(lay.name, lay.mon) or ():
+            x0, y0 = max(cx, tx), max(cy, ty)
+            x1 = min(cx + cw, tx + snap.get_width() * z)
+            y1 = min(cy + ch, ty + snap.get_height() * z)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            box = (x0, y0, x1, y1) if box is None else \
+                (min(box[0], x0), min(box[1], y0), max(box[2], x1), max(box[3], y1))
+        old, lay.box = lay.box, box
+        if old and box:
+            box = (min(box[0], old[0]), min(box[1], old[1]), max(box[2], old[2]), max(box[3], old[3]))
+        else:
+            box = box or old
+        if box:
+            pad = 8                          # кадр рисуется на миг позже — копии успевают сдвинуться
+            x0, y0 = int(box[0]) - pad, int(box[1]) - pad
+            lay.queue_draw_area(x0, y0, int(box[2]) + pad - x0, int(box[3]) + pad - y0)
+        lay.painted_at = time.monotonic()
+
     def refreeze(self):
         """Кого показывать и кого анимировать. Виджет виден, если закреплён или активен
         его стол; анимация идёт, пока его не закрыли окна (см. Niri.state)."""
         self.pending = None
+        self.overview_layers()
         dirty = self.follow_desks()
         foreign = {}
         # в режиме Terminal на столе дашборда — только окна kitty; его виджеты ждут
@@ -5240,8 +5755,11 @@ class Manager:
                 if away and not self.guest_desk_ok(away["out"]):
                     away, mine = None, False         # в гостях — только на столе дашборда
                 w.go_away(away)
+            # в обзоре его рисует OvLayer: сам прячется, но работает дальше (иначе cava
+            # и надписи останавливались и на выходе из обзора запускались заново)
+            w.ov_live = mine and getattr(self, "ov_cloak", False) and self.ov_flat(w)
             # показать/убрать — сразу, одним кадром: стол въезжает уже со своими виджетами
-            w.set_cloaked(not mine)
+            w.set_cloaked(not mine or w.ov_live)
             if not mine:
                 w.set_running(False)
                 continue
@@ -5272,6 +5790,7 @@ class Manager:
         # awww меняет картинку с переходом ~1 с: подложку пересчитать ещё раз позже
         GLib.timeout_add(1800, lambda: (self.backdrop.invalidate(),
                                         [w.area.queue_draw() for w in self.widgets]) and False)
+        GLib.timeout_add(2500, self.ov_prewarm)
         for w in self.widgets:
             w.theme_changed()
             w.place()                        # тень включили/выключили — слой другого размера

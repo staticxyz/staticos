@@ -22,6 +22,8 @@
     focus_mode.py block ИМЯ [ШАБЛОН…] | unblock ИМЯ | list
     focus_mode.py strict [on|off]  строгий режим: сессию не завершить и правила не ослабить
     focus_mode.py allow [on|off|СЛОВА…]  исключения для учёбы (слово в названии ролика)
+    focus_mode.py study [СЛОВА…]  учебные задачи помидора: с ними ролики YouTube можно
+    focus_mode.py allow-once ЗАГОЛОВОК   «Это для учёбы»: этот ролик — до конца помидора
     focus_mode.py log            журнал за сегодня
     focus_mode.py daemon         сторож (служба jarvis-focus.service)
     focus_mode.py overlay ИМЯ [ВЫХОД] [ID-ОКНА]   слой «Фокус» (зовёт сторож)
@@ -69,9 +71,16 @@ DEFAULT_BLOCKS = [
 DEFAULT_ALLOW = ["java", "spring", "kotlin", "python", "sql", "docker", "linux", "git",
                  "leetcode", "собеседован", "interview", "алгоритм", "algorithm",
                  "программирован", "programming", "tutorial", "лекци", "курс", "урок"]
+# Учебный помидор (29.10.2026, просьба: «помидор для исследований включён, а видео для
+# разбора не посмотреть»): слово из списка в задаче pomo — ролики YouTube можно, но не
+# главную ленту (заголовок начинается с «YouTube»); Twitch, TikTok… — как обычно.
+DEFAULT_STUDY = ["исследован", "разбор", "учёб", "учеб", "изуч", "конспект", "курс", "лекци",
+                 "урок", "java", "spring", "алгоритм", "собеседован", "research", "study"]
+STUDY_SITES = {"YouTube"}
+FEED = re.compile(r"^\s*(\(\d+\)\s*)?youtube\b", re.I)   # главная/лента: «YouTube — Zen Browser»
 DEFAULT = {"active": False, "started": 0, "until": 0, "auto_pomo": False,
            "free_breaks": True, "strict": False, "allow_on": True, "allow": DEFAULT_ALLOW,
-           "blocks": DEFAULT_BLOCKS}
+           "study": DEFAULT_STUDY, "once": [], "blocks": DEFAULT_BLOCKS}
 
 
 # ── состояние ─────────────────────────────────────────────────────────────────
@@ -314,15 +323,32 @@ WORK_APPS = re.compile(r"^(kitty|foot|alacritty|wezterm|org\.wezfurlong\.wezterm
                        r"com\.jarvis\..*)$", re.I)
 
 
+def norm(title):
+    """Заголовок без счётчика «(3) » и хвоста браузера — ключ разрешённого ролика."""
+    t = re.sub(r"^\s*\(\d+\)\s*", "", title or "")
+    t = re.split(r"\s+[—–-]\s+(?:YouTube|Zen Browser|Helium|LibreWolf|Mozilla Firefox)\b", t)[0]
+    return t.strip().lower()
+
+
 def allowed(s, title):
-    """Заголовок с учебным словом (исключения включены)."""
-    if not s.get("allow_on"):
-        return False
+    """Заголовок с учебным словом (исключения включены) или ролик, разрешённый кнопкой
+    «Это для учёбы» (до конца помидора)."""
     low = (title or "").lower()
-    return any(w and w.lower() in low for w in s.get("allow", []))
+    if s.get("allow_on") and any(w and w.lower() in low for w in s.get("allow", [])):
+        return True
+    key, now = norm(title), time.time()
+    return len(key) > 3 and any(o.get("until", 0) > now and (o["key"] in key or key in o["key"])
+                                for o in s.get("once", []) if len(o.get("key", "")) > 3)
 
 
-def blocked_by(rules, app_id, title, s=None):
+def study_task(s, p=None):
+    """Задача текущего рабочего отрезка pomo — учебная (слово из s['study'])."""
+    p = p or pomo()
+    task = (p.get("task") or "").lower()
+    return p["phase"] == "work" and bool(task) and any(w and w.lower() in task for w in s.get("study", []))
+
+
+def blocked_by(rules, app_id, title, s=None, study=False):
     work = bool(app_id) and bool(WORK_APPS.match(app_id))
     for label, t, a in rules:
         if a is not None and a.search(app_id or ""):
@@ -330,8 +356,27 @@ def blocked_by(rules, app_id, title, s=None):
         if t is not None and not work and t.search(title or ""):
             if s is not None and allowed(s, title):
                 continue
+            if study and label in STUDY_SITES and not FEED.match(title or "") \
+                    and "#shorts" not in (title or "").lower():
+                continue                     # учебный помидор: ролик можно, ленту — нет
             return label
     return None
+
+
+def allow_once(title):
+    """Кнопка «Это для учёбы»: ролик можно до конца рабочего отрезка (или 30 мин)."""
+    s = load()
+    key = norm(title)
+    if len(key) <= 3:
+        return False
+    p = pomo()
+    until = time.time() + (p["left"] if p["phase"] == "work" and p["left"] > 0 else 1800)
+    now = time.time()
+    s["once"] = [o for o in s.get("once", []) if o.get("until", 0) > now and o.get("key") != key]
+    s["once"].append({"key": key, "until": int(until)})
+    save(s)
+    log("allow", key)
+    return True
 
 
 def locked(s=None):
@@ -510,6 +555,14 @@ def main(argv):
             s["allow"] = [w.strip().lower() for w in " ".join(a).replace(",", " ").split() if w.strip()]
             save(s)
             print(", ".join(s["allow"]))
+    elif cmd == "study":
+        s = load()
+        if a:
+            s["study"] = [w.strip().lower() for w in " ".join(a).replace(",", " ").split() if w.strip()]
+            save(s)
+        print(("сейчас учебный помидор · " if study_task(s) else "") + ", ".join(s.get("study", [])))
+    elif cmd == "allow-once" and a:
+        print("разрешено до конца помидора" if allow_once(" ".join(a)) else "заголовок слишком короткий")
     elif cmd == "log":
         start_t = dt.datetime.combine(dt.date.today(), dt.time()).timestamp()
         try:
@@ -522,7 +575,8 @@ def main(argv):
     elif cmd == "daemon":
         Daemon().run()
     elif cmd == "overlay":
-        overlay(a[0] if a else "", a[1] if len(a) > 1 else "", a[2] if len(a) > 2 else "")
+        overlay(a[0] if a else "", a[1] if len(a) > 1 else "", a[2] if len(a) > 2 else "",
+                a[3] if len(a) > 3 else "")
     else:
         print(__doc__)
         return 2
@@ -594,21 +648,22 @@ class Daemon:
         return getattr(self, "wsout", {}).get(w.get("workspace_id"), "") or ""
 
     def show_overlay(self, label, w):
-        if self.overlay and self.overlay[0].poll() is None and self.overlay[1] == label:
+        key = (label, w.get("title") or "")
+        if self.overlay and self.overlay[0].poll() is None and self.overlay[1] == key:
             return
         self.hide_overlay()
         back = str(self.last_ok or "")
         p = subprocess.Popen([sys.executable, os.path.abspath(__file__), "overlay", label,
-                              self.output_of(w), back],
+                              self.output_of(w), back, w.get("title") or ""],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=pdeathsig)
-        self.overlay = (p, label)
+        self.overlay = (p, key)
 
     def hide_overlay(self):
         if self.overlay and self.overlay[0].poll() is None:
             self.overlay[0].terminate()
         self.overlay = None
 
-    def pause_media(self, rules, titles, s=None):
+    def pause_media(self, rules, titles, s=None, study=False):
         """Пауза плееров, чей адрес/название совпали с правилом или с заголовком
         запрещённого окна."""
         try:
@@ -624,6 +679,8 @@ class Daemon:
             inst, url, title = p[0], p[2], p[3]
             if s is not None and allowed(s, title):
                 continue
+            if study and re.search(r"youtube\.com/watch|youtu\.be/", url or ""):
+                continue                     # учебный помидор: ролик (не Shorts) играет
             hit = blocked_by(rules, "", url) or blocked_by(rules, "", title)
             if not hit and title:
                 hit = any(title.lower() in t.lower() for t in titles if len(title) > 3)
@@ -653,21 +710,22 @@ class Daemon:
             return 2.0
         self.stream_on()
         rules = compiled(s)
+        study = study_task(s)
         with self.lock:
             wins = dict(self.windows)
             fid = self.focused
         bad_titles = []
         for w in wins.values():
-            if blocked_by(rules, w.get("app_id"), w.get("title"), s):
+            if blocked_by(rules, w.get("app_id"), w.get("title"), s, study):
                 bad_titles.append(w.get("title") or "")
         w = wins.get(fid)
-        label = blocked_by(rules, w.get("app_id"), w.get("title"), s) if w else None
+        label = blocked_by(rules, w.get("app_id"), w.get("title"), s, study) if w else None
         if label:
             self.show_overlay(label, w)
             if self.episode != fid:
                 self.episode = fid
                 log("block", label)
-                self.pause_media(rules, bad_titles, s)
+                self.pause_media(rules, bad_titles, s, study)
                 self.last_media = now
         else:
             self.hide_overlay()
@@ -675,7 +733,7 @@ class Daemon:
             if w:
                 self.last_ok = fid
         if bad_titles and now - self.last_media > 3:
-            self.pause_media(rules, bad_titles, s)
+            self.pause_media(rules, bad_titles, s, study)
             self.last_media = now
         return 1.0
 
@@ -693,7 +751,7 @@ class Daemon:
 
 # ── слой «Фокус» ──────────────────────────────────────────────────────────────
 
-def overlay(label, output, back):
+def overlay(label, output, back, title=""):
     import gi
     gi.require_version("Gtk", "3.0")
     gi.require_version("Gdk", "3.0")
@@ -748,11 +806,21 @@ def overlay(label, output, back):
         p.text(x + 24, y + 98, line, c["text"])
         blocks, _m = today_stats()
         p.text(x + 24, y + 120, "отвлечений сегодня: %d" % blocks, c["dim"])
-        p.text(x + 24, y + 150, "Ctrl+W — закрыть вкладку, слой исчезнет сам", c["faint"])
+        if label in STUDY_SITES and study_task(load()):
+            hint = "учебный помидор: ролики можно, ленту — нет"
+        else:
+            hint = "Ctrl+W — закрыть вкладку, слой исчезнет сам"
+        p.text(x + 24, y + 150, hint, c["faint"])
         bx, by, bw = x + 24, y + ch_ - 24 - 24, cw_ - 48
         v = ra.View.__new__(ra.View)
         v.c, v.hover, v.hits = c, st["hover"], []
-        v.button(p, bx, by, bw, "Назад к работе", "back", accent=True)
+        can_once = label in STUDY_SITES and len(norm(title)) > 3 and not FEED.match(title)
+        if can_once:
+            half = (bw - 12) // 2
+            v.button(p, bx, by, half, "Назад к работе", "back", accent=True)
+            v.button(p, bx + half + 12, by, bw - half - 12, "Это для учёбы", "once")
+        else:
+            v.button(p, bx, by, bw, "Назад к работе", "back", accent=True)
         st["hits"] = v.hits
 
     win = None
@@ -779,6 +847,8 @@ def overlay(label, output, back):
             for (hx, hy, hw, hh), key in st["hits"]:
                 if hx <= ev.x < hx + hw and hy <= ev.y < hy + hh and key == "back":
                     go_back()
+                elif hx <= ev.x < hx + hw and hy <= ev.y < hy + hh and key == "once":
+                    allow_once(title)        # сторож снимет слой на следующем шаге
             return True
 
         def motion(_w, ev, area=area):

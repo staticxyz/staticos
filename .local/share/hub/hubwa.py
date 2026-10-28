@@ -405,6 +405,7 @@ class Sender:
             T.enqueue(c, tg_card_text(m), tg_card_buttons(m))
 
     def ask_pc(self, mid, title, body):
+        H.dnd_wait()                                # в «Не беспокоить» ждёт (29.10.2026)
         try:
             p = subprocess.run(["notify-send", "-a", "hub", "-i", "whatsapp", "-u", "critical",
                                 "-A", "now=▶ Отправить сейчас", "-A", "later=+1 час",

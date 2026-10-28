@@ -41,6 +41,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import wake_alarm as wa  # noqa: E402
+import title_strip  # noqa: E402
 import focus_mode as fm  # noqa: E402
 
 import gi  # noqa: E402
@@ -1413,6 +1414,7 @@ class View:
         self.focus_s = fm.load()
         self.focus_mtime = 0
         self.active = True          # окно в фокусе — рамка в акценте (как у Настроек в Skeet)
+        self.maxed = False          # развёрнуто — значок «вернуть» на полосе заголовка
         self.reload_style()
 
     def reload_style(self):
@@ -1450,7 +1452,8 @@ class View:
 
     def layout_y(self):
         f = 6 if self.c["frame"] == "skeet" else 1
-        y = f + 2 + 10
+        # сверху полоса заголовка как у Настроек (title_strip, 29.10.2026); в стопке её рисует stack_bars
+        y = f + (0 if stack_on() else title_strip.TITLE_H) + 2 + 10
         L = {"frame": f, "header": y}
         y += 18 + 14
         L["hero"] = y
@@ -1474,9 +1477,19 @@ class View:
         self.fit_rows(h)
         p = Painter(cr)
         L = self.layout_y()
+        # Выше раскладки (развёрнуто, строки уже MAX_ROW) — кнопки и строка режима к низу окна,
+        # а не посреди пустоты; вкладки тянут свои поля до L["buttons"] (29.10.2026, «развернуть криво»)
+        d = max(0, h - L["end"])
+        for k in ("buttons", "footer", "end"):
+            L[k] += d
         self.draw_frame(p, w, h)
         self.draw_grip(p, w, h, L["frame"])
-        x0, x1 = PAD + L["frame"], w - PAD - L["frame"]
+        f = L["frame"]
+        if not stack_on():
+            self.hits += title_strip.draw(cr, self.style, f, f, w - 2 * f, "\U000f0150", "Clocker",
+                                          self.hover, self.maxed, self.active,
+                                          r=0 if self.c["frame"] == "skeet" else 9)
+        x0, x1 = PAD + f, w - PAD - f
         self.draw_header(p, x0, x1, L["header"])
         getattr(self, "draw_" + self.tab)(p, x0, x1, L)
         self.draw_footer(p, x0, x1, L["footer"])
@@ -1564,7 +1577,7 @@ class View:
         # узкое окно: со значками вкладки не влезают — у неактивных остаётся значок без слова
         full = sum(TAB_ICON_W + 6 + p.text_w(TAB_NAMES[t]) + (6 + p.text_w(badges[t]) if badges[t] else 0) + 20
                    for t in TABS)
-        tight = full > x1 - x0 - (24 if not stack_on() else 0)
+        tight = full > x1 - x0
         for t in TABS:
             label = TAB_NAMES[t] if not tight or t == self.tab else ""
             extra = badges[t]
@@ -1587,9 +1600,6 @@ class View:
                 p.rect(x, y + 17, w, 2, c["acc"] if self.active else c["line"])
             self.hits.append(((x - 4, y - 6, w + 8, 26), ("tab", t)))
             x += w + 20
-        if not stack_on():
-            p.text(x1, y, "×", c["dim"] if self.hover != "close" else c["text"], align="r")
-            self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
 
     def tab_badge(self, t):
         if t == "alarm":
@@ -2924,6 +2934,7 @@ class RoutineWindow(Gtk.ApplicationWindow):
         self.add(self.area)
         self.connect("key-press-event", self.on_key)
         self.connect("notify::is-active", self.on_active)
+        self.connect("window-state-event", self.on_wstate)
         GLib.timeout_add(500, self.tick)
 
     def on_configure(self, _w, ev):
@@ -2937,6 +2948,8 @@ class RoutineWindow(Gtk.ApplicationWindow):
 
     def save_size(self):
         self.size_save = None
+        if self.view.maxed:                 # развёрнуто — не запоминать как свой размер
+            return False
         try:
             with open(SIZE_FILE, "w") as f:
                 f.write("%d %d\n" % self.last_size)
@@ -2966,6 +2979,14 @@ class RoutineWindow(Gtk.ApplicationWindow):
         gw = self.area.get_window()
         if gw is not None:
             gw.set_cursor(Gdk.Cursor.new_from_name(gw.get_display(), name) if name else None)
+
+    def on_wstate(self, _w, ev):
+        m = bool(ev.new_window_state & Gdk.WindowState.MAXIMIZED) \
+            or title_strip.float_maxed(self)  # TILED не берём: при prefer-no-csd niri шлёт его всем окнам
+        if m != self.view.maxed:
+            self.view.maxed = m
+            self.redraw()
+        return False
 
     def on_active(self, *_a):
         self.view.active = self.is_active()
@@ -3042,6 +3063,13 @@ class RoutineWindow(Gtk.ApplicationWindow):
         if key is None:
             if ev.button == 1:
                 self.begin_move_drag(ev.button, int(ev.x_root), int(ev.y_root), ev.time)
+            return True
+        if key == "title":
+            title_strip.on_title(self, ev)
+            return True
+        if key == "max":
+            if ev.button == 1:
+                title_strip.toggle_max(self)
             return True
         dbl = ev.type == Gdk.EventType._2BUTTON_PRESS
         if isinstance(key, tuple):

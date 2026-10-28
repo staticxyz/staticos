@@ -191,7 +191,7 @@ def niri_json(*args):
 
 # ── поиск: другая раскладка и синонимы (02.10.2026) ─────────────────────────
 # Словарь и функции — в app_search.py (общий с меню программ rofi, 05.10.2026).
-from app_search import APP_SYNONYMS, _LAYOUT, search_forms, search_score  # noqa: E402,F401
+from app_search import APP_SYNONYMS, _LAYOUT, search_forms, search_meta, search_score  # noqa: E402,F401
 
 
 # ── программы ──────────────────────────────────────────────────────────────
@@ -276,11 +276,46 @@ def frequent(skip, n=5):
     return out
 
 
+_USES = [0.0, {}]
+
+
+def app_uses():
+    """{desktop id: вес} — запуски из rofi (launcher-history) и экранное время за 7 дней
+    (минуты), чтобы среди равных совпадений выше было то, чем пользуются. Кэш на минуту."""
+    import time
+    if time.time() - _USES[0] < 60:
+        return _USES[1]
+    u = {}
+    try:
+        h = json.load(open(os.path.expanduser("~/.cache/jarvis/launcher-history.json")))
+        for k, n in (h.items() if isinstance(h, dict) else ()):
+            u[k] = u.get(k, 0) + 30 * int(n)
+    except (OSError, ValueError, TypeError):
+        pass
+    import datetime
+    today = datetime.date.today()
+    for i in range(7):
+        day = (today - datetime.timedelta(days=i)).strftime("%Y-%m-%d")
+        try:
+            apps = json.load(open(os.path.join(SCREENTIME, day + ".json"))).get("apps", {})
+        except (OSError, ValueError):
+            continue
+        for k, sec in apps.items():
+            a = app_for_window(k)
+            if a:
+                u[a.get_id()] = u.get(a.get_id(), 0) + int(sec) // 60
+    _USES[0], _USES[1] = time.time(), u
+    return u
+
+
 def find_apps(q):
     """Программы по запросу: сперва набранное как есть (и начало названия), потом другая
-    раскладка, потом синонимы."""
-    found = []
+    раскладка, потом синонимы. Среди равных (29.10.2026) — совпало в названии выше, чем в
+    словах-синонимах («телеграм» → Telegram раньше jchat), дальше — чем чаще пользуются
+    («браузер» → Zen/Helium раньше Avahi Browser)."""
+    found, typos = [], []
     forms = search_forms(q)
+    uses = app_uses()
     for a in Gio.AppInfo.get_all():
         if not a.should_show():
             continue
@@ -290,12 +325,35 @@ def find_apps(q):
                                           ";".join(a.get_keywords() or []) if hasattr(a, "get_keywords") else "",
                                           a.get_executable(), a.get_id())).lower()
         name = (a.get_display_name() or "").lower()
+        # звучание имени, раскладка и синонимы слов программы («беттер» → Better)
+        hay += " " + search_meta(hay, a.get_display_name())
         score = search_score(hay, forms)
+        if score is None and len(q.strip()) >= 4:
+            # опечатки и окончания (29.10.2026): «напоминалки», «телеграмм», «беттр» —
+            # только если точнее ничего не нашлось («better» не тянет «letter»)
+            import smart_search
+            if smart_search.score(q, hay) >= 50 * len(q.split()):
+                typos.append((3, 1, name, a))
+        if score is None:
+            # на слух (29.10.2026): «вацап» → WhatsApp, «ютуб», «хелиум»
+            from app_search import sound_match
+            snd = sound_match(q, " ".join(x or "" for x in (
+                a.get_display_name(), a.get_name(), getattr(a, "get_generic_name", lambda: "")(),
+                " ".join(a.get_keywords() or []) if hasattr(a, "get_keywords") else "",
+                os.path.basename(a.get_executable() or ""))))
+            if snd is not None:
+                score = 3 + snd
         if score is not None:
             starts = any(name.startswith(f) for f, wt in forms[0].items() if wt == score)
-            found.append((score, 0 if starts else 1, name, a))
-    found.sort(key=lambda x: x[:3])
-    return [a for _r, _s, _n, a in found]
+            nhay = name + " " + search_meta(name, a.get_display_name())
+            tier = 0 if search_score(nhay, forms) is not None else 1
+            found.append((score, tier, 0 if starts else 1, -uses.get(a.get_id(), 0), name, a))
+    if any(x[0] < 3 for x in found):          # нашлось словом — «на слух» лишь шум («обои» → Obsidian)
+        found = [x for x in found if x[0] < 3]
+    if not found:
+        found = [(r, 1, s, -uses.get(a.get_id(), 0), n, a) for r, s, n, a in typos]
+    found.sort(key=lambda x: x[:5])
+    return [x[-1] for x in found]
 
 
 # ── вид ────────────────────────────────────────────────────────────────────

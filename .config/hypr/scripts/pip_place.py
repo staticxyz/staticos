@@ -33,10 +33,10 @@ import time
 
 STATE = os.path.expanduser("~/.cache/jarvis/pip-place.json")
 LOG = os.path.expanduser("~/.cache/jarvis/pip-place.log")
-APPS = ("zen", "librewolf")
+APPS = ("zen", "librewolf", "helium")  # helium с 29.10
 # Заголовок окна картинки. Русский — на случай, если браузер начнёт его переводить
 # (в Firefox так бывало); тот же список — в правиле niri cfg/window-rules.kdl.
-TITLES = ("Picture-in-Picture", "Картинка в картинке")
+TITLES = ("Picture-in-Picture", "Picture in picture", "Картинка в картинке")
 
 
 def log(msg):

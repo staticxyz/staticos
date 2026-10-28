@@ -230,6 +230,7 @@ fi
 ( python3 "$HOME/.config/hypr/scripts/rofi_style.py" sync >/dev/null 2>&1 ) &
 ( python3 "$HOME/.config/hypr/scripts/notif_style.py" sync >/dev/null 2>&1 ) &   # П9: пиксельные уведомления
 ( python3 "$HOME/.config/hypr/scripts/zen_style.py" sync >/dev/null 2>&1 ) &     # Zen в стиле системы (13.10)
+( python3 "$HOME/.config/hypr/scripts/helium_newtab.py" sync >/dev/null 2>&1 ) &   # новая вкладка Helium (29.10)
 ( python3 "$HOME/.config/hypr/scripts/keepassxc_style.py" sync >/dev/null 2>&1 ) &     # KeePassXC в стиле системы (13.10)
 
 # Приглашение fish (Tide): сегмент пути красится акцентом обоев напрямую.

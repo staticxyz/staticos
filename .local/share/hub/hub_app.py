@@ -3,9 +3,10 @@
 цвета из обоев, управление как в nvim по keycode; вид общий с routine_app.py, код свой —
 Clocker тянет будильник и фокус, hub ничего этого не знает).
 
-    hub_app.py            напоминания            hub_app.py dict   словарь (с выделенным текстом)
+    hub_app.py            «Лучше вчера» (growth.py, 28.10.2026) — первая вкладка
+    hub_app.py items      напоминания            hub_app.py dict   словарь (с выделенным текстом)
 
-j/k — вниз/вверх · Tab, Shift+H/L — вкладка · i/a, Ctrl+E — новая запись (ввод обычным
+j/k — вниз/вверх · Tab / Shift+Tab, Shift+H/L — вкладка вперёд/назад · i/a, Ctrl+E — новая запись (ввод обычным
 текстом; Enter, jj (только латиницей), Ctrl+E — сохранить, Esc — отмена, Ctrl+S — тоже сохранить) ·
 x — выполнено · 1/2/3 — важность High/Mid/Default · v — вид (общий/списком) ·
 Alt+j/k — переставить выше/ниже · Ctrl+H/L — срок на день назад/вперёд (и в окне ввода) ·
@@ -27,7 +28,8 @@ j/k — ±день / ±15 минут, h/l у времени — ±1 минута
 — за пустое место окна (не за строку и не за кнопку), изменение размера — за край/правый
 нижний уголок, как у Clocker.
 
-    hub_app.py --shot F [tab=items|words sel=N mode=normal|text style=…]   PNG без окна
+    hub_app.py --shot F [tab=growth|items|words sel=N mode=normal|text|ginput gop=spend style=…]
+                                                                                 PNG без окна
 """
 import datetime as dt
 import math
@@ -41,6 +43,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.expanduser("~/.config/hypr/scripts"))
 import hublib as H  # noqa: E402
+import growth as G  # noqa: E402
+import title_strip  # noqa: E402
 
 import gi  # noqa: E402
 gi.require_version("Gtk", "3.0")
@@ -67,8 +71,10 @@ HEAD_PRIO = {name: p for p, name in H.PRIO_NAMES.items()}
 FIELDS = ("title", "date", "time", "prio", "repeat")
 # поля под строкой ввода: имя, подсказка, ширина; не влезают в ширину — переносятся
 FORM = (("date", "дата", 210), ("time", "время", 64), ("prio", None, 96), ("repeat", None, 96))
-TABS = ("items", "words")
-TAB_NAMES = {"items": "Напоминания", "words": "Словарь"}
+# 28.10.2026: «Лучше вчера» первой, потом напоминания (просьба: «чтобы она стояла первой»)
+TABS = ("growth", "items", "words")
+TAB_NAMES = {"growth": "Better", "items": "Reminders", "words": "Dictionary"}
+TAB_TITLES = {"growth": "Better", "items": "Reminders", "words": "Dictionary"}
 
 KEYS = {}
 for _row, _start in (("1234567890-=", 10), ("qwertyuiop[]", 24), ("asdfghjkl;'", 38),
@@ -492,10 +498,12 @@ class View:
         self.style = style_name()
         self.c = colors(self.style)
         self.active = True
-        self.tab = "items"
-        self.sel = {"items": 0, "words": 0}
-        self.scroll = {"items": 0, "words": 0}
-        self.mode = "normal"            # normal | text | quiz
+        self.maxed = False          # развёрнуто — значок «вернуть» на полосе заголовка
+        self.tab = "growth"
+        self.sel = {"growth": 0, "items": 0, "words": 0}
+        self.scroll = {"growth": 0, "items": 0, "words": 0}
+        self.mode = "normal"            # normal | text | quiz | ginput (ввод во вкладке growth)
+        self.g_op = ""                  # что вводится в ginput: wake | spend | lift | apply | hr
         self.buf = ""
         self.buf2 = ""                  # для items: название уже набрано, buf — поле «когда»
         self.text_stage = "title"       # title | when (только для items)
@@ -534,6 +542,8 @@ class View:
 
     # ── данные ──
     def rows(self):
+        if self.tab == "growth":
+            return G.rows(self)
         out = []
         if self.tab == "items":
             opened = order_open(H.items(self.conn, None, "open"))
@@ -602,7 +612,8 @@ class View:
 
     def layout_y(self, h):
         f = self.frame_f()
-        y = f + 2 + 10
+        # сверху полоса заголовка как у Настроек (title_strip, 29.10.2026); в стопке её рисует stack_bars
+        y = f + (0 if stack_on() else title_strip.TITLE_H) + 2 + 10
         L = {"header": y}
         y += 18 + 14
         L["body_top"] = y
@@ -617,11 +628,17 @@ class View:
         f = self.frame_f()
         self.draw_frame(p, w, h)
         self.draw_grip(p, w, h, f)
+        if not stack_on():
+            self.hits += title_strip.draw(cr, self.style, f, f, w - 2 * f, "\U000f009a", "Hub",
+                                          self.hover, self.maxed, self.active,
+                                          r=0 if self.c["frame"] == "skeet" else 9)
         x0, x1 = PAD + f, w - PAD - f
         L = self.layout_y(h)
         self.draw_header(p, x0, x1, L["header"])
         if self.mode == "quiz":
             self.draw_quiz(p, x0, x1, L["body_top"], L["body_bottom"])
+        elif self.tab == "growth":
+            G.draw(self, p, x0, x1, L["body_top"], L["body_bottom"])
         else:
             self.draw_list(p, x0, x1, L["body_top"], L["body_bottom"])
         self.draw_buttons_row(p, x0, x1, L["buttons"])
@@ -684,21 +701,19 @@ class View:
             label = TAB_NAMES[t]
             on = t == self.tab
             hov = self.hover == ("tab", t)
-            w = p.text_w(label)
             on_col = c["acc_l"] if self.active else c["text"]
-            p.text(x, y, label, on_col if on else (c["text"] if hov else c["dim"]))
+            col = on_col if on else (c["text"] if hov else c["dim"])
+            G.pix(p, x, y + 2, G.ICONS["tab_" + t], col, 1)
+            w = 14 + p.text(x + 14, y, label, col)
             if on:
                 p.rect(x, y + 17, w, 2, c["acc"] if self.active else c["line"])
             self.hits.append(((x - 4, y - 6, w + 8, 26), ("tab", t)))
             x += w + 20
-        if not stack_on():
-            p.text(x1, y, "×", c["dim"] if self.hover != "close" else c["text"], align="r")
-            self.hits.append(((x1 - 12, y - 4, 16, 20), "close"))
         if self.tab == "items":                 # вид: общий / списком (клик или v)
             label = "вид: " + ("списком" if self.view_mode == "list" else "общий")
             hov = self.hover == ("view",)
-            vw = p.text(x1 - 26, y, label, c["text"] if hov else c["faint"], align="r")
-            self.hits.append(((x1 - 30 - vw, y - 4, vw + 8, 20), ("view",)))
+            vw = p.text(x1, y, label, c["text"] if hov else c["faint"], align="r")
+            self.hits.append(((x1 - 4 - vw, y - 4, vw + 8, 20), ("view",)))
 
     def row_bg(self, p, x0, x1, y, sel, key, h=ROW_H):
         c = self.c
@@ -1020,6 +1035,9 @@ class View:
             x += w + gap
 
     def draw_buttons_row(self, p, x0, x1, y):
+        if self.tab == "growth":
+            G.buttons(self, p, x0, x1, y)
+            return
         if self.mode == "text":
             save_label = "сохранить" if self.editing_id is not None else "добавить"
             mid = []
@@ -1092,7 +1110,7 @@ class View:
     def draw_footer(self, p, x0, x1, y):
         c = self.c
         p.rect(x0, y - 8, x1 - x0, 1, c["line_soft"])
-        badge = {"text": "INSERT", "quiz": "QUIZ"}.get(self.mode, "NORMAL")
+        badge = {"text": "INSERT", "ginput": "INSERT", "quiz": "QUIZ"}.get(self.mode, "NORMAL")
         bw = p.text_w(badge) + 10
         p.rect(x0, y - 1, bw, 16, c["field_l"])
         p.text(x0 + 5, y, badge, c["acc_l"])
@@ -1102,7 +1120,7 @@ class View:
             p.text(x0 + bw + 10, y, "не сохранено: %d · Ctrl+S — сохранить"
                    % self.n_drafts(), c["acc_l"], maxw=x1 - x0 - bw - 10)
         else:
-            hint = self.HINTS.get(self.mode) or (
+            hint = G.hint(self) if self.tab == "growth" else self.HINTS.get(self.mode) or (
                 "n новая · e правка · ^H ^L срок · 1-3 / h l важность · v вид · Alt+j/k порядок" if self.tab == "items"
                 else "i/a новое · e ред. · z повторить · d удалить · y/p")
             if self.mode == "text" and self.tab == "items":
@@ -1116,11 +1134,11 @@ class View:
 # ── окно ──────────────────────────────────────────────────────────────────────
 
 class HubWindow(Gtk.ApplicationWindow):
-    def __init__(self, app, tab="items"):
+    def __init__(self, app, tab="growth"):
         super().__init__(application=app, title="Hub")
         self.view = View()
         self.view.text_target, self.view.text_new = -1, False
-        self.view.tab = tab if tab in TABS else "items"
+        self.view.tab = tab if tab in TABS else "growth"
         self.set_title(self.tab_title())
         self.set_decorated(False)
         self.set_resizable(True)
@@ -1160,6 +1178,7 @@ class HubWindow(Gtk.ApplicationWindow):
         self.connect("delete-event", self.on_delete)
         self.close_armed = 0
         self.connect("notify::is-active", self.on_active)
+        self.connect("window-state-event", self.on_wstate)
         GLib.timeout_add(500, self.tick)
 
     def on_delete(self, *_a):
@@ -1175,7 +1194,7 @@ class HubWindow(Gtk.ApplicationWindow):
         return False
 
     def tab_title(self):
-        return "Reminders" if self.view.tab == "items" else "Dictionary"
+        return TAB_TITLES[self.view.tab]
 
     def on_configure(self, _w, ev):
         size = (ev.width, ev.height)
@@ -1188,6 +1207,8 @@ class HubWindow(Gtk.ApplicationWindow):
 
     def save_size(self):
         self.size_save = None
+        if self.view.maxed:                 # развёрнуто — не запоминать как свой размер
+            return False
         try:
             os.makedirs(os.path.dirname(SIZE_FILE), exist_ok=True)
             with open(SIZE_FILE, "w") as f:
@@ -1217,6 +1238,14 @@ class HubWindow(Gtk.ApplicationWindow):
         gw = self.area.get_window()
         if gw is not None:
             gw.set_cursor(Gdk.Cursor.new_from_name(gw.get_display(), name) if name else None)
+
+    def on_wstate(self, _w, ev):
+        m = bool(ev.new_window_state & Gdk.WindowState.MAXIMIZED) \
+            or title_strip.float_maxed(self)  # TILED не берём: при prefer-no-csd niri шлёт его всем окнам
+        if m != self.view.maxed:
+            self.view.maxed = m
+            self.redraw()
+        return False
 
     def on_active(self, *_a):
         self.view.active = self.is_active()
@@ -1309,6 +1338,12 @@ class HubWindow(Gtk.ApplicationWindow):
             return True
         if ev.button != 1:
             return True
+        if key == "title":
+            title_strip.on_title(self, ev)
+            return True
+        if key == "max":
+            title_strip.toggle_max(self)
+            return True
         double = ev.type == Gdk.EventType._2BUTTON_PRESS
         if key == ("sb",):
             v.sb_drag = True
@@ -1318,7 +1353,10 @@ class HubWindow(Gtk.ApplicationWindow):
             # двойной щелчок: по записи — правка, как Ctrl+E; по дате/времени — ввод руками
             if key[0] == "row" and v.mode == "normal":
                 v.sel[v.tab] = key[1]
-                self.start_edit()
+                if v.tab == "growth":
+                    self.g_primary()
+                else:
+                    self.start_edit()
             elif key[0] == "field" and key[1] in ("date", "time") and v.mode == "text":
                 v.field = key[1]
                 self.field_typing(True)
@@ -1336,6 +1374,8 @@ class HubWindow(Gtk.ApplicationWindow):
                 self.field_typing(False)
                 v.field = "title"
         elif isinstance(key, tuple) and key[0] == "row":
+            if v.mode == "ginput" and key[1] != v.sel[v.tab]:
+                v.mode = "normal"                   # щелчок по другой строке — ввод брошен
             v.sel[v.tab] = key[1]
             v.confirm_delete = None
         elif isinstance(key, tuple) and key[0] == "btn":
@@ -1356,6 +1396,9 @@ class HubWindow(Gtk.ApplicationWindow):
     # ── кнопки подвала — те же действия, что и клавиши в key_normal/key_quiz ──
     def do_button(self, action):
         v = self.view
+        if action.startswith("g:"):
+            self.g_do(action[2:])
+            return
         if v.mode == "text":
             if action in ("f_date", "f_time", "f_prio", "f_repeat"):
                 self.field_typing(False)
@@ -1830,6 +1873,135 @@ class HubWindow(Gtk.ApplicationWindow):
 
     def set_tab(self, tab):
         self.view.tab, self.view.mode = tab, "normal"
+        self.set_title(self.tab_title())
+
+    # ── «Лучше вчера» (growth.py, 28.10.2026): действия с отменой через u / Ctrl+R ──
+    G_LABEL = {"cig": "сигарета", "spend": "трата", "lift": "тренировка", "speech": "речь"}
+
+    def g_push(self, label, forward, backward):
+        """Действие уже сделано — только в стек отмены (run_action выполнил бы его ещё раз)."""
+        self.undo_stack.append((label, forward, backward))
+        del self.undo_stack[:-50]
+        self.redo_stack.clear()
+
+    def g_primary(self):
+        kind, key = G.current(self.view)
+        if kind == "chore":
+            self.g_do("chore")
+        elif G.PRIMARY.get(key):
+            self.g_do(G.PRIMARY[key])
+        elif key == "chores":
+            self.g_do("tochores")
+
+    def g_do(self, act):
+        v, c = self.view, self.view.conn
+        kind, key = G.current(v)
+        if act == "refresh":
+            G.invalidate()
+            v.flash("обновлено")
+        elif act == "cancel":
+            v.mode, v.buf, v.cur = "normal", "", None
+        elif act == "submit":
+            self.g_submit()
+        elif act == "tochores":
+            v.sel["growth"] = next(i for i, r in enumerate(G.rows(v)) if r[0] == "chore")
+        elif act.startswith("i:"):
+            v.mode, v.g_op, v.buf, v.cur = "ginput", act[2:], "", None
+        elif act.startswith("pomo"):
+            task = act[5:] or "programming"
+            st = G.pomo_state()
+            busy = st.get("phase", "idle") != "idle" and not int(st.get("paused") or 0)
+            if busy:
+                v.flash("помидор уже идёт: %s" % (st.get("task") or st.get("phase")))
+                return
+            subprocess.Popen([os.path.expanduser("~/.local/bin/pomo"), "start", task],
+                             start_new_session=True, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            G.invalidate()
+            v.flash("▶ помидор «%s»" % task)
+        elif act == "chore" and kind == "chore":
+            done, r = G.do_chore(c, key)
+            label = G.CHORE_NAMES[key].lower()
+            if done:
+                self.g_push(label, lambda: G.put_back(c, r), lambda: G.remove(c, r["id"]))
+            else:
+                self.g_push("снято: " + label, lambda: G.remove(c, r["id"]), lambda: G.put_back(c, r))
+            v.flash(("✓ " if done else "снято: ") + label)
+        elif act.startswith("+"):
+            k, box = act[1:], {}
+
+            def fwd():
+                box["id"] = G.add(c, k, 1)
+            self.run_action(self.G_LABEL[k], fwd, lambda: G.remove(c, box["id"]))
+            v.flash("✓ +1 " + self.G_LABEL[k])
+        elif act.startswith("-"):
+            rs = [r for r in (G.last_today(c, act[1:]),) if r]
+            if not rs:
+                v.flash("сегодня записей нет")
+                return
+            r = max(rs, key=lambda r: (r["ts"], r["id"]))
+            label = "убрано: " + self.G_LABEL[r["kind"]]
+            self.run_action(label, lambda: G.remove(c, r["id"]), lambda: G.put_back(c, r))
+            v.flash(label)
+
+    def g_submit(self):
+        v, c = self.view, self.view.conn
+        text = v.buf.strip()
+        if not text:
+            v.mode = "normal"
+            return
+        said, ids = G.do_text(c, v.g_op, text)
+        if ids is None:
+            v.flash(said)                      # не понял — ввод остаётся, можно поправить
+            return
+        rs = [G.get(c, i) for i in ids]
+
+        def fwd():
+            for r in rs:
+                G.put_back(c, r)
+
+        def bwd():
+            for r in rs:
+                G.remove(c, r["id"])
+        self.g_push(said.lstrip("✓ "), fwd, bwd)
+        v.mode, v.buf, v.cur = "normal", "", None
+        v.flash(said)
+
+    def g_key(self, ch, name):
+        v = self.view
+        kind, key = G.current(v)
+        if name in ("Return", "KP_Enter", "space") or ch == " ":
+            self.g_primary()
+        elif ch in ("i", "a", "n", "e"):
+            act = G.PRIMARY.get(key) or ""
+            self.g_do(act) if act.startswith("i:") else self.g_primary()
+        elif ch == "x" or ch == "-":
+            if kind == "chore":
+                self.g_do("chore")
+            elif key in ("cig", "money", "lift", "speech"):
+                self.g_do({"money": "-spend"}.get(key, "-" + key))
+        elif ch == "=" and key == "cig":                 # «+» без Shift
+            self.g_do("+cig")
+        elif ch == "r":
+            self.g_do("refresh")
+
+    def g_input_key(self, ev, ch, name, ctrl):
+        v = self.view
+        if name == "Escape":
+            self.g_do("cancel")
+        elif name in ("Return", "KP_Enter"):
+            self.g_submit()
+        elif ctrl and ch == "u":
+            v.buf, v.cur = "", None
+        else:
+            r = edit_line(v.buf, v.cur, name, ctrl)
+            if r:
+                v.buf, v.cur = r
+                return
+            u = Gdk.keyval_to_unicode(ev.keyval)
+            if u >= 32 and not ctrl:
+                cur = len(v.buf) if v.cur is None else v.cur
+                v.buf, v.cur = v.buf[:cur] + chr(u) + v.buf[cur:], cur + 1
 
     # ── клавиатура ──
     def on_key(self, _w, ev):
@@ -1842,7 +2014,11 @@ class HubWindow(Gtk.ApplicationWindow):
         name = Gdk.keyval_name(ev.keyval) or ""
         # ^E — правка ТЕКУЩЕЙ записи и обратно (13.10.2026, просьба: не создавать новую).
         # Новая запись — n / i / a.
-        if ctrl and ch == "e" and v.mode != "quiz":
+        if v.mode == "ginput":
+            self.g_input_key(ev, ch, name, ctrl)
+            self.redraw()
+            return True
+        if ctrl and ch == "e" and v.mode != "quiz" and v.tab != "growth":
             if v.mode != "text":
                 self.start_edit()
             elif v.editing_id is not None:
@@ -1851,7 +2027,7 @@ class HubWindow(Gtk.ApplicationWindow):
                 self.submit_text()
             self.redraw()
             return True
-        if ctrl and ch == "s":
+        if ctrl and ch == "s" and v.tab != "growth":
             if v.mode == "text":
                 self.submit_text()
             self.save_drafts()
@@ -2130,8 +2306,10 @@ class HubWindow(Gtk.ApplicationWindow):
         if name in ("q", "Escape") or ch == "q":
             self.close()
             return
-        if name == "Tab" or (shift and ch in ("h", "l")):
-            v.tab = "words" if v.tab == "items" else "items"
+        # 28.10.2026: три вкладки по кругу; Shift+Tab (ISO_Left_Tab) — назад, раньше не ловился
+        if name in ("Tab", "ISO_Left_Tab") or (shift and ch in ("h", "l")):
+            back = name == "ISO_Left_Tab" or ch == "h"
+            v.tab = TABS[(TABS.index(v.tab) + (-1 if back else 1)) % len(TABS)]
             v.confirm_delete = None
             self.set_title(self.tab_title())
             self.resize_to_min()
@@ -2144,6 +2322,9 @@ class HubWindow(Gtk.ApplicationWindow):
             return
         if ch == "u":
             self.do_undo()
+            return
+        if v.tab == "growth":
+            self.g_key(ch, name)
             return
         if ch in ("i", "a", "n"):                  # n — новая запись (13.10.2026)
             self.start_new()
@@ -2192,14 +2373,16 @@ class App(Gtk.Application):
         args = cl.get_arguments()[1:]
         toggle = "--toggle" in args
         args = [a for a in args if a != "--toggle"]
-        tab = "words" if "dict" in args else "items"
+        # без аргумента — «Лучше вчера», а у уже открытого окна вкладка остаётся как была
+        tab = "words" if "dict" in args else "items" if "items" in args else \
+            "growth" if "growth" in args else None
         # --toggle (как в Clocker): окно открыто и в фокусе — закрыть;
         # открыто, но под другими окнами — поднять; закрыто — открыть.
         if toggle and self.win is not None and self.win.is_active():
             self.win.close()
             return 0
         if self.win is None:
-            self.win = HubWindow(self, tab)
+            self.win = HubWindow(self, tab or "growth")
             self.win.connect("destroy", lambda *_: setattr(self, "win", None))
             if tab == "words":
                 sel = selection()
@@ -2209,14 +2392,15 @@ class App(Gtk.Application):
             self.win.show_all()
         else:
             self.win.view.reload_style()
-            self.win.set_tab(tab)
+            if tab:
+                self.win.set_tab(tab)
             self.win.redraw()
         present_unmin(self.win)
         return 0
 
 
-def shot(path, tab="items", sel=0, mode="normal", style=None, w=0, h=0, view=None,
-         field="title", fdate="", ftime="", fprio=0, frepeat=""):
+def shot(path, tab="growth", sel=0, mode="normal", style=None, w=0, h=0, view=None,
+         field="title", fdate="", ftime="", fprio=0, frepeat="", gop="spend"):
     v = View()
     if view:
         v.view_mode = view
@@ -2230,6 +2414,8 @@ def shot(path, tab="items", sel=0, mode="normal", style=None, w=0, h=0, view=Non
     if mode == "text":
         v.buf = "пример"
         v.text_new = True
+    if mode == "ginput":
+        v.g_op, v.buf = gop, "1500 обед"
     ww, hh = max(W, w or W), max(v.height_min(), h or 480)
     surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, ww, hh)
     cr = cairo.Context(surf)

@@ -338,9 +338,9 @@ window-rule {
     default-floating-position x=30 y=20 relative-to="top-right"
 }
 
-// Картинка в картинке (LibreWolf и Zen) — правый нижний угол, 640x360.
+// Картинка в картинке (LibreWolf, Zen и Helium с 29.10) — правый нижний угол, 640x360.
 window-rule {
-    match app-id=r#"^(librewolf|zen)$"# title=r#"^(Picture-in-Picture|Картинка в картинке)$"#
+    match app-id=r#"^(librewolf|zen|helium)$"# title=r#"^(Picture-in-Picture|Picture in picture|Картинка в картинке)$"#
     open-floating true
     // Без фокуса (24.09.2026): на русской раскладке CTRL+SHIFT+] браузер узнаёт
     // только в основном окне. Когда фокус уходил в окошко картинки, повторное

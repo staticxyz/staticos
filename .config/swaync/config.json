@@ -55,6 +55,12 @@
     "hub-log": {
       "state": "muted",
       "app-name": "^hub-log$"
+    },
+    "test-not-critical": {
+      "state": "enabled",
+      "app-name": "^jtest$",
+      "urgency": "Critical",
+      "override-urgency": "normal"
     }
   },
   "widgets": [

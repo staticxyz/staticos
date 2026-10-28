@@ -18,7 +18,8 @@ Pinta. Print у niri и так кладёт снимок в буфер, поэт
 
 Управление:
     Escape, щелчок колёсиком, q   закрыть
-    левая кнопка + тяни           двигать окно
+    левая кнопка + тяни           двигать окно (у края — растянуть)
+    колёсико вверх/вниз           крупнее/мельче, пропорции снимка (29.10.2026)
     двойной щелчок                открыть в полном просмотрщике (xdg-open)
 
 Окно плавающее и без заголовка — это правило niri по app-id «jarvis-pin»
@@ -131,8 +132,39 @@ def main():
 
     viewed = []                       # открывали ли полный просмотр
 
+    # Свои края для растягивания (29.10.2026, просьба: «не могу изменять размер по вертикали,
+    # меняется только по горизонтали»): у окна нет рамки, а Mod+ПКМ niri выбирает сторону по
+    # трети окна — у низкого снимка (строка текста) в верхнюю/нижнюю треть почти не попасть.
+    EDGE = 8
+    EDGES = {"n": Gdk.WindowEdge.NORTH, "s": Gdk.WindowEdge.SOUTH, "e": Gdk.WindowEdge.EAST,
+             "w": Gdk.WindowEdge.WEST, "ne": Gdk.WindowEdge.NORTH_EAST, "nw": Gdk.WindowEdge.NORTH_WEST,
+             "se": Gdk.WindowEdge.SOUTH_EAST, "sw": Gdk.WindowEdge.SOUTH_WEST}
+    CURSORS = {"n": "n-resize", "s": "s-resize", "e": "e-resize", "w": "w-resize",
+               "ne": "ne-resize", "nw": "nw-resize", "se": "se-resize", "sw": "sw-resize"}
+
+    def edge_at(x, y):
+        aw, ah = box.get_allocated_width(), box.get_allocated_height()
+        m = min(EDGE, max(3, ah // 4), max(3, aw // 4))
+        v = "n" if y < m else "s" if y >= ah - m else ""
+        hz = "w" if x < m else "e" if x >= aw - m else ""
+        return (v + hz) or None
+
+    cur = [None]
+
+    def on_motion(_w, ev):
+        e = edge_at(ev.x, ev.y)
+        if e != cur[0]:
+            cur[0] = e
+            gw = box.get_window()
+            if gw is not None:
+                gw.set_cursor(Gdk.Cursor.new_from_name(gw.get_display(), CURSORS[e]) if e else None)
+        return False
+
     def on_button(_w, ev):
-        if ev.button == 2:                                  # колёсико — закрыть
+        e = edge_at(ev.x, ev.y) if ev.button == 1 and ev.type == Gdk.EventType.BUTTON_PRESS else None
+        if e:
+            win.begin_resize_drag(EDGES[e], ev.button, int(ev.x_root), int(ev.y_root), ev.time)
+        elif ev.button == 2:                                  # колёсико — закрыть
             win.destroy()
         elif ev.button == 1 and ev.type == Gdk.EventType._2BUTTON_PRESS:
             viewed.append(True)
@@ -142,7 +174,47 @@ def main():
             win.begin_move_drag(ev.button, int(ev.x_root), int(ev.y_root), ev.time)
         return True
 
+    # Колёсико — масштаб окна с пропорциями снимка (29.10.2026, просьба: «не могу через
+    # super+мышкой вниз или вверх»). Mod+ПКМ niri берёт сторону по трети окна, вертикаль — только
+    # из верхней/нижней трети; у низкого снимка это полоска в 10–15 px. Размер ставит niri по
+    # своему номеру окна (плавающее окно GTK само себя под Wayland не растянет).
+    zoom = {"id": None, "w": 0}
+
+    def on_scroll(_w, ev):
+        d = {Gdk.ScrollDirection.UP: 1, Gdk.ScrollDirection.DOWN: -1}.get(ev.direction)
+        if d is None and ev.direction == Gdk.ScrollDirection.SMOOTH:
+            dy = ev.get_scroll_deltas()[2]
+            d = -1 if dy > 0 else 1 if dy < 0 else None
+        if d is None or not os.environ.get("NIRI_SOCKET"):
+            return False
+        if zoom["id"] is None:
+            try:
+                import json
+                out = subprocess.run(["niri", "msg", "--json", "windows"], capture_output=True,
+                                     text=True, timeout=2).stdout
+                zoom["id"] = next(w["id"] for w in json.loads(out) if w.get("pid") == os.getpid()
+                                  and w.get("is_focused")) if out else None
+            except (OSError, ValueError, StopIteration, subprocess.SubprocessError):
+                return False
+            if zoom["id"] is None:
+                return False
+        pw, ph = pix.get_width(), pix.get_height()
+        aw = zoom["w"] or box.get_allocated_width()
+        nw = max(40, int(aw * (1.1 if d > 0 else 1 / 1.1)))
+        nh = max(40, round(nw * ph / pw))
+        zoom["w"] = nw
+        GLib.timeout_add(400, lambda: zoom.update(w=0) or False)   # следующий шаг — от нового размера
+        wid = str(zoom["id"])
+        subprocess.Popen(["sh", "-c", 'niri msg action set-window-width --id "$0" "$1"; '
+                          'niri msg action set-window-height --id "$0" "$2"', wid, str(nw), str(nh)],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+
     win.connect("key-press-event", on_key)
+    box.add_events(Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.SCROLL_MASK
+                   | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+    box.connect("scroll-event", on_scroll)
+    box.connect("motion-notify-event", on_motion)
     box.connect("button-press-event", on_button)
     def on_destroy(*_):
         # Временный файл нужен только открытому просмотрщику. Не открывали —

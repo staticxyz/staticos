@@ -77,7 +77,7 @@ AREAS = [
         cursor_colors.py cursor_shake.py cursor_theme.py bit_cursor.py
         tri_cursor.py skeet_cursor.py jarvis_pebble.py yamikai_wall.py"""),
     ("Уведомления и звуки интерфейса", "✉", """
-        notif_style.py track_notify.py island.py island_dl.py island_nudge.py island_sys.py island_tgmute.py Telegram dnd_sounds.py auto_dnd.py ui_sound.py
+        notif_style.py track_notify.py island.py island_dl.py island_nudge.py island_sys.py island_tgmute.py Telegram dnd_sounds.py dnd_queue.py auto_dnd.py ui_sound.py
         ui_sound_retro.py ui_sound_watch.py layout_osd notif-look notify-send"""),
     # Панели
     ("Бар: устройство", "▔", """
@@ -109,11 +109,11 @@ AREAS = [
     ("Окна и столы", "▢", """
         alt_tab.py alt_tab.sh ribbon_center.py mouse_focus.py mouse_wait_release.py
         window_fx.py wm.py hot_corners.py
-        pip_place.py ws_layout.py stack_mode.py stack_bars.py stack_pin.py mousepad_place.py colexpand colwidth floattoggle magic
+        pip_place.py ws_layout.py stack_mode.py stack_bars.py stack_pin.py mousepad_place.py colexpand colwidth floattoggle magic tg_call_pocket.py overview_blur.py
         move_all no_self_maximize.py pair_center.py winreset ws_insert ws-step fs-toggle hl-step nostack winmon close-or-clipboard
         dashboard shell-switch shell-do ws-anim"""),
     ("Настройки и справка", "⚙", """
-        settings_app.py niri_state.py niri_compositor.py keybinds_sheet.py binds_edit.py smart_search.py exe_frame.py close_cap.py scrim_layer.py menu_one.py app_list.py
+        settings_app.py niri_state.py niri_compositor.py keybinds_sheet.py binds_edit.py smart_search.py exe_frame.py close_cap.py title_strip.py scrim_layer.py menu_one.py app_list.py
         config_map.py skeet_icons/ settings-open slashkey applist"""),
     # Экран и звук
     ("Блокировка и вход", "⏻", """
@@ -137,7 +137,7 @@ AREAS = [
         fan power flash"""),
     # Программы
     ("Браузер и мессенджеры", "◇", """
-        discord_pixel.py discord_splash.js zen_style.py telegram_colors.py
+        discord_pixel.py discord_splash.js zen_style.py helium_newtab.py telegram_colors.py
         matugen_native_host.py zen-crt zen-browser"""),
     ("Терминал kitty", ">_", """
         kitty_shader.py kitty_shader_colors.py kitty_shared.sh term_font.sh termlook

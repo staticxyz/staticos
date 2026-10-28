@@ -35,6 +35,45 @@ APP_SYNONYMS = [
     {"пароли", "ключи", "passwords", "seahorse", "keepass"},
     {"часы", "будильник", "clocks", "clock"},
     {"календарь", "calendar"},
+    # 29.10.2026, просьба: «почему better в пуске и в rofi не находятся? … с текстом вроде
+    # "беттер"… это касается всех приложений»
+    {"better", "беттер", "бетер", "лучше", "лучше вчера", "рост", "growth", "прогресс",
+     "progress", "привычки", "habits"},
+    {"напоминания", "напоминалка", "reminders", "reminder", "задачи", "tasks", "todo", "дела"},
+    {"словарь", "dictionary", "слова", "words", "перевод слов"},
+    {"помидор", "pomodoro", "pomo", "таймер", "timer", "секундомер", "stopwatch", "clocker", "фокус"},
+    {"снимок", "скриншот", "скрин", "screenshot"},
+    {"буфер", "clipboard", "копировать"},
+    {"ватсап", "вотсап", "whatsapp", "wa"},
+    {"чат", "чаты", "chat", "jchat", "мессенджер", "messenger"},
+    {"приложения", "программы", "apps", "app list", "пакеты", "packages"},
+    # 29.10.2026, просьба: «поиск по ключевым словам не работает полностью» — слов, которых
+    # не было (обои, тема, сеть…), находились случайные программы по опечаткам и звучанию
+    {"обои", "фон", "wallpaper", "waypaper"},
+    {"тема", "оформление", "внешний вид", "appearance", "theme", "nwg-look", "qt5ct", "qt6ct"},
+    {"сеть", "интернет", "вайфай", "wifi", "wi-fi", "network", "nm-connection-editor"},
+    {"блютуз", "bluetooth", "blueman", "наушники"},
+    {"звук", "громкость", "микшер", "volume", "pavucontrol", "pwvucontrol", "шум", "blanket"},
+    {"мониторы", "экраны", "дисплеи", "displays", "wdisplays"},
+    {"архив", "архивы", "zip", "rar", "archive", "ark", "file-roller"},
+    {"pdf", "пдф", "читалка", "okular", "zathura", "evince", "draw", "librewolf", "zen"},
+    {"рисовалка", "рисовать", "редактор картинок", "paint", "pinta", "gimp", "krita"},
+    {"таблицы", "excel", "эксель", "calc"},
+    {"текст", "ворд", "word", "writer", "документ"},
+    {"презентация", "презентации", "powerpoint", "impress"},
+    {"удалённый доступ", "удаленка", "remote", "anydesk", "teamviewer"},
+    {"телефон", "phone", "kde connect", "kdeconnect", "localsend", "передать файлы"},
+    {"флешка", "загрузочная", "ventoy", "usb"},
+    {"база данных", "бд", "sql", "database", "dbeaver"},
+    {"api", "postman", "запросы"},
+    {"виртуалка", "виртуальная машина", "vm", "virtualbox"},
+    {"печать", "набор", "тренажёр", "тренажер", "typing", "keypunch", "jtype"},
+    {"тетрис", "tetris", "jtetris"},
+    {"подсветка", "клавиатура", "razer", "polychromatic"},
+    {"экранное время", "screen time", "screentime", "статистика"},
+    {"звонки", "созвон", "zoom", "видеозвонок"},
+    {"ночной свет", "gammastep", "night light"},
+    {"пипетка", "цвет", "picker", "color picker"},
 ]
 
 
@@ -51,17 +90,40 @@ def search_forms(query):
             for group in APP_SYNONYMS:
                 # короткое слово — только целиком («тг»), длинное — и по началу («брауз»)
                 if f in group or (len(f) >= 3 and any(m.startswith(f) for m in group)):
+                    # слово группы целиком (набрано как есть) — вес как у набранного: «кс» —
+                    # это Counter-Strike, а не ksnip по звучанию «кснип» (29.10.2026)
+                    wt = 0 if f == w and f in group else 2
                     for m in group:
-                        forms.setdefault(m, 2)
+                        if forms.get(m, 9) > wt:
+                            forms[m] = wt
         out.append(forms)
     return out
 
 
+_WORDS = {}
+
+
+def _starts(f, hay):
+    """f — начало какого-нибудь слова hay. Синонимы и другая раскладка ищутся только так
+    (29.10.2026): иначе «рост» находил «простой», а «тг» — «ьштгеу» (minute в раскладке)."""
+    words = _WORDS.get(hay)
+    if words is None:
+        import re
+        if len(_WORDS) > 4000:
+            _WORDS.clear()
+        words = _WORDS[hay] = re.findall(r"\w[\w+-]*", hay)
+    if " " in f:
+        return any(hay[i:].startswith(f) for i in range(len(hay)) if i == 0 or not hay[i - 1].isalnum())
+    return any(w.startswith(f) for w in words)
+
+
 def search_score(hay, forms):
-    """None — не подходит; иначе худший вес среди слов запроса."""
+    """None — не подходит; иначе худший вес среди слов запроса. Набранное как есть (от 4
+    букв) ищется где угодно в строке, короче — и все остальные формы — с начала слова."""
     worst = 0
     for word in forms:
-        best = min((wt for f, wt in word.items() if f in hay), default=None)
+        best = min((wt for f, wt in word.items()
+                    if (f in hay if wt == 0 and len(f) >= 4 else _starts(f, hay))), default=None)
         if best is None:
             return None
         worst = max(worst, best)
@@ -118,6 +180,100 @@ def name_words(name):
     return out
 
 
+# ── звучание (29.10.2026) ───────────────────────────────────────────────────
+# Просьба: «вацап» не находил WhatsApp — «надо прям всё». Любое слово (кириллица или
+# латиница) сводится к грубому «ключу звучания»: кириллица → латиница, wh/w → v, c → k/s,
+# o → a (аканье), e → i, двойные буквы — одной. «вацап», «ватсап», «вотсап», «whatsapp»
+# → vatsap; «ютуб» = «youtube», «стим» = «steam», «китти» = «kitty», «дискорд» = «discord».
+_CYR = dict(zip("абвгдеёзийклмнопрстуфхыэ", "abvgdeeziiklmnoprstufhiie"))
+_CYR.update({"ж": "zh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sh", "ъ": "", "ь": "",
+             "ю": "iu", "я": "ia"})
+_SND = [("wh", "v"), ("ph", "f"), ("ck", "k"), ("qu", "kv"), ("th", "t"), ("tz", "ts"),
+        ("ee", "i"), ("ea", "i"), ("oo", "u"), ("ou", "u"), ("ow", "au"), ("gh", "g"),
+        ("ce", "se"), ("ci", "si"), ("cy", "si"), ("c", "k"), ("q", "k"), ("x", "ks"),
+        ("w", "v"), ("j", "dzh"), ("y", "i"), ("o", "a"), ("e", "i"), ("z", "s")]
+
+
+def sound_key(word):
+    import re
+    w = "".join(_CYR.get(ch, ch) for ch in word.lower())
+    w = re.sub(r"[^a-z0-9]", "", w)
+    if len(w) > 3 and w.endswith("e") and w[-2] not in "aeiouy":
+        w = w[:-1]                                   # немая «e»: tube, cube
+    for a, b in _SND:
+        w = w.replace(a, b)
+    return re.sub(r"(.)\1+", r"\1", w)
+
+
+def _dist(a, b, cap):
+    """Расстояние Левенштейна, не больше cap+1 (дальше не считаем)."""
+    if abs(len(a) - len(b)) > cap:
+        return cap + 1
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        if min(cur) > cap:
+            return cap + 1
+        prev = cur
+    return prev[-1]
+
+
+_KEYS = {}
+
+
+def sound_match(query, text):
+    """0 — каждое слово запроса звучит как начало слова text; 1 — с одной-двумя
+    ошибками; None — не похоже. text — имя, ключевые слова, программа (не описание:
+    там слишком много слов для нечёткого сравнения)."""
+    import re
+    keys = _KEYS.get(text)
+    if keys is None:
+        if len(_KEYS) > 4000:
+            _KEYS.clear()
+        keys = _KEYS[text] = {k for k in map(sound_key, re.findall(r"\w+", text.lower())) if len(k) >= 2}
+    worst = 0
+    for qw in query.lower().split():
+        q = sound_key(qw)
+        if len(q) < 3:
+            return None
+        if any(k.startswith(q) for k in keys):
+            continue
+        cap = 1 if len(q) < 7 else 2
+        if len(q) >= 4 and any(_dist(q, k, cap) <= cap or (len(k) > len(q) and _dist(q, k[:len(q)], 1) <= 1
+                                                         and len(q) >= 5) for k in keys):
+            worst = 1
+            continue
+        return None
+    return worst
+
+
+_CYR_BACK = [("dzh", "дж"), ("zh", "ж"), ("ch", "ч"), ("sh", "ш"), ("iu", "ю"), ("ia", "я"),
+             ("ts", "ц")]
+_LAT_RU = dict(zip("abvgdzijklmnoprstufh", "абвгдзийклмнопрстуфх"))
+
+
+def sound_spellings(word):
+    """Как латинское слово пишут по-русски на слух: «whatsapp» → «вацап», «ватсап»
+    (для rofi: он сравнивает набранное только с готовыми словами)."""
+    k = sound_key(word)
+    out = set()
+    for ts in ("ц", "тс"):
+        w, r, i = k, [], 0
+        while i < len(w):
+            for a, b in _CYR_BACK:
+                if w.startswith(a, i):
+                    r.append(ts if a == "ts" else b)
+                    i += len(a)
+                    break
+            else:
+                r.append(_LAT_RU.get(w[i], w[i]))
+                i += 1
+        out.add("".join(r))
+    return out
+
+
 def search_meta(hay, name=None):
     """Невидимые слова для поиска в rofi (row option meta): слова программы в другой
     раскладке, синонимы её групп и они же в другой раскладке. rofi сравнивает набранное с
@@ -135,4 +291,7 @@ def search_meta(hay, name=None):
                 if len(m) >= 3:
                     out.add(swap_layout(m))
     out |= name_words(name)
+    import re
+    for p in re.findall(r"[a-z]{3,}", (name or "").lower()):
+        out |= sound_spellings(p)
     return " ".join(sorted(out - words))

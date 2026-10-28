@@ -206,6 +206,71 @@ def dash_names():
     return _DASH[1]
 
 
+POCKET_DESK = "\uf2c6"                 # карман, как POCKET_DESK в xpbar.py
+WS_FONT = "JarvisBarIcons,JetBrainsMono Nerd Font 16px"   # как button.ws label нижней панели
+
+
+def ws_glyph(s, windows):
+    """Значок стола, как на квадрате нижней панели (xpbar): имя стола без невидимых
+    меток, у кармана — значок первой программы (niri_bar.rewrite_rules), иначе номер."""
+    label = (s.get("name") or "").replace("\u200b", "").replace("\u2060", "") or str(s.get("idx") or "")
+    if s.get("name") == POCKET_DESK:
+        try:
+            sys.path.insert(0, os.path.expanduser("~/.config/niri/scripts"))
+            import niri_bar
+            mine = sorted((w for w in windows.values() if w.get("workspace_id") == s["id"]),
+                          key=niri_bar.col_row)
+            if mine:
+                subject = "class<%s> title<%s>" % (mine[0].get("app_id") or "", mine[0].get("title") or "")
+                label = next((g for rx, g in niri_bar.rewrite_rules()[0] if rx.search(subject)), label)
+        except Exception:
+            pass
+        finally:
+            sys.path.pop(0)
+    return label
+
+
+# Цвет значка стола (29.10.2026, просьба: «иконки в Alt+Tab сделай цветными») — цвет
+# самой программы; незнакомый значок — свой оттенок по коду глифа, светлота как у
+# цветов программ (читается на тёмном фоне всех трёх стилей). Номер стола — без цвета.
+GLYPH_COLORS = {
+    "\ue102": "#d97757",   # Claude
+    "\ue106": "#5b9cf6",   # Helium
+    "\ue101": "#f2a65a",   # Zen
+    "\ue100": "#3fb6ff",   # LibreWolf
+    "\ue103": "#fb6a3c",   # Brave
+    "\ue104": "#6cc24a",   # Neovim
+    "\ue105": "#a77bd9",   # Tor
+    "\uf2c6": "#2aabee",   # Telegram
+    "\uf1b6": "#66c0f4",   # Steam
+    "\uf489": "#e0b45c",   # kitty
+    "\ue6bb": "#9b7bf2",   # Obsidian
+    "\U000f0a1e": "#3ba7f0",   # VS Code
+    "\uf1ff": "#7983f5",   # Discord
+    "\uf1bc": "#1ed760",   # Spotify
+    "\uf001": "#ff5a5a",   # YouTube Music
+    "\uf232": "#25d366",   # WhatsApp (ZapZap)
+    "\U000f05a3": "#25d366",   # WhatsApp (свой)
+}
+
+
+def glyph_color(g):
+    if not g or g.isdigit():
+        return None
+    if g in GLYPH_COLORS:
+        return GLYPH_COLORS[g]
+    import colorsys
+    r, gg, b = colorsys.hls_to_rgb((ord(g[0]) * 0.618034) % 1.0, 0.66, 0.62)
+    return "#%02x%02x%02x" % (round(r * 255), round(gg * 255), round(b * 255))
+
+
+def ws_markup(s, windows, rest=""):
+    g = ws_glyph(s, windows)
+    col = glyph_color(g)
+    return '<span font="%s"%s>%s</span>%s' % (WS_FONT, ' foreground="%s"' % col if col else "",
+                                              GLib.markup_escape_text(g), GLib.markup_escape_text(rest))
+
+
 def save_mode(mode):
     try:
         with open(MODE_FILE, "w") as f:
@@ -1019,7 +1084,8 @@ class Switcher:
         area.connect("draw", self.draw_desk, s["id"], s.get("output"))
         self.areas[i] = area
         names = self.desk_names(s)
-        label = Gtk.Label(label="%s  %s" % (s.get("idx") or "", " · ".join(names) or "пусто"), xalign=0)
+        label = Gtk.Label(xalign=0)     # значок стола, как в нижней панели (29.10.2026)
+        label.set_markup(ws_markup(s, self.windows, "  " + (" · ".join(names) or "пусто")))
         label.set_ellipsize(Pango.EllipsizeMode.END)
         label.set_max_width_chars(1)
         label.set_hexpand(True)
@@ -1145,7 +1211,8 @@ class Switcher:
         if self.mode == "desks":
             out = it.get("output") or ""
             head = "Дашборд" if it.get("name") in dash_names() else "Стол %s" % (it.get("idx") or "")
-            self.title.set_text(head + (" · " + self.monitor_name(out) if many else ""))
+            self.title.set_markup(ws_markup(it, self.windows, "  " + head +
+                                            (" · " + self.monitor_name(out) if many else "")))
             n = len([w for w in self.desk_wins(it) if not (w.get("app_id") or "").startswith(HIDDEN_APPS)])
             what = "%d %s" % (n, plural(n, "окно", "окна", "окон"))
             if not n and it.get("name") in dash_names():

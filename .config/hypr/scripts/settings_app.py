@@ -2615,14 +2615,26 @@ class SettingsWindow(Gtk.ApplicationWindow):
         return True
 
     def on_window_state(self, _w, ev):
-        self._maximized = bool(ev.new_window_state & Gdk.WindowState.MAXIMIZED)
+        # TILED не берём: при prefer-no-csd niri шлёт его всем окнам — кнопка врала «развёрнуто»
+        m = bool(ev.new_window_state & Gdk.WindowState.MAXIMIZED)
+        self._ts_after_max(m or getattr(self, "_ts_rect", None) is not None)
+        return False
+
+    def _ts_after_max(self, m):
+        """Значок «развернуть/вернуть» и ручки размера (title_strip.toggle_max зовёт сам)."""
+        self._maximized = m
         for g in getattr(self, "_grips", ()):
             g.set_visible(not self._maximized and not getattr(self, "_in_stack", False))
         self.max_btn.get_child().set_text("\U000f05b2" if self._maximized else "\U000f05af")
         self.max_btn.set_tooltip_text("Восстановить" if self._maximized else "Развернуть")
-        return False
 
     def toggle_max(self):
+        # Плавающее окно niri разворачивает до краёв экрана — поверх островка и бара; вне
+        # стопки разворачиваем как Clocker/Hub: в раскладку колонкой во всю ширину (29.10.2026)
+        if NIRI and not getattr(self, "_in_stack", False):
+            import title_strip
+            title_strip.toggle_max(self)
+            return
         want = not self._maximized
         (self.maximize if want else self.unmaximize)()
         # Не сработало (плавающее окно niri может не принять xdg set_maximized) —
