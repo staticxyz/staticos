@@ -2820,18 +2820,73 @@ class Tray(Gtk.Box):
             except OSError:
                 return ""
         up = rd("carrier") == "1"
-        if up != self.lan_up:
-            self.lan_up = up
-            self.lan_box.set_visible(up)
+        # 29.10.2026, просьба: «если ethernet отключен/не подключен то будет иконка wifi» — по
+        # ЛКМ плашка о сети (Wi-Fi), СКМ — Wi-Fi вкл/выкл, ПКМ — список сетей
+        wifi = None if up else self.wifi_state()
         if up:
+            glyph = ""
             sp = rd("speed")
-            self.lan_box.set_tooltip_text("Провод%s\nЛКМ — «Сеть»"
-                                          % (": %s Мбит/с" % sp if sp.isdigit() else ""))
+            tip = "Провод%s\nЛКМ — «Сеть»" % (": %s Мбит/с" % sp if sp.isdigit() else "")
+        elif wifi:
+            glyph, tip = wifi
+        show = bool(up or wifi)
+        if show != self.lan_up:
+            self.lan_up = show
+            self.lan_box.set_visible(show)
+        if show:
+            if self.lan_g.get_text() != glyph:
+                self.lan_g.set_text(glyph)
+            self.lan_box.set_tooltip_text(tip)
+        self.lan_wifi = bool(wifi)
+
+    def wifi_state(self):
+        """(значок, подсказка) Wi-Fi по /sys без nmcli; адаптера нет — None."""
+        import glob
+        dev = next((os.path.basename(os.path.dirname(p)) for p in glob.glob("/sys/class/net/*/wireless")), None)
+        if not dev:
+            return None
+        self.wifi_dev = dev
+        try:
+            with open("/sys/class/net/%s/operstate" % dev) as f:
+                oper = f.read().strip()
+            with open("/sys/class/net/%s/flags" % dev) as f:
+                ifup = int(f.read().strip(), 16) & 1
+        except (OSError, ValueError):
+            return None
+        keys = "\nЛКМ — «Сеть» · СКМ — Wi-Fi вкл/выкл · ПКМ — сети"
+        if not ifup:
+            return "\U000f05aa", "Wi-Fi выключен" + keys
+        if oper != "up":
+            return "\U000f092f", "Wi-Fi: не подключён" + keys
+        q = 0
+        try:
+            for line in open("/proc/net/wireless"):
+                if line.strip().startswith(dev + ":"):
+                    q = float(line.split()[2].rstrip("."))
+        except (OSError, ValueError, IndexError):
+            pass
+        sig = min(100, int(q * 100 / 70))
+        glyph = "\U000f0928" if sig >= 75 else "\U000f0925" if sig >= 50 else "\U000f0922" if sig >= 25 else "\U000f091f"
+        return glyph, "Wi-Fi: сигнал %d%%%s" % (sig, keys)
 
     def on_lan(self, e):
+        wifi = getattr(self, "lan_wifi", False)
+        env = ("env", "JARVIS_POPUP_FROM=xpbar", "JARVIS_POPUP_SIDE=right")
         if e.button == 1:
-            spawn("env", "JARVIS_POPUP_FROM=xpbar", "JARVIS_POPUP_SIDE=right", sys.executable,
-                  os.path.join(HERE, "lan_popup.py"))
+            # Wi-Fi — та же плашка в режиме Wi-Fi (wifi_net_popup.py → lan_popup.py)
+            spawn(*env, sys.executable, os.path.join(HERE, "wifi_net_popup.py" if wifi else "lan_popup.py"))
+        elif wifi and e.button == 2:
+            def toggle():
+                try:
+                    on = "enabled" in subprocess.run(["nmcli", "radio", "wifi"], capture_output=True,
+                                                     text=True, timeout=5).stdout
+                    subprocess.run(["nmcli", "radio", "wifi", "off" if on else "on"], timeout=10)
+                except (OSError, subprocess.SubprocessError):
+                    pass
+                GLib.idle_add(lambda: self.lan_apply() and False)
+            threading.Thread(target=toggle, daemon=True).start()
+        elif wifi and e.button == 3:
+            spawn(*env, "JARVIS_POPUP_PAGE=wifi", sys.executable, os.path.join(HERE, "battery_popup.py"))
 
     def clickable(self, child, on_click, scroll=None, tip=None):
         eb = Gtk.EventBox()

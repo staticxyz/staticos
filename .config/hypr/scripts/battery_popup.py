@@ -1088,4 +1088,11 @@ if __name__ == "__main__":
     win = BatteryPopup()
     win.connect("destroy", Gtk.main_quit)
     win.show_all()
+    # ПКМ по значку Wi-Fi нижней панели — сразу страница Wi-Fi, без пролистывания
+    # (29.10.2026, просьба: «При ПКМ пусть открывается вот это окно»)
+    radios = getattr(win, "radios", None)
+    if radios and os.environ.get("JARVIS_POPUP_PAGE") in ("wifi", "bt"):
+        radios.stack.set_transition_type(Gtk.StackTransitionType.NONE)
+        radios.show(radios.wifi if os.environ["JARVIS_POPUP_PAGE"] == "wifi" else radios.bt)
+        radios.stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
     Gtk.main()

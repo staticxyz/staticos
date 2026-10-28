@@ -1731,6 +1731,10 @@ def player_app(p):
         if site in url:
             return icon
     name = getattr(p, "name", "") or ""
+    if not url:
+        icon = session_site_icon(name, str((getattr(p, "meta", None) or {}).get("xesam:title") or ""))
+        if icon:
+            return icon
     if name in _APPICON:
         return _APPICON[name]
     import re
@@ -1757,6 +1761,39 @@ def player_app(p):
     if icon and icon != "youtube" and app_pixbuf(icon) is None:
         icon = None
     _APPICON[name] = icon
+    return icon
+
+
+# Chromium/Helium адрес в MPRIS не отдают (29.10.2026, просьба: «когда играет ютуб также должна
+# быть иконка ютуба» — была значок Helium). Адрес ищем по заголовку вкладки в сессии браузера
+# (как screentime): «Видео - YouTube» начинается с xesam:title. Не нашли — повтор через 10 с
+# (сессию браузер дописывает с задержкой).
+_SESS_ICON = {}
+
+
+def session_site_icon(name, title):
+    title = title.strip()
+    if not title or not re.match(r"org\.mpris\.MediaPlayer2\.(chromium|firefox|zen|helium)", name):
+        return None
+    hit = _SESS_ICON.get((name, title))
+    if hit and (hit[0] or time.monotonic() - hit[1] < 10):
+        return hit[0]
+    icon = None
+    try:
+        import glob
+        import screentime_daemon as sd
+        for pats, pairs in sd.SESSIONS.values():
+            files = [f for pat in pats for f in glob.glob(pat)]
+            if not files:
+                continue
+            for url, t in pairs(max(files, key=os.path.getmtime)):
+                if (t or "").strip().startswith(title):
+                    icon = next((i for site, i in APP_BY_SITE if site in (url or "")), None) or icon
+    except Exception:
+        pass
+    if len(_SESS_ICON) > 64:
+        _SESS_ICON.clear()
+    _SESS_ICON[(name, title)] = (icon, time.monotonic())
     return icon
 
 
