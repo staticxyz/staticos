@@ -35,6 +35,7 @@ import html
 import io
 import json
 import math
+import random
 import os
 import re
 import signal
@@ -2447,8 +2448,11 @@ class PomoBolt(Gtk.DrawingArea):
         self.box = None             # EventBox в трее — его и прячем
         self.hidden = False         # centered: помидор показывает SideTray слева
         self.st = {}
+        self.anim_id = None         # живая молния, пока идёт работа (не перерыв, не пауза)
+        self.sparks = []            # [x, y, жизнь в кадрах] — искры вокруг молнии
         PomoBolt.ALL.append(self)
-        self.connect("destroy", lambda *_a: PomoBolt.ALL.remove(self) if self in PomoBolt.ALL else None)
+        self.connect("destroy", lambda *_a: (PomoBolt.ALL.remove(self) if self in PomoBolt.ALL else None,
+                                             self.set_anim(False)))
         if PomoBolt._mon is None:
             # inotify на файл состояния + редкий опрос (на случай, если каталога ещё нет)
             try:
@@ -2493,6 +2497,42 @@ class PomoBolt(Gtk.DrawingArea):
         if st != self.st:
             self.st = st
             self.queue_draw()
+        self.set_anim(on and st.get("phase") == "work" and (st.get("paused") or "0") == "0")
+
+    # Живая молния (29.10.2026, просьба: «если включен и работает pomo — эффектик молнии
+    # в реальном времени»; перерыв — как было, пауза — серая): по молнии сверху вниз бежит
+    # заряд, вокруг сыплются искры, раз в несколько секунд — вспышка «удара». 12 кадров/с,
+    # таймер живёт только в фазе работы, в скрытой панели кадры не рисуются.
+    FPS_MS = 83
+    CYCLE = 1.1                 # с — пробег заряда сверху вниз
+    STRIKE = 4.3                # с — период вспышки
+
+    def set_anim(self, want):
+        if want and not self.anim_id:
+            self.anim_id = GLib.timeout_add(self.FPS_MS, self.tick)
+        elif not want and self.anim_id:
+            GLib.source_remove(self.anim_id)
+            self.anim_id = None
+            self.sparks = []
+            self.queue_draw()
+
+    def tick(self):
+        if not self.get_mapped():
+            return True
+        sp = [[x, y, n - 1] for x, y, n in self.sparks if n > 1]
+        if random.random() < 0.3:
+            k, rows = self.K, self.SHAPE
+            a = self.get_allocation()
+            x0 = (a.width - len(rows[0]) * k) // 2
+            y0 = (a.height - len(rows) * k) // 2
+            j = random.randrange(len(rows))
+            cols = [i for i, ch in enumerate(rows[j]) if ch == "#"]
+            i = random.choice((cols[0] - 1, cols[-1] + 1))   # у края молнии, слева или справа
+            sp.append([x0 + i * k + random.randint(0, k - 1) + random.choice((-1, 1)),
+                       y0 + j * k + random.randint(-1, k), random.randint(2, 4)])
+        self.sparks = sp
+        self.queue_draw()
+        return True
 
     @staticmethod
     def tip(st):
@@ -2524,13 +2564,24 @@ class PomoBolt(Gtk.DrawingArea):
             gray = [0.55, 0.55, 0.58]
             hi, acc, lo = (mix_rgb(x, gray, 0.6) for x in (hi, acc, lo))
         alpha = 0.3 if paused else 1.0
+        live = self.anim_id is not None
+        pulse = flash = 0.0
+        if live:
+            now = time.monotonic()
+            pulse = (now % self.CYCLE) / self.CYCLE * (len(self.SHAPE) + 4) - 2   # строка заряда
+            ts = now % self.STRIKE
+            flash = 0.75 if ts < 0.09 else (0.45 if 0.17 < ts < 0.25 else 0.0)  # двойной удар
+        white = [1.0, 1.0, 1.0]
         k, rows = self.K, self.SHAPE
         a = self.get_allocation()
         x0 = (a.width - len(rows[0]) * k) // 2
         y0 = (a.height - len(rows) * k) // 2
         cells = [(i, j) for j, row in enumerate(rows) for i, ch in enumerate(row) if ch == "#"]
         cr.set_antialias(cairo.ANTIALIAS_NONE)
-        cr.set_source_rgba(*acc, 0.16 * alpha)                  # свечение
+        glow = 0.16
+        if live:                                                # свечение дышит и вспыхивает
+            glow = 0.14 + 0.08 * (0.5 + 0.5 * math.sin(time.monotonic() * 5.0)) + 0.3 * flash
+        cr.set_source_rgba(*acc, glow * alpha)                  # свечение
         for i, j in cells:
             cr.rectangle(x0 + i * k - 2, y0 + j * k - 2, k + 4, k + 4)
         cr.fill()
@@ -2542,8 +2593,15 @@ class PomoBolt(Gtk.DrawingArea):
         for i, j in cells:                                      # заливка: светлый верх → тёмный низ
             t = j / n
             col = mix_rgb(hi, acc, t * 2) if t < 0.5 else mix_rgb(acc, lo, (t - 0.5) * 2)
+            if live:                                            # заряд бежит вниз + вспышка
+                boost = max(0.0, 1 - abs(j - pulse) / 1.6)
+                col = mix_rgb(col, white, min(1.0, 0.8 * boost + flash))
             cr.set_source_rgba(*col, alpha)
             cr.rectangle(x0 + i * k, y0 + j * k, k, k)
+            cr.fill()
+        for x, y, n in self.sparks if live else ():             # искры: 1 px, гаснут за 2–4 кадра
+            cr.set_source_rgba(*mix_rgb(hi, white, 0.5), min(1.0, n / 3))
+            cr.rectangle(x, y, 1, 1)
             cr.fill()
         return True
 

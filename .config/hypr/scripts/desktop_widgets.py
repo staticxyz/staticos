@@ -3145,12 +3145,42 @@ class Pomo(Widget, SecondTicker):
     STATE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "pomo", "state")
     PHASES = {"work": "Фокус", "break": "Перерыв", "short": "Перерыв", "long": "Длинный перерыв"}
 
+    # кнопка пауза/дальше (29.10, просьба: «добавь сюда кнопочку возобновить/пауза»)
+    ICON = {"pause": (".##..##.",) * 7,
+            "play": (".##.....", ".####...", ".######.", ".#######", ".######.", ".####...", ".##.....")}
+
     def setup(self):
         self.line = None
         self.start_seconds()
 
     def cleanup(self):
         self.stop_seconds()
+
+    def on_click(self, x, y, button=1):
+        state = (self.line or self.read())[0]
+        if button != 1 or state is None or not any(self.inside(z, x, y) for z in self.hot):
+            return
+        try:
+            subprocess.Popen(["pomo", "resume" if state == "pause" else "pause"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            return
+        GLib.timeout_add(250, lambda: self.second() and self.area.queue_draw() and False)
+
+    def button(self, cr, state, bx, by, k):
+        """Пиксельный значок 8×7 клеток по k px; щелчок — `pomo pause|resume`."""
+        bmp = [[c == "#" for c in row] for row in self.ICON["play" if state == "pause" else "pause"]]
+        cr.set_source_rgba(*T["accent"], 1.0)
+        draw_bitmap(cr, bmp, int(bx), int(by), k, k)
+        hot = (int(bx) - 6, int(by) - 6, 8 * k + 12, 7 * k + 12)
+        if tuple(self.hot) != (hot,):
+            self.hot = (hot,)
+            self.update_input()
+
+    def no_button(self):
+        if self.hot:
+            self.hot = ()
+            self.update_input()
 
     def read(self):
         st = {}
@@ -3251,19 +3281,33 @@ class Pomo(Widget, SecondTicker):
         tp, tw, gap, rw, sp, np_ = pick
         if rw < 6 * adv(8):                                      # узко — одно время по центру
             self.text(cr, mm, tp, x + (w - tw) / 2, y + (ch - tp) / 2, tw + 2, (*hot, alpha))
+            self.no_button()
             return
         if np_ + sp + 2 > ch:                                    # низко — время и задача в строку
             np_ = self.sharp(fit_px(len(title), rw, ch, top=max(8, tp * 2 // 3)))
+            k = max(1, np_ // 8)
+            bw = 8 * k + gap if state else 0
             self.text(cr, mm, tp, x, y + (ch - tp) / 2, tw + 2, (*hot, alpha))
-            self.text(cr, title, np_, x + tw + gap, y + (ch - np_) / 2, rw,
+            self.text(cr, title, np_, x + tw + gap, y + (ch - np_) / 2, rw - bw,
                       (*T["fg"], 0.92 if state else 0.5))
+            if state:
+                self.button(cr, state, x + w - 8 * k, y + (ch - 7 * k) / 2, k)
+            else:
+                self.no_button()
             return
         ty = y + (ch - tp) / 2
         self.text(cr, mm, tp, x, ty, tw + 2, (*hot, alpha))
         block = np_ + 2 + sp
         by = y + (ch - block) / 2
+        k = max(1, sp // 8)                                      # значок ростом с подпись
+        bw = 8 * k + max(6, sp // 2) if state else 0
         self.text(cr, title, np_, x + tw + gap, by, rw, (*T["fg"], 0.92 if state else 0.5))
-        self.text(cr, sub, sp, x + tw + gap, by + np_ + 2, rw, (*T["fg"], 0.5))
+        sw_, _sh = self.text(cr, sub, sp, x + tw + gap, by + np_ + 2, rw - bw, (*T["fg"], 0.5))
+        if state:                                                # сразу за подписью «ФОКУС · ПАУЗА»
+            self.button(cr, state, x + tw + gap + min(sw_, rw - bw) + max(6, sp // 2),
+                        by + np_ + 2 + (sp - 7 * k) / 2, k)
+        else:
+            self.no_button()
 
 
 class Matrix(Widget):

@@ -77,7 +77,7 @@ AREAS = [
         cursor_colors.py cursor_shake.py cursor_theme.py bit_cursor.py
         tri_cursor.py skeet_cursor.py jarvis_pebble.py yamikai_wall.py"""),
     ("Уведомления и звуки интерфейса", "✉", """
-        notif_style.py track_notify.py island.py island_dl.py island_nudge.py island_sys.py island_tgmute.py Telegram dnd_sounds.py dnd_queue.py auto_dnd.py ui_sound.py
+        notif_style.py track_notify.py island.py island_dl.py island_nudge.py island_sys.py island_tgmute.py Telegram dnd_sounds.py dnd_queue.py notif_quiet.py auto_dnd.py ui_sound.py
         ui_sound_retro.py ui_sound_watch.py layout_osd notif-look notify-send"""),
     # Панели
     ("Бар: устройство", "▔", """
