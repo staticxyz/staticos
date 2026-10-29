@@ -550,6 +550,58 @@ def fire(c, it):
     elif T.token():
         # не рядом — сразу на телефон, без звука на ПК; «Идёт» от announce_away заменяется
         send_tg(c, it, replace=it["kind"] == "timer")
+        if it["kind"] == "timer":
+            owed_add(c, it["id"])
+
+
+# 29.10.2026, просьба: «если я не открою сообщение в тг боте, то это появится на ПК, но не
+# сразу, а когда я разблокирую ПК… таймер закончился, сообщение пришло в тг, но я был на
+# звонке и не заметил». Таймер, ушедший в Telegram, пока вас не было (fire → телефон), —
+# «долг» ПК (meta pc_owed). Вернулись (pc_present дольше OWED_SETTLE: замок/заставка ушли,
+# notif_quiet снял тишину) и в боте его не трогали (seen=0 — любая кнопка в TG ставит seen,
+# «Стоп» закрывает, «+5 мин» переносит срок) — уведомление таймера на ПК с одним звонком.
+# Прочитано ли сообщение в Telegram, бот узнать не может — «не открыл» = не нажал ничего.
+OWED_SETTLE = 3
+OWED_MAX_AGE = 24 * 3600
+OWED = {"since": 0.0}
+
+
+def owed_get(c):
+    try:
+        return [int(i) for i in json.loads(H.meta_get(c, "pc_owed", "[]"))]
+    except (ValueError, TypeError):
+        return []
+
+
+def owed_add(c, iid):
+    ids = owed_get(c)
+    if iid not in ids:
+        H.meta_set(c, "pc_owed", json.dumps(ids + [iid]))
+
+
+def owed_tick(c):
+    ids = owed_get(c)
+    if not ids:
+        return
+    if not pc_present():
+        OWED["since"] = 0.0
+        return
+    now = time.time()
+    if not OWED["since"]:
+        OWED["since"] = now
+    if now - OWED["since"] < OWED_SETTLE:
+        return
+    H.meta_set(c, "pc_owed", "[]")
+    for iid in ids:
+        it = H.get_item(c, iid)
+        if it is None or it["kind"] != "timer" or it["status"] != "open" or it["seen"] or \
+                (it["due"] or 0) > H.now() or (it["due"] or 0) < H.now() - OWED_MAX_AGE:
+            continue
+        log("вернулись к ПК: таймер", iid, it["text"])
+        H.note(c, "fire", "таймер «%s» → на ПК после возвращения" % " ".join(it["text"].split())[:80])
+        chime()
+        notify("Таймер", "%s\nвремя вышло в %s, пока вас не было" % (it["text"], hm_of(it["due"])),
+               iid, critical=True, timer=True)
 
 
 def send_tg(c, it, replace=False):
@@ -838,6 +890,7 @@ def tick(c):
         log("better → obsidian:", repr(e))
     close_stale(c)
     lock_track()
+    owed_tick(c)
     lost_watch(c)
     if not T.token():
         return
