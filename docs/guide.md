@@ -158,7 +158,9 @@ Scroll over the volume to change it, over the music to switch tracks.
 **Bottom panel** — Super+S shows or hides it. In Settings → **Config** → **Нижняя панель**
 (bottom panel) choose: nothing, a dock, or a Windows XP taskbar with a **Start** button,
 window buttons, tray, clock and the current song's lyrics. It can stay visible or appear when
-the mouse touches the bottom edge.
+the mouse touches the bottom edge. On the lyrics: click — play / pause, wheel — volume,
+Shift+wheel — seek ±5 s, Ctrl+wheel — next / previous track. On the pomodoro bolt in the tray:
+left click — pause / resume, middle click — skip (same as Super+Shift+P).
 
 **Top bar options** — Settings → **Waybar**: shape, corners, gaps; **Показ панелей** — always
 visible, on mouse hover or hidden; on every monitor or only one.

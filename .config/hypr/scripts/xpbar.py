@@ -202,6 +202,69 @@ TASK_MIN = 90            # окон много — кнопки сжимаютс
 GLUE_SHOW = 4            # «вплотную»: сколько пикселей нижней рамки окна видно над панелью (2 → 4, 04.10.2026: «рамки вообще не вижу»)
 LYR_W = 470              # место под текст песни справа — постоянное, панель не пляшет
 ISLAND_LYR_FILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-island-lyrics")
+LYR_PLAYER = {"p": None}       # плеер, чью песню показывает строка (Lyrics.step)
+LYR_VOL_STEP, LYR_SEEK = 0.05, 5   # колесо по строке: громкость ±5 %, Shift — ±5 с
+LYR_VOL = {"add": 0.0, "busy": False, "lock": threading.Lock()}
+# ползунок громкости Яндекс Музыки по CDP — как у player.exe (desktop_widgets_extra.py):
+# её MPRIS громкость не меняет
+YM_VOL_JS = """(function(d){var s=document.querySelector('input[type=range][aria-label="Manage volume"]');
+if(!s)return -1;var v=Math.round(Math.max(0,Math.min(1,parseFloat(s.value)+d))*100)/100;
+Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(s,String(v));
+s.dispatchEvent(new Event('input',{bubbles:true}));s.dispatchEvent(new Event('change',{bubbles:true}));
+return v;})(%s)"""
+
+
+def lyr_playerctl():
+    """playerctl того плеера, чья строка в панели (без него — первый попавшийся)."""
+    p = LYR_PLAYER["p"]
+    inst = p.name[len(LB.App.MPRIS):] if p is not None else ""
+    return ["playerctl"] + (["-p", inst] if inst else [])
+
+
+def lyr_volume(d, show):
+    """Громкость плеера строки на d (доля); show(v) — в главном потоке, когда известно новое."""
+    p = LYR_PLAYER["p"]
+    if p is not None and p.identity == "YandexMusic":
+        with LYR_VOL["lock"]:
+            LYR_VOL["add"] += d
+            busy, LYR_VOL["busy"] = LYR_VOL["busy"], True
+        if not busy:
+            threading.Thread(target=_ym_volume, args=(show,), daemon=True).start()
+        return
+    args = lyr_playerctl() + ["volume", "%.2f%s" % (abs(d), "+" if d > 0 else "-")]
+
+    def work():
+        try:
+            subprocess.run(args, capture_output=True, timeout=3)
+            r = subprocess.run(args[:-1], capture_output=True, text=True, timeout=3)
+            GLib.idle_add(show, float(r.stdout.strip()))
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+    threading.Thread(target=work, daemon=True).start()
+
+
+def _ym_volume(show):
+    """Шаги колеса копятся, пока идёт прошлый вызов CDP — ползунок не отстаёт."""
+    try:
+        import ym_font
+        url = ym_font.page_ws()
+    except Exception:
+        url = None
+    while True:
+        with LYR_VOL["lock"]:
+            d, LYR_VOL["add"] = LYR_VOL["add"], 0.0
+            if not d or not url:
+                LYR_VOL["busy"] = False
+                return
+        try:
+            r = ym_font.ws_calls(url, [{"id": 1, "method": "Runtime.evaluate",
+                                        "params": {"expression": YM_VOL_JS % ("%.2f" % d),
+                                                   "returnByValue": True}}])[-1]
+            v = ((r.get("result") or {}).get("result") or {}).get("value")
+        except Exception:
+            v = None
+        if isinstance(v, (int, float)) and v >= 0:
+            GLib.idle_add(show, v)
 ISLAND_LYR = set()       # мониторы, где строку песни сейчас показывает островок
 BARS_KEEP = []           # живые Gio-мониторы файлов (иначе их соберёт сборщик мусора)
 LYRICS_MAX = 40          # знаков строки песни в панели — предел; на деле fit_lyrics() по ширине
@@ -917,7 +980,15 @@ KBD = {"fds": {}, "t": 0.0}
 
 
 def shift_held():
-    """Зажат ли Shift — спросить у самих клавиатур (EVIOCGKEY). Панель — слой без фокуса
+    return keys_held((42, 54))                                  # KEY_LEFTSHIFT, KEY_RIGHTSHIFT
+
+
+def ctrl_held():
+    return keys_held((29, 97))                                  # KEY_LEFTCTRL, KEY_RIGHTCTRL
+
+
+def keys_held(codes):
+    """Зажата ли одна из клавиш codes — спросить у самих клавиатур (EVIOCGKEY). Панель — слой без фокуса
     клавиатуры, и Wayland не шлёт ей модификаторы: в событии колеса Shift не виден никогда
     (19.10.2026, «Shift+колесо у меня не работает»). Группа input у static есть. Устройства
     держатся открытыми: close() у evdev — ~20 мс на каждое (замерено), опрос — доли мс."""
@@ -949,7 +1020,7 @@ def shift_held():
             os.close(KBD["fds"].pop(path))
             KBD["t"] = 0.0
             continue
-        if any(keys[k // 8] >> (k % 8) & 1 for k in (42, 54)):   # KEY_LEFTSHIFT, KEY_RIGHTSHIFT
+        if any(keys[k // 8] >> (k % 8) & 1 for k in codes):
             return True
     return False
 
@@ -1885,6 +1956,7 @@ class Lyrics(LB.App):
 
     def step(self):
         p = None if self.off else self.active()
+        LYR_PLAYER["p"] = p
         if not p:
             self.emit({"text": ""})
             return None
@@ -2547,7 +2619,7 @@ class PomoBolt(Gtk.DrawingArea):
             t += " · %s" % st["task"]
         if left > 0:
             t += " · осталось %d:%02d" % (left // 60, left % 60)
-        return t + (" · пауза" if paused else "")
+        return t + (" · пауза" if paused else "") + "\nЛКМ — пауза/продолжить · СКМ — пропустить"
 
     def on_draw(self, _w, cr):
         c = LOOK_COLS.get("skeet") or {}
@@ -2852,7 +2924,7 @@ class Tray(Gtk.Box):
         self.lan_apply()
         GLib.timeout_add_seconds(5, lambda: self.lan_apply() or True)   # interval 5, как в waybar
         self.bolt = PomoBolt()
-        self.bolt.box = self.clickable(self.bolt, None)
+        self.bolt.box = self.clickable(self.bolt, self.on_bolt)
         self.bolt.box.set_no_show_all(True)
         self.bolt.show()
         self.add(self.bolt.box)
@@ -2961,6 +3033,18 @@ class Tray(Gtk.Box):
         if tip:
             eb.set_tooltip_text(tip)
         return eb
+
+    def on_bolt(self, e):
+        """Щелчок по молнии (29.10.2026, пользователь): ЛКМ — пауза/продолжить, СКМ — то же, что
+        Super+Shift+P (binds.kdl: «Помидор: пропустить»)."""
+        st = PomoBolt.read_state()
+        if e.button == 1:
+            spawn(SideTray.POMO, "resume" if (st.get("paused") or "0") != "0" else "pause")
+        elif e.button == 2:
+            spawn(SideTray.POMO, "skip")
+        else:
+            return
+        GLib.timeout_add(250, lambda: PomoBolt.refresh_all() and False)
 
     def on_plate(self, _e):
         if self.plate is None:
@@ -4660,9 +4744,24 @@ class XPBar(Gtk.Window):
         self.lyr.set_size_request(LYR_W, -1)
         lb.set_margin_start(12)
         lb.set_margin_end(12)
-        self.lyr.add(lb)
+        # громкость с колеса — тонкая полоска акцентом по низу строки, как у player.exe
+        self.lyr_vol = None
+        self.lyr_vbar = Gtk.DrawingArea()
+        self.lyr_vbar.set_size_request(-1, 2)
+        self.lyr_vbar.set_valign(Gtk.Align.END)
+        self.lyr_vbar.set_margin_start(12)
+        self.lyr_vbar.set_margin_end(12)
+        self.lyr_vbar.set_margin_bottom(3)
+        self.lyr_vbar.connect("draw", self.draw_lyr_vol)
+        ov = Gtk.Overlay()
+        ov.add(lb)
+        ov.add_overlay(self.lyr_vbar)
+        ov.set_overlay_pass_through(self.lyr_vbar, True)
+        self.lyr.add(ov)
         self.lyr_box = lb
-        self.lyr.connect("button-release-event", lambda *_a: spawn("playerctl", "play-pause") or True)
+        self.lyr.connect("button-release-event", lambda *_a: spawn(*lyr_playerctl(), "play-pause") or True)
+        self.lyr.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+        self.lyr.connect("scroll-event", self.on_lyr_scroll)
         self.art_url = None
 
         self.tray = Tray(self)
@@ -5571,6 +5670,61 @@ class XPBar(Gtk.Window):
         self.lyr.set_tooltip_markup(obj.get("tip") or None)
         self.lyr.set_opacity(0.6 if obj.get("paused") else 1.0)
         self.lyr_box.show()
+
+    def on_lyr_scroll(self, _w, e):
+        """Колесо по строке песни (29.10.2026, просьба: «скролл мышью для регулирования
+        громкости, как с виджетом… shift скролл для перемотки, ctrl скролл для переключения
+        треков»): от себя — громче / +5 с / следующий трек. Модификаторы спрашиваются у
+        клавиатур (shift_held/ctrl_held): слою панели Wayland их не шлёт."""
+        if not self.lyr_box.get_visible():
+            return True
+        d = 0
+        if e.direction in (Gdk.ScrollDirection.UP, Gdk.ScrollDirection.LEFT):
+            d = 1
+        elif e.direction in (Gdk.ScrollDirection.DOWN, Gdk.ScrollDirection.RIGHT):
+            d = -1
+        elif e.direction == Gdk.ScrollDirection.SMOOTH:
+            ok, dx, dy = e.get_scroll_deltas()
+            v = dy if abs(dy) >= abs(dx) else dx       # Shift+колесо часто приходит как dx
+            self.lyr_acc = getattr(self, "lyr_acc", 0.0) - (v if ok else 0)
+            d = int(self.lyr_acc)                      # тачпад — дробные доли до целого шага
+            self.lyr_acc -= d
+        if not d:
+            return True
+        pc = lyr_playerctl()
+        if e.state & Gdk.ModifierType.CONTROL_MASK or ctrl_held():
+            # один трек на рывок колеса: щелчки подряд в 0,4 с не листают дальше
+            now = time.monotonic()
+            if now - getattr(self, "lyr_skip_t", 0.0) >= 0.4:
+                self.lyr_skip_t = now
+                spawn(*pc, "next" if d > 0 else "previous")
+        elif e.state & Gdk.ModifierType.SHIFT_MASK or shift_held():
+            spawn(*pc, "position", "%d%s" % (LYR_SEEK * abs(d), "+" if d > 0 else "-"))
+        else:
+            lyr_volume(d * LYR_VOL_STEP, self.lyr_vol_show)
+        return True
+
+    def lyr_vol_show(self, v):
+        self.lyr_vol = (max(0.0, min(1.0, v)), time.monotonic() + 1.2)
+        self.lyr_vbar.queue_draw()
+        GLib.timeout_add(1300, lambda: (self.lyr_vbar.queue_draw(), False)[1])
+        return False
+
+    def draw_lyr_vol(self, w, cr):
+        vo = self.lyr_vol
+        if not vo or time.monotonic() > vo[1]:
+            return False
+        width = w.get_allocated_width()
+        c = Gdk.RGBA()
+        if not c.parse(LB.read_accent() or "#ffffff"):
+            c.parse("#ffffff")
+        cr.set_source_rgba(c.red, c.green, c.blue, 0.22)
+        cr.rectangle(0, 0, width, 2)
+        cr.fill()
+        cr.set_source_rgb(c.red, c.green, c.blue)
+        cr.rectangle(0, 0, int(width * vo[0]), 2)
+        cr.fill()
+        return False
 
     def load_cover(self):
         path = cover_path(self.art_url or "", self.load_cover) if self.art_url else None
