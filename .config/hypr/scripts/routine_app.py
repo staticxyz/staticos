@@ -43,6 +43,7 @@ sys.path.insert(0, HERE)
 import wake_alarm as wa  # noqa: E402
 import title_strip  # noqa: E402
 import focus_mode as fm  # noqa: E402
+import lday  # noqa: E402 — день помидоров до отбоя (30.10.2026)
 
 import gi  # noqa: E402
 gi.require_version("Gtk", "3.0")
@@ -585,8 +586,9 @@ def pomo_state():
 
 
 def pomo_week():
-    """Минуты работы по дням: [(дата, минут, штук)] за 7 дней до сегодня включительно."""
-    today = dt.date.today()
+    """Минуты работы по дням: [(дата, минут, штук)] за 7 дней до сегодня включительно.
+    Дни логические (lday): после полуночи и до отбоя — ещё вчера."""
+    today = lday.today()
     days = {today - dt.timedelta(days=i): [0, 0] for i in range(7)}
     try:
         lines = open(POMO_LOG).read().splitlines()[-2000:]
@@ -597,7 +599,7 @@ def pomo_week():
         if len(p) < 6 or p[2] != "work":
             continue
         try:
-            d = dt.date.fromtimestamp(int(p[0]))
+            d = lday.day_of(int(p[0]))
             spent = int(p[4])
         except ValueError:
             continue
@@ -613,8 +615,8 @@ def pomo_week():
 
 def pomo_entries(days=14):
     """Журнал pomo по дням: {дата: [отрезок…]} за days дней до сегодня включительно.
-    Отрезок — dict(start, end, phase, plan, spent, status, task); день — по концу."""
-    today = dt.date.today()
+    Отрезок — dict(start, end, phase, plan, spent, status, task); день — логический (lday)."""
+    today = lday.today()
     first = today - dt.timedelta(days=days - 1)
     out = {first + dt.timedelta(days=i): [] for i in range(days)}
     try:
@@ -631,7 +633,7 @@ def pomo_entries(days=14):
             continue
         if spent < 60:
             continue                          # меньше минуты — создан по ошибке (07.10.2026)
-        d = dt.date.fromtimestamp(began)      # день — по началу, как у `pomo log`
+        d = lday.day_of(began)                # день — по началу, до отбоя, как у `pomo log`
         if d in out:
             out[d].append(dict(start=began, end=end, phase=p[2], plan=plan, spent=spent,
                                status=p[5], task=p[6] if len(p) > 6 else "", raw=ln))
@@ -647,11 +649,11 @@ POMO_TODAY = os.path.join(os.path.dirname(fm.POMO_STATE), "today")
 def _pomo_today_adjust(e, sign):
     """Счётчик «сегодня» pomo (run/pomo/today: дата, секунды, штук) — тот же учёт, что
     bump_today: только работа ≥ 60 с, начатая сегодня."""
-    if e["phase"] != "work" or e["spent"] < 60 or dt.date.fromtimestamp(e["start"]) != dt.date.today():
+    if e["phase"] != "work" or e["spent"] < 60 or lday.day_of(e["start"]) != lday.today():
         return
     try:
         d, t, c = open(POMO_TODAY).read().split("\t")[:3]
-        if d != dt.date.today().isoformat():
+        if d != lday.today().isoformat():
             return
         t, c = max(0, int(t) + sign * e["spent"]), max(0, int(c) + sign)
         with open(POMO_TODAY, "w") as f:
@@ -2769,8 +2771,8 @@ class View:
         # помидоров за сегодня, одинаковые названия суммируй»). Запуск — Space / SUPER+T.
         sy = gy + gh + 14
         sh = L["buttons"] - 14 - sy
-        work = [e for e in pomo_entries(1)[dt.date.today()] if e["phase"] == "work"]
-        rest = [e for e in pomo_entries(1)[dt.date.today()] if e["phase"] != "work"]
+        work = [e for e in pomo_entries(1)[lday.today()] if e["phase"] == "work"]
+        rest = [e for e in pomo_entries(1)[lday.today()] if e["phase"] != "work"]
         tasks = {}
         for e in work:
             k = task_key(e["task"])
@@ -2818,7 +2820,7 @@ class View:
         self.stats_rows = work
         done = sum(1 for e in work if e["status"] == "done")
         focus = sum(e["spent"] for e in work) // 60
-        today = dt.date.today()
+        today = lday.today()
         when = ("сегодня" if d == today else "вчера" if d == today - dt.timedelta(days=1)
                 else "%s %d %s" % (DOW[d.weekday()], d.day, MONTHS[d.month - 1]))
         y = L["hero"]

@@ -21,6 +21,7 @@ import hubtg as T  # noqa: E402
 import growth as G  # noqa: E402
 import hubguard  # noqa: E402
 import hubwa  # noqa: E402
+import lday  # noqa: E402
 import session_env  # noqa: E402
 
 TICK = 2
@@ -809,6 +810,30 @@ def nudge_tick(c):
         log("better: предупреждение", n["key"], "ПК" if here else "TG")
 
 
+# 30.10.2026: границы логических дней (отбой из growth.boundary) — в файл для pomo, Clocker и
+# бота (lday.py). Прошедшие дни считаются раз, сегодня-вчера-завтра — каждую минуту.
+LDAY_DAYS = 35
+_lday = {"t": 0, "past": {}}
+
+
+def lday_tick(c):
+    if time.monotonic() - _lday["t"] < 60:
+        return
+    _lday["t"] = time.monotonic()
+    cal, b = dt.date.today(), {}
+    for i in range(-LDAY_DAYS, 2):
+        d = cal + dt.timedelta(days=i)
+        if i < -1:
+            if d not in _lday["past"]:
+                _lday["past"][d] = G.boundary(c, d)
+            b[d] = _lday["past"][d]
+        else:
+            b[d] = G.boundary(c, d)
+    _lday["past"] = {d: v for d, v in _lday["past"].items() if d in b}
+    if lday.write(b):
+        log("логический день:", lday.today(), "с", hm_of(b[lday.today()]) if lday.today() in b else "?")
+
+
 _pomo = {"here": True, "t": 0}
 
 
@@ -880,6 +905,10 @@ def tick(c):
         eve_tick(c, esc)
     except Exception as e:
         log("итоги дня:", repr(e))
+    try:
+        lday_tick(c)
+    except Exception as e:
+        log("логический день:", repr(e))
     try:
         nudge_tick(c)
     except Exception as e:

@@ -376,7 +376,9 @@ def run_pomo():
         и от даты. Пауза: ещё и от «Конец в ЧЧ:ММ» = сейчас + остаток. Идёт отсчёт —
         цифры меняются каждую секунду: None, спрашиваем сам pomo (как раньше).
         Любая странность в файле — тоже None: лучше лишний запуск, чем застывший бар."""
-        base = (st(state_f), st(today_f), st(conf), st(pomo), time.strftime("%F"))
+        # jarvis-day — границы логического дня (lday.py, 30.10.2026): «сегодня» до отбоя
+        base = (st(state_f), st(today_f), st(conf), st(pomo), time.strftime("%F"),
+                st(os.path.join(xdg_run, "jarvis-day")))
         try:
             with open(state_f) as f:
                 text = f.read()

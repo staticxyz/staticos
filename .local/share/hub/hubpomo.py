@@ -1,6 +1,6 @@
 """Помидор (pomo) в Telegram: пульт /pomo с кнопками — то же, что Clocker и Super+Ctrl+P на ПК.
 
-29.10.2026, Просьба: «запускать pomo как в ПК прямо в боте тг, с удобной менюшкой, полная
+29.10.2026, просьба: «запускать pomo как в ПК прямо в боте тг, с удобной менюшкой, полная
 синхронизация». Состояние одно на всех — `~/.local/bin/pomo` (файл $XDG_RUNTIME_DIR/pomo/state
 и журнал ~/.local/share/pomo/log.tsv): кнопки бота зовут ту же команду, что бар, Clocker и
 меню на ПК, поэтому начатое на ПК видно в боте и наоборот. Пульт в Telegram hubd
@@ -11,7 +11,11 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
+
+sys.path.insert(0, os.path.expanduser("~/.config/hypr/scripts"))
+import lday  # noqa: E402 — день помидоров до отбоя (30.10.2026)
 
 POMO = os.path.expanduser("~/.local/bin/pomo")
 RUN = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "pomo")
@@ -72,7 +76,7 @@ def state():
 def today_stats():
     try:
         d, secs, cnt = open(TODAY, encoding="utf-8").read().split("\t")[:3]
-        if d == time.strftime("%Y-%m-%d"):
+        if d == lday.today().isoformat():
             return int(secs), int(cnt)
     except (OSError, ValueError):
         pass

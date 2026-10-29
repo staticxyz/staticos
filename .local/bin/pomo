@@ -23,6 +23,7 @@ RUN="${POMO_RUN:-$XDG_RUNTIME_DIR/pomo}"
 STATE="$RUN/state"
 LOCK="$RUN/lock"
 TODAY="$RUN/today"
+LDAY="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/jarvis-day"
 DATA="${POMO_DATA:-$XDG_DATA_HOME/pomo}"
 LOG="$DATA/log.tsv"
 CONF="${POMO_CONF:-$XDG_CONFIG_HOME/pomo/config}"
@@ -234,30 +235,55 @@ disarm() {
 
 # ---------------- журнал ----------------
 
-bump_today() { # $1 — сколько секунд фокуса добавить
-    d=$(date +%F); t=0; c=0
-    if [ -f "$TODAY" ]; then
-        IFS='	' read -r od ot oc < "$TODAY"
-        if [ "${od:-}" = "$d" ]; then t=${ot:-0}; c=${oc:-0}; fi
-    fi
-    printf '%s\t%s\t%s\n' "$d" "$(( t + $1 ))" "$(( c + 1 ))" > "$TODAY"
+# Логический день (30.10.2026, просьба: «время продолжалось записываться в этот день, до
+# отбоя, а не делить строго после полуночи»): после полуночи и до сна — ещё вчера. Границы
+# пишет hub (lday.py ← growth.boundary) в $LDAY строками «ГГГГ-ММ-ДД секунды»; дня там нет
+# (хаб не запущен) — день сменяется в 05:00. Отрезок относится к дню по своему началу.
+LDAY_AWK='
+function lload(   ln, a) { while ((getline ln < LDAYF) > 0) if (split(ln, a, " ") == 2) LB[a[1]] = a[2] + 0 }
+function lnoon(d) { return mktime(substr(d, 1, 4) " " substr(d, 6, 2) " " substr(d, 9, 2) " 12 00 00") }
+function lstart(d) { return (d in LB) ? LB[d] : lnoon(d) - 7 * 3600 }
+function lday(ts,   d, nx) {
+    d = strftime("%Y-%m-%d", ts)
+    if (ts < lstart(d)) return strftime("%Y-%m-%d", lnoon(d) - 86400)
+    nx = strftime("%Y-%m-%d", lnoon(d) + 86400)
+    return ts >= lstart(nx) ? nx : d
+}'
+
+pomo_lday() { # $1 — момент; печатает "дата начало_дня"
+    awk -v LDAYF="$LDAY" -v ts="$1" "$LDAY_AWK"'
+        BEGIN { lload(); d = lday(ts); print d, lstart(d) }'
 }
 
-# Кэш на сегодня, чтобы status не гонял awk по журналу раз в секунду.
-today_stats() { # печатает "секунды помидоры" за $1 (дата в формате %F)
-    t=0; c=0
-    if [ -f "$TODAY" ]; then
-        IFS='	' read -r od ot oc < "$TODAY"
-        if [ "${od:-}" = "$1" ]; then t=${ot:-0}; c=${oc:-0}; fi
+today_recount() { # $1 — дата, $2 — начало дня: «сегодня» заново по журналу
+    awk -F'\t' -v LDAYF="$LDAY" -v want="$1" -v st="$2" "$LDAY_AWK"'
+        BEGIN { lload() }
+        $3 == "work" && $5 >= 60 && lday($1) == want { t += $5; c++ }
+        END { printf("%s\t%d\t%d\t%s\n", want, t, c, st) }' "$LOG" > "$TODAY.tmp" 2>/dev/null \
+        && mv -f "$TODAY.tmp" "$TODAY"
+}
+
+bump_today() { # после записи отрезка — пересчёт «сегодня»
+    today_recount $(pomo_lday "$(date +%s)")
+}
+
+# Кэш на сегодня, чтобы status не гонял awk по журналу раз в секунду. Начало дня в кэше:
+# отбой стал известен задним числом (сон после 05:00) — пересчёт.
+today_stats() { # $1 — дата, $2 — начало дня; печатает "секунды помидоры"
+    od=; ost=
+    [ -f "$TODAY" ] && IFS='	' read -r od ot oc ost < "$TODAY"
+    if [ "${od:-}" != "$1" ] || [ "${ost:-}" != "$2" ]; then
+        today_recount "$1" "$2"
+        IFS='	' read -r od ot oc ost < "$TODAY" 2>/dev/null
     fi
-    printf '%s %s' "$t" "$c"
+    if [ "${od:-}" = "$1" ]; then printf '%s %s' "${ot:-0}" "${oc:-0}"; else printf '0 0'; fi
 }
 
 log_phase() { # $1 — статус, $2 — момент конца, $3 — сколько реально отсидели
     [ "$began" -gt 0 ] || return 0
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$began" "$2" "$phase" "$duration" "$3" "$1" "$task" >> "$LOG"
-    if [ "$phase" = work ] && [ "$3" -ge 60 ]; then bump_today "$3"; fi
+    if [ "$phase" = work ] && [ "$3" -ge 60 ]; then bump_today; fi
     return 0
 }
 
@@ -553,7 +579,7 @@ bar() { # $1 — процент, $2 — ширина
 cmd_status() {
     fmt=${1:-text}
     load
-    dt=$(date '+%s %F'); n=${dt%% *}; day=${dt##* }
+    n=$(date +%s)
 
     # Таймер мог не сработать — ноутбук ушёл в сон, systemd перезапустился.
     # Догоняем лениво: любая проверка статуса добивает просроченный отрезок.
@@ -573,7 +599,7 @@ cmd_status() {
     # На паузе started+duration застыло в прошлом, поэтому конец считаем от «сейчас».
     if [ "$paused" -gt 0 ]; then endt=$(( n + rem )); else endt=$(( started + duration )); fi
 
-    set -- $(today_stats "$day"); tsec=$1; tcnt=$2
+    set -- $(today_stats $(pomo_lday "$n")); tsec=$1; tcnt=$2
 
     if [ "$phase" = idle ]; then
         icon=$ICON_IDLE; cls=idle; label=''
@@ -641,32 +667,33 @@ cmd_watch() {
 
 cmd_log() {
     per=${1:-today}
+    set -- $(pomo_lday "$(date +%s)"); tday=$1        # дни — логические, до отбоя
     case $per in
-        today|сегодня) since=$(date -d 'today 00:00' +%s); ttl='за сегодня' ;;
-        week|неделя)   since=$(date -d '6 days ago 00:00' +%s); ttl='за 7 дней' ;;
-        month|месяц)   since=$(date -d "$(date +%Y-%m-01) 00:00" +%s); ttl='за месяц' ;;
-        all|всё|все)   since=0; ttl='за всё время' ;;
-        *) since=$(date -d "$per 00:00" +%s 2>/dev/null) || {
+        today|сегодня) since=$tday; ttl='за сегодня' ;;
+        week|неделя)   since=$(date -d "$tday -6 days" +%F); ttl='за 7 дней' ;;
+        month|месяц)   since=${tday%-*}-01; ttl='за месяц' ;;
+        all|всё|все)   since=0000-00-00; ttl='за всё время' ;;
+        *) since=$(date -d "$per" +%F 2>/dev/null) || {
                printf 'Не понял период: %s\n' "$per" >&2; return 1; }
            ttl="c $per" ;;
     esac
     [ -s "$LOG" ] || { echo 'Журнал пуст.'; return 0; }
 
-    awk -F'\t' -v since="$since" -v ttl="$ttl" '
+    awk -F'\t' -v since="$since" -v ttl="$ttl" -v LDAYF="$LDAY" "$LDAY_AWK"'
+        BEGIN { lload() }
         function human(s,   h, m) {
             h = int(s / 3600); m = int((s % 3600) / 60)
             if (h > 0) return sprintf("%d ч %02d мин", h, m)
             return sprintf("%d мин", m)
         }
-        $1 >= since {
+        (ld = lday($1)) >= since {
             if ($3 == "work") {
                 total += $5
                 if ($6 == "done") done++
                 started++
                 key = ($7 == "" ? "— без задачи —" : $7)
                 ts[key] += $5; tc[key]++
-                d = strftime("%Y-%m-%d", $1)
-                ds[d] += $5; dc[d]++
+                ds[ld] += $5; dc[ld]++
             } else rest += $5
         }
         END {
