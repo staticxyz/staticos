@@ -402,7 +402,8 @@ binds {
     // своей виртуальной клавиатурой — её нажатия идут мимо биндов niri, петли нет.
     // Перехват общий, но пересылается то же сочетание, так что другим программам
     // (kitty: следующее окно) ничего не меняется.
-    Ctrl+Shift+BracketRight hotkey-overlay-title="Картинка в картинке" { spawn-sh "wtype -M ctrl -M shift -k bracketright -m shift -m ctrl"; }
+    // С 29.10 через pip_toggle.py: из окошка картинки — назад в браузер (Helium: к вкладке).
+    Ctrl+Shift+BracketRight hotkey-overlay-title="Картинка в картинке" { spawn-sh "~/.config/hypr/scripts/pip_toggle.py"; }
 
     // НЕ ПЕРЕНЕСЕНО, перенести нечем:
     //   F11 — «дизлайк». Путь тот же, что у лайка, но кнопку надо добавить

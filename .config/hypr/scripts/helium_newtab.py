@@ -46,10 +46,12 @@ MANIFEST = {
     "content_scripts": [{"matches": ["*://www.youtube.com/*", "*://m.youtube.com/*"],
                          "js": ["yt_keys.js"], "run_at": "document_start", "world": "MAIN"},
                         {"matches": ["<all_urls>"], "js": ["pip_key.js"], "run_at": "document_start",
-                         "world": "MAIN", "all_frames": True}],
+                         "world": "MAIN", "all_frames": True},
+                        {"matches": ["<all_urls>"], "js": ["pip_bridge.js"], "run_at": "document_start",
+                         "all_frames": True}],
 }
 
-# Картинка в картинке как в Zen (29.10.2026, Просьба: «при Ctrl+T в helium всё ещё открывается
+# Картинка в картинке как в Zen (29.10.2026, просьба: «при Ctrl+T в helium всё ещё открывается
 # мини-плеер… пусть открывается на ctrl+shift+] как в zen»). Ctrl+Shift+] (по code — и в русской
 # раскладке, бинд niri шлёт её через wtype) открывает/закрывает картинку. Само по себе окно больше
 # не всплывает: Chromium открывает его при уходе с вкладки, только если страница повесила обработчик
@@ -78,21 +80,50 @@ PIP_JS = r"""// Картинка в картинке по Ctrl+Shift+] — со�
     }
     return best;
   };
+  // картинка с другой вкладки: мост pip_bridge.js → bg.js найдёт её, закроет и откроет вкладку
+  const back = () => document.dispatchEvent(new CustomEvent("jarvis-pip-back"));
+  document.addEventListener("jarvis-pip-exit", () => {
+    if (!document.pictureInPictureElement) return;
+    document.documentElement.setAttribute("data-jarvis-pip", "had");
+    document.exitPictureInPicture().catch(() => {});
+  });
   window.addEventListener("keydown", (e) => {
-    if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey || e.code !== "BracketRight") return;
+    // бинд niri шлёт клавишу через wtype: у его виртуальной клавиатуры своя раскладка, и
+    // e.code там не BracketRight (код клавиши — порядковый), верен только e.key
+    const hit = e.code === "BracketRight" || e.key === "]" || e.key === "}";
+    if (!e.ctrlKey || !e.shiftKey || e.metaKey || !hit) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     if (document.pictureInPictureElement) {
       document.exitPictureInPicture().catch(() => {});
       return;
     }
-    const v = pick();
+    // с Alt — из окошка картинки (pip_toggle.py): только вернуться к её вкладке
+    const v = e.altKey ? null : pick();
     if (v) v.requestPictureInPicture().catch(() => {});
+    else back();
   }, true);
 })();
 """
 
-# Клавиши YouTube как в Zen (29.10.2026, Просьба: «почему в ютуб в хелиуме не работают бинды
+# Мост между pip_key.js (мир страницы, chrome.* там нет) и bg.js — «назад к вкладке» (29.10).
+PIP_BRIDGE_JS = r"""// Картинка в картинке: мост к bg.js — собирает helium_newtab.py
+"use strict";
+document.addEventListener("jarvis-pip-back", () => {
+  try { chrome.runtime.sendMessage({ pip: "back" }); } catch (e) {}
+});
+chrome.runtime.onMessage.addListener((msg, _from, reply) => {
+  const root = document.documentElement;
+  if (!msg || msg.pip !== "exit" || !root) return;
+  root.removeAttribute("data-jarvis-pip");
+  document.dispatchEvent(new CustomEvent("jarvis-pip-exit"));   // pip_key.js отвечает меткой
+  if (root.getAttribute("data-jarvis-pip") !== "had") return;
+  root.removeAttribute("data-jarvis-pip");
+  reply({ had: true });
+});
+"""
+
+# Клавиши YouTube как в Zen (29.10.2026, просьба: «почему в ютуб в хелиуме не работают бинды
 # "=/-" для регулировки громкости, как в zen»). В Zen это делает live-theme.js
 # (ytRuKeysFrameScript) — здесь то же содержимым расширения: «-»/«=»/«+» — громкость ±5%
 # через API плеера (YouTube запоминает её и двигает ползунок), без плеера — элементом video;
@@ -220,7 +251,7 @@ YT_JS = r"""// Клавиши YouTube как в Zen — собирает helium_
 })();
 """
 
-# Стартовая вкладка (29.10.2026, Просьба: «стартовая страница Helium тоже должна
+# Стартовая вкладка (29.10.2026, просьба: «стартовая страница Helium тоже должна
 # отображаться как и пустая вкладка»): расширения из --load-extension подключаются
 # позже, чем открывается первая вкладка, — она остаётся встроенной. При запуске
 # браузера пустые вкладки открываются заново — уже нашей страницей.
@@ -236,6 +267,23 @@ function fix(left) {
 }
 chrome.runtime.onStartup.addListener(() => fix(6));
 chrome.runtime.onInstalled.addListener(() => fix(2));
+
+// Картинка в картинке «назад к вкладке» (pip_key.js → pip_bridge.js): у какой вкладки картинка —
+// та её закрывает и отвечает; её и открыть, как кнопкой «Back to tab».
+chrome.runtime.onMessage.addListener(msg => {
+  if (!msg || msg.pip !== "back") return;
+  chrome.tabs.query({}, tabs => {
+    for (const t of tabs) {
+      if (!/^(https?|file):/.test(t.url || "")) continue;
+      chrome.tabs.sendMessage(t.id, { pip: "exit" }, r => {
+        void chrome.runtime.lastError;
+        if (!r || !r.had) return;
+        chrome.tabs.update(t.id, { active: true });
+        chrome.windows.update(t.windowId, { focused: true });
+      });
+    }
+  });
+});
 """
 
 HTML = """<!DOCTYPE html>
@@ -426,7 +474,7 @@ def palette():
     return out
 
 
-# Значок вкладки (29.10.2026, Просьба: «почему иконка вкладки — J? Добавь нашу фирменную
+# Значок вкладки (29.10.2026, просьба: «почему иконка вкладки — J? Добавь нашу фирменную
 # иконку в стиле системы»). Без значка Chromium рисует первую букву имени расширения.
 # Знак — телевизор static с S на экране (~/Pictures/logo/static-logo, static-tv), заново
 # нарисованный по сетке 16×16, чтобы во вкладке пиксели были чёткими; цвета — палитра обоев.
@@ -534,6 +582,7 @@ def build():
     write("bg.js", BG_JS)
     write("yt_keys.js", YT_JS)
     write("pip_key.js", PIP_JS)
+    write("pip_bridge.js", PIP_BRIDGE_JS)
     try:
         css = open(ZEN_CSS).read()
     except OSError:
@@ -545,7 +594,7 @@ def build():
 def check():
     bad = []
     for name in ("manifest.json", "newtab.html", "newtab.css", "newtab.js", "bg.js", "yt_keys.js",
-                 "pip_key.js", "theme.json", "icon16.png"):
+                 "pip_key.js", "pip_bridge.js", "theme.json", "icon16.png"):
         if not os.path.exists(os.path.join(OUT, name)):
             bad.append("нет %s — `helium_newtab.py build`" % name)
     if not os.path.exists(ZEN_CSS):

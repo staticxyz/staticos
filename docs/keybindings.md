@@ -272,7 +272,7 @@ Super + wheel scrolls through the strip's windows.
 | `F1` / `F2` | volume -5% / +5% |
 | `Shift + F1` / `Shift + F2` (also Shift + volume keys) | microphone volume -5% / +5% |
 | `F10` | like the current track |
-| `Ctrl + Shift + ]` | picture-in-picture |
+| `Ctrl + Shift + ]` | picture-in-picture; from the mini player — back to the browser (Helium: to its tab) |
 
 ### System
 

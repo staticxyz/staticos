@@ -349,7 +349,8 @@ window-rule {
 
 // Картинка в картинке (LibreWolf, Zen и Helium с 29.10) — правый нижний угол, 640x360.
 window-rule {
-    match app-id=r#"^(librewolf|zen|helium)$"# title=r#"^(Picture-in-Picture|Picture in picture|Картинка в картинке)$"#
+    // Helium называет окно «Automatic picture-in-picture» (29.10) — шаблон без учёта регистра
+    match app-id=r#"^(librewolf|zen|helium)$"# title=r#"(?i)^(automatic )?(picture.in.picture|картинка в картинке)$"#
     open-floating true
     // Без фокуса (24.09.2026): на русской раскладке CTRL+SHIFT+] браузер узнаёт
     // только в основном окне. Когда фокус уходил в окошко картинки, повторное

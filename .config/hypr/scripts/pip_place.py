@@ -25,6 +25,7 @@
 """
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -35,8 +36,13 @@ STATE = os.path.expanduser("~/.cache/jarvis/pip-place.json")
 LOG = os.path.expanduser("~/.cache/jarvis/pip-place.log")
 APPS = ("zen", "librewolf", "helium")  # helium с 29.10
 # Заголовок окна картинки. Русский — на случай, если браузер начнёт его переводить
-# (в Firefox так бывало); тот же список — в правиле niri cfg/window-rules.kdl.
-TITLES = ("Picture-in-Picture", "Picture in picture", "Картинка в картинке")
+# (в Firefox так бывало); тот же шаблон — в правиле niri cfg/window-rules.kdl.
+# Helium (29.10): «Automatic picture-in-picture» — точное сравнение со списком его не узнавало.
+TITLE_RE = re.compile(r"^(automatic )?(picture.in.picture|картинка в картинке)$", re.I)
+# Где открывать, пока места нет (29.10, просьба: «желательно на мониторе от ноута … если
+# подключен монитор дополнительный (msi)»): при двух мониторах — на ноутбуке.
+HOME_OUT, EXTRA_OUT = "eDP-1", "DP-4"
+DEFAULT_W, DEFAULT_H = 640, 360         # как в правиле niri
 
 
 def log(msg):
@@ -83,7 +89,7 @@ def action(*args):
 
 
 def is_pip(w):
-    return (w.get("app_id") or "").lower() in APPS and (w.get("title") or "") in TITLES
+    return (w.get("app_id") or "").lower() in APPS and bool(TITLE_RE.match(w.get("title") or ""))
 
 
 class Watcher:
@@ -188,19 +194,39 @@ class Watcher:
             self.busy.discard(w.get("id"))
             log("ОШИБКА при установке: %r — проверь `pip_place.py check`" % (e,))
 
+    def place_default(self, w, outputs):
+        """Места нет: окно плавающее 640x360, при двух мониторах — на ноутбуке."""
+        wid = w["id"]
+        self.busy.add(wid)
+        try:
+            if not w.get("is_floating"):       # правило niri не сработало (заголовок пришёл позже)
+                action("toggle-window-floating", "--id", str(wid))
+                action("set-window-width", "--id", str(wid), str(DEFAULT_W))
+                action("set-window-height", "--id", str(wid), str(DEFAULT_H))
+                log("  правило niri не сработало — сделано плавающим")
+            if HOME_OUT in outputs and EXTRA_OUT in outputs and self.output_of(w) != HOME_OUT:
+                action("move-window-to-monitor", "--id", str(wid), HOME_OUT)
+                time.sleep(0.15)
+                cur = self.fresh(wid) or {}
+                log("  перенесено на %s: место %s" % (
+                    self.output_of(cur), (cur.get("layout") or {}).get("tile_pos_in_workspace_view")))
+        finally:
+            time.sleep(0.3)
+            self.busy.discard(wid)
+
     def _place(self, w):
         rec = load().get(w["app_id"])
         wid = w["id"]
+        outputs = (request("Outputs") or {}).get("Outputs") or {}
         if not rec:
             log("открыто %s — места ещё нет" % w["app_id"])
-            return
+            return self.place_default(w, outputs)
         if rec.get("pid") != w.get("pid"):
             log("браузер перезапущен (PID %s → %s) — место по умолчанию" % (rec.get("pid"), w.get("pid")))
-            return
-        outputs = (request("Outputs") or {}).get("Outputs") or {}
+            return self.place_default(w, outputs)
         if rec["output"] not in outputs:
             log("монитора %s нет — место по умолчанию" % rec["output"])
-            return
+            return self.place_default(w, outputs)
         self.busy.add(wid)
         try:
             action("set-window-width", "--id", str(wid), str(rec["w"]))
@@ -290,13 +316,14 @@ def check():
             bad.append("niri: Outputs не словарь")
     except Exception as e:
         bad.append("niri IPC: %r" % (e,))
-    for act in ("move-window-to-monitor", "set-window-width", "set-window-height", "move-floating-window"):
+    for act in ("move-window-to-monitor", "set-window-width", "set-window-height", "move-floating-window",
+                "toggle-window-floating"):
         r = subprocess.run(["niri", "msg", "action", act, "--help"], capture_output=True, text=True)
         if r.returncode != 0 or "--id" not in r.stdout:
             bad.append("niri: нет действия %s --id" % act)
     rules = os.path.expanduser("~/.config/niri/cfg/window-rules.kdl")
     try:
-        if "Picture-in-Picture" not in open(rules).read():
+        if "picture.in.picture" not in open(rules).read():
             bad.append("правило niri для картинки пропало из window-rules.kdl")
     except OSError:
         bad.append("нет window-rules.kdl")
