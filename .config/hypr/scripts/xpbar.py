@@ -1308,6 +1308,10 @@ def window_icon_id(app_id, title):
     # процесс обновлятора (22.10.2026, просьба: «почему иконка localsend стоит у steam?»)
     if not app_id and not t and steam_updater_running():
         return "steam"
+    # hub: у трёх вкладок свои .desktop с одним StartupWMClass — по app_id находился первый
+    # (колокольчик Reminders); заголовок окна = вкладка (29.10.2026, просьба: «к окну свою иконку»)
+    if app_id == "com.jarvis.hub":
+        return {"Better": "jarvis-hub-better", "Dictionary": "jarvis-hub-dict"}.get(t, "jarvis-hub")
     return app_id
 
 

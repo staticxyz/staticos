@@ -120,7 +120,16 @@ JS = r"""
       });
       // Под плашку у корня зарезервирован отступ — убираем вместе с ней.
       const root = document.querySelector('[class*="DefaultLayout_root_withBarBelow"]');
-      if (root) root.style.paddingBottom = hidden ? "0px" : "";
+      if (root) {
+        root.style.paddingBottom = hidden ? "8px" : "";
+        // 29.10.2026: клиент держит под плашку строку сетки «barBelow» (~46 px) — пустая полоса
+        // под плеером. Обнуляем её; строка плеера — auto (замер клиента 138 px, плеер — 92).
+        if (hidden) {
+          root.style.gridTemplateRows = "minmax(0, 1fr) auto 0px";
+        } else {
+          root.style.gridTemplateRows = "";
+        }
+      }
     };
     hide();
     new MutationObserver(hide).observe(document.body, {childList: true, subtree: true});

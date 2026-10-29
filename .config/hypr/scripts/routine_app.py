@@ -1281,6 +1281,9 @@ def sw_new():
 
 def sw_edit(sid, act, name=""):
     """act: toggle | stop (в лог) | delete | rename. → изменённый секундомер или None."""
+    if str(sid).startswith("w:"):
+        it = next((x for x in sw_widgets() if x["id"] == sid), None)
+        return sw_widget_edit(it, act, name) if it else None
     d = sw_load()
     it = next((x for x in d["items"] if x["id"] == sid), None)
     if not it:
@@ -1300,6 +1303,119 @@ def sw_edit(sid, act, name=""):
                                 "total": sw_elapsed(it, now)})
     sw_save(d)
     return it
+
+
+# секундомер timer.exe на столе (создан там же, без срока) — тоже в списке (29.10.2026, просьба:
+# «создаю секундомер — в Stopwatch не отражается»). id «w:имя виджета»; кнопки идут менеджеру
+# виджетов через hub widget_cmd (sw.toggle / sw.remove / sw.label:…), он применяет за ≤2 с —
+# до ответа список показывает уже новое состояние (SW_W).
+SW_W = {}                                    # имя timer.exe → (до какого времени, вид или None — убран)
+
+
+def sw_widgets():
+    try:
+        ws = json.load(open(WIDGETS_CONF)).get("widgets", [])
+    except (OSError, ValueError):
+        return []
+    now = time.time()
+    out = []
+    for sp in ws:
+        o = sp.get("opts") or {}
+        if sp.get("type") != "timer" or "end" in o or "paused_left" in o or "dur" in o:
+            continue
+        if "start" not in o and "paused_elapsed" not in o:
+            continue
+        name = sp.get("name")
+        it = {"id": "w:%s" % name, "wname": name, "name": str(o.get("label") or "Секундомер на столе"), "widget": True,
+              "acc": float(o.get("paused_elapsed") or 0),
+              "run": None if "paused_elapsed" in o else float(o["start"])}
+        it["created"] = it["run"] or now - it["acc"]
+        ov = SW_W.get(name)
+        if ov and ov[0] > now:
+            if ov[1] is None:
+                continue
+            it.update(ov[1])
+        out.append(it)
+    return out
+
+
+def sw_items():
+    """Секундомеры Clocker и со стола, по времени создания."""
+    return sorted(sw_load()["items"] + sw_widgets(), key=lambda it: it["created"])
+
+
+def sw_widget_edit(it, act, name=""):
+    h = hub()
+    if not h or not hasattr(h[0], "widget_cmd"):
+        return None
+    now = time.time()
+    if act == "toggle":
+        el = sw_elapsed(it, now)
+        it = dict(it, acc=0, run=now - el) if not it.get("run") else dict(it, acc=el, run=None)
+        h[0].widget_cmd(h[1], it["wname"], "sw.toggle")
+        SW_W[it["wname"]] = (now + 4, {"acc": it["acc"], "run": it["run"]})
+    elif act == "rename":
+        it = dict(it, name=name[:60] or it["name"])
+        h[0].widget_cmd(h[1], it["wname"], "sw.label:" + it["name"])
+        SW_W[it["wname"]] = (now + 4, {"name": it["name"]})
+    else:
+        if act == "stop":
+            d = sw_load()
+            d["log"].insert(0, {"id": it["id"], "name": it["name"], "start": it["created"], "end": now,
+                                "total": sw_elapsed(it, now)})
+            sw_save(d)
+        h[0].widget_cmd(h[1], it["wname"], "sw.remove")
+        SW_W[it["wname"]] = (now + 4, None)
+    return it
+
+
+def sw_toggle_widget(it):
+    """Значок-окошко на карточке Stopwatch (29.10.2026, просьба: «такую же кнопку в stopwatch —
+    показывать / не показывать виджет на столе»). На столе — убрать: секундомер переходит в Clocker
+    с тем же временем. Нет — поставить timer.exe на ноутбук (add timer start=… / paused_elapsed=…),
+    из списка Clocker он уходит. → текст для строки состояния."""
+    now = time.time()
+    el = sw_elapsed(it, now)
+    if it.get("wname"):
+        h = hub()
+        if not h or not hasattr(h[0], "widget_cmd"):
+            return "hub недоступен"
+        d = sw_load()
+        d["n"] += 1
+        d["items"].append({"id": d["n"], "name": it["name"], "created": it["created"],
+                           "acc": 0 if it.get("run") else el, "run": it.get("run")})
+        sw_save(d)
+        h[0].widget_cmd(h[1], it["wname"], "sw.remove")
+        SW_W[it["wname"]] = (now + 4, None)
+        return "«%s» — виджет убран со стола, секундомер идёт здесь" % it["name"]
+    why = widgets_up()
+    if why:
+        return why
+    o = ["start=%d" % int(now - el)] if it.get("run") else ["paused_elapsed=%d" % int(el)]
+    r = subprocess.run([sys.executable, os.path.join(HERE, "desktop_widgets.py"), "add", "timer", "eDP-1",
+                        "label=" + it["name"]] + o, capture_output=True, text=True, timeout=10)
+    if r.returncode or not r.stdout.strip():
+        return "не вышло: %s" % (r.stderr.strip()[-80:] or "менеджер виджетов молчит")
+    d = sw_load()
+    d["items"] = [x for x in d["items"] if x["id"] != it["id"]]
+    sw_save(d)
+    return "«%s» — виджет на столе ноутбука" % it["name"]
+
+
+def sw_log_resume(r):
+    """Вернуть остановленный из лога: секундомер с тем же временем снова идёт, строка лога уходит.
+    Был на столе (id «w:…») — возвращается на стол. → текст для строки состояния."""
+    sw_log_delete(r)
+    d = sw_load()
+    d["n"] += 1
+    it = {"id": d["n"], "name": r["name"], "created": r["start"], "acc": 0, "run": time.time() - r["total"]}
+    d["items"].append(it)
+    sw_save(d)
+    if str(r["id"]).startswith("w:"):
+        msg = sw_toggle_widget(it)
+        if "на столе" in msg:
+            return "«%s» — снова идёт, %s, на столе" % (r["name"], mmss(r["total"]))
+    return "«%s» — снова идёт с %s" % (r["name"], mmss(r["total"]))
 
 
 def sw_log_delete(r):
@@ -1613,7 +1729,7 @@ class View:
                 return ""
             return ("‖ " if st["paused"] else "") + mmss(st["left"])
         if t == "stopwatch":
-            act = sw_load()["items"]
+            act = sw_items()
             run = [x for x in act if x.get("run")]
             if not act:
                 return ""
@@ -1808,6 +1924,8 @@ class View:
         "stopwatch": [("a  +  n", "новый секундомер — сразу идёт"),
                       ("p  Space  Enter", "пауза / продолжить"), ("s  x", "стоп — в лог"),
                       ("dd  Del", "удалить (и секундомер, и из лога)"), ("i  c", "переименовать"),
+                      ("w", "виджет на столе — показать / убрать"),
+                      ("r", "в логе — возобновить остановленный"),
                       ("z", "скрыть / показать лог"), ("j k  колесо", "по списку")],
     }
 
@@ -2222,7 +2340,9 @@ class View:
         now = time.time()
         act = self.timer_snap()
         A = len(act)
-        sel = self.sel["timer"]
+        # выбор −1 (после удаления последнего и т. п.) сдвигал окно списка на −1 — рамка «Идут»
+        # пустая при живых карточках (29.10.2026, снимок пользователя)
+        sel = self.sel["timer"] = max(0, self.sel["timer"])
         by = L["buttons"] - 10                                  # большая «+» внизу
         self.big_button(p, x0, x1, by, 34, "Новый таймер", "t.plus", plus=True)
         # «Идут»: до 4 карточек, если под логом остаётся 3 строки (23.10.2026, просьба: «максимум 3,
@@ -2303,10 +2423,12 @@ class View:
         # значок виджета (23.10.2026): горит — timer.exe на столе, перечёркнут — нет; щелчок/w — вернуть
         self.widget_button(p, bx - 6 - 30, bty, t, ("t.wid", i))
         bx_w = bx - 6 - 30
-        self.button(p, bx, bty, wid["stop"], "Стоп", ("t.stop", i))
-        self.button(p, bx + wid["stop"] + 6, bty, wid["pause"], "Возобновить" if t["paused"] else "Пауза",
+        # «Удалить» слева, «Стоп» с краю (29.10.2026, просьба: «поменяй местами» — промахнулся по краю
+        # и удалил идущий таймер вместо остановки)
+        self.button(p, bx, bty, wid["del"], "Удалить", ("t.del", i))
+        self.button(p, bx + wid["del"] + 6, bty, wid["pause"], "Возобновить" if t["paused"] else "Пауза",
                     ("t.pause", i), accent=t["paused"], dim=ring)
-        self.button(p, bx + wid["stop"] + wid["pause"] + 12, bty, wid["del"], "Удалить", ("t.del", i))
+        self.button(p, bx + wid["del"] + wid["pause"] + 12, bty, wid["stop"], "Стоп", ("t.stop", i))
         # слева: название (или срок блёкло), время крупно, мелко — когда кончится
         if t["paused"]:
             tag, tcol = "на паузе", c["acc_l"]
@@ -2341,9 +2463,11 @@ class View:
         c = self.c
         now = time.time()
         d = sw_load()
-        act = self.swact = d["items"]
+        act = self.swact = sw_items()
         A = len(act)
-        sel = self.sel["stopwatch"]
+        # выбор −1 (после удаления последнего и т. п.) сдвигал окно списка на −1 — рамка «Идут»
+        # пустая при живых карточках (29.10.2026, снимок пользователя)
+        sel = self.sel["stopwatch"] = max(0, self.sel["stopwatch"])
         by = L["buttons"] - 10
         self.big_button(p, x0, x1, by, 34, "Новый секундомер", "s.plus", plus=True)
         gy = L["hero"] + 4
@@ -2395,10 +2519,16 @@ class View:
             if time.localtime(r["end"]).tm_yday != time.localtime(now).tm_yday:
                 when = time.strftime("%d.%m ", time.localtime(r["end"])) + when
             right = mmss(r["total"]) + " · " + when
-            xw = x1 - 30
+            # «Возобновить» — вернуть остановленный, время идёт дальше (29.10.2026, пользователь)
+            rt = "Возобновить"
+            rw = p.text_w(rt)
+            rkey = ("s.lres", A + k)
+            p.text(x1 - 30, ty, rt, c["acc_l"] if self.hover == rkey else c["dim"], align="r")
+            self.hits.append(((x1 - 36 - rw, yy, rw + 12, ROW_H), rkey))
+            xw = x1 - 30 - rw - 14
             right_w = min(p.text_w(right), (x1 - x0) * 3 // 5)
             p.text(x0 + 12, ty, r["name"], c["text"], maxw=xw - right_w - x0 - 24)
-            p.text(xw, ty, right, c["dim"], align="r", maxw=right_w)
+            p.text(xw, ty, right, c["faint"], align="r", maxw=right_w)
             key = ("s.ldel", A + k)
             p.text(x1 - 16, ty, "×", c["acc_l"] if self.hover == key else c["faint"], align="c")
             self.hits.append(((x1 - 26, yy, 22, ROW_H), key))
@@ -2412,15 +2542,16 @@ class View:
         wid = {"stop": p.text_w("Стоп") + 20, "pause": p.text_w("Продолжить") + 16, "del": p.text_w("Удалить") + 20}
         bx = x1 - 10 - wid["stop"] - wid["pause"] - wid["del"] - 12
         bty = y + 30
-        self.button(p, bx, bty, wid["stop"], "Стоп", ("s.stop", i))
-        self.button(p, bx + wid["stop"] + 6, bty, wid["pause"], "Пауза" if going else "Продолжить",
+        self.widget_button(p, bx - 6 - 30, bty, it, ("s.wid", i))    # как у таймеров: на столе / нет
+        self.button(p, bx, bty, wid["del"], "Удалить", ("s.del", i))          # как у таймеров (29.10.2026)
+        self.button(p, bx + wid["del"] + 6, bty, wid["pause"], "Пауза" if going else "Продолжить",
                     ("s.pause", i), accent=not going)
-        self.button(p, bx + wid["stop"] + wid["pause"] + 12, bty, wid["del"], "Удалить", ("s.del", i))
+        self.button(p, bx + wid["del"] + wid["pause"] + 12, bty, wid["stop"], "Стоп", ("s.stop", i))
         p.text(x0 + 12, y + 6, it["name"], c["text"], maxw=x1 - x0 - 24 - 80)
         tag = ("с " + time.strftime("%H:%M", time.localtime(it["created"]))) if going else "на паузе"
         p.text(x1 - 12, y + 6, tag, c["dim"] if going else c["acc_l"], align="r")
         s_ = mmss(el)
-        avail = bx - 10 - (x0 + 12)
+        avail = bx - 6 - 30 - 10 - (x0 + 12)
         px = 30
         need = p.text_w("0", px) * len(s_)
         if need > avail:
@@ -3116,6 +3247,12 @@ class RoutineWindow(Gtk.ApplicationWindow):
                 v.sel["stopwatch"] = val
                 if dbl and val < len(v.swact):
                     self.sw_act("toggle", val)
+            elif kind == "s.wid":
+                v.sel["stopwatch"] = val
+                self.sw_widget_sel(val)
+            elif kind == "s.lres":
+                v.sel["stopwatch"] = val
+                self.sw_act("resume", val)
             elif kind in ("s.stop", "s.pause", "s.del", "s.ldel"):
                 v.sel["stopwatch"] = val
                 self.sw_act({"s.stop": "stop", "s.pause": "toggle", "s.del": "delete", "s.ldel": "delete"}[kind], val)
@@ -3169,7 +3306,7 @@ class RoutineWindow(Gtk.ApplicationWindow):
                 self.redraw()
             return True
         if v.tab == "stopwatch" and (key == "s.cards" or (
-                isinstance(key, tuple) and key[0] in ("s.row", "s.stop", "s.pause", "s.del")
+                isinstance(key, tuple) and key[0] in ("s.row", "s.stop", "s.pause", "s.del", "s.wid")
                 and key[1] < len(v.swact))):
             dy = 1 if ev.direction == Gdk.ScrollDirection.DOWN else -1 if ev.direction == Gdk.ScrollDirection.UP \
                 else (1 if ev.delta_y > 0 else -1 if ev.delta_y < 0 else 0) \
@@ -4137,6 +4274,10 @@ class RoutineWindow(Gtk.ApplicationWindow):
             self.sw_act("stop")
         elif ch == "z":
             self.sw_logs_toggle()
+        elif ch == "w":
+            self.sw_widget_sel()
+        elif ch == "r":
+            self.sw_act("resume")
         elif name == "Delete":
             self.sw_act("delete")
         elif ch == "d":
@@ -4145,10 +4286,19 @@ class RoutineWindow(Gtk.ApplicationWindow):
             else:
                 self.pending, self.pending_t = "d", now
 
+    def sw_widget_sel(self, i=None):
+        v = self.view
+        it = v.sw_pick(v.sel["stopwatch"] if i is None else i)
+        if not it:
+            v.flash("выберите секундомер (j/k)" if v.swact else "секундомеров нет — a")
+            return
+        v.flash(sw_toggle_widget(it), 4)
+        v.swact = sw_items()
+
     def sw_new_go(self):
         v = self.view
         it = sw_new()
-        v.swact = sw_load()["items"]
+        v.swact = sw_items()
         v.sel["stopwatch"] = len(v.swact) - 1
         v.flash("«%s» — пошёл" % it["name"])
 
@@ -4156,6 +4306,14 @@ class RoutineWindow(Gtk.ApplicationWindow):
         v = self.view
         i = v.sel["stopwatch"] if i is None else i
         A = len(v.swact)
+        if act == "resume" and A <= i < A + len(v.swlog):
+            v.flash(sw_log_resume(v.swlog[i - A]), 4)
+            v.swact = sw_items()
+            v.sel["stopwatch"] = len(v.swact) - 1
+            return
+        if act == "resume":
+            v.flash("r — на строке лога: вернуть остановленный")
+            return
         if act == "delete" and A <= i < A + len(v.swlog):
             r = v.swlog[i - A]
             sw_log_delete(r)
@@ -4172,7 +4330,7 @@ class RoutineWindow(Gtk.ApplicationWindow):
                      else ("«%s» на паузе, %s" % (r["name"], mmss(sw_elapsed(r)))),
                      "stop": "«%s» — %s, в логе" % (r["name"], mmss(sw_elapsed(r))),
                      "delete": "«%s» удалён" % r["name"]}[act])
-        v.swact = sw_load()["items"]
+        v.swact = sw_items()
         if act != "toggle":
             v.sel["stopwatch"] = min(i, max(0, len(v.swact) - 1))
 

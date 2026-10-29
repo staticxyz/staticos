@@ -1066,7 +1066,7 @@ def do_text(c, op, text, src="pc"):
 
 # ── вкладка окна hub ────────────────────────────────────────────────────────
 
-ROW_H, AREA_H, HEAD_H, CHORE_H, TOP_H = 24, 52, 28, 24, 44
+ROW_H, AREA_H, HEAD_H, CHORE_H, TOP_H = 24, 52, 28, 24, 60
 INPUT = {"wake": ("подъём [отбой]: ", "«0730» · «0730 2330» · «отбой 2340»"),
          "spend": ("трата: ", "«1500 обед» · «2к такси»"),
          "lift": ("тренировка, минут: ", "«15» · «20 гантели» · «10 отжимания»"),
@@ -1135,11 +1135,13 @@ ICONS = {
                   "#.#.#.#.#", "#...#...#", ".###.###.", "........."),
 }
 ICONS["teeth_pm"] = ICONS["teeth_am"]
+# крестик «хуже вчера» на отрезке сводки (29.10.2026)
+CROSS = ("#...#", ".#.#.", "..#..", ".#.#.", "#...#")
 # свой цвет у каждой строки — чтобы различать с первого взгляда
 HUES = {"wake": "#ffc857", "bed": "#a08cff", "code": "#6ee7a0", "speech": "#5fd3f0",
         "market": "#7aa2ff", "fun": "#ff7eb6", "money": "#c4e86a", "cig": "#d9a27a",
         "lift": "#ff8a5c", "chores": "#6fe0d0", "flame": "#ff9a3c", "ok": "#7ee08a",
-        "freeze": "#9fd8ff"}
+        "freeze": "#9fd8ff", "worse": "#b8322a"}
 
 
 def _rgb(h):
@@ -1198,6 +1200,11 @@ def _state_col(v, met, warn=False):
     return hue(v, "ok") if met else (v.c["err"] if met is False else v.c["faint"])
 
 
+def _state_fill(v, met):
+    """Заливка «хуже» — тёмно-красная: err темы розовый и путался с «Развлечениями» (29.10.2026)."""
+    return hue(v, "worse") if met is False else _state_col(v, met)
+
+
 def draw(v, p, x0, x1, y0, y1):
     c = v.c
     st = status(v.conn)
@@ -1213,8 +1220,15 @@ def draw(v, p, x0, x1, y0, y1):
         w += p.text(x0 + w, y0, " · " + verdict, _state_col(v, r["met"]))
         p.text(x0 + w, y0, " · " + r["value"], c["text"], maxw=x1 - x0 - w)
     else:
+        # «3 из 5»: из скольких строк, где уже есть с чем сравнить; день идёт в серию, если лучше
+        # больше половины. Расшифровка рядом — хуже / не ясно / сколько осталось до зачёта (29.10.2026)
         w = p.text(x0, y0, "Лучше вчера: ", c["dim"])
-        p.text(x0 + w, y0, "%d из %d" % (good, n), hue(v, "ok") if good * 2 > n else c["acc_l"])
+        w += p.text(x0 + w, y0, "%d из %d" % (good, n), hue(v, "ok") if good * 2 > n else c["acc_l"])
+        need = n // 2 + 1 - good
+        if n:
+            w += p.text(x0 + w, y0, " · ", c["faint"])
+            p.text(x0 + w, y0, "засчитан" if need <= 0 else "до зачёта %d" % need,
+                   hue(v, "ok") if need <= 0 else c["dim"])
     if hov is None and st.get("streak"):
         tw = p.text(x1, y0, "серия %d %s" % (st["streak"], plural(st["streak"], "день", "дня", "дней")),
                     hue(v, "flame"), align="r")
@@ -1231,14 +1245,34 @@ def draw(v, p, x0, x1, y0, y1):
     for i, (k, _n) in enumerate(METRICS):
         met = st["rows"][k]["met"]
         sx = x0 + i * (sw + gap)
-        fill = hue(v, k) if met else (c["err"] if met is False else c["line_soft"])
+        fill = hue(v, k) if met else (hue(v, "worse") if met is False else c["line_soft"])
         p.rect(sx, seg_y, sw, seg_h, fill)
         if met is None:
             p.rect(sx, seg_y, sw, seg_h, hue(v, k), 0.25)
-        pix(p, sx + (sw - 9) // 2, seg_y + 2, ICONS[k], c["bg"] if met is not None else hue(v, k), 1)
+        if met is False:                     # значок строки + крестик, светлым по тёмно-красному
+            light = _mix(hue(v, "worse"), (1, 1, 1), 0.75)
+            pix(p, sx + sw / 2 - 10, seg_y + 2, ICONS[k], light, 1)
+            pix(p, sx + sw / 2 + 3, seg_y + 4, CROSS, light, 1)
+        else:
+            pix(p, sx + (sw - 9) // 2, seg_y + 2, ICONS[k], c["bg"] if met is not None else hue(v, k), 1)
         if hov == i or cur_i == i:
             p.rect(sx, seg_y + seg_h + 2, sw, 2, c["text"] if hov == i else c["acc_l"])
         v.hits.append(((sx, seg_y - 4, sw + gap, 20), ("gseg", i)))
+    # расшифровка отрезков: лучше + хуже = «из N», бледные в счёт не идут
+    cnt = {m: sum(1 for k, _n in METRICS if st["rows"][k]["met"] is m) for m in (True, False, None)}
+    ly, lx = seg_y + seg_h + 7, x0
+    lx += p.text(lx, ly, "лучше %d" % cnt[True], hue(v, "ok"))
+    lx += p.text(lx, ly, " + ", c["faint"])
+    p.rect(lx, ly + 1, 11, 9, hue(v, "worse"))
+    pix(p, lx + 3, ly + 3, CROSS, _mix(hue(v, "worse"), (1, 1, 1), 0.75), 1)
+    lx += 14
+    lx += p.text(lx, ly, "хуже %d" % cnt[False], c["err"])
+    lx += p.text(lx, ly, " = из %d" % (cnt[True] + cnt[False]), c["dim"])
+    if cnt[None]:
+        lx += p.text(lx, ly, " · ", c["faint"])
+        p.rect(lx, ly + 1, 11, 9, c["line_soft"])
+        lx += 14
+        p.text(lx, ly, "пока не ясно %d" % cnt[None], c["faint"], maxw=x1 - lx)
     y0 += TOP_H
     if getattr(v, "g_chart", None):
         _draw_chart(v, p, x0, x1, y0, y1)
@@ -1395,7 +1429,7 @@ def _draw_chart(v, p, x0, x1, y0, y1):
         if val is not None:
             f = (val - lo) / (hi - lo) if hi > lo else (1.0 if val else 0.0)
             bh = max(2, (bot - top) * f)
-            p.rect(bx, bot - bh, bw, bh, col if met is None else _state_col(v, met), 0.45 if met is None else 1.0)
+            p.rect(bx, bot - bh, bw, bh, col if met is None else _state_fill(v, met), 0.45 if met is None else 1.0)
             p.text(cx, bot - bh - 16, lab, c["text"] if d == t else c["dim"], align="c")
         elif d >= START:
             p.text(cx, bot - 16, "—", c["faint"], align="c")

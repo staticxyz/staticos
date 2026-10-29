@@ -586,6 +586,7 @@ def register(ns):
                                 self.area.queue_draw()
                             return False
                         GLib.timeout_add(2000, clear)
+            self.like_refresh()
             self.area.queue_draw()
 
         PAUSE_MUSIC = 300    # музыка на паузе — 5 минут на экране (06.10.2026)
@@ -604,8 +605,8 @@ def register(ns):
                 pass
             return out
 
-        def ctl(self, cmd):
-            args = ["playerctl"] + (["-p", self.inst] if self.inst else []) + [cmd]
+        def ctl(self, *cmd):
+            args = ["playerctl"] + (["-p", self.inst] if self.inst else []) + list(cmd)
             subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              start_new_session=True)
 
@@ -671,8 +672,165 @@ def register(ns):
             "play": (".##.....", ".####...", ".######.", ".#######", ".######.", ".####...", ".##....."),
         }
 
+        # Колесо по виджету (29.10.2026, просьба: «при скролле — громкость, с Shift — перематывать»).
+        # Яндекс Музыка громкость по MPRIS не берёт (всегда 1.0) — двигаем её собственный ползунок
+        # через CDP (порт 9223, ym_font), значение клиент сам хранит в localStorage. Прочие — playerctl.
+        # Перемотка — MPRIS position ±5 с. Поверх виджета на секунду — «VOL 60%» / «+5 s».
+        VOL_STEP, SEEK_STEP = 0.05, 5
+        YM_VOL_JS = """(function(d){var s=document.querySelector('input[type=range][aria-label="Manage volume"]');
+if(!s)return -1;var v=Math.round(Math.max(0,Math.min(1,parseFloat(s.value)+d))*100)/100;
+Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(s,String(v));
+s.dispatchEvent(new Event('input',{bubbles:true}));s.dispatchEvent(new Event('change',{bubbles:true}));
+return v;})(%s)"""
+
+        def on_scroll(self, x, y, dy, shift):
+            if not self.st:
+                return
+            if shift:
+                self.ctl("position", "%d%s" % (self.SEEK_STEP, "+" if dy > 0 else "-"))
+                st = self.st                           # ход виджета — сразу, не ждать события
+                pos = st["pos"] + (time.monotonic() - self.at if st["playing"] else 0)
+                st["pos"] = max(0.0, min(st["len"] or 1e9, pos + dy * self.SEEK_STEP))
+                self.at = time.monotonic()
+                self.osd_show("%+d s" % (dy * self.SEEK_STEP))
+                return
+            if self.ident.get(self.inst) == "YandexMusic":
+                with self._vol_lock:
+                    self._vol_add = getattr(self, "_vol_add", 0.0) + dy * self.VOL_STEP
+                    busy, self._vol_busy = getattr(self, "_vol_busy", False), True
+                if not busy:
+                    threading.Thread(target=self.ym_volume, daemon=True).start()
+                return
+            args = ["playerctl"] + (["-p", self.inst] if self.inst else []) + [
+                "volume", "%.2f%s" % (self.VOL_STEP, "+" if dy > 0 else "-")]
+            threading.Thread(target=self.mpris_volume, args=(args,), daemon=True).start()
+
+        _vol_lock = threading.Lock()
+
+        def ym_volume(self):
+            """Шаги колеса копятся, пока идёт прошлый вызов CDP — ползунок не отстаёт."""
+            try:
+                import ym_font
+                url = ym_font.page_ws()
+            except Exception:
+                url = None
+            v = None
+            while True:
+                with self._vol_lock:
+                    d, self._vol_add = self._vol_add, 0.0
+                    if not d or not url:
+                        self._vol_busy = False
+                        break
+                try:
+                    r = ym_font.ws_calls(url, [{"id": 1, "method": "Runtime.evaluate",
+                                                "params": {"expression": self.YM_VOL_JS % ("%.2f" % d),
+                                                           "returnByValue": True}}])[-1]
+                    v = ((r.get("result") or {}).get("result") or {}).get("value")
+                except Exception:
+                    v = None
+            if v is None and not url:
+                GLib.idle_add(self.osd_show, "VOL: no app")
+            elif isinstance(v, (int, float)) and v >= 0:
+                GLib.idle_add(self.vol_show, v)
+
+        def mpris_volume(self, args):
+            try:
+                subprocess.run(args, capture_output=True, timeout=3)
+                r = subprocess.run(args[:-1], capture_output=True, text=True, timeout=3)
+                GLib.idle_add(self.vol_show, float(r.stdout.strip()))
+            except (OSError, ValueError, subprocess.SubprocessError):
+                pass
+
+        def osd_show(self, msg):
+            self.osd = (msg, time.monotonic() + 1.2)
+            self.area.queue_draw()
+            GLib.timeout_add(1300, lambda: (self.area.queue_draw(), False)[1])
+            return False
+
+        def vol_show(self, v):
+            """Громкость — тонкая полоска по низу виджета, заполнена по уровню (просьба: «не VOL,
+            а бар снизу, заполняется по мере громкости»); 1,2 с после последнего шага колеса."""
+            self.vol = (max(0.0, min(1.0, v)), time.monotonic() + 1.2)
+            self.area.queue_draw()
+            GLib.timeout_add(1300, lambda: (self.area.queue_draw(), False)[1])
+            return False
+
+        def paint_over(self, cr, x, y, w, h):
+            vo = getattr(self, "vol", None)
+            if vo and time.monotonic() <= vo[1]:
+                pad = max(3, int(min(w, h) * 0.07))
+                by = y + h - 4
+                cr.set_source_rgba(*T["fg"], 0.16)
+                cr.rectangle(x + pad, by, w - 2 * pad, 2)
+                cr.fill()
+                cr.set_source_rgb(*T["accent"])
+                cr.rectangle(x + pad, by, int((w - 2 * pad) * vo[0]), 2)
+                cr.fill()
+            # мелко, на месте «0:29 / 2:38» в ряду кнопок (просьба: «Vol по компактнее, огромный»);
+            # ряда нет (тесный вид) — в правом нижнем углу
+            o = getattr(self, "osd", None)
+            if not o or time.monotonic() > o[1]:
+                return
+            right, ty, px = getattr(self, "osd_at", None) or (x + w - 2, y + h - 10, 8)
+            lw = len(o[0]) * adv(px)
+            cr.set_source_rgba(*T["bg"], 0.9)
+            cr.rectangle(right - lw - 3, ty - 1, lw + 3, px + 2)
+            cr.fill()
+            text(cr, o[0], 0, ty, px, T["accent"], right=right)
+
+        HEART = {True: (".##.##.", "#######", "#######", ".#####.", "..###..", "...#..."),
+                 False: (".##.##.", "#..#..#", "#.....#", ".#...#.", "..#.#..", "...#...")}
+        # кнопка «Like» в полосе плеера клиента; aria-pressed — лайкнут ли трек
+        YM_LIKE_JS = """(function(go){var b=null;document.querySelectorAll('button[aria-label="Like"]').forEach(
+function(x){if(!b&&x.closest('[class*=PlayerBar],[class*=playerBar],[class*=Player]'))b=x;});
+if(!b)return -1;if(go)b.click();return b.getAttribute('aria-pressed')==='true'?1:0;})(%d)"""
+
+        def ym_like(self, go=False, title=None):
+            """Узнать (go=False) или переключить лайк текущего трека в Яндекс Музыке."""
+            try:
+                import ym_font
+                url = ym_font.page_ws()
+                calls = [{"id": 1, "method": "Runtime.evaluate",
+                          "params": {"expression": self.YM_LIKE_JS % (1 if go else 0), "returnByValue": True}}]
+                r = ym_font.ws_calls(url, calls)[-1]
+                v = r["result"]["result"].get("value")
+                if go:                               # клиент меняет aria-pressed не сразу
+                    time.sleep(0.5)
+                    calls[0]["params"]["expression"] = self.YM_LIKE_JS % 0
+                    v = ym_font.ws_calls(url, calls)[-1]["result"]["result"].get("value")
+            except Exception:
+                v = -1
+            liked = None if v not in (0, 1) else bool(v)
+
+            def apply():
+                if title is None or (self.st and self.st["title"] == title):
+                    self.liked = liked
+                    if go and liked is not None:
+                        self.osd_show("liked" if liked else "unliked")
+                    self.area.queue_draw()
+                return False
+            GLib.idle_add(apply)
+
+        def like_refresh(self):
+            """После смены трека и не чаще раза в 15 с — лайк могли поставить в самом клиенте."""
+            if self.ident.get(self.inst) != "YandexMusic" or not self.st:
+                self.liked = None
+                return
+            key, now = (self.inst, self.st["title"]), time.monotonic()
+            if key != getattr(self, "_like_key", None) or now - getattr(self, "_like_t", 0) > 15:
+                if key != getattr(self, "_like_key", None):
+                    self.liked = None
+                self._like_key, self._like_t = key, now
+                threading.Thread(target=self.ym_like, args=(False, self.st["title"]), daemon=True).start()
+
         def on_click(self, x, y, button=1):
             if button != 1:
+                return
+            hb = getattr(self, "heart_box", None)
+            if hb and hb[0] <= x < hb[0] + hb[2] and hb[1] <= y < hb[1] + hb[3]:
+                self.liked = not self.liked                 # сразу, клиент подтвердит
+                self.area.queue_draw()
+                threading.Thread(target=self.ym_like, args=(True, self.st["title"]), daemon=True).start()
                 return
             for name, (bx, by, bw, bh) in getattr(self, "btns", {}).items():
                 if bx <= x < bx + bw and by <= y < by + bh:
@@ -730,8 +888,20 @@ def register(ns):
             gap = max(4, tpx // 2)
             total = tpx + (gap // 2 + apx if apx else 0) + (gap + 2 + gap + 7 * k if bh else 0)
             yy = ty + max(0, (th - total) // 2)
-            fpx = max(fit_px(len(st["title"]), tw, tpx), min(tpx, max(8, SIZES_DOWN(tpx))))
-            text(cr, st["title"], tx, yy + (tpx - fpx) // 2, fpx, T["on_surface"], width=tw)
+            # сердечко «в понравившиеся» справа от названия — только Яндекс Музыка (29.10.2026)
+            self.heart_box = None
+            hw = 0
+            if self.ident.get(self.inst) == "YandexMusic" and getattr(self, "liked", None) is not None:
+                hk = k
+                hw = 7 * hk
+                hx, hy = tx + tw - hw, yy + max(0, (tpx - 6 * hk) // 2)
+                cr.set_source_rgb(*T["accent"])
+                ns["draw_bitmap"](cr, [[c == "#" for c in r]
+                                       for r in self.HEART[bool(self.liked)]], hx, hy, hk, hk)
+                self.heart_box = (hx - 6, hy - 6, hw + 12, 6 * hk + 12)
+                hw += 6
+            fpx = max(fit_px(len(st["title"]), tw - hw, tpx), min(tpx, max(8, SIZES_DOWN(tpx))))
+            text(cr, st["title"], tx, yy + (tpx - fpx) // 2, fpx, T["on_surface"], width=tw - hw)
             yy += tpx
             if apx:
                 yy += gap // 2
@@ -768,6 +938,7 @@ def register(ns):
                 mw = len(msg) * adv(tpx2)
                 if tx + tw - mw > bx + 2 * step + 8 * k + gap:
                     text(cr, msg, 0, yy + (7 * k - tpx2) // 2 + 1, tpx2, T["fg"], 0.45, right=tx + tw)
+            self.osd_at = (tx + tw, yy + (7 * k - (16 if k == 2 else 8)) // 2 + 1, 16 if k == 2 else 8)
 
     # ── nowplaying.exe ──────────────────────────────────────────────────────
     class PlayerMini(Player):
@@ -1438,6 +1609,11 @@ def register(ns):
         GROWTH = os.path.expanduser("~/.local/share/hub/growth.py")
         STAMP = os.path.expanduser("~/.cache/jarvis/growth-stamp")
         EVERY = 60
+        PX = 14                                # кегль, как был у окна по умолчанию
+        # серия — огонёк 8×8 и цифра на ступень мельче строки (29.10.2026, просьба: «огонёк чуть
+        # поменьше сделай с цифрой», потом «чуть-чуть больше» — 7×7 вышел мелким); 9×9 у окна hub
+        FLAME = ("...#....", "..##....", "..###.#.", ".######.", "########", "###..###", "##....##",
+                 ".######.")
         SHORT = {"code": "Код", "market": "hh.kz", "fun": "Прокрастинация", "money": "Траты",
                  "cig": "Сигареты", "lift": "Сила"}
 
@@ -1499,7 +1675,10 @@ def register(ns):
             cr.fill()
 
         def paint(self, cr, x, y, w, h):
-            px = list_px(w, h)
+            # кегль не растёт с окном (29.10.2026, просьба: «когда я его увеличиваю по размерам,
+            # он меняется в масштабе — надо это исправить»): больше окно — больше места и строк;
+            # меньше — кегль ужимается, как у других списков
+            px = min(self.PX, list_px(w, h))
             text(cr, "BETTER", x, y, px, T["accent"])
             d = self.d
             if not d:
@@ -1511,11 +1690,11 @@ def register(ns):
             s = max(1, px // 8)                       # точка значка: 9×9 точек ≈ кегль
             right = x + w
             sw, _ = text(cr, "%d/%d" % (good, n), 0, y, px, ok if good * 2 > n else T["fg"], right=right)
+            sp = max([p for p in SIZES if p < px] or [px])     # ступень ниже кегля строки
             if d.get("streak"):
                 fl = self.rgb(hues["flame"])
-                tw, _ = text(cr, str(d["streak"]), 0, y, px, fl, right=right - sw - adv(px))
-                self.pix(cr, right - sw - adv(px) - tw - 10 * s, y + (px - 9 * s) // 2,
-                         d["icons"]["flame"], fl, s)
+                tw, _ = text(cr, str(d["streak"]), 0, y + (px - sp) // 2, sp, fl, right=right - sw - adv(px))
+                self.pix(cr, right - sw - adv(px) - tw - 9 * s, y + (px - 8 * s) // 2, self.FLAME, fl, s)
             rh = px + max(8, px // 2 + 6)
             rows = d["rows"]
             k = max(0, min(len(rows), int((h - px * 1.5) // rh)))
@@ -1526,14 +1705,31 @@ def register(ns):
                 nx = x + 9 * s + adv(px)
                 met = r["met"]
                 vcol = ok if met else bad if met is False else T["fg"]
-                vw, _ = text(cr, r["value"], 0, ry, px, vcol, 0.9 if met is None else 1.0, right=right)
-                room = right - nx - vw - adv(px)
-                nw, _ = text(cr, self.SHORT.get(r["key"], r["name"]), nx, ry, px, T["fg"], width=room)
-                if r.get("streak") and nw + 12 * s + adv(px) * 2 < room:
+                # «−30м 10:08»: разница — по центру строки, время — справа (29.10.2026, просьба:
+                # «эти значения лучше чуть ближе влево, т.е. по центру»)
+                val, lead = r["value"], ""
+                if val[:1] in "−+±" and " " in val:
+                    lead, val = val.split(" ", 1)
+                alpha = 0.9 if met is None else 1.0
+                vw, _ = text(cr, val, 0, ry, px, vcol, alpha, right=right)
+                lw = len(lead) * adv(px)
+                room = right - nx - vw - adv(px) - (lw + adv(px) if lead else 0)
+                # серия у длинного имени («Прокрастинация») не влезала и пропадала — имя
+                # ужимается с «…», чтобы огонёк остался (29.10.2026)
+                fw = adv(px) // 2 + 9 * s + len(str(r.get("streak") or "")) * adv(sp)
+                fit = r.get("streak") and room - fw >= 5 * adv(px)
+                nw, _ = text(cr, self.SHORT.get(r["key"], r["name"]), nx, ry, px, T["fg"],
+                             width=(room - fw) if fit else room)
+                ne = nx + nw
+                if fit:
                     fl = self.rgb(hues["flame"])
                     fx = nx + nw + adv(px) // 2
-                    self.pix(cr, fx, ry + (px - 9 * s) // 2, d["icons"]["flame"], fl, s)
-                    text(cr, str(r["streak"]), fx + 10 * s, ry, px, fl)
+                    self.pix(cr, fx, ry + (px - 8 * s) // 2, self.FLAME, fl, s)
+                    sw2, _ = text(cr, str(r["streak"]), fx + 9 * s, ry + (px - sp) // 2, sp, fl)
+                    ne = fx + 9 * s + sw2
+                if lead:
+                    lx = max(ne + adv(px), min(nx + (right - nx - lw) / 2, right - vw - adv(px) - lw))
+                    text(cr, lead, int(lx), ry, px, vcol, alpha)
                 f = r["frac"] if r["frac"] is not None else (1.0 if met is not None else 0.0)
                 bh = max(2, px // 5)
                 by = ry + px + max(3, px // 4)
@@ -2329,6 +2525,16 @@ def register(ns):
                 if act == "hide":                    # значок-окошко в Clocker: убрать со стола, таймер идёт
                     if w is not None:
                         mgr.remove(w, "hide")
+                    continue
+                if act.startswith("sw."):            # секундомер со стола — из Clocker → Stopwatch (29.10.2026)
+                    if w is not None and w.left() is None:
+                        if act == "sw.toggle":
+                            w.toggle_pause()
+                        elif act == "sw.remove":
+                            mgr.remove(w, "clocker")
+                        elif act.startswith("sw.label:"):
+                            w.opts["label"] = act[9:]
+                            w.keep()
                     continue
                 if act == "pause":                   # «Пауза» в Clocker — пауза у самого виджета, он остаётся
                     if w is not None and "end" in w.opts and "paused_left" not in w.opts:

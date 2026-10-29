@@ -1312,6 +1312,47 @@ def crisp(cr):
     cr.set_font_options(fo)
 
 
+KBD = {"fds": {}, "t": 0.0}
+
+
+def shift_held():
+    """Зажат ли Shift — спросить у самих клавиатур (EVIOCGKEY). Виджет — слой без фокуса
+    клавиатуры, и Wayland не шлёт ему модификаторы: в событии колеса Shift не виден никогда
+    (как у xpbar 19.10; 29.10.2026 — Shift+колесо на player.exe). Взято из xpbar.py. Группа input у static есть. Устройства
+    держатся открытыми: close() у evdev — ~20 мс на каждое (замерено), опрос — доли мс."""
+    import fcntl
+    if time.monotonic() - KBD["t"] > 30:
+        paths = set()
+        try:
+            blocks = open("/proc/bus/input/devices").read().split("\n\n")
+        except OSError:
+            blocks = []
+        for b in blocks:
+            h = next((ln for ln in b.splitlines() if ln.startswith("H: Handlers=")), "")
+            ev = next((ln for ln in b.splitlines() if ln.startswith("B: EV=")), "B: EV=0")
+            # настоящая клавиатура — с автоповтором (EV_REP), как в super_tap.py
+            if "kbd" in h and int(ev[6:], 16) & 0x100000:
+                paths |= {"/dev/input/" + t for t in h.split() if t.startswith("event")}
+        for path in set(KBD["fds"]) - paths:
+            os.close(KBD["fds"].pop(path))
+        for path in paths - set(KBD["fds"]):
+            try:
+                KBD["fds"][path] = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+            except OSError:
+                pass
+        KBD["t"] = time.monotonic()
+    for path, fd in list(KBD["fds"].items()):
+        try:
+            keys = fcntl.ioctl(fd, 0x80604518, bytes(96))      # EVIOCGKEY(96)
+        except OSError:                                         # клавиатуру выдернули
+            os.close(KBD["fds"].pop(path))
+            KBD["t"] = 0.0
+            continue
+        if any(keys[k // 8] >> (k % 8) & 1 for k in (42, 54)):   # KEY_LEFTSHIFT, KEY_RIGHTSHIFT
+            return True
+    return False
+
+
 def draw_bitmap(cr, bmp, x, y, pw, ph):
     """Пиксели глифов прямоугольниками pw×ph; соседние в строке сливаются в один."""
     for r, row in enumerate(bmp):
@@ -2017,7 +2058,9 @@ class Widget(Gtk.Window):
         self.area.connect("size-allocate", lambda *_a: (self.update_input(), self.resized()))
         self.add(self.area)
         self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK
-                        | Gdk.EventMask.POINTER_MOTION_MASK)
+                        | Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.SCROLL_MASK
+                        | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+        self.connect("scroll-event", self.on_scroll_ev)
         self.connect("button-press-event", self.on_press)
         self.connect("button-release-event", self.on_release)
         self.connect("motion-notify-event", self.on_motion)
@@ -2209,6 +2252,31 @@ class Widget(Gtk.Window):
     def on_click(self, x, y, button=1):
         pass
 
+    def on_scroll_ev(self, _w, e):
+        """Колесо по содержимому «щёлкаемого» виджета → on_scroll(x, y, шаг, shift); шаг +1 — от
+        себя (вверх), −1 — на себя. Тачпад шлёт дробные доли — копятся до целого шага."""
+        if self.mgr.edit or self.cloaked or not self.clickable or (self.titled() and e.y < self.head()):
+            return False
+        if e.direction == Gdk.ScrollDirection.UP:
+            dy = 1
+        elif e.direction == Gdk.ScrollDirection.DOWN:
+            dy = -1
+        elif e.direction == Gdk.ScrollDirection.SMOOTH:
+            self._sacc = getattr(self, "_sacc", 0.0) - e.delta_y
+            dy = int(self._sacc)
+            self._sacc -= dy
+        else:
+            dy = 0
+        if dy:
+            self.on_scroll(e.x, e.y, dy, bool(e.state & Gdk.ModifierType.SHIFT_MASK) or shift_held())
+        return True
+
+    def on_scroll(self, x, y, dy, shift):
+        pass
+
+    def paint_over(self, cr, x, y, w, h):
+        pass
+
     def on_motion(self, _w, e):
         if self.mgr.drag and self.mgr.drag["w"] is self:
             self.mgr.drag_motion(e.x, e.y)
@@ -2335,6 +2403,7 @@ class Widget(Gtk.Window):
         cr.clip()
         try:
             self.paint(cr, x, y, iw, ih)
+            self.paint_over(cr, x, y, iw, ih)
         except Exception as e:
             print("%s: %s" % (self.spec.get("name"), e), file=sys.stderr)
         cr.restore()
@@ -4094,7 +4163,9 @@ class Catcher(Gtk.Window):
         self.set_app_paintable(True)
         self.connect("draw", self.on_draw)
         self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK
-                        | Gdk.EventMask.POINTER_MOTION_MASK)
+                        | Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.SCROLL_MASK
+                        | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+        self.connect("scroll-event", w.on_scroll_ev)
         self.connect("button-press-event", w.on_press)
         self.connect("button-release-event", w.on_release)
         self.connect("motion-notify-event", w.on_motion)
