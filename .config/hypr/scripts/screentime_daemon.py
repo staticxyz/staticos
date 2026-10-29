@@ -237,7 +237,62 @@ def session_site(app, title):
     return c["map"].get(title)
 
 
+# Ролики YouTube «для учёбы» (29.10.2026, просьба: «такие видео не относить к прокрастинации,
+# я смотрю для образования»): сайт «YouTube: учёба» вместо «YouTube», hub growth.py его в
+# прокрастинацию не берёт. Правила — STUDY_FILE: строка = слово/регулярка по названию ролика,
+# «= название» — точный ролик (их дописывает yt-study, Super+Shift+Y). Файл перечитывается сам.
+STUDY_FILE = os.path.expanduser("~/.config/jarvis/youtube-study.txt")
+STUDY_SITE = "YouTube: учёба"
+_study = {"mtime": None, "re": None, "exact": set()}
+
+
+def video_title(title):
+    """«(2) Название - YouTube» → «Название»."""
+    t = re.sub(r"^\(\d+\)\s*", "", (title or "").strip())
+    for sep in (" - ", " — ", " – "):
+        if t.endswith(sep + "YouTube"):
+            t = t[: -len(sep + "YouTube")]
+    return t.strip()
+
+
+def is_study(title):
+    try:
+        mt = os.stat(STUDY_FILE).st_mtime
+    except OSError:
+        return False
+    if mt != _study["mtime"]:
+        pats, exact = [], set()
+        try:
+            with open(STUDY_FILE, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if line.startswith("="):
+                        exact.add(line[1:].strip().lower())
+                        continue
+                    try:
+                        re.compile(line)
+                        pats.append(line)
+                    except re.error:
+                        pats.append(re.escape(line))
+        except OSError:
+            return False
+        _study.update(mtime=mt, exact=exact, re=re.compile("|".join(pats), re.I) if pats else None)
+    t = video_title(title)
+    if not t or t == "YouTube":
+        return False
+    return t.lower() in _study["exact"] or bool(_study["re"] and _study["re"].search(t))
+
+
 def detail_of(app, title):
+    site = _detail_of(app, title)
+    if site == "YouTube" and is_study(title):
+        return STUDY_SITE
+    return site
+
+
+def _detail_of(app, title):
     """Что именно было на экране у программы: для терминала — программа
     в нём, для браузера — сайт. Для остальных — None (без подробностей)."""
     title = (title or "").strip()

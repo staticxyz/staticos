@@ -168,7 +168,7 @@ AREAS = [
     ("Запуск программ", "▶", """
         launcher.py app_launcher.py launcher_term.sh webapp"""),
     ("Экранное время и нагрузка", "◔", """
-        screentime.py screentime_daemon.py appmem jtop"""),
+        screentime.py screentime_daemon.py appmem jtop yt-study"""),
     ("Clocker и hub", "⏱", """
         routine_app.py focus_mode.py pomo_lock.py alarm clocker discipline routine pomo hub hub-open rem dict wa tfa jchat jchat-tg jchat-wa"""),
     ("Будильник", "⏰", """

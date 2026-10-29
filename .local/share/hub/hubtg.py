@@ -354,6 +354,7 @@ HELP_TEXT = Html(
     "\n<b>■ ТАЙМЕРЫ</b>\n"
     "⏳ <code>25 чай            </code> таймер на 25 мин\n"
     "⏱ /timer — длительности и идущие\n"
+    "🍅 /pomo — помидор: старт, пауза, своё время (то же, что на ПК)\n"
     "\n<b>■ СЛОВАРЬ</b>\n"
     "➕ <code>/w cat = кот      </code> новое слово\n"
     "📖 /words — повторить, список\n"
@@ -398,6 +399,7 @@ HELP_ALL = Html(
     "\n<b>■ ТАЙМЕРЫ</b>\n"
 "⏳ <code>25 чай             </code> таймер на 25 мин\n"
 "⏱ <code>/timer · /t · /timers</code> пульт таймеров, «Свой таймер»\n"
+"🍅 <code>/pomo · /помидор   </code> пульт помидора · <code>/pomo 45m отчёт</code> · <code>/pomo stop</code>\n"
 "🧺 <code>/timer 1ч30 стирка </code> таймер с названием\n"
 "⏹ <code>/stop              </code> остановить все таймеры\n"
     "\n<b>■ СЛОВАРЬ</b>\n"
@@ -448,7 +450,7 @@ HELP_ALL = Html(
 "📚 <code>/help all          </code> эта страница\n"
     "<i>Голосовые понимаю как текст.</i>")
 
-MENU = [("better", "📈 лучше вчера: отметить, неделя"), ("away", "🚪 охрана — ухожу из дома"), ("tasks", "✅ пульт задач"), ("timer", "⏱ таймеры"), ("words", "📖 словарь"),
+MENU = [("better", "📈 лучше вчера: отметить, неделя"), ("away", "🚪 охрана — ухожу из дома"), ("tasks", "✅ пульт задач"), ("timer", "⏱ таймеры"), ("pomo", "🍅 помидор"), ("words", "📖 словарь"),
         ("wa", "💬 WhatsApp: отложенные"), ("pc", "💻 управление ПК"), ("alarm", "🔔 будильник и Сторож"),
         ("log", "📜 журнал: сон, пробуждения"), ("help", "❓ справка")]
 
@@ -960,6 +962,21 @@ def wait_take(c, bot, chat, text):
                 pass
         r = bot.send(chat, *res)
         G.tg_track(c, chat, (r or {}).get("message_id"), res[0])
+        return True
+    elif op.startswith("pm_"):                        # помидор: своё время / задача
+        import hubpomo as P
+        ok, res = P.tg_wait(c, op[3:], text)
+        if not ok:
+            wait_set(c, op, iid, w.get("chat"), w.get("mid"))
+            bot.send(chat, res + " Или /pomo — к пульту.")
+            return True
+        if w.get("mid"):
+            try:
+                bot.call("deleteMessage", {"chat_id": w["chat"], "message_id": w["mid"]})
+            except Exception:
+                pass
+        r = bot.send(chat, *res)
+        P.tg_track(c, chat, (r or {}).get("message_id"), res[0])
         return True
     elif op == "tname":
         H.meta_set(c, TNAME_KEY, text.strip()[:60])
@@ -1551,6 +1568,10 @@ def command(c, cmd, arg, bot=None, chat=None):
     g = G.tg_command(c, cmd, arg, chat)             # «Лучше вчера» (28.10.2026)
     if g is not None:
         return g
+    import hubpomo as P
+    pm = P.command(c, cmd, arg)                     # помидор: /pomo (29.10.2026)
+    if pm is not None:
+        return pm
     if cmd in ("start", "help", "h"):
         return (HELP_ALL if arg.strip().lower() in ("all", "все", "всё") else HELP_TEXT), None
     if cmd in ("tasks", "ls", "l", "reminders"):
@@ -1807,6 +1828,10 @@ def handle_callback(c, bot, chat, mid, cb_id, data):
         bot.answer(cb_id, "Отменено")
         bot.edit(chat, mid, "Отменено.")
         return
+    if k == "pm":                                   # помидор: /pomo (29.10.2026)
+        import hubpomo as P
+        P.tg_callback(c, bot, chat, mid, cb_id, rest)
+        return
     if k == "g":                                    # «Лучше вчера»: /better (28.10.2026)
         import growth as G
         G.tg_callback(c, bot, chat, mid, cb_id, rest)
@@ -2007,6 +2032,9 @@ def process_update(c, bot, up):
     if sent and isinstance(res, tuple) and getattr(res[0], "g_view", None):
         import growth as G                          # пульт /better — hubd обновляет его сам
         G.tg_track(c, chat, sent.get("message_id"), res[0])
+    if sent and isinstance(res, tuple) and "· ПОМИДОР</b>" in str(res[0]):
+        import hubpomo as P                         # пульт /pomo — тоже
+        P.tg_track(c, chat, sent.get("message_id"), res[0])
 
 
 def transcribe(bot, voice):

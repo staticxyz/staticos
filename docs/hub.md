@@ -65,6 +65,12 @@ The bot only answers its owner — an empty or wrong `OWNER` means nobody gets a
 there you can add reminders, snooze or finish them with buttons, and review dictionary
 words, all without touching the computer.
 
+`/pomo` opens a pomodoro control panel — the same `pomo` timer as on the PC, so a session
+started in one place shows up in the other. Buttons start a focus block (preset lengths or
+recent tasks), pause, skip, stop, add or remove minutes and rename the task; the panel keeps
+itself up to date. Text works too: `/pomo 45m report`, `/pomo stop`. When a block ends and you
+are away from the PC, the bot sends a separate message.
+
 ---
 
 ## Away mode

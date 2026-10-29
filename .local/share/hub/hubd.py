@@ -757,6 +757,23 @@ def nudge_tick(c):
         log("better: предупреждение", n["key"], "ПК" if here else "TG")
 
 
+_pomo = {"here": True, "t": 0}
+
+
+def pomo_tick(c, bot):
+    """Помидор в Telegram (hubpomo, 29.10.2026): пульт /pomo идёт вслед за pomo, конец отрезка
+    без вас у ПК — сообщением. pc_present — не чаще раза в 10 с."""
+    import hubpomo as P
+    try:
+        if time.monotonic() - _pomo["t"] >= 10:
+            _pomo["t"], _pomo["here"] = time.monotonic(), pc_present()
+        if P.tg_tick(c, bot, _pomo["here"]):
+            log("pomo: конец отрезка → Telegram")
+        P.tg_sync(c, bot)
+    except Exception as e:
+        log("pomo:", repr(e))
+
+
 _obs = {"t": 0}
 
 
@@ -1261,6 +1278,7 @@ def main():
                     bot, last_tok = T.Bot(tok), tok
                 T.flush_outbox(c, bot)
                 T.sync_messages(c, bot)
+                pomo_tick(c, bot)
             H.meta_set(c, "heartbeat", H.now())
         except Exception as e:
             log("ошибка цикла:", repr(e))

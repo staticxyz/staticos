@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""yt-study — ролик YouTube в окне с фокусом считать учёбой, не прокрастинацией (29.10.2026).
+  yt-study        добавить текущий ролик («= название» в ~/.config/jarvis/youtube-study.txt)
+  yt-study rm     убрать текущий ролик из учёбы
+  yt-study list   правила и ролики
+Правила читает screentime_daemon.py (сайт «YouTube: учёба»), Better (growth.py) их не считает."""
+import json, os, subprocess, sys
+sys.path.insert(0, os.path.expanduser("~/.config/hypr/scripts"))
+import screentime_daemon as S
+
+F = S.STUDY_FILE
+
+
+def note(head, body=""):
+    subprocess.run(["notify-send", "-a", "Экранное время", "-i", "youtube", head, body], check=False)
+
+
+def current():
+    try:
+        w = json.loads(subprocess.run(["niri", "msg", "-j", "focused-window"], capture_output=True,
+                                      text=True, timeout=3).stdout or "null") or {}
+    except (OSError, ValueError, subprocess.SubprocessError):
+        w = {}
+    app, title = w.get("app_id") or "", (w.get("title") or "").strip()
+    for suf in S.BROWSERS.values():
+        for sep in (" — ", " – ", " - "):
+            if title.endswith(sep + suf):
+                title = title[: -len(sep + suf)].strip()
+    if app not in S.BROWSERS or S._detail_of(app, title) != "YouTube":
+        return None
+    t = S.video_title(title)
+    return t if t and t != "YouTube" else None
+
+
+def lines():
+    try:
+        return open(F, encoding="utf-8").read().splitlines()
+    except OSError:
+        return []
+
+
+def main(a):
+    if a and a[0] in ("list", "ls"):
+        print("\n".join(lines()))
+        return 0
+    t = current()
+    if not t:
+        note("Не YouTube", "В окне с фокусом нет ролика YouTube.")
+        return 1
+    have = lines()
+    key = "= " + t
+    if a and a[0] in ("rm", "del", "off"):
+        left = [l for l in have if l.strip().lower() != key.lower()]
+        if len(left) == len(have):
+            note("Не в списке", t + ("\n(подходит под общее правило — правьте " + F + ")"
+                                     if S.is_study(t) else ""))
+            return 1
+        open(F, "w", encoding="utf-8").write("\n".join(left) + "\n")
+        note("Снова YouTube", t)
+        return 0
+    if S.is_study(t):
+        note("Уже учёба", t)
+        return 0
+    os.makedirs(os.path.dirname(F), exist_ok=True)
+    with open(F, "a", encoding="utf-8") as f:
+        f.write(key + "\n")
+    note("Учёба, не прокрастинация", t)
+    return 0
+
+
+sys.exit(main(sys.argv[1:]))

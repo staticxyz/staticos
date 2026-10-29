@@ -26,8 +26,11 @@ built from `binds.kdl` (niri's own overlay is still on **Super+Shift+/**).
 | `Mod + U` | Zen (browser) |
 | `Mod + B` | Tor Browser |
 | `Mod + Y` | LibreWolf (browser) |
+| `Mod + Shift + Y` | YouTube video in focus counts as study, not procrastination (`yt-study`) |
 | `Mod + C` | calculator and translator |
 | `Mod + Alt + X` | who's eating memory |
+| `Mod + Ctrl + F` | screen time |
+| `Mod + Ctrl + Shift + P` | passwords (KeePassXC) |
 | `Mod + N` | notepad: new note |
 | `Mod + M` | Hub: reminders |
 | `Mod + Shift + M` | Hub: dictionary |
@@ -101,6 +104,8 @@ built from `binds.kdl` (niri's own overlay is still on **Super+Shift+/**).
 | `Mod + Alt + Right` | move column right |
 | `Mod + Alt + Home` | move column to the start |
 | `Mod + Alt + End` | move column to the end |
+| `Mod + Ctrl + Alt + H` | window to the panel on the left (stack) / column left |
+| `Mod + Ctrl + Alt + L` | window to the panel on the right (stack) / column right |
 
 ### Move a window inside a column (ALT, vertical)
 
@@ -188,6 +193,9 @@ built from `binds.kdl` (niri's own overlay is still on **Super+Shift+/**).
 | `Mod + Shift + V` | focus: floating ↔ tiled |
 | `Mod + Shift + T` | column tabs on/off |
 | `Mod + Shift + C` | center the column |
+| `Mod + A` | workspace layout: scrolling → grid → floating → peek → three in a row |
+| `Mod + Ctrl + A` | workspace layout: previous |
+| `Mod + Ctrl + Shift + M` | window stack (hyprstack) on/off |
 
 ### Monitors
 

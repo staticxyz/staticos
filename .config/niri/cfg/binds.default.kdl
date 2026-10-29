@@ -29,6 +29,7 @@ binds {
     Mod+U hotkey-overlay-title="Zen (браузер)" { spawn "zen-browser"; }
     Mod+B hotkey-overlay-title="Tor Browser" { spawn "torbrowser-launcher"; }
     Mod+Y hotkey-overlay-title="LibreWolf (браузер)" { spawn "librewolf"; }
+    Mod+Shift+Y repeat=false hotkey-overlay-title="Ролик YouTube — учёба, не прокрастинация" { spawn "yt-study"; }
     // Пароли — KeePassXC через обёртку (цвета обоев, пиксельный шрифт); открыт — поднимает окно.
     Mod+Ctrl+Shift+P hotkey-overlay-title="Пароли (KeePassXC)" { spawn-sh "~/.local/bin/keepassxc"; }
     Mod+A hotkey-overlay-title="Раскладка стола: прокрутка → сетка → плавающие → подглядывание → три в ряд" { spawn-sh "~/.config/niri/scripts/nostack python3 ~/.config/hypr/scripts/ws_layout.py cycle"; }

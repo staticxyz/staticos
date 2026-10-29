@@ -44,6 +44,9 @@ MARKET_SITE_RE = re.compile(r"(^|\.)hh\.(kz|ru|uz)$|headhunter", re.I)
 FUN_RE = re.compile(r"youtube|смотреть вместе|wparty|kinogo|rezka|кинопоиск|kinopoisk|netflix|twitch|"
                     r"tiktok|rutube|instagram|reddit|^vk$|вконтакте|anime|аниме|savefrom|cybershoke|"
                     r"серверы кс|картинка в картинке|кино|сериал", re.I)
+# «YouTube: учёба» — ролики по правилам ~/.config/jarvis/youtube-study.txt (screentime_daemon,
+# 29.10.2026): не прокрастинация
+STUDY_SITE_RE = re.compile(r"учёба", re.I)
 FUN_APPS = {"mpv", "vlc", "org.videolan.VLC", "io.github.celluloid_player.Celluloid", "celluloid", "steam"}
 # + игры Steam (screentime: steam_app_<AppId>, CS2 = 730) — всё одним числом (Пользователь 29.10)
 
@@ -66,10 +69,11 @@ LONG_SLEEP = 90                        # мин: сон ПК короче — д
 DAY_START_H = 5                        # сна не видно — день сменяется в 05:00
 NIGHT_GAP = 40 * 60                    # часы разбудили ПК, он уснул снова за 40 мин — та же ночь
 
-# строки вкладки по порядку; «Быт» — сводка, под ней чек-лист CHORES
+# строки вкладки по порядку; «Быт» — сводка, под ней чек-лист CHORES. 29.10.2026, просьба:
+# «Речь между Силой и Сигаретами», «Траты в самый конец»
 METRICS = (("wake", "Подъём"), ("bed", "Отбой"), ("code", "Программирование"),
-           ("speech", "Речь"), ("market", "Рынок (hh.kz)"), ("fun", "Прокрастинация"), ("money", "Траты"),
-           ("cig", "Сигареты"), ("lift", "Сила"), ("chores", "Быт"))
+           ("market", "Рынок (hh.kz)"), ("fun", "Прокрастинация"), ("cig", "Сигареты"),
+           ("speech", "Речь"), ("lift", "Сила"), ("chores", "Быт"), ("money", "Траты"))
 NAMES = dict(METRICS)
 # (ключ, название, раз в N дней)
 CHORES = (("teeth_am", "Зубы утром", 1), ("teeth_pm", "Зубы вечером", 1), ("shower", "Душ", 1),
@@ -568,7 +572,7 @@ def day_values(c, day):
     sp_min, sp_n = sum_kind(c, day, "speech")
     sp_pomo, sp_live = pomo_secs(t0, t1, SPEECH_RE)
     market = sum(v for n, v in sites.items() if MARKET_SITE_RE.search(n))
-    fun = sum(v for n, v in sites.items() if FUN_RE.search(n)) + \
+    fun = sum(v for n, v in sites.items() if FUN_RE.search(n) and not STUDY_SITE_RE.search(n)) + \
         sum(v for a, v in apps.items() if a in FUN_APPS or a.startswith("steam_app_"))
     return dict(wake=w, wake_a=wa, bed=b, bed_a=ba, t0=t0, t1=t1, code=code, code_live=live,
                 speech=int(sp_min * 60 + sp_pomo), speech_live=sp_live, speech_n=sp_n,
