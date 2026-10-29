@@ -21,17 +21,17 @@ if [ -f "$req" ]; then
     engine=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("engine",""))' "$req" 2>/dev/null)
     rm -f "$req"
     if [ "$engine" = google ]; then      # ответ уже от Google (17.10.2026) — копировать как есть
-        printf '%s' "$v" | wl-copy
+        printf '%s' "$v" | wl-copy --type text/plain
         exit 0
     fi
     nid=$(notify-send -p -a "Переводчик" -t 15000 "Перевожу через Google…" "$text")
     if best=$(timeout 30 ~/.config/hypr/scripts/translate_best.sh "$text" "$src" "$tgt" 2>/dev/null) && [ -n "$best" ]; then
-        printf '%s' "$best" | wl-copy
+        printf '%s' "$best" | wl-copy --type text/plain
         notify-send -r "${nid:-0}" -a "Переводчик" -t 8000 "Скопировано (Google)" "$best"
     else
-        printf '%s' "$v" | wl-copy
+        printf '%s' "$v" | wl-copy --type text/plain
         notify-send -r "${nid:-0}" -a "Переводчик" -t 8000 "Нет сети — скопирован офлайн-перевод" "$v"
     fi
     exit 0
 fi
-printf '%s' "$v" | wl-copy
+printf '%s' "$v" | wl-copy --type text/plain

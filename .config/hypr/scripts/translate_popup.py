@@ -340,7 +340,7 @@ class Popup(Gtk.Window):
     def show_best(self, best, draft):
         text = best or draft
         try:
-            subprocess.run(["wl-copy"], input=text, text=True, timeout=5)
+            subprocess.run(["wl-copy", "--type", "text/plain"], input=text, text=True, timeout=5)
         except (OSError, subprocess.SubprocessError):
             pass
         self.answer.set_text(text + ("\n\n— скопировано (Google)" if best else

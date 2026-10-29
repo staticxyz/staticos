@@ -1120,7 +1120,7 @@ def make_view(test=False, style=None):
             """Enter на сведении — значение в буфер, меню остаётся открытым."""
             if self.test or not k["info"]:
                 return
-            subprocess.Popen(["sh", "-c", "printf %s \"$1\" | wl-copy && notify-send -a staticOS "
+            subprocess.Popen(["sh", "-c", "printf %s \"$1\" | wl-copy --type text/plain && notify-send -a staticOS "
                               "\"Скопировано: $2\" \"$1\"", "sh", k["info"], k["name"]],
                              start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

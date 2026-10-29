@@ -86,6 +86,6 @@ if [ -n "$exact" ]; then
     source="из терминала, дословно"
 fi
 
-printf '%s' "$text" | wl-copy
+printf '%s' "$text" | wl-copy --type text/plain
 lines=$(printf '%s\n' "$text" | wc -l)
 say "Скопировано, строк: $lines ($source)" "$(printf '%s' "$text" | head -c 120)"

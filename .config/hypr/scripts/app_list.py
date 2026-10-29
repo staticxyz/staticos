@@ -2129,7 +2129,7 @@ class AppListWindow(Gtk.ApplicationWindow):
 
     def copy(self, text):
         try:
-            subprocess.run(["wl-copy"], input=text, text=True, timeout=3)
+            subprocess.run(["wl-copy", "--type", "text/plain"], input=text, text=True, timeout=3)
             self.view.flash("скопировано")
         except (OSError, subprocess.SubprocessError):
             self.view.flash("wl-copy не сработал")
