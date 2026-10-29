@@ -381,6 +381,11 @@ class XPCalendar(Gtk.Window):
         self.scroll.add(self.nlist)
         outer.pack_start(self.scroll, False, False, 0)
 
+        # Разделитель уведомлений и календаря (29.10.2026, просьба: «не хватает разграничителя»).
+        sep = Gtk.Box()
+        sep.get_style_context().add_class("cal-sep")
+        outer.pack_start(sep, False, False, 0)
+
         # ── календарь ──
         header = Gtk.Box(spacing=6)
         header.get_style_context().add_class("cal-head")
@@ -392,6 +397,7 @@ class XPCalendar(Gtk.Window):
         next_btn.connect("clicked", lambda _b: self.shift_month(1))
         self.title_lbl = Gtk.Label()
         self.title_lbl.get_style_context().add_class("cal-title")
+        self.title_lbl.get_style_context().add_class("cal-month")   # месяц и год — акцентом
         self.title_lbl.set_hexpand(True)
         header.pack_start(prev_btn, False, False, 0)
         header.pack_start(self.title_lbl, True, True, 0)
@@ -668,6 +674,13 @@ class XPCalendar(Gtk.Window):
                 border-bottom: 1px solid %(line3)s; box-shadow: inset 0 -1px 0 0 %(line2)s;
             }
             .cal-title { color: %(text)s; font-size: 12px; }
+            .cal-month { color: %(acc_l)s; }
+            .cal-sep {
+                min-height: 2px; margin: 6px 2px 4px 2px;
+                background-image: linear-gradient(to right, %(strip)s), linear-gradient(to right, %(strip_d)s);
+                background-size: 100%% 1px, 100%% 1px; background-repeat: no-repeat, no-repeat;
+                background-position: 0 0, 0 1px;
+            }
             button.cal-nav {
                 background-color: transparent; background-image: none; color: %(dim)s;
                 border: 1px solid %(line3)s; border-radius: 0; box-shadow: inset 0 0 0 1px %(gline)s;
@@ -697,6 +710,8 @@ class XPCalendar(Gtk.Window):
                 border-style: solid; border-width: 0 0 1px 0; border-color: %(line)s;
             }
             .cal-title { color: %(text)s; font-size: 12px; }
+            .cal-month { color: %(acc)s; }
+            .cal-sep { min-height: 2px; background-color: %(acc)s; }
             button.cal-nav {
                 background-color: transparent; color: %(text)s; border: none;
                 padding: 0 4px; min-width: 16px;
@@ -723,6 +738,7 @@ class XPCalendar(Gtk.Window):
                 min-height: 20px;
             }
             .cal-title { color: %(accent)s; font-size: 12px; }
+            .cal-sep { min-height: 3px; background-color: %(frame)s; }
             button.cal-nav {
                 background-color: transparent; color: %(accent)s; border: none;
                 padding: 0 5px; min-width: 18px;
