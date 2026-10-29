@@ -699,6 +699,11 @@ def per_output(s, head):
                     continue
                 t = re.sub(r'"output"\s*:\s*\[[^\]]*\]', '"output": ["%s"]' % out, s, count=1)
                 t = t.replace('"layer": "top",', '"layer": "top",\n    "name": "tb-%s",' % mode, 1)
+                # звук ⇄ микрофон: у каждого бара свой bar_volume (29.10.2026) — при двух
+                # мониторах ноутбук показывает микрофон, внешний звук (bar_volume.py)
+                t = re.sub(r'wb_share volume (python3 \S*bar_volume\.py)"',
+                           r'wb_share volume-%s \1 %s"' % (out, out), t)
+                t = re.sub(r'(bar_volume\.sh (?:mode|up|down|mute|popup))"', r'\1 %s"' % out, t)
                 path = panels.bar_config(out)
                 write_if_changed(path, head + top_bar_mode(t, mode, ws=panels.ws_for(out, d),
                                                               stack=panels.stack_top(out)))
