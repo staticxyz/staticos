@@ -19,7 +19,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from pip_place import is_pip, log, request  # noqa: E402
+from pip_place import app_of, is_pip, log, request  # noqa: E402
 
 WTYPE = os.path.expanduser("~/.local/bin/wtype")
 
@@ -61,7 +61,7 @@ def main():
     mains = [w for w in windows() if w.get("pid") == pid and not is_pip(w)]
     main_w = max(mains, key=lambda w: tuple((w.get("focus_timestamp") or {}).values()) or (0,),
                  default=None)
-    helium = pip["app_id"].lower() == "helium"
+    helium = app_of(pip) == "helium"
     if helium:
         if main_w:
             action("focus-window", "--id", str(main_w["id"]))
@@ -76,10 +76,10 @@ def main():
     else:
         if helium:
             action("close-window", "--id", str(wid))
-            log("бинд из окошка %s: расширение не ответило — окошко закрыто по id" % pip["app_id"])
+            log("бинд из окошка %s: расширение не ответило — окошко закрыто по id" % app_of(pip))
     if main_w and not helium:
         action("focus-window", "--id", str(main_w["id"]))
-    log("бинд из окошка %s → главное окно %s" % (pip["app_id"], main_w and main_w["id"]))
+    log("бинд из окошка %s → главное окно %s" % (app_of(pip), main_w and main_w["id"]))
     return 0
 
 

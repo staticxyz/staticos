@@ -88,8 +88,19 @@ def action(*args):
     subprocess.run(["niri", "msg", "action", *args], capture_output=True, timeout=3)
 
 
+def app_of(w):
+    """Браузер окна. У окошка картинки Helium app_id пустой (29.10) — тогда по программе PID."""
+    app = (w.get("app_id") or "").lower()
+    if app or not w.get("pid"):
+        return app
+    try:
+        return os.path.basename(os.readlink("/proc/%d/exe" % w["pid"])).lower()
+    except OSError:
+        return ""
+
+
 def is_pip(w):
-    return (w.get("app_id") or "").lower() in APPS and bool(TITLE_RE.match(w.get("title") or ""))
+    return bool(TITLE_RE.match(w.get("title") or "")) and app_of(w) in APPS
 
 
 class Watcher:
@@ -132,10 +143,10 @@ class Watcher:
         rec = {"pid": w.get("pid"), "output": out, "x": round(pos[0]), "y": round(pos[1]),
                "w": size[0], "h": size[1]}
         data = load()
-        if data.get(w["app_id"]) != rec:
-            data[w["app_id"]] = rec
+        if data.get(app_of(w)) != rec:
+            data[app_of(w)] = rec
             save(data)
-            log("запомнено %s: %s" % (w["app_id"], rec))
+            log("запомнено %s: %s" % (app_of(w), rec))
 
     # ── поставить ────────────────────────────────────────────────────────────
     def fresh(self, wid):
@@ -199,7 +210,8 @@ class Watcher:
         wid = w["id"]
         self.busy.add(wid)
         try:
-            if not w.get("is_floating"):       # правило niri не сработало (заголовок пришёл позже)
+            ruled = w.get("is_floating")
+            if not ruled:                      # правило niri не сработало
                 action("toggle-window-floating", "--id", str(wid))
                 action("set-window-width", "--id", str(wid), str(DEFAULT_W))
                 action("set-window-height", "--id", str(wid), str(DEFAULT_H))
@@ -207,19 +219,34 @@ class Watcher:
             if HOME_OUT in outputs and EXTRA_OUT in outputs and self.output_of(w) != HOME_OUT:
                 action("move-window-to-monitor", "--id", str(wid), HOME_OUT)
                 time.sleep(0.15)
-                cur = self.fresh(wid) or {}
-                log("  перенесено на %s: место %s" % (
-                    self.output_of(cur), (cur.get("layout") or {}).get("tile_pos_in_workspace_view")))
+            if not ruled:
+                self.corner(wid)
+            cur = self.fresh(wid) or {}
+            log("  по умолчанию: %s, место %s" % (
+                self.output_of(cur), (cur.get("layout") or {}).get("tile_pos_in_workspace_view")))
         finally:
             time.sleep(0.3)
             self.busy.discard(wid)
 
+    def corner(self, wid):
+        """В правый нижний угол с отступом 20, как правило niri. Размер рабочей области niri не
+        отдаёт, поэтому окно сперва уводится далеко вправо-вниз: niri прижимает плавающее окно
+        так, что на экране остаются 75 px (проверено 29.10: 1845 + 75 = 1920)."""
+        action("move-floating-window", "--id", str(wid), "-x", "+5000", "-y", "+5000")
+        time.sleep(0.15)
+        lay = (self.fresh(wid) or {}).get("layout") or {}
+        pos, tile = lay.get("tile_pos_in_workspace_view"), lay.get("tile_size")
+        if not pos or not tile:
+            return
+        dx, dy = 75 - round(tile[0]) - 20, 75 - round(tile[1]) - 20
+        action("move-floating-window", "--id", str(wid), "-x", "%+d" % dx, "-y", "%+d" % dy)
+
     def _place(self, w):
-        rec = load().get(w["app_id"])
+        rec = load().get(app_of(w))
         wid = w["id"]
         outputs = (request("Outputs") or {}).get("Outputs") or {}
         if not rec:
-            log("открыто %s — места ещё нет" % w["app_id"])
+            log("открыто %s — места ещё нет" % app_of(w))
             return self.place_default(w, outputs)
         if rec.get("pid") != w.get("pid"):
             log("браузер перезапущен (PID %s → %s) — место по умолчанию" % (rec.get("pid"), w.get("pid")))
@@ -238,7 +265,7 @@ class Watcher:
                 time.sleep(pause)
                 got = self.settle(wid, rec)
             want = (rec["output"], rec["x"], rec["y"], rec["w"], rec["h"])
-            log("поставлено %s: %s%s" % (w["app_id"], rec,
+            log("поставлено %s: %s%s" % (app_of(w), rec,
                 "" if got == want else " — вышло %s" % (got,)))
         finally:
             time.sleep(0.3)
