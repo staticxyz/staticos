@@ -23,6 +23,7 @@
 import difflib
 import glob
 import json
+import re
 import subprocess
 import sys
 
@@ -31,6 +32,20 @@ GOOD_ENOUGH = 0.80     # столько — и дальше не ищем
 # (совпадают пробелы и частые буквы), а честно распознанная строка — 0.85+.
 MIN_MATCH = 0.60
 TIMEOUT = 3
+
+# Рамки и полосы по краям строки (30.10.2026): TUI-программы рисуют блоки «│ … │» и
+# цитаты «▎», и экранная строка тянулась рамкой и пробелами до правого края — при
+# 30 распознанных символах против 150 экранных совпадение падало до ~0.3, окно не
+# узнавалось, и в буфер уходил сырой tesseract («вмипил чтренний»). Сверяются и
+# отдаются строки без краевых рамок; tesseract видит «▎» как «|» — его тоже долой.
+FRAME = "\u2500-\u259f"
+EDGE_L = re.compile(r"^(?:\s*[%s])+ ?" % FRAME)
+EDGE_R = re.compile(r"(?:\s*[%s])+\s*$" % FRAME)
+OCR_EDGE = re.compile(r"^[|%s]+\s*|\s*[|%s]+$" % (FRAME, FRAME))
+
+
+def unframe(s):
+    return EDGE_R.sub("", EDGE_L.sub("", s)).rstrip()
 
 
 def kitty(sock, *args):
@@ -83,7 +98,7 @@ def screens(sock):
                              "--extent", "screen")
                 if text is None:
                     continue
-                lines = [ln.rstrip() for ln in text.split("\n")]
+                lines = [unframe(ln) for ln in text.split("\n")]
                 if any(ln.strip() for ln in lines):
                     out.append((w.get("title") or "kitty", lines))
     return out
@@ -97,7 +112,7 @@ def score(ocr_lines, screen_lines):
         for i, s in enumerate(screen_lines):
             if not s.strip():
                 continue
-            r = difflib.SequenceMatcher(None, line, s).ratio()
+            r = difflib.SequenceMatcher(None, line, s.strip()).ratio()
             if r > best:
                 best, best_i = r, i
         hits.append((best, best_i))
@@ -114,7 +129,8 @@ def score(ocr_lines, screen_lines):
 
 def main():
     ocr = sys.stdin.read()
-    ocr_lines = [ln.strip() for ln in ocr.split("\n") if len(ln.strip()) >= 4]
+    ocr_lines = [OCR_EDGE.sub("", ln.strip()) for ln in ocr.split("\n")]
+    ocr_lines = [ln for ln in ocr_lines if len(ln) >= 4]
     if not ocr_lines:
         return 1
 
@@ -139,6 +155,9 @@ def main():
         chunk.pop()
     if not chunk:
         return 1
+    # Общий отступ (у TUI-программ — пара пробелов слева) не нужен; вложенность кода остаётся.
+    pad = min(len(ln) - len(ln.lstrip()) for ln in chunk if ln.strip())
+    chunk = [ln[pad:] for ln in chunk]
     sys.stdout.write("\n".join(chunk))
     sys.stderr.write("совпадение %.0f%%\n" % (mean * 100))
     return 0
