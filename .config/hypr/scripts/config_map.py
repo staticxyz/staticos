@@ -109,7 +109,7 @@ AREAS = [
     ("Окна и столы", "▢", """
         alt_tab.py alt_tab.sh ribbon_center.py mouse_focus.py mouse_wait_release.py
         window_fx.py wm.py hot_corners.py
-        pip_place.py ws_layout.py stack_mode.py stack_bars.py stack_pin.py mousepad_place.py colexpand colwidth floattoggle magic tg_call_pocket.py overview_blur.py
+        pip_place.py pip_toggle.py ws_layout.py stack_mode.py stack_bars.py stack_pin.py mousepad_place.py colexpand colwidth floattoggle magic tg_call_pocket.py overview_blur.py
         move_all no_self_maximize.py pair_center.py winreset ws_insert ws-step fs-toggle hl-step nostack winmon close-or-clipboard
         dashboard shell-switch shell-do ws-anim"""),
     ("Настройки и справка", "⚙", """
@@ -162,7 +162,7 @@ AREAS = [
         clipboard_menu.py clipboard_win.py clipboard-toggle cliphist-store xclip
         x-clip-pull x11-clip-bridge x11-clip-events wtype"""),
     ("Снимки и запись экрана", "✂", """
-        freeze_lib.sh freeze_screen.py pin_shot.py ocr_copy.sh pxocr.py term_text.py
+        freeze_lib.sh freeze_screen.py pin_shot.py ocr_copy.sh pxocr.py pxocr_frac.py term_text.py
         screenshot_annotate.sh rec_area.sh rec_frame.py rec_menu.py rec_nobg.py
         rec_style.py replay_saved.sh replay picker rembg"""),
     ("Запуск программ", "▶", """
@@ -170,7 +170,7 @@ AREAS = [
     ("Экранное время и нагрузка", "◔", """
         screentime.py screentime_daemon.py appmem jtop yt-study"""),
     ("Clocker и hub", "⏱", """
-        routine_app.py focus_mode.py pomo_lock.py alarm clocker discipline routine pomo hub hub-open rem dict wa tfa jchat jchat-tg jchat-wa"""),
+        routine_app.py focus_mode.py pomo_lock.py lday.py alarm clocker discipline routine pomo hub hub-open rem dict wa tfa jchat jchat-tg jchat-wa"""),
     ("Будильник", "⏰", """
         wake_alarm.py jarvis-rtc-wake.sh wake_overlay.py wake-alarm"""),
     # Служебное

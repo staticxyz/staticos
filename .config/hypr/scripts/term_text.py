@@ -2,6 +2,7 @@
 """Подставить настоящий текст терминала вместо распознанного.
 
     term_text.py < распознанное.txt      -> точный текст или код возврата 1
+    term_text.py --focused < …           то же, но только окно kitty в фокусе
 
 Зачем. Шрифт терминала — PxPlus HP 100LX 6x8, растровый: буква занимает сетку
 6x8 точек, и у «y» с «u», «g» с «a», «/» с «s» в ней просто нет различающих
@@ -70,11 +71,14 @@ def focused_pid():
     return None
 
 
-def sockets():
-    """Сокеты kitty: окно в фокусе первым — с него совпадение обычно и ловится."""
+def sockets(focused_only=False):
+    """Сокеты kitty: окно в фокусе первым — с него совпадение обычно и ловится.
+    focused_only — только он, и ничего, если в фокусе не kitty."""
     found = sorted(glob.glob("/tmp/kitty-*"))
     pid = focused_pid()
     first = "/tmp/kitty-%d" % pid if pid else None
+    if focused_only:
+        return [first] if first in found else []
     if first in found:
         found.remove(first)
         found.insert(0, first)
@@ -135,7 +139,10 @@ def main():
         return 1
 
     best = (0.0, None, None, None)      # оценка, строки, начало, конец
-    for sock in sockets():
+    # --focused: текст уже прочитан точно по шрифту (pxocr), подмена нужна только
+    # терминалу в фокусе — иначе такой же текст в другом окне kitty утащил бы
+    # выделенный кусок браузера в целые строки терминала.
+    for sock in sockets("--focused" in sys.argv[1:]):
         for title, lines in screens(sock):
             mean, lo, hi = score(ocr_lines, lines)
             if lo is not None and mean > best[0]:

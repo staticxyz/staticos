@@ -54,9 +54,10 @@ trap 'freeze_cleanup; rm -f "$tmp" "$tmp.prep.png"' EXIT HUP INT TERM
 crop_area "$geom" "$tmp" || { say "Не вышло снять область"; exit 1; }
 
 # Сначала — точное чтение по растрам системного шрифта (pxocr.py): весь стол
-# рисуется PxPlus 6x8 без сглаживания, и клетки сравниваются с самим шрифтом
-# (99 % на образцах, 0.3 с). Не тот шрифт или дробный масштаб — он честно
-# выходит с кодом 1, и в дело идёт tesseract.
+# рисуется PxPlus 6x8, и клетки сравниваются с самим шрифтом. GTK — на целой
+# сетке, браузер и kitty — на дробной со сглаживанием и курсивом (pxocr_frac.py,
+# 30.10.2026: 99.8 % на образцах Helium 12–24 px, 0.5–2.5 с). Не тот шрифт — он
+# честно выходит с кодом 1, и в дело идёт tesseract.
 source="точно по шрифту"
 text=$(python3 "$HOME/.config/hypr/scripts/pxocr.py" "$tmp" 2>/dev/null) || text=""
 if [ -z "$text" ]; then
@@ -78,9 +79,14 @@ fi
 # только приметой, по которой ищется окно. Шрифт PxPlus 6x8 растровый, и
 # tesseract на нём выдаёт 88 % символов: строку не вставить и не выполнить.
 # term_text.py молчит (код 1), если окно не опознано уверенно.
+# После точного чтения подмена нужна только kitty в фокусе (--focused): строки
+# терминала дословнее (рамки, пробелы), а чужое окно с похожим текстом не в счёт.
 exact=""
-[ "${OCR_RAW:-0}" = 1 ] || [ "$source" != "распознано" ] \
-    || exact=$(printf '%s' "$text" | python3 "$HOME/.config/hypr/scripts/term_text.py" 2>/dev/null)
+if [ "${OCR_RAW:-0}" != 1 ]; then
+    only=""
+    [ "$source" = "распознано" ] || only="--focused"
+    exact=$(printf '%s' "$text" | python3 "$HOME/.config/hypr/scripts/term_text.py" $only 2>/dev/null)
+fi
 if [ -n "$exact" ]; then
     text=$exact
     source="из терминала, дословно"

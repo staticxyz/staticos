@@ -51,6 +51,7 @@ SURE_BITS = 0.3                  # с такой ошибкой масштаб �
 MIN_CELLS = 2                    # меньше непустых клеток — не о чем говорить
 MIN_SHARE = 0.6                  # доля чернил в сошедшихся клетках, чтобы поверить (свой шрифт 80–100 %)
 TIME_BUDGET = 2.5                # секунд на весь перебор; дольше — отказ
+FRAC_SURE = 0.1                  # ошибка дробной сетки, с которой ей верим без целой (свой шрифт 0.00–0.05)
 STEP = 1 / 8                     # шаг масштаба: размеры в px кратны 1/8 точки
 CYR = set("абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ")
 LAT = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -560,7 +561,24 @@ def main():
     if len(sys.argv) != 2:
         print(__doc__, file=sys.stderr)
         return 2
+    # Сперва дробная сетка (pxocr_frac.py): браузер, kitty, курсив. Её уверенный
+    # ответ (ошибка ≤ FRAC_SURE) берётся сразу; при 12 px с хинтингом она путает
+    # «g»/«q» с ошибкой 0.17 — там точнее целая сетка ниже, и дробная остаётся запасом.
+    try:
+        import pxocr_frac
+        ftext, fnote, ferr = pxocr_frac.read(sys.argv[1])
+    except Exception as e:                       # запасной путь не должен ронять основной
+        ftext, fnote, ferr = None, "дробная сетка: %s" % e, 9.0
+    if ftext is not None and ferr <= FRAC_SURE:
+        print(fnote, file=sys.stderr)
+        sys.stdout.write(ftext)
+        return 0
+    if ferr >= 99:                               # чужой шрифт (pxocr_frac.FOREIGN_ERR): сразу к tesseract
+        print(fnote, file=sys.stderr)
+        return 1
     text, note = recognize(sys.argv[1])
+    if text is None and ftext is not None:
+        text, note = ftext, fnote
     print(note, file=sys.stderr)
     if text is None:
         return 1
