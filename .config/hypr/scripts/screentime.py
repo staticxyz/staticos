@@ -558,6 +558,17 @@ def gui_imports():
     return Gdk, Gtk, Pango, PangoCairo
 
 
+def _hx(c):
+    return "#%02x%02x%02x" % tuple(round(max(0.0, min(1.0, v)) * 255) for v in c[:3])
+
+
+def skin_palette(c):
+    """Цвета стиля системы (routine_app.colors) под имена палитры matugen, которыми рисует View."""
+    return {"primary": _hx(c["acc"]), "on_primary": _hx(c["bg"]), "on_surface": _hx(c["text"]),
+            "on_surface_variant": _hx(c["dim"]), "surface_container": _hx(c["field"]),
+            "surface": _hx(c["bg"])}
+
+
 def build_view_class():
     Gdk, Gtk, Pango, PangoCairo = gui_imports()
     import popup_theme
@@ -688,7 +699,7 @@ def build_view_class():
                     if gh >= 1:
                         cr.set_source_rgba(*v.color_of(a))
                         if last:
-                            top_rounded(cr, x, y - sh, bw, sh, 3 if hourly else 4)
+                            top_rounded(cr, x, y - sh, bw, sh, 0 if v.square else 3 if hourly else 4)
                         else:
                             cr.rectangle(x, y - gh, bw, gh)
                         cr.fill()
@@ -723,9 +734,10 @@ def build_view_class():
     class View(Gtk.Box):
         """Содержимое окна; одно и то же для слоя на экране и для --render."""
 
-        def __init__(self, mode="today", on_close=None):
+        def __init__(self, mode="today", on_close=None, skin=None):
             super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-            self.pal = pal = popup_theme.palette()
+            self.pal = pal = skin_palette(skin) if skin else popup_theme.palette()
+            self.square = bool(skin) and skin["frame"] == "skeet"   # Skeet — без скруглений
             self.colors = [rgba(c) for c in series_colors(pal["primary"], pal["surface_container"])]
             self.other = rgba(pal["on_surface_variant"], 0.38)
             self.mode = mode
@@ -737,6 +749,10 @@ def build_view_class():
             title = Gtk.Label(label="Экранное время", xalign=0)
             title.get_style_context().add_class("title")
             head.pack_start(title, True, True, 0)
+            if skin:                         # в окне название — на полосе заголовка
+                title.set_no_show_all(True)
+                title.hide()
+                head.pack_start(Gtk.Box(), True, True, 0)
             self.tabs = {}
             seg = Gtk.Box(spacing=0)
             seg.get_style_context().add_class("seg")
@@ -768,6 +784,8 @@ def build_view_class():
             self.lbl_hover = Gtk.Label(xalign=0)
             self.lbl_hover.get_style_context().add_class("hover")
             self.lbl_hover.set_ellipsize(3)
+            # без этого длинная подпись наведения раздвигала окно — оно дёргалось (29.10.2026)
+            self.lbl_hover.set_max_width_chars(1)
             card.pack_start(self.lbl_hover, False, False, 0)
             self.chart = Chart(self)
             card.pack_start(self.chart, False, False, 0)
@@ -1015,7 +1033,260 @@ def build_view_class():
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
+    def sys_font():
+        """Системный (пиксельный) шрифт, как у Clocker: имя JetBrains в CSS GTK берёт сам JetBrains."""
+        name = Gtk.Settings.get_default().get_property("gtk-font-name") or ""
+        return name.rsplit(" ", 1)[0] if " " in name else (name or FONT)
+
+    def style_skin(c):
+        """Окно в стиле системы: фон и рамку рисует само окно (frame_draw), здесь — содержимое."""
+        sk = c["frame"] == "skeet"
+        import routine_app as R
+        on_acc = R.palette()["on_primary"]          # тёмный текст на светлом акценте Default/Beta
+        css = """
+        .st-win { font-family: '%(font)s', sans-serif; font-weight: normal; font-size: %(px)dpx;
+                  background: transparent; border: none; box-shadow: none; padding: 0; }
+        .st-win scrolledwindow, .st-win viewport { background: transparent; border: none; }
+        .st-win label { color: %(text)s; }
+        .st-win label.total { font-size: %(big)dpx; }
+        .st-win label.sub, .st-win label.hover, .st-win label.subname { color: %(dim)s; font-size: 12px; }
+        .st-win label.subtime { color: %(faint)s; font-size: 12px; }
+        .st-win label.foot { color: %(faint)s; font-size: 12px; }
+        .st-win label.focus { color: %(acc)s; }
+        .st-win label.name { font-size: %(px)dpx; }
+        .st-win label.time { color: %(dim)s; font-size: %(px)dpx; }
+        .st-win .card { background-color: %(field)s; border: 1px solid %(line)s;
+                        border-radius: %(r)dpx; padding: 10px 12px 8px 12px; }
+        .st-win .row { padding: 5px 2px; }
+        .st-win .subrow { padding: 1px 2px 3px 36px; }
+        .st-win .seg { background-color: %(field)s; border: 1px solid %(line)s; border-radius: %(r)dpx; padding: 2px; }
+        .st-win button.tab { background: transparent; background-image: none; border: none; box-shadow: none;
+                             color: %(dim)s; font-size: 12px; border-radius: %(r2)dpx; padding: 3px 10px; min-height: 0; }
+        .st-win button.tab:hover { color: %(acc_l)s; }
+        .st-win button.tab.active { background-color: %(acc)s; color: %(bg)s; }
+        .st-win button.tab label { color: %(dim)s; }
+        .st-win button.tab:hover label { color: %(acc_l)s; }
+        .st-win button.tab.active label { color: %(bg)s; }
+        .st-win scrollbar, .st-win scrollbar trough { background: transparent; background-image: none;
+                                                      border: none; box-shadow: none; min-width: 4px; padding: 0; }
+        .st-win scrollbar { margin-left: 8px; }
+        .st-win scrollbar slider { background-color: %(line)s; background-image: none; border: none;
+                                   min-width: 4px; min-height: 24px; margin: 0; border-radius: %(r2)dpx; }
+        .st-win scrollbar slider:hover, .st-win scrollbar slider:active { background-color: %(acc)s; }
+        """ % dict(font=sys_font(), px=12 if sk else 16, big=24 if sk else 32, r=0 if sk else 10, r2=0 if sk else 8,
+                   text=_hx(c["text"]), dim=_hx(c["dim"]), faint=_hx(c["faint"]), acc=_hx(c["acc"]),
+                   acc_l=_hx(c["acc_l"]), field=_hx(c["field"]), line=_hx(c["line"]),
+                   bg=_hx(c["bg"]) if sk else _hx(on_acc))
+        provider = Gtk.CssProvider()
+        provider.load_from_data(css.encode())
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+
+    style.skin = style_skin
     return View, style
+
+
+WIN_ID = "com.jarvis.screentime"
+WIN_PID = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis-screentime-win.pid")
+
+
+def toggle_running():
+    """Второй запуск закрывает открытое окно (бинд Super+Ctrl+F — переключатель). Своё окно
+    узнаём по pid-файлу и /proc: --json/--text виджетов этим не задеваются."""
+    try:
+        pid = int(open(WIN_PID).read().strip())
+        argv = open("/proc/%d/cmdline" % pid, "rb").read().split(b"\0")
+    except (OSError, ValueError):
+        return False
+    if not any(a.endswith(b"screentime.py") for a in argv) or any(a.startswith(b"--") for a in argv):
+        return False
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    return True
+
+
+def run_window(mode):
+    """Отдельное окно в стиле системы (Default/Skeet/Beta из state/settings-skin), как Clocker
+    и App list: рамка routine_app, полоса заголовка title_strip (29.10.2026; было слоем-попапом)."""
+    if toggle_running():
+        return
+    from gi.repository import GLib
+    GLib.set_prgname(WIN_ID)
+    Gdk, Gtk, _P, _PC = gui_imports()
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import routine_app as R
+    import title_strip
+    poke_daemon()
+    View, style = build_view_class()
+    st = R.style_name()
+    c = R.colors(st)
+    style.skin(c)
+
+    class Deco:
+        """То, что рамке R.View.draw_frame и title_strip нужно от «вида»."""
+        def __init__(self):
+            self.c, self.style = c, st
+            self.active, self.maxed, self.hover, self.hits = True, False, None, []
+
+    win = Gtk.Window(title="Screen time")
+    win.set_wmclass(WIN_ID, WIN_ID)
+    win.set_decorated(False)
+    win.set_app_paintable(True)
+    vis = win.get_screen().get_rgba_visual()
+    if vis is not None:
+        win.set_visual(vis)
+    deco = win.view = Deco()
+    stack = R.stack_on()
+    f = 6 if c["frame"] == "skeet" else 1
+
+    def on_draw(_w, cr):
+        w, h = win.get_allocated_width(), win.get_allocated_height()
+        R.View.draw_frame(deco, R.Painter(cr), w, h)
+        deco.hits = []
+        if not stack:
+            deco.hits = title_strip.draw(cr, st, f, f, w - 2 * f, "\U000f0128", "Screen time",
+                                         deco.hover, deco.maxed, deco.active,
+                                         r=0 if c["frame"] == "skeet" else 9)
+        return False
+    win.connect("draw", on_draw)
+
+    def hit(x, y):
+        for (hx, hy, hw, hh), key in deco.hits:
+            if hx <= x < hx + hw and hy <= y < hy + hh:
+                return key
+        return None
+
+    def on_press(_w, ev):
+        key = hit(ev.x, ev.y)
+        if ev.button != 1:
+            return False
+        if key == "close":
+            Gtk.main_quit()
+        elif key == "max":
+            title_strip.toggle_max(win)
+        elif key == "title":
+            title_strip.on_title(win, ev)
+        else:
+            return False
+        return True
+
+    def on_motion(_w, ev):
+        k = hit(ev.x, ev.y)
+        if k not in ("close", "max"):
+            k = None
+        if k != deco.hover:
+            deco.hover = k
+            win.queue_draw()
+        return False
+
+    def on_leave(*_a):
+        if deco.hover is not None:
+            deco.hover = None
+            win.queue_draw()
+        return False
+    win.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.POINTER_MOTION_MASK
+                   | Gdk.EventMask.LEAVE_NOTIFY_MASK)
+    win.connect("button-press-event", on_press)
+    win.connect("motion-notify-event", on_motion)
+    win.connect("leave-notify-event", on_leave)
+
+    def on_active(*_a):
+        deco.active = win.is_active()
+        win.queue_draw()
+    win.connect("notify::is-active", on_active)
+
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    outer.get_style_context().add_class("st-win")
+    outer.set_margin_top(f + (0 if stack else title_strip.TITLE_H) + 10)
+    for side in ("bottom", "start", "end"):
+        getattr(outer, "set_margin_" + side)(f + 12)
+    scroll = Gtk.ScrolledWindow()
+    scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroll.set_overlay_scrolling(False)     # полоса своей колонкой, не поверх текста (29.10.2026)
+    scroll.set_propagate_natural_height(True)
+    scroll.set_max_content_height(820)
+    view = View(mode, skin=c)
+    view.get_style_context().remove_class("popup-box")
+    scroll.add(view)
+    outer.pack_start(scroll, True, True, 0)
+    win.add(outer)
+
+    def on_key(_w, ev):
+        if ev.keyval == Gdk.KEY_Tab:
+            view.set_mode("week" if view.mode == "today" else "today")
+        elif ev.keyval in (Gdk.KEY_Escape, Gdk.KEY_q):
+            Gtk.main_quit()
+        else:
+            return False
+        return True
+    win.connect("key-press-event", on_key)
+    win.connect("destroy", lambda *_: Gtk.main_quit())
+    signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
+    try:
+        with open(WIN_PID, "w") as fh:
+            fh.write(str(os.getpid()))
+    except OSError:
+        pass
+    win.show_all()
+    Gtk.main()
+
+
+def shot_window(path, mode, st=None):
+    """--shot PNG [today|week] [style=skeet] — окно целиком вне экрана, для проверки."""
+    Gdk, Gtk, _P, _PC = gui_imports()
+    from gi.repository import GLib
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import routine_app as R
+    import title_strip
+    import cairo
+    View, style = build_view_class()
+    st = st or R.style_name()
+    c = R.colors(st)
+    style.skin(c)
+    f = 6 if c["frame"] == "skeet" else 1
+    view = View(mode, skin=c)
+    view.get_style_context().remove_class("popup-box")
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    outer.get_style_context().add_class("st-win")
+    outer.set_margin_top(f + title_strip.TITLE_H + 10)
+    for side in ("bottom", "start", "end"):
+        getattr(outer, "set_margin_" + side)(f + 12)
+    scroll = Gtk.ScrolledWindow()               # как в run_window — видно полосу прокрутки
+    scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroll.set_overlay_scrolling(False)
+    scroll.set_propagate_natural_height(True)
+    scroll.set_min_content_height(int(os.environ.get("ST_SHOT_MAXH", "0")) or 1)
+    scroll.set_max_content_height(int(os.environ.get("ST_SHOT_MAXH", "820")))
+    scroll.add(view)
+    outer.pack_start(scroll, True, True, 0)
+    off = Gtk.OffscreenWindow()
+    off.get_style_context().add_class("st-win")    # прозрачный фон: рамка рисуется под ним
+    off.add(outer)
+    off.show_all()
+
+    class Deco:
+        pass
+    deco = Deco()
+    deco.c, deco.active = c, True
+
+    def snap():
+        w, h = off.get_allocated_width(), off.get_allocated_height()
+        surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+        cr = cairo.Context(surf)
+        R.View.draw_frame(deco, R.Painter(cr), w, h)
+        title_strip.draw(cr, st, f, f, w - 2 * f, "\U000f0128", "Screen time", None, False, True,
+                         r=0 if c["frame"] == "skeet" else 9)
+        pix = off.get_pixbuf()
+        Gdk.cairo_set_source_pixbuf(cr, pix, 0, 0)
+        cr.paint()
+        surf.write_to_png(path)
+        Gtk.main_quit()
+        return False
+    GLib.timeout_add(500, snap)
+    Gtk.main()
+    print(path)
 
 
 def run_popup(mode):
@@ -1106,8 +1377,13 @@ def main():
         print(json.dumps(summary(kind, sites="--sites" in argv), ensure_ascii=False, indent=1))
     elif "--render" in argv:
         render_png(argv[argv.index("--render") + 1], kind)
-    else:
+    elif "--shot" in argv:
+        sty = next((a[6:] for a in argv if a.startswith("style=")), None)
+        shot_window(argv[argv.index("--shot") + 1], kind, sty)
+    elif "--popup" in argv:
         run_popup(kind)
+    else:
+        run_window(kind)
 
 
 if __name__ == "__main__":

@@ -1378,6 +1378,8 @@ class HubWindow(Gtk.ApplicationWindow):
                 v.mode = "normal"                   # щелчок по другой строке — ввод брошен
             v.sel[v.tab] = key[1]
             v.confirm_delete = None
+        elif isinstance(key, tuple) and key[0] == "gseg":
+            v.sel[v.tab], v.free_scroll = key[1], False     # щелчок по отрезку «Лучше вчера» — к его строке
         elif isinstance(key, tuple) and key[0] == "btn":
             self.do_button(key[1])
         elif key == ("view",):

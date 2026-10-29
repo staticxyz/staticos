@@ -19,8 +19,8 @@ hub_app.py) и бота hub (/better, hubtg.py).
     lift     минуты          «гантели»    тренировка (гантели, отжимания)
     chore    1               ключ CHORES  бытовое дело сделано
 
-Цели — «чуть лучше вчера»: подъём и отбой на 15 мин раньше (до 05:00 и 21:00), программирование
-+25 мин, рынок и сила +1 мин, прокрастинация −1 мин, траты не больше вчерашних и обычных
+Цели — «чуть лучше вчера»: подъём и отбой хотя бы на 1 мин раньше (до 05:00 и 21:00), программирование
++5 мин, речь, рынок и сила +1 мин, прокрастинация −1 мин, траты не больше вчерашних и обычных
 (медиана 14 дней), сигарет на одну меньше.
 """
 import datetime as dt
@@ -48,14 +48,20 @@ FUN_APPS = {"mpv", "vlc", "org.videolan.VLC", "io.github.celluloid_player.Cellul
 # + игры Steam (screentime: steam_app_<AppId>, CS2 = 730) — всё одним числом (Пользователь 29.10)
 
 IDEAL_WAKE, IDEAL_BED = 5 * 60, 21 * 60
-STEP_SLEEP = 15
-STEP_CODE = 25 * 60
-STEP_MIN = 60                          # рынок, сила: +1 мин к вчера; прокрастинация: −1 мин
-STEP_SPEECH, MIN_SPEECH, MAX_SPEECH = 5 * 60, 10 * 60, 60 * 60
+STEP_SLEEP = 1          # было 15; пользователь 29.10: «даже на одну минуту раньше — успех»
+STEP_CODE = 5 * 60                      # 29.10.2026, просьба: было +25 мин — «давай на 5 минут»
+STEP_MIN = 60                          # речь, рынок, сила: +1 мин к вчера; прокрастинация: −1 мин
 # Сигареты считаются с этого (логического) дня — пользователь 29.10.2026: «пусть начинаются с сегодня,
 # красными пока не будут — не с чем сравнивать». Первый день без оценки, сравнение — со второго.
-CIG_START = dt.date(2026, 10, 28)
-START = dt.date(2026, 10, 27)          # система с 28.10; вчерашний день — только для сравнения
+# Сдвинуто на 29.10 (просьба: «вчерашний день не считается, т.к. я начал ночью» — 28.10 неполный).
+CIG_START = dt.date(2026, 10, 29)
+START = dt.date(2026, 10, 28)          # система с 29.10; вчерашний день — только для сравнения
+# 29.10.2026, просьба: «День начался сегодня утром, не надо считать вчерашние пару часов» —
+# START сдвинут с 27.10. Первый день (FIRST) без оценки «лучше вчера»: не с чем сравнивать.
+FIRST = START + dt.timedelta(days=1)     # первый день системы
+# прокрастинация, код и hh.kz сравниваются и в первый день (просьба: «прокрастинацию можно считать
+# со вчерашним», «код и hh.kz можно также сравнивать со вчерашним»)
+COMPARE_KEYS = ("speech", "money", "lift", "chores")
 LONG_SLEEP = 90                        # мин: сон ПК короче — дрёма, не ночь
 DAY_START_H = 5                        # сна не видно — день сменяется в 05:00
 NIGHT_GAP = 40 * 60                    # часы разбудили ПК, он уснул снова за 40 мин — та же ночь
@@ -331,6 +337,9 @@ def screen_window(t0, t1):
             else:
                 for n, v in _residual(d).get(k, {}).items():
                     sites[n] = sites.get(n, 0) + v * f
+            # картинка в картинке без фокуса (screentime_daemon "bg", 29.10.2026) — тоже прокрастинация
+            for n, v in ((d.get("bg") or {}).get(k) or {}).items():
+                sites[n] = sites.get(n, 0) + v * f
         h += 3600
     return apps, sites
 
@@ -573,6 +582,28 @@ def hm(m):
     return "%02d:%02d" % divmod(int(m) % 1440, 60)
 
 
+def vs_yday(t, y):
+    """Подпись строк «больше вчера»: «вчера 8 мин · сегодня на 5 мин больше» — без цели и «ещё»
+    (29.10.2026, просьба: «без "цели" и "ещё", только как было вчера и на сколько сегодня лучше/хуже»)."""
+    d = t - y
+    return "вчера %s · %s" % (dur(y), "сегодня столько же" if abs(d) < 60 else
+                              "сегодня на %s %s" % (dur(abs(d)), "больше" if d > 0 else "меньше"))
+
+
+def hl_yday(t, y):
+    """Цвет хвоста подписи vs_yday в окне: 1 — больше вчера (зелёный), −1 — меньше (красный)."""
+    return 0 if abs(t - y) < 60 else (1 if t > y else -1)
+
+
+def delta_hm(m):
+    """Разница в минутах: −12м, +1ч10м, −2ч; ноль — ±0м."""
+    m = int(round(m))
+    if not m:
+        return "±0м"
+    h, mm = divmod(abs(m), 60)
+    return ("−" if m < 0 else "+") + ("%dч%s" % (h, "%02dм" % mm if mm else "") if h else "%dм" % mm)
+
+
 def dur(sec):
     m = int(round(sec / 60))
     if m < 60:
@@ -662,7 +693,7 @@ def evaluate(c, d):
     T, Y = day_values_cached(c, d), day_values_cached(c, y)
     R = {}
 
-    # подъём: сегодня против вчера; цель на завтра — сегодняшний −15 мин, не раньше 05:00
+    # подъём: сегодня против вчера; цель на завтра — сегодняшний −1 мин, не раньше 05:00
     w, wy = T["wake"], Y["wake"]
     goal = max(IDEAL_WAKE, wy - STEP_SLEEP) if wy is not None else None
     det = ["вчера " + (Y["wake_a"] + hm(wy) if wy is not None else "—")]
@@ -670,47 +701,53 @@ def evaluate(c, d):
         det.append("цель ≤" + hm(goal))
     if w is not None:
         det.append("завтра ≤" + hm(max(IDEAL_WAKE, w - STEP_SLEEP)))
-    R["wake"] = dict(value=(T["wake_a"] + hm(w)) if w is not None else "—", detail=" · ".join(det),
+    # насколько раньше/позже вчерашнего (29.10.2026, просьба: «насколько минут раньше проснулся, или
+    # наоборот если красный то насколько минут позже, если больше 60 минут то часов»; позже:
+    # «получился на 45 минут раньше чем вчера, почему 30?» — разница с вчера, не с целью). Цвет — по цели.
+    lead = (delta_hm(w - wy) + " ") if (w is not None and wy is not None) else ""
+    R["wake"] = dict(value=(lead + T["wake_a"] + hm(w)) if w is not None else "—", detail=" · ".join(det),
                      met=(w <= goal if (w is not None and goal is not None) else None))
 
-    # отбой: прошлая ночь против позапрошлой; сегодня лечь на 15 мин раньше прошлой, не раньше 21:00
+    # отбой: прошлая ночь против позапрошлой; сегодня лечь хотя бы на 1 мин раньше прошлой, не раньше 21:00.
+    # 29.10.2026 пробовали показывать у сегодняшнего дня только цель на ночь — пользователь вернул:
+    # «можно сравнивать с позапрошлым днём, оказывается было правильно, что он красный был».
     b, by = T["bed"], Y["bed"]
-    det = ["до этого " + (Y["bed_a"] + hm(by) if by is not None else "—")]
+    bgoal = max(IDEAL_BED, by - STEP_SLEEP) if by is not None else None
+    det = ["позапрошлой " + ((Y["bed_a"] + hm(by)) if by is not None else "—")]
     if b is not None:
         det.append("сегодня лечь до " + hm(max(IDEAL_BED, b - STEP_SLEEP)))
-    R["bed"] = dict(value=(T["bed_a"] + hm(b)) if b is not None else "—", detail=" · ".join(det),
-                    met=(b <= max(IDEAL_BED, by - STEP_SLEEP) if (b is not None and by is not None) else None))
+    # разница — с позапрошлой ночью, как у подъёма со вчера; цвет — по цели (−1 мин)
+    lead = (delta_hm(b - by) + " ") if (b is not None and by is not None) else ""
+    R["bed"] = dict(value=(lead + T["bed_a"] + hm(b)) if b is not None else "—", detail=" · ".join(det),
+                    met=(b <= bgoal if (b is not None and bgoal is not None) else None))
 
-    # программирование: вчера +25 мин
+    # программирование: вчера +5 мин
     goal = Y["code"] + STEP_CODE
     left = goal - T["code"]
     R["code"] = dict(value=("▶ " if T["code_live"] else "") + dur(T["code"]),
-                     detail="вчера %s · цель %s%s" % (dur(Y["code"]), dur(goal),
-                                                      (" · ещё " + dur(left)) if left > 0 else " ✓"),
+                     detail=vs_yday(T["code"], Y["code"]), left=left, hl=hl_yday(T["code"], Y["code"]),
                      met=T["code"] >= goal, frac=T["code"] / goal if goal else 1)
 
-    # речь: вчера +5 мин, не меньше 10 и не больше часа в день
-    goal = max(MIN_SPEECH, min(MAX_SPEECH, Y["speech"] + STEP_SPEECH))
+    # речь: хотя бы на минуту больше вчерашнего
+    goal = Y["speech"] + STEP_MIN        # было +5 мин, не меньше 10 и не больше часа; пользователь 29.10: «на минуту больше»
     left = goal - T["speech"]
     R["speech"] = dict(value=("▶ " if T["speech_live"] else "") + dur(T["speech"]),
-                       detail="вчера %s · цель %s%s" % (dur(Y["speech"]), dur(goal),
-                                                        (" · ещё " + dur(left)) if left > 0 else " ✓"),
+                       detail=vs_yday(T["speech"], Y["speech"]), left=left, hl=hl_yday(T["speech"], Y["speech"]),
                        met=T["speech"] >= goal, frac=T["speech"] / goal)
 
     # рынок: на вкладке hh.kz хотя бы на минуту больше вчерашнего (экранное время)
     goal = Y["market"] + STEP_MIN
     left = goal - T["market"]
     R["market"] = dict(value=dur(T["market"]),
-                       detail="вчера %s · цель %s%s" % (dur(Y["market"]), dur(goal),
-                                                        (" · ещё " + dur(left)) if left > 0 else " ✓"),
+                       detail=vs_yday(T["market"], Y["market"]), left=left, hl=hl_yday(T["market"], Y["market"]),
                        met=T["market"] >= goal, frac=T["market"] / goal)
 
     # прокрастинация: YouTube, кино, игры — одним числом; хотя бы на минуту меньше вчерашнего
     limit = max(0, Y["fun"] - STEP_MIN)
     rest = limit - T["fun"]
     R["fun"] = dict(value=dur(T["fun"]),
-                    detail="вчера %s · предел %s · %s" % (dur(Y["fun"]), dur(limit),
-                                                          ("осталось " + dur(rest)) if rest >= 0 else ("сверх " + dur(-rest))),
+                    detail="вчера %s · %s" % (dur(Y["fun"]),
+                                              ("осталось " + dur(rest)) if rest >= 0 else ("сверх " + dur(-rest))),
                     met=T["fun"] <= limit,
                     frac=(T["fun"] / limit) if limit else (1.0 if T["fun"] else 0), warn=True)
 
@@ -746,8 +783,7 @@ def evaluate(c, d):
     goal = Y["lift"] + STEP_MIN
     left = goal - T["lift"]
     R["lift"] = dict(value=("▶ " if T["lift_live"] else "") + dur(T["lift"]),
-                     detail="вчера %s · цель %s%s" % (dur(Y["lift"]), dur(goal),
-                                                      (" · ещё " + dur(left)) if left > 0 else " ✓"),
+                     detail=vs_yday(T["lift"], Y["lift"]), left=left, hl=hl_yday(T["lift"], Y["lift"]),
                      met=T["lift"] >= goal, frac=T["lift"] / goal)
 
     # быт: всё, что подошло по сроку, сделано
@@ -766,6 +802,11 @@ def evaluate(c, d):
                        detail=("надо: " + ", ".join(due)) if due else "всё по плану ✓",
                        met=not due, frac=len(done) / max(1, len(done) + len(due)))
 
+    if d <= FIRST:                          # первый день: сравнивать не с чем
+        for k in COMPARE_KEYS:
+            R[k].update(met=None, frac=None, hl=None)
+            if k != "chores":
+                R[k]["detail"] = "первый день — сравнение с завтра"
     for k, name in METRICS:
         R[k]["name"] = name
         R[k].setdefault("frac", None)
@@ -1019,9 +1060,19 @@ def draw(v, p, x0, x1, y0, y1):
     st = status(v.conn)
     good, n = st["score"]
     # сводка: «лучше вчера: N из M», серия и полоса из отрезков по строкам
-    w = p.text(x0, y0, "Лучше вчера: ", c["dim"])
-    p.text(x0 + w, y0, "%d из %d" % (good, n), hue(v, "ok") if good * 2 > n else c["acc_l"])
-    if st.get("streak"):
+    hov = v.hover[1] if isinstance(v.hover, tuple) and v.hover[0] == "gseg" else None
+    if hov is not None and hov < len(METRICS):
+        # подпись отрезка под указателем вместо сводки (29.10.2026, просьба: «подпиши отрезки при наведении»)
+        k = METRICS[hov][0]
+        r = st["rows"][k]
+        verdict = {True: "лучше вчера", False: "хуже вчера"}.get(r["met"], "ещё не ясно")
+        w = p.text(x0, y0, r["name"], hue(v, k))
+        w += p.text(x0 + w, y0, " · " + verdict, _state_col(v, r["met"]))
+        p.text(x0 + w, y0, " · " + r["value"], c["text"], maxw=x1 - x0 - w)
+    else:
+        w = p.text(x0, y0, "Лучше вчера: ", c["dim"])
+        p.text(x0 + w, y0, "%d из %d" % (good, n), hue(v, "ok") if good * 2 > n else c["acc_l"])
+    if hov is None and st.get("streak"):
         tw = p.text(x1, y0, "серия %d %s" % (st["streak"], plural(st["streak"], "день", "дня", "дней")),
                     hue(v, "flame"), align="r")
         pix(p, x1 - tw - 14, y0 + 1, ICONS["flame"], hue(v, "flame"), 1)
@@ -1034,6 +1085,9 @@ def draw(v, p, x0, x1, y0, y1):
                1.0 if met is not None else 1.0)
         if met is None:
             p.rect(sx, seg_y, sw, 8, hue(v, k), 0.25)
+        if hov == i:
+            p.rect(sx, seg_y + 10, sw, 2, c["text"])
+        v.hits.append(((sx, seg_y - 6, sw + gap, 20), ("gseg", i)))
     y0 += TOP_H
     rs = rows(v)
     sel = max(0, min(v.sel["growth"], len(rs) - 1))
@@ -1114,6 +1168,13 @@ def _draw_metric(v, p, key, r, x0, x1, y, sel, i):
             p.text(tx + pw, y + 21, _caret(s, v.cur), c["acc_l"], maxw=x1 - tx - 8 - pw)
         else:
             p.text(tx + pw, y + 21, "⁣" + INPUT[v.g_op][1], c["faint"], maxw=x1 - tx - 8 - pw)
+    elif r.get("hl") is not None and " · " in r["detail"]:
+        # «сегодня на N больше/меньше» — своим цветом (29.10.2026, просьба: «покрась в другой»)
+        head, tail = r["detail"].rsplit(" · ", 1)
+        hw = p.text(tx, y + 21, head + " · ", c["dim"], maxw=x1 - tx - 8)
+        tcol = hue(v, "ok") if r["hl"] > 0 else c["err"] if r["hl"] < 0 else c["text"]
+        if x1 - tx - 8 - hw > 20:
+            p.text(tx + hw, y + 21, tail, tcol, maxw=x1 - tx - 8 - hw)
     else:
         p.text(tx, y + 21, r["detail"], c["dim"], maxw=x1 - tx - 8)
     bw = x1 - tx - 8
@@ -1238,7 +1299,7 @@ def bar(frac, n=10):
     return "▰" * k + "▱" * (n - k)
 
 
-# Короткие имена для сжатого пульта — как в виджете better.exe (29.10.2026, Просьба: «интерфейс
+# Короткие имена для сжатого пульта — как в виджете better.exe (29.10.2026, просьба: «интерфейс
 # в боте слишком длинный, компактнее — как в виджетах или в самой программе»)
 TG_SHORT = {"wake": "Подъём", "bed": "Отбой", "code": "Код", "speech": "Речь", "market": "hh.kz",
             "fun": "Прокраст.", "money": "Траты", "cig": "Сигареты", "lift": "Сила", "chores": "Быт"}
@@ -1580,7 +1641,6 @@ def eve_text(c):
 # (obsidian-git не коммитит пустое).
 
 VAULT = os.environ.get("GROWTH_VAULT") or os.path.expanduser("~/Documents/Vault/Развитие/Better")
-FIRST = START + dt.timedelta(days=1)     # первый день системы
 
 
 def _write_if_changed(path, text):
@@ -1856,10 +1916,12 @@ def nudges(c, at_pc=True):
             st["sent"].append(key)
             out.append(dict(key=key, title=title, body=body, pc=pc, through=through))
 
-    # прокрастинация: предел = вчера −1 мин
+    # прокрастинация: предел = вчера −1 мин (в первый день не с чем сравнивать)
     limit = max(0, Y["fun"] - STEP_MIN)
     rest = limit - T["fun"]
-    if T["fun"] and rest < 0:
+    if R["fun"]["met"] is None:
+        pass
+    elif T["fun"] and rest < 0:
         say("fun_over", "🛑 Прокрастинация больше вчерашней",
             "Сегодня %s, вчера %s. Остановитесь — дальше только хуже." % (dur(T["fun"]), dur(Y["fun"])),
             pc=True, through=True)
@@ -1868,7 +1930,7 @@ def nudges(c, at_pc=True):
             "Сегодня %s из %s (вчера %s). Пора остановиться." % (dur(T["fun"]), dur(limit), dur(Y["fun"])),
             pc=True, through=True)
 
-    # отбой: лечь на 15 мин раньше прошлой ночи
+    # отбой: лечь хотя бы на 1 мин раньше прошлой ночи
     b = T["bed"]
     now = _now_evening()
     if b is not None and now is not None:
@@ -1886,9 +1948,8 @@ def nudges(c, at_pc=True):
             left = []
             for k, emo in (("code", "💻"), ("speech", "🗣"), ("market", "💼"), ("lift", "🏋")):
                 if R[k]["met"] is False:
-                    m = re.search(r"ещё ([^·]+)", R[k]["detail"])
-                    left.append("%s %s — ещё %s" % (emo, R[k]["name"], m.group(1).strip() if m else "чуть-чуть"))
-            due = [ch["name"].lower() for ch in s["chores"] if ch["due"]]
+                    left.append("%s %s — ещё %s" % (emo, R[k]["name"], dur(max(60, R[k].get("left", 60)))))
+            due = [ch["name"].lower() for ch in s["chores"] if ch["due"]] if R["chores"]["met"] is not None else []
             if due:
                 left.append("🧹 " + ", ".join(due[:3]) + (" и ещё %d" % (len(due) - 3) if len(due) > 3 else ""))
             if left:

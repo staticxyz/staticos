@@ -286,6 +286,15 @@ window-rule {
     focus-ring { off; }
 }
 
+// «Screen time» — экранное время (scripts/screentime.py, 29.10.2026; было слоем-попапом).
+// Размер — по содержимому; рамку и полосу заголовка рисует само окно.
+window-rule {
+    match app-id=r#"^com\.jarvis\.screentime$"#
+    open-floating true
+    border { off; }
+    focus-ring { off; }
+}
+
 // Терминал действий App list (удалить, обновить, откат): пароль sudo и вывод pacman.
 window-rule {
     match app-id=r#"^com\.jarvis\.applist\.term$"#

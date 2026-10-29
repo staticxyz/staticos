@@ -77,6 +77,12 @@ SITES = ["YouTube", "GitHub", "Telegram", "Reddit", "Twitch",
          "Gmail", "Google", "Wikipedia", "Википедия", "Яндекс", "Kaspi", "hh.ru", "Хабр", "Habr",
          "Stack Overflow", "Instagram", "ВКонтакте", "VK", "Steam", "Discord", "Netflix",
          "Кинопоиск", "Notion", "Obsidian", "LeetCode", "Arch Wiki", "ArchWiki", "AUR"]
+# Картинка в картинке: пока окно открыто и видео идёт, время считается и без фокуса — в "bg" файла дня,
+# не в программы (иначе экранное время задвоилось бы); hub growth.py берёт его в прокрастинацию (29.10.2026).
+PIP_TITLES = ("Picture-in-Picture", "Picture in picture", "Картинка в картинке")
+PIP_DETAIL = "Картинка в картинке"
+PIP_MPRIS = {"zen": "firefox", "librewolf": "librewolf", "firefox": "firefox", "helium": "chromium",
+             "chromium": "chromium", "google-chrome": "chrome", "brave-browser": "brave"}
 SHELLS = {"fish", "zsh", "bash", "sh"}
 # Программы в терминале, которые считаются отдельной строкой, а не «kitty terminal»
 # (16.10.2026, просьба: «kitty terminal — общее название, я часто сижу в neovim»).
@@ -290,7 +296,7 @@ class Store:
 
     def day(self, day):
         if day not in self.days:
-            d = {"apps": {}, "hours": {}, "details": {}, "hdetails": {}}
+            d = {"apps": {}, "hours": {}, "details": {}, "hdetails": {}, "bg": {}}
             try:
                 with open(self.path(day), encoding="utf-8") as f:
                     raw = json.load(f)
@@ -303,6 +309,8 @@ class Store:
                 # пробуждения до сна, а не от полуночи; приложения не различаем — только сайт
                 d["hdetails"] = {h: {k: float(v) for k, v in m.items()}
                                  for h, m in raw.get("hdetails", {}).items()}
+                d["bg"] = {h: {k: float(v) for k, v in m.items()}
+                           for h, m in raw.get("bg", {}).items()}
             except (OSError, ValueError, AttributeError):
                 pass
             self.days[day] = d
@@ -350,6 +358,25 @@ class Store:
             self.dirty.add(day)
             t = end
 
+    def add_bg(self, what, t0, t1, sign=1):
+        """Время без фокуса (картинка в картинке) — по часам в "bg", мимо программ."""
+        t = t0
+        while t < t1 - 1e-6:
+            lt = time.localtime(t)
+            hour_end = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, lt.tm_hour, 0, 0, 0, 0, -1)) + 3600
+            end = min(t1, hour_end)
+            day = time.strftime("%Y-%m-%d", lt)
+            hb = self.day(day)["bg"].setdefault(str(lt.tm_hour), {})
+            v = hb.get(what, 0.0) + (end - t) * sign
+            if v > 0.05:
+                hb[what] = v
+            else:
+                hb.pop(what, None)
+            if not hb:
+                self.day(day)["bg"].pop(str(lt.tm_hour), None)
+            self.dirty.add(day)
+            t = end
+
     def flush(self):
         for day in list(self.dirty):
             d = self.days[day]
@@ -360,6 +387,9 @@ class Store:
                                for a, m in d["details"].items()},
                    "hdetails": {h: {k: round(v, 1) for k, v in m.items()}
                                 for h, m in sorted(d["hdetails"].items(), key=lambda x: int(x[0]))}}
+            if d["bg"]:
+                out["bg"] = {h: {k: round(v, 1) for k, v in m.items()}
+                             for h, m in sorted(d["bg"].items(), key=lambda x: int(x[0]))}
             tmp = self.path(day) + ".tmp"
             try:
                 with open(tmp, "w", encoding="utf-8") as f:
@@ -423,6 +453,7 @@ class Tracker:
         self.idle = False
         self.locked = False
         self.last_mono = time.monotonic()
+        self.pip_playing = True     # видео в картинке идёт (MPRIS браузера; нет плеера — считаем, что идёт)
         # Недавние начисления (t0, t1, app, detail) — для отката после простоя.
         self.recent = collections.deque()
 
@@ -437,6 +468,31 @@ class Tracker:
     def current_detail(self, app):
         return detail_of(app, self.titles.get(self.focused, ""))
 
+    def pip_open(self):
+        """Браузер с окном «картинка в картинке» не в фокусе — или None."""
+        for wid, title in self.titles.items():
+            if wid != self.focused and title in PIP_TITLES and (self.windows.get(wid) or "").lower() in PIP_MPRIS:
+                return self.windows[wid].lower()
+        return None
+
+    def check_pip(self):
+        """Раз в TICK_SEC: идёт ли видео у браузера с картинкой (playerctl). Нет его плеера в MPRIS
+        (Zen без аппаратных медиаклавиш) — считаем, что идёт."""
+        app = self.pip_open()
+        if app is None:
+            return
+        try:
+            out = subprocess.run(["playerctl", "-a", "-f", "{{playerName}} {{status}}", "status"],
+                                 capture_output=True, text=True, timeout=2).stdout
+        except (OSError, subprocess.SubprocessError):
+            return
+        pref = PIP_MPRIS[app]
+        st = [ln.split()[-1] for ln in out.splitlines() if ln.split() and ln.split()[0].startswith(pref)]
+        playing = (not st) or "Playing" in st
+        if playing != self.pip_playing:
+            self.commit()
+            self.pip_playing = playing
+
     def commit(self):
         """Начислить время с прошлого шага приложению, которое было в фокусе.
         Зовётся ПЕРЕД любым изменением состояния — так каждый отрезок уходит
@@ -444,16 +500,25 @@ class Tracker:
         now_m = time.monotonic()
         dt = now_m - self.last_mono
         self.last_mono = now_m
-        app = self.current_app()
-        if app is None or dt <= 0:
+        if dt <= 0:
             return
         dt = min(dt, MAX_STEP)
         t1 = time.time()
         t0 = t1 - dt
+        if not (self.idle or self.locked) and self.pip_playing and self.pip_open():
+            self.store.add_bg(PIP_DETAIL, t0, t1)
+            self.remember(t0, t1, None, PIP_DETAIL)
+        app = self.current_app()
+        if app is None:
+            return
         det = self.current_detail(app)
         if app in TERMINALS and det in TERM_APPS:
             app, det = TERM_APPS[det], app
         self.store.add(app, t0, t1, detail=det)
+        self.remember(t0, t1, app, det)
+
+    def remember(self, t0, t1, app, det):
+        """Запомнить отрезок для отката простоя; app None — время без фокуса (bg)."""
         last = self.recent[-1] if self.recent else None
         if last and last[2] == app and last[3] == det and abs(last[1] - t0) < 1:
             self.recent[-1] = (last[0], t1, app, det)
@@ -471,7 +536,10 @@ class Tracker:
                 kept.append((t0, t1, app, det))
                 continue
             cut = max(t0, since)
-            self.store.add(app, cut, t1, sign=-1, detail=det)
+            if app is None:
+                self.store.add_bg(det, cut, t1, sign=-1)
+            else:
+                self.store.add(app, cut, t1, sign=-1, detail=det)
             if cut > t0:
                 kept.append((t0, cut, app, det))
         self.recent = kept
@@ -679,6 +747,7 @@ def main():
         if now >= next_tick:
             next_tick = now + TICK_SEC
             tr.check_lock()
+            tr.check_pip()
             tr.commit()
             if idle_proc is not None and idle_proc.poll() is not None:
                 log("hypridle счётчика умер, перезапуск")

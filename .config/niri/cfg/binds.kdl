@@ -75,6 +75,8 @@ binds {
     Mod+Alt+F repeat=false hotkey-overlay-title="Clocker: будильник/фокус" { spawn-sh "~/.local/bin/clocker --toggle alarm"; }
     // App list — программы, пакеты, версии, сведения о системе (scripts/app_list.py, 06.10.2026)
     Mod+Alt+T repeat=false hotkey-overlay-title="App list" { spawn-sh "~/.local/bin/applist"; }
+    // Экранное время — отдельное окно в стиле системы, повторное нажатие закрывает (scripts/screentime.py, 29.10.2026)
+    Mod+Ctrl+F repeat=false hotkey-overlay-title="Экранное время" { spawn-sh "python3 ~/.config/hypr/scripts/screentime.py"; }
     Mod+Ctrl+P hotkey-overlay-title="Помидор: новый (Pomo.exe)" { spawn-sh "~/.config/niri/scripts/popup-toggle ~/.local/bin/pomo ask"; }
 
     // ─── Обзор: новое, в Hyprland такого не было ───
