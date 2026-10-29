@@ -275,6 +275,30 @@ WAKE_ALARM = os.path.join(HERE, "wake_alarm.py")
 WAKE_STATE = os.path.expanduser("~/.config/hypr/state/wake-alarm.json")
 # Проверка пароля для выключения Сторожа — тем же PAM, что у экрана блокировки
 # (jarvis_lock.pam_check, служба hyprlock); пароль идёт через stdin, не в аргументах.
+BETTER_FREEZE = os.path.expanduser("~/.config/jarvis/better-freeze")     # growth.FREEZE_FILE
+GROWTH_STAMP = os.path.expanduser("~/.cache/jarvis/growth-stamp")      # hub перечитает серии
+
+
+def better_freeze_on():
+    try:
+        with open(BETTER_FREEZE) as f:
+            return f.read().strip() == "on"
+    except OSError:
+        return False
+
+
+def better_freeze_set(on):
+    os.makedirs(os.path.dirname(BETTER_FREEZE), exist_ok=True)
+    with open(BETTER_FREEZE, "w") as f:
+        f.write("on\n" if on else "off\n")
+    try:
+        os.makedirs(os.path.dirname(GROWTH_STAMP), exist_ok=True)
+        with open(GROWTH_STAMP, "w") as f:
+            f.write("%.3f\n" % time.time())
+    except OSError:
+        pass
+
+
 PAM_HELPER = (
     "import os, pwd, sys\n"
     "sys.path.insert(0, %r)\n"
@@ -5593,6 +5617,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "(секунд 15), открытые программы и эти Настройки — после перезапуска.",
                  icon="\U000f03d8")
         self.watch_section(v)
+        self.freeze_section(v)
         # Карта конфигов (14.10.2026, просьба: «в разделе Config добавь кнопку, чтобы можно
         # было открыть Карту конфигов») — config_map.py, то же окно, что Super+Shift+Z.
         self.section(v, "Карта конфигов", "\U000f034d")
@@ -5762,6 +5787,105 @@ class SettingsWindow(Gtk.ApplicationWindow):
             GLib.timeout_add(4000, lambda: (w["rev"].set_reveal_child(False), False)[1])
         else:
             w["msg"].set_text("Пароль не подошёл. Осталась одна попытка.")
+        return False
+
+    # «Лучше вчера» в hub: заморозка серии (29.10.2026, просьба: «добавь это в Настройки, в раздел
+    # Config. Попросит пароль sudo»). Файл читает growth.freeze_on(); менять — только по паролю,
+    # в обе стороны, чтобы не «подмораживать» серию в плохой день. Попыток две (faillock deny=3).
+    def freeze_section(self, v):
+        self.section(v, "Лучше вчера", "\U000f0717")
+        c = self.card(v)
+        pill = self.pill(better_freeze_on(), lambda on: self.freeze_toggle(on))
+        rev = Gtk.Revealer()
+        rev.set_transition_duration(120)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        msg = Gtk.Label(xalign=0)
+        msg.set_line_wrap(True)
+        entry = Gtk.Entry()
+        entry.set_width_chars(28)
+        entry.set_visibility(False)
+        entry.set_placeholder_text("пароль")
+        btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        go = Gtk.Button(label="Применить")
+        no = Gtk.Button(label="Отмена")
+        for b_ in (go, no):
+            b_.get_style_context().add_class("fontpick")
+            btns.pack_start(b_, False, False, 0)
+        box.pack_start(msg, False, False, 0)
+        box.pack_start(entry, False, False, 0)
+        box.pack_start(btns, False, False, 0)
+        rev.add(box)
+        self._freeze = dict(pill=pill, rev=rev, msg=msg, entry=entry, want=None, tries=0, busy=False)
+        go.connect("clicked", lambda _b: self.freeze_next())
+        entry.connect("activate", lambda _e: self.freeze_next())
+        no.connect("clicked", lambda _b: self.freeze_cancel())
+        self.row(c, "Заморозка серии", pill,
+                 "Один день «хуже вчера» за неделю (пн–вс) не обнуляет серию 🔥 — ни у строки, "
+                 "ни общую; этот день серию и не прибавляет. Включить и выключить — только паролем.",
+                 below=rev, icon="\U000f0717")
+
+    def freeze_toggle(self, on):
+        f = self._freeze
+        if f["want"] is not None:        # уже ждём пароль
+            return
+        # выключатель стоит на прежнем, пока не введён пароль (как у Сторожа — после сигнала)
+        GLib.idle_add(lambda: (f["pill"].rs["put"](not on), False)[1])
+        f.update(want=on, tries=0)
+        f["msg"].set_text("Чтобы %s заморозку серии, введите пароль от системы."
+                          % ("включить" if on else "выключить"))
+        f["entry"].set_text("")
+        f["rev"].set_reveal_child(True)
+        f["entry"].grab_focus()
+
+    def freeze_cancel(self):
+        f = self._freeze
+        f["entry"].set_text("")
+        f["want"] = None
+        f["rev"].set_reveal_child(False)
+
+    def freeze_next(self):
+        f = self._freeze
+        text = f["entry"].get_text()
+        if f["busy"] or f["want"] is None or not text:
+            return
+        f["busy"] = True
+        f["msg"].set_text("Проверяю…")
+        secret = bytearray(text.encode())
+        f["entry"].set_text("")
+
+        def check():
+            try:
+                r = subprocess.run(["python3", "-c", PAM_HELPER], input=bytes(secret),
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+                ok = r.returncode == 0
+            except (OSError, subprocess.SubprocessError):
+                ok = False
+            for i in range(len(secret)):
+                secret[i] = 0
+            GLib.idle_add(self.freeze_pass_done, ok)
+        threading.Thread(target=check, daemon=True).start()
+
+    def freeze_pass_done(self, ok):
+        f = self._freeze
+        f["busy"] = False
+        if f["want"] is None:
+            return False
+        if ok:
+            on = f["want"]
+            better_freeze_set(on)
+            f["want"] = None
+            f["pill"].rs["put"](on)
+            f["msg"].set_text("Заморозка %s." % ("включена" if on else "выключена"))
+            GLib.timeout_add(1500, lambda: (f["rev"].set_reveal_child(False), False)[1])
+            return False
+        f["tries"] += 1
+        if f["tries"] >= 2:
+            f["msg"].set_text("Пароль не подошёл дважды. Попробуйте позже: ещё одна ошибка "
+                              "заперла бы учётную запись.")
+            f["want"] = None
+            GLib.timeout_add(4000, lambda: (f["rev"].set_reveal_child(False), False)[1])
+        else:
+            f["msg"].set_text("Пароль не подошёл. Осталась одна попытка.")
         return False
 
     def hard_quit(self):

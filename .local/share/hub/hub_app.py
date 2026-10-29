@@ -504,6 +504,7 @@ class View:
         self.scroll = {"growth": 0, "items": 0, "words": 0}
         self.mode = "normal"            # normal | text | quiz | ginput (ввод во вкладке growth)
         self.g_op = ""                  # что вводится в ginput: wake | spend | lift | apply | hr
+        self.g_chart = None             # «Лучше вчера»: график строки за 7 дней (l — войти, h — назад)
         self.buf = ""
         self.buf2 = ""                  # для items: название уже набрано, buf — поле «когда»
         self.text_stage = "title"       # title | when (только для items)
@@ -1353,10 +1354,17 @@ class HubWindow(Gtk.ApplicationWindow):
             # двойной щелчок: по записи — правка, как Ctrl+E; по дате/времени — ввод руками
             if key[0] == "row" and v.mode == "normal":
                 v.sel[v.tab] = key[1]
-                if v.tab == "growth":
+                kind, gk = G.current(v) if v.tab == "growth" else (None, None)
+                if kind == "g":
+                    # строка «Лучше вчера» — в график (29.10.2026, просьба: «по двойному щелчку
+                    # заходить в инфографику»); дела быта — по-прежнему отметить
+                    self.g_chart(gk)
+                elif v.tab == "growth":
                     self.g_primary()
                 else:
                     self.start_edit()
+            elif key[0] == "gseg" and v.mode == "normal" and v.tab == "growth" and key[1] < len(G.METRICS):
+                self.g_chart(G.METRICS[key[1]][0])          # двойной по отрезку сводки — тоже график
             elif key[0] == "field" and key[1] in ("date", "time") and v.mode == "text":
                 v.field = key[1]
                 self.field_typing(True)
@@ -1380,6 +1388,8 @@ class HubWindow(Gtk.ApplicationWindow):
             v.confirm_delete = None
         elif isinstance(key, tuple) and key[0] == "gseg":
             v.sel[v.tab], v.free_scroll = key[1], False     # щелчок по отрезку «Лучше вчера» — к его строке
+            if v.g_chart and key[1] < len(G.METRICS):        # в графике — график этой строки
+                v.g_chart = G.METRICS[key[1]][0]
         elif isinstance(key, tuple) and key[0] == "btn":
             self.do_button(key[1])
         elif key == ("view",):
@@ -1905,6 +1915,8 @@ class HubWindow(Gtk.ApplicationWindow):
             v.mode, v.buf, v.cur = "normal", "", None
         elif act == "submit":
             self.g_submit()
+        elif act == "chart":
+            self.g_chart(None)
         elif act == "tochores":
             v.sel["growth"] = next(i for i, r in enumerate(G.rows(v)) if r[0] == "chore")
         elif act.startswith("i:"):
@@ -1969,10 +1981,36 @@ class HubWindow(Gtk.ApplicationWindow):
         v.mode, v.buf, v.cur = "normal", "", None
         v.flash(said)
 
+    def g_chart(self, key):
+        """График строки вместо списка (29.10.2026, просьба: «бинды h/l — заходить в график и
+        возвращаться к списку»). key=None — назад к списку, выбор встаёт на эту строку."""
+        v = self.view
+        if key is None and v.g_chart:
+            v.sel["growth"] = G.rows(v).index(("g", v.g_chart))
+            v.free_scroll = False
+        v.g_chart = key
+        self.resize_to_min()
+
+    def g_chart_key(self, ch, name):
+        """Клавиши в графике: h/Esc — к списку, j/k — соседняя строка, q — закрыть окно."""
+        v = self.view
+        if ch == "h" or name in ("Escape", "BackSpace"):
+            self.g_chart(None)
+        elif ch in ("j", "k"):
+            keys = [k for k, _n in G.METRICS]
+            i = keys.index(v.g_chart) + (1 if ch == "j" else -1)
+            self.g_chart(keys[i % len(keys)])
+        elif ch == "q":
+            self.close()
+        elif ch == "r":
+            self.g_do("refresh")
+
     def g_key(self, ch, name):
         v = self.view
         kind, key = G.current(v)
-        if name in ("Return", "KP_Enter", "space") or ch == " ":
+        if ch == "l" and kind == "g":
+            self.g_chart(key)
+        elif name in ("Return", "KP_Enter", "space") or ch == " ":
             self.g_primary()
         elif ch in ("i", "a", "n", "e"):
             act = G.PRIMARY.get(key) or ""
@@ -2296,6 +2334,9 @@ class HubWindow(Gtk.ApplicationWindow):
             return
         if ctrl:
             return
+        if v.tab == "growth" and v.g_chart and not shift:
+            self.g_chart_key(ch, name)
+            return
         if ch == "g" and shift:                        # G — в самый низ
             v.move(10 ** 6)
             return
@@ -2402,8 +2443,9 @@ class App(Gtk.Application):
 
 
 def shot(path, tab="growth", sel=0, mode="normal", style=None, w=0, h=0, view=None,
-         field="title", fdate="", ftime="", fprio=0, frepeat="", gop="spend"):
+         field="title", fdate="", ftime="", fprio=0, frepeat="", gop="spend", chart=None):
     v = View()
+    v.g_chart = chart
     if view:
         v.view_mode = view
     v.field, v.f_date, v.f_time, v.f_prio = field, str(fdate), str(ftime), int(fprio)

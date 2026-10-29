@@ -47,6 +47,8 @@ FUN_RE = re.compile(r"youtube|смотреть вместе|wparty|kinogo|rezka|
 # «YouTube: учёба» — ролики по правилам ~/.config/jarvis/youtube-study.txt (screentime_daemon,
 # 29.10.2026): не прокрастинация
 STUDY_SITE_RE = re.compile(r"учёба", re.I)
+FUN_APP_NAMES = {"steam_app_730": "CS2", "steam": "Steam", "mpv": "mpv", "vlc": "VLC",
+                 "org.videolan.VLC": "VLC", "celluloid": "Celluloid", "io.github.celluloid_player.Celluloid": "Celluloid"}
 FUN_APPS = {"mpv", "vlc", "org.videolan.VLC", "io.github.celluloid_player.Celluloid", "celluloid", "steam"}
 # + игры Steam (screentime: steam_app_<AppId>, CS2 = 730) — всё одним числом (Пользователь 29.10)
 
@@ -65,6 +67,9 @@ FIRST = START + dt.timedelta(days=1)     # первый день системы
 # прокрастинация, код и hh.kz сравниваются и в первый день (просьба: «прокрастинацию можно считать
 # со вчерашним», «код и hh.kz можно также сравнивать со вчерашним»)
 COMPARE_KEYS = ("speech", "money", "lift", "chores")
+# Заморозка серии (29.10.2026, пользователь одобрил «один пропуск в неделю не обнуляет 🔥»): файл «on» —
+# включено; переключатель — Настройки → Config → «Лучше вчера» (по паролю).
+FREEZE_FILE = os.path.expanduser("~/.config/jarvis/better-freeze")
 LONG_SLEEP = 90                        # мин: сон ПК короче — дрёма, не ночь
 DAY_START_H = 5                        # сна не видно — день сменяется в 05:00
 NIGHT_GAP = 40 * 60                    # часы разбудили ПК, он уснул снова за 40 мин — та же ночь
@@ -572,9 +577,18 @@ def day_values(c, day):
     sp_min, sp_n = sum_kind(c, day, "speech")
     sp_pomo, sp_live = pomo_secs(t0, t1, SPEECH_RE)
     market = sum(v for n, v in sites.items() if MARKET_SITE_RE.search(n))
-    fun = sum(v for n, v in sites.items() if FUN_RE.search(n) and not STUDY_SITE_RE.search(n)) + \
-        sum(v for a, v in apps.items() if a in FUN_APPS or a.startswith("steam_app_"))
+    fun_by = {}                         # откуда прокрастинация: {подпись: с} — «больше всего …»
+    for n, v in sites.items():
+        if FUN_RE.search(n) and not STUDY_SITE_RE.search(n):
+            fun_by[n] = fun_by.get(n, 0) + v
+    for a, v in apps.items():
+        if a in FUN_APPS or a.startswith("steam_app_"):
+            n = FUN_APP_NAMES.get(a) or ("игра Steam" if a.startswith("steam_app_") else a)
+            fun_by[n] = fun_by.get(n, 0) + v
+    fun = sum(fun_by.values())
+    top = max(fun_by.items(), key=lambda kv: kv[1]) if fun_by else None
     return dict(wake=w, wake_a=wa, bed=b, bed_a=ba, t0=t0, t1=t1, code=code, code_live=live,
+                fun_top=top,
                 speech=int(sp_min * 60 + sp_pomo), speech_live=sp_live, speech_n=sp_n,
                 market=int(market), fun=int(fun), spend=sp, spend_n=spn, cig=int(cg),
                 lift=int(lv * 60 + lp), lift_live=l_live, lift_n=ln, chores=len(chores_on(c, day)))
@@ -592,6 +606,39 @@ def vs_yday(t, y):
     d = t - y
     return "вчера %s · %s" % (dur(y), "сегодня столько же" if abs(d) < 60 else
                               "сегодня на %s %s" % (dur(abs(d)), "больше" if d > 0 else "меньше"))
+
+
+def early_late(d, verb):
+    """«сегодня на 45 мин раньше» / «лёг на 1 ч 05 мин позже» — d в минутах, минус = раньше
+    (29.10.2026, просьба: в Подъёме и Отбое «на N минут/часов раньше вчера или больше»)."""
+    d = int(round(d))
+    return "%s %s" % (verb, "в то же время" if not d else
+                      "на %s %s" % (dur(abs(d) * 60), "раньше" if d < 0 else "позже"))
+
+
+def fun_top(T):
+    """«YouTube 40 мин» — главный источник прокрастинации за день (29.10.2026, пользователь одобрил «больше
+    всего …»). Подпись строки — fun_detail, полностью — в шапке графика (l)."""
+    top = T.get("fun_top")
+    return "%s %s" % (top[0], dur(top[1])) if top and top[1] >= 60 else ""
+
+
+def dur_short(sec):
+    m = int(round(sec / 60))
+    # «7 ч 18 м», не «7ч18м» (29.10.2026, просьба: «раздели ч и м отдельно»)
+    return "%d м" % m if m < 60 else "%d ч %02d м" % divmod(m, 60)
+
+
+def fun_detail(T, Y, short=False):
+    """С виновником — коротко, иначе не влезает: «на 7 ч 22 м меньше · больше всего YouTube 52 м»."""
+    top = T.get("fun_top")
+    if not (top and top[1] >= 60):
+        return vs_yday(T["fun"], Y["fun"])
+    d = T["fun"] - Y["fun"]
+    cmp = "столько же, сколько вчера" if abs(d) < 60 else \
+        "на %s %s" % (dur_short(abs(d)), "больше" if d > 0 else "меньше")
+    # short — окну, если с минутами не влезает в строку (минуты есть в графике и в боте)
+    return "%s · больше всего %s" % (cmp, top[0]) + ("" if short else " " + dur_short(top[1]))
 
 
 def hl_yday(t, y):
@@ -670,26 +717,52 @@ def add_streaks(c, st, today):
     alive = {k: True for k in R}
     cnt = {k: 0 for k in R}
     day_alive, day_cnt = True, 0
+    # заморозка: один день «хуже вчера» за календарную неделю (пн–вс) серию не рвёт и не прибавляет;
+    # у каждой строки и у общей серии — своя. «Не с чем сравнить» (None) рвёт, как раньше.
+    fz = freeze_on()
+    used = {}                               # (строка | "day", неделя) → замороженный день
+    frozen = {}                             # строка | "day" → день заморозки на этой неделе
+
+    def thaw(k, d):
+        wk = d.isocalendar()[:2]
+        if not fz or (k, wk) in used:
+            return False
+        used[(k, wk)] = d
+        if wk == today.isocalendar()[:2]:
+            frozen[k] = d
+        return True
     d = today
     while d > START and (day_alive or any(alive.values())):     # START — только для сравнения
         ev = st if d == today else evaluate(c, d)
         for k in R:
             if not alive[k]:
                 continue
-            if ev["rows"][k]["met"]:
+            met = ev["rows"][k]["met"]
+            if met:
                 cnt[k] += 1
-            elif d != today:
+            elif d != today and not (met is False and thaw(k, d)):
                 alive[k] = False
         good, known = ev["score"]
         if day_alive:
             if known and good * 2 > known:
                 day_cnt += 1
-            elif d != today:
+            elif d != today and not (known and thaw("day", d)):
                 day_alive = False
         d -= dt.timedelta(days=1)
     for k in R:
         R[k]["streak"] = cnt[k]
+        R[k]["frozen"] = frozen.get(k) if cnt[k] else None
     st["streak"] = day_cnt
+    st["frozen"] = frozen.get("day") if day_cnt else None
+    st["freeze"] = fz
+
+
+def freeze_on():
+    try:
+        with open(FREEZE_FILE) as f:
+            return f.read().strip() == "on"
+    except OSError:
+        return False
 
 
 def evaluate(c, d):
@@ -701,15 +774,21 @@ def evaluate(c, d):
     w, wy = T["wake"], Y["wake"]
     goal = max(IDEAL_WAKE, wy - STEP_SLEEP) if wy is not None else None
     det = ["вчера " + (Y["wake_a"] + hm(wy) if wy is not None else "—")]
-    if goal is not None:
-        det.append("цель ≤" + hm(goal))
+    # «на N раньше/позже» вместо «цель ≤» (цель = вчера −1 мин, то же самое); цвет — как у значения
+    hl = hl_at = None
+    if w is not None and wy is not None:
+        hl, hl_at = (1 if w <= goal else -1), len(det)
+        det.append(early_late(w - wy, "сегодня"))
+    elif goal is not None:
+        det.append("сегодня проснуться до " + hm(goal))
     if w is not None:
-        det.append("завтра ≤" + hm(max(IDEAL_WAKE, w - STEP_SLEEP)))
+        det.append("завтра проснуться до " + hm(max(IDEAL_WAKE, w - STEP_SLEEP)))
     # насколько раньше/позже вчерашнего (29.10.2026, просьба: «насколько минут раньше проснулся, или
     # наоборот если красный то насколько минут позже, если больше 60 минут то часов»; позже:
     # «получился на 45 минут раньше чем вчера, почему 30?» — разница с вчера, не с целью). Цвет — по цели.
     lead = (delta_hm(w - wy) + " ") if (w is not None and wy is not None) else ""
     R["wake"] = dict(value=(lead + T["wake_a"] + hm(w)) if w is not None else "—", detail=" · ".join(det),
+                     hl=hl, hl_at=hl_at, shift=(w - wy) if (w is not None and wy is not None) else None,
                      met=(w <= goal if (w is not None and goal is not None) else None))
 
     # отбой: прошлая ночь против позапрошлой; сегодня лечь хотя бы на 1 мин раньше прошлой, не раньше 21:00.
@@ -717,12 +796,18 @@ def evaluate(c, d):
     # «можно сравнивать с позапрошлым днём, оказывается было правильно, что он красный был».
     b, by = T["bed"], Y["bed"]
     bgoal = max(IDEAL_BED, by - STEP_SLEEP) if by is not None else None
-    det = ["позапрошлой " + ((Y["bed_a"] + hm(by)) if by is not None else "—")]
+    # подпись «вчера», не «позапрошлой» (29.10.2026, просьба: «после полуночи для меня всё равно сегодня»)
+    det = ["вчера " + ((Y["bed_a"] + hm(by)) if by is not None else "—")]
+    hl = hl_at = None
+    if b is not None and by is not None:
+        hl, hl_at = (1 if b <= bgoal else -1), len(det)
+        det.append(early_late(b - by, "лёг"))
     if b is not None:
         det.append("сегодня лечь до " + hm(max(IDEAL_BED, b - STEP_SLEEP)))
     # разница — с позапрошлой ночью, как у подъёма со вчера; цвет — по цели (−1 мин)
     lead = (delta_hm(b - by) + " ") if (b is not None and by is not None) else ""
     R["bed"] = dict(value=(lead + T["bed_a"] + hm(b)) if b is not None else "—", detail=" · ".join(det),
+                    hl=hl, hl_at=hl_at, shift=(b - by) if (b is not None and by is not None) else None,
                     met=(b <= bgoal if (b is not None and bgoal is not None) else None))
 
     # программирование: вчера +5 мин
@@ -750,8 +835,10 @@ def evaluate(c, d):
     limit = max(0, Y["fun"] - STEP_MIN)
     rest = limit - T["fun"]
     R["fun"] = dict(value=dur(T["fun"]),
-                    detail="вчера %s · %s" % (dur(Y["fun"]),
-                                              ("осталось " + dur(rest)) if rest >= 0 else ("сверх " + dur(-rest))),
+                    # как у кода: «сегодня на N меньше/больше» вместо «осталось» (29.10.2026, просьба:
+                    # «не "осталось", а "на N минут меньше, чем вчера"»); меньше — хорошо, зелёным
+                    detail=fun_detail(T, Y), detail_short=fun_detail(T, Y, short=True), hl=-hl_yday(T["fun"], Y["fun"]), note=fun_top(T),
+                    hl_at=0 if fun_top(T) else None,
                     met=T["fun"] <= limit,
                     frac=(T["fun"] / limit) if limit else (1.0 if T["fun"] else 0), warn=True)
 
@@ -857,15 +944,64 @@ def status(c, ttl=5):
     return _status["v"]
 
 
+def days_ru(n):
+    return "%d %s" % (n, plural(n, "день", "дня", "дней"))
+
+
 def chore_when(ch, today=None):
+    """«2 дня назад · через 1 день» / «пора сегодня» / «просрочено на 2 дня» (29.10.2026, пользователь
+    одобрил: сколько прошло и когда снова, а не «не было · раз в N дн.»)."""
+    every = ch["every"]
     if ch["done"]:
-        return "сегодня ✓"
-    every = "ежедневно" if ch["every"] == 1 else "раз в %d дн." % ch["every"]
+        return "сегодня ✓" + ("" if every == 1 else " · снова через " + days_ru(every))
     if ch["prev"] is None:
-        return "не было · " + every
+        return "не было · " + ("ежедневно" if every == 1 else "раз в " + days_ru(every))
     n = (ch["today"] - ch["prev"]).days
-    ago = "вчера" if n == 1 else "%d дн. назад" % n
-    return "%s · %s" % (ago, every)
+    ago = "вчера" if n == 1 else days_ru(n) + " назад"
+    left = every - n
+    if left > 0:
+        return "%s · через %s" % (ago, days_ru(left))
+    if left == 0:
+        return "%s · пора сегодня" % ago
+    return "%s · просрочено на %s" % (ago, days_ru(-left))
+
+
+_hist = {}
+VAL_KEY = {"money": "spend"}
+
+
+def short_val(key, n):
+    """Подпись столбика графика: 10:08, 45м, 1ч15, 3, 2.5к."""
+    if n is None:
+        return "—"
+    if key in ("wake", "bed"):
+        return hm(n)
+    if key in ("cig", "chores"):
+        return str(int(n))
+    if key == "money":
+        return str(int(n)) if n < 1000 else ("%.1fк" % (n / 1000)).replace(".0к", "к")
+    m = int(round(n / 60))
+    return "%dм" % m if m < 60 else "%dч%02d" % divmod(m, 60)
+
+
+def history(c, key, days=7):
+    """[(дата, число|None, подпись, met)] от старого к новому — график строки (l в hub, 29.10.2026).
+    До START — пусто; START — только цифра, сравнивать не с чем."""
+    t, s = today(c), stamp()
+    hit = _hist.get((key, days))
+    if hit and hit[0] == (t, s) and time.monotonic() - hit[1] < 30:
+        return hit[2]
+    out = []
+    for i in range(days - 1, -1, -1):
+        d = t - dt.timedelta(days=i)
+        if d < START:
+            out.append((d, None, "", None))
+            continue
+        n = day_values_cached(c, d).get(VAL_KEY.get(key, key))
+        met = (status(c) if d == t else evaluate(c, d))["rows"][key]["met"] if d > START else None
+        out.append((d, n, short_val(key, n), met))
+    _hist[(key, days)] = ((t, s), time.monotonic(), out)
+    return out
 
 
 def week(c, days=7):
@@ -988,6 +1124,8 @@ ICONS = {
                 "..#####..", "..#####..", "..#####..", "........."),
     "flame": ("....#....", "...##....", "...###.#.", "..######.", ".#######.",
               ".###.###.", ".##...##.", ".##...##.", "..#####.."),
+    "freeze": ("....#....", ".#..#..#.", "..#.#.#..", "...###...", "#########",
+               "...###...", "..#.#.#..", ".#..#..#.", "....#...."),
     # вкладки hub
     "tab_growth": (".........", ".......##", ".......##", "....##.##", "....##.##",
                    ".##.##.##", ".##.##.##", ".##.##.##", "#########"),
@@ -1000,7 +1138,8 @@ ICONS["teeth_pm"] = ICONS["teeth_am"]
 # свой цвет у каждой строки — чтобы различать с первого взгляда
 HUES = {"wake": "#ffc857", "bed": "#a08cff", "code": "#6ee7a0", "speech": "#5fd3f0",
         "market": "#7aa2ff", "fun": "#ff7eb6", "money": "#c4e86a", "cig": "#d9a27a",
-        "lift": "#ff8a5c", "chores": "#6fe0d0", "flame": "#ff9a3c", "ok": "#7ee08a"}
+        "lift": "#ff8a5c", "chores": "#6fe0d0", "flame": "#ff9a3c", "ok": "#7ee08a",
+        "freeze": "#9fd8ff"}
 
 
 def _rgb(h):
@@ -1080,19 +1219,30 @@ def draw(v, p, x0, x1, y0, y1):
         tw = p.text(x1, y0, "серия %d %s" % (st["streak"], plural(st["streak"], "день", "дня", "дней")),
                     hue(v, "flame"), align="r")
         pix(p, x1 - tw - 14, y0 + 1, ICONS["flame"], hue(v, "flame"), 1)
-    seg_y, gap = y0 + 22, 3
+        if st.get("frozen"):                 # заморозка этой недели уже потрачена
+            pix(p, x1 - tw - 27, y0 + 1, ICONS["freeze"], hue(v, "freeze"), 1)
+    # отрезки со значками строк; отрезок выбранной строки подчёркнут (29.10.2026, пользователь одобрил)
+    kind, cur = current(v)
+    cur_i = next((i for i, (k, _n) in enumerate(METRICS) if k == (cur if kind == "g" else "chores" if kind else None)), None)
+    if getattr(v, "g_chart", None):
+        cur_i = next(i for i, (k, _n) in enumerate(METRICS) if k == v.g_chart)
+    seg_y, seg_h, gap = y0 + 20, 13, 3
     sw = (x1 - x0 - gap * (len(METRICS) - 1)) / len(METRICS)
     for i, (k, _n) in enumerate(METRICS):
         met = st["rows"][k]["met"]
         sx = x0 + i * (sw + gap)
-        p.rect(sx, seg_y, sw, 8, hue(v, k) if met else (c["err"] if met is False else c["line_soft"]),
-               1.0 if met is not None else 1.0)
+        fill = hue(v, k) if met else (c["err"] if met is False else c["line_soft"])
+        p.rect(sx, seg_y, sw, seg_h, fill)
         if met is None:
-            p.rect(sx, seg_y, sw, 8, hue(v, k), 0.25)
-        if hov == i:
-            p.rect(sx, seg_y + 10, sw, 2, c["text"])
-        v.hits.append(((sx, seg_y - 6, sw + gap, 20), ("gseg", i)))
+            p.rect(sx, seg_y, sw, seg_h, hue(v, k), 0.25)
+        pix(p, sx + (sw - 9) // 2, seg_y + 2, ICONS[k], c["bg"] if met is not None else hue(v, k), 1)
+        if hov == i or cur_i == i:
+            p.rect(sx, seg_y + seg_h + 2, sw, 2, c["text"] if hov == i else c["acc_l"])
+        v.hits.append(((sx, seg_y - 4, sw + gap, 20), ("gseg", i)))
     y0 += TOP_H
+    if getattr(v, "g_chart", None):
+        _draw_chart(v, p, x0, x1, y0, y1)
+        return
     rs = rows(v)
     sel = max(0, min(v.sel["growth"], len(rs) - 1))
     hs = [_row_h(k) for k, _d in rs]
@@ -1163,7 +1313,11 @@ def _draw_metric(v, p, key, r, x0, x1, y, sel, i):
     if r.get("streak"):
         fx = tx + nw + 10
         pix(p, fx, y + 6, ICONS["flame"], hue(v, "flame"), 1)
-        p.text(fx + 12, y + 5, str(r["streak"]), hue(v, "flame"))
+        fw = p.text(fx + 12, y + 5, str(r["streak"]), hue(v, "flame"))
+        nw += 22 + fw
+        if r.get("frozen"):
+            pix(p, fx + 16 + fw, y + 6, ICONS["freeze"], hue(v, "freeze"), 1)
+            nw += 13
     if sel and v.mode == "ginput":
         prompt = INPUT[v.g_op][0]
         s = v.buf if v.buf else ""
@@ -1173,17 +1327,32 @@ def _draw_metric(v, p, key, r, x0, x1, y, sel, i):
         else:
             p.text(tx + pw, y + 21, "⁣" + INPUT[v.g_op][1], c["faint"], maxw=x1 - tx - 8 - pw)
     elif r.get("hl") is not None and " · " in r["detail"]:
-        # «сегодня на N больше/меньше» — своим цветом (29.10.2026, просьба: «покрась в другой»)
-        head, tail = r["detail"].rsplit(" · ", 1)
-        hw = p.text(tx, y + 21, head + " · ", c["dim"], maxw=x1 - tx - 8)
+        # «сегодня на N больше/меньше» — своим цветом (29.10.2026, просьба: «покрась в другой»);
+        # hl_at — номер части, если она не последняя (подъём/отбой: дальше «завтра проснуться до», «лечь до»)
+        det = r["detail"]
+        if r.get("detail_short") and p.text_w(det) > x1 - tx - 8:
+            det = r["detail_short"]
+        parts = det.split(" · ")
+        i = r.get("hl_at")
+        i = len(parts) - 1 if i is None else i
+        head, mid, rest = " · ".join(parts[:i]), parts[i], " · ".join(parts[i + 1:])
         tcol = hue(v, "ok") if r["hl"] > 0 else c["err"] if r["hl"] < 0 else c["text"]
-        if x1 - tx - 8 - hw > 20:
-            p.text(tx + hw, y + 21, tail, tcol, maxw=x1 - tx - 8 - hw)
+        x, room = tx, x1 - tx - 8
+        for txt, col in ((head + " · " if head else "", c["dim"]), (mid, tcol), (" · " + rest if rest else "", c["dim"])):
+            if txt and room > 20:
+                w = p.text(x, y + 21, txt, col, maxw=room)
+                x, room = x + w, room - w
     else:
         p.text(tx, y + 21, r["detail"], c["dim"], maxw=x1 - tx - 8)
     bw = x1 - tx - 8
     p.rect(tx, y + 38, bw, 4, c["line_soft"])
-    if r["frac"] is not None:
+    if r.get("shift") is not None:
+        # подъём/отбой: середина — вчера, влево — раньше, вправо — позже; край — ±2 ч (29.10.2026)
+        mid = tx + bw / 2
+        f = max(-1.0, min(1.0, r["shift"] / 120)) * (bw / 2 - 2)
+        p.rect(min(mid, mid + f), y + 38, abs(f), 4, _state_col(v, met))
+        p.rect(mid - 1, y + 36, 2, 8, c["dim"])
+    elif r["frac"] is not None:
         f = max(0.0, min(1.0, r["frac"]))
         bad = r["warn"] and (r["frac"] > 1 or met is False)
         p.rect(tx, y + 38, bw * f, 4, c["err"] if bad else col)
@@ -1191,6 +1360,49 @@ def _draw_metric(v, p, key, r, x0, x1, y, sel, i):
             p.rect(tx + bw - 1, y + 36, 2, 8, c["dim"])
     elif met is not None:
         p.rect(tx, y + 38, bw, 4, _state_col(v, met), 0.7)
+
+
+def _draw_chart(v, p, x0, x1, y0, y1):
+    """График строки за 7 дней: столбик — значение, цвет — лучше/хуже вчера (l — войти, h — назад)."""
+    c, key = v.c, v.g_chart
+    col = hue(v, key)
+    H = history(v.conn, key)
+    pix(p, x0 + 4, y0 + 6, ICONS[key], col, 1)
+    w = p.text(x0 + 18, y0 + 3, NAMES[key], col)
+    p.text(x0 + 18 + w, y0 + 3, " — 7 дней", c["dim"])
+    known = [h for h in H if h[3] is not None]
+    good = sum(1 for h in known if h[3])
+    if known:
+        p.text(x1, y0 + 3, "лучше вчера %d из %d" % (good, len(known)),
+               hue(v, "ok") if good * 2 > len(known) else c["acc_l"], align="r")
+    note = status(v.conn)["rows"][key].get("note")
+    if note:
+        w = p.text(x0 + 18, y0 + 21, "сегодня больше всего: ", c["dim"])
+        p.text(x0 + 18 + w, y0 + 21, note, col)
+    top, bot = y0 + 46 + (16 if note else 0), y1 - 24
+    vals = [h[1] for h in H if h[1] is not None]
+    if key in ("wake", "bed") and vals:      # время: от самого раннего (−30 мин) до самого позднего
+        lo, hi = min(vals) - 30, max(vals)
+    else:
+        lo, hi = 0, max(vals or [0])
+    n, gap = len(H), 8
+    bw = (x1 - x0 - 8 - gap * (n - 1)) / n
+    p.rect(x0 + 4, bot, x1 - x0 - 8, 1, c["line"])
+    t = today(v.conn)
+    for i, (d, val, lab, met) in enumerate(H):
+        bx = x0 + 4 + i * (bw + gap)
+        cx = bx + bw / 2
+        if val is not None:
+            f = (val - lo) / (hi - lo) if hi > lo else (1.0 if val else 0.0)
+            bh = max(2, (bot - top) * f)
+            p.rect(bx, bot - bh, bw, bh, col if met is None else _state_col(v, met), 0.45 if met is None else 1.0)
+            p.text(cx, bot - bh - 16, lab, c["text"] if d == t else c["dim"], align="c")
+        elif d >= START:
+            p.text(cx, bot - 16, "—", c["faint"], align="c")
+        dl = "%s %d" % (WD[d.weekday()], d.day)
+        p.text(cx, bot + 6, dl, c["acc_l"] if d == t else c["dim"] if d >= START else c["faint"], align="c")
+        if d == t:
+            p.rect(bx, bot + 20, bw, 2, c["acc_l"])
 
 
 def _draw_chore(v, p, ch, x0, x1, y, sel, i):
@@ -1216,6 +1428,9 @@ def current(v):
 def buttons(v, p, x0, x1, y):
     if v.mode == "ginput":
         v.buttons(p, x0, x1, y, [("отмена", ("btn", "g:cancel")), ("записать", ("btn", "g:submit"), True)])
+        return
+    if getattr(v, "g_chart", None):
+        v.buttons(p, x0, x1, y, [("← к списку", ("btn", "g:chart"), True), ("обновить", ("btn", "g:refresh"))])
         return
     kind, key = current(v)
     B = []
@@ -1243,8 +1458,11 @@ def buttons(v, p, x0, x1, y):
 def hint(v):
     if v.mode == "ginput":
         return "Enter — записать · Esc — отмена"
+    if getattr(v, "g_chart", None):
+        return "h / Esc — к списку · j/k — другая строка"
     kind, key = current(v)
-    return HINTS.get("chore" if kind == "chore" else key, "")
+    h = HINTS.get("chore" if kind == "chore" else key, "")
+    return h + " · l — график" if kind == "g" else h
 
 
 # ── бот hub: /better ────────────────────────────────────────────────────────
@@ -1344,7 +1562,7 @@ def tg_panel(c, note=None, full=False):
         det = r["detail"]
         head = "%s <b>%s</b>  —  %s" % (EMOJI[k], T.esc(name), T.esc(r["value"]))
         if r.get("streak"):
-            head += "  🔥%d" % r["streak"]
+            head += "  🔥%d" % r["streak"] + ("❄️" if r.get("frozen") else "")
         out.append(head)
         line = VERDICT[r["met"]]
         if r["frac"] is not None and k != "chores":

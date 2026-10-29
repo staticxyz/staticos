@@ -17,6 +17,9 @@ that reaches you when you are away from the computer. A separate background serv
    (**Shift+S** — tomorrow 9:00), **Shift+D** deletes, **Tab** switches tabs.
 4. In the dictionary: **i**, type `word = translation`, **Enter**; **z** starts a review
    round (Leitner-style: **Space** reveals, **y** you knew it, **n** you didn't).
+5. On the **Better** tab (each row compared with yesterday): **l** or a double click opens the
+   row's 7-day chart, **h** / **Esc** goes back to the list, **j** / **k** switch rows inside
+   the chart. Streak freeze (one worse day a week keeps the streak) is in Settings → Config.
 
 A quick timer from a terminal, without opening the window:
 
