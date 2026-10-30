@@ -14,6 +14,12 @@ swaync в DND кладёт уведомление молча в центр, а �
 тот же номер: swaync показывает его всплывающим и не плодит копию в центре, а кнопки
 («Ответить» Telegram и т. п.) работают, потому что номер прежний. Проверено 29.10.
 
+Просьба, 30.10: «Мы можем уведомления такие группировать и отправлять один раз, а не 10».
+Перед показом одинаковые (программа + заголовок + текст) сворачиваются в одно: остаётся самое
+новое с пометкой «×8» в заголовке, остальные закрываются и в центре. У своих системных
+(NUM_APPS) числа в тексте не считаются — «Свободно 1840 МБ» и «1990 МБ» одно и то же; у чужих
+текст сравнивается целиком, чтобы коды и суммы в чатах не склеились.
+
 Не держит: critical и SWAYNC_BYPASS_DND (их swaync и так показал), с ключом
 x-canonical-private-synchronous (громкость, трек, прогресс — устаревают), transient и свои
 повторы (подсказка x-jarvis-replay). Закрыли в центре (NotificationClosed) — из очереди вон.
@@ -22,6 +28,7 @@ x-canonical-private-synchronous (громкость, трек, прогресс 
 import ctypes
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -34,6 +41,7 @@ GAP_MANY = 1.0          # если в очереди больше MANY
 MANY = 10
 BODY_MAX = 2000
 MARK = "x-jarvis-replay"
+NUM_APPS = ("Джарвис", "staticOS", "System", "Энергия")     # в тексте только показания
 MATCHES = ("type='method_call',interface='org.freedesktop.Notifications',member='Notify'",
            "type='method_return',sender='org.freedesktop.Notifications'",
            "type='signal',interface='org.freedesktop.Notifications',member='NotificationClosed'")
@@ -164,6 +172,8 @@ def _variant(sig, data):
 def send(e):
     from gi.repository import Gio, GLib
     app, _rid, icon, summary, body, actions, hints, timeout = e["data"]
+    if e.get("n", 1) > 1:
+        summary = "%s ×%d" % (summary or "", e["n"])
     hv = {}
     for k, v in (hints or {}).items():
         try:
@@ -181,6 +191,38 @@ def send(e):
                   GLib.VariantType("(u)"), 0, 3000, None)
 
 
+def close(nid):
+    from gi.repository import Gio, GLib
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+    bus.call_sync("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                  "org.freedesktop.Notifications", "CloseNotification",
+                  GLib.Variant("(u)", (nid,)), None, 0, 3000, None)
+
+
+def group_key(data):
+    app, summary, body = data[0] or "", data[3] or "", data[4] or ""
+    return app, summary, re.sub(r"\d+", "#", body) if app in NUM_APPS else body
+
+
+def compress(q):
+    """Одинаковые в одно: остаётся новейшее, в "n" — сколько их было. → (очередь, лишние номера)"""
+    last, count = {}, {}
+    for e in q:
+        k = group_key(e["data"])
+        last[k] = e
+        count[k] = count.get(k, 0) + e.get("n", 1)
+    out, extra = [], []
+    for e in q:
+        k = group_key(e["data"])
+        if last[k] is not e:
+            extra.append(e["id"])
+            continue
+        if count[k] > 1:
+            e["n"] = count[k]
+        out.append(e)
+    return out, extra
+
+
 def replay():
     """Показать очередь по одному. Включили DND снова — остаток ждёт следующего выключения."""
     if st["replaying"]:
@@ -188,6 +230,15 @@ def replay():
     st["replaying"] = True
     try:
         time.sleep(1.0)
+        with lock:
+            q, extra = compress(load())
+            if extra:
+                save(q)                # раньше закрытия: сигнал о нём очередь уже не тронет
+        for nid in extra:
+            try:
+                close(nid)
+            except Exception:
+                pass
         while True:
             with lock:
                 q = load()
