@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""Собеседования (30.10.2026): те же заметки Вакансии/*, что и «Журнал встреч» в Obsidian.
+
+    iv                         список
+    iv Tele2 03.11 15:00 онлайн  новое или новая дата
+    iv done N                  сходил: успех при любом результате
+    iv undo N                  отменить отметку
+    iv move N 04.11 16:00      перенос
+    iv cancel N                отмена
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.expanduser("~/.local/share/hub"))
+import hublib  # noqa: E402
+import interviews as IV  # noqa: E402
+
+print(IV.command(hublib.connect(), " ".join(sys.argv[1:]), "cli")[0])

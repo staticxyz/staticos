@@ -242,7 +242,7 @@ disarm() {
 LDAY_AWK='
 function lload(   ln, a) { while ((getline ln < LDAYF) > 0) if (split(ln, a, " ") == 2) LB[a[1]] = a[2] + 0 }
 function lnoon(d) { return mktime(substr(d, 1, 4) " " substr(d, 6, 2) " " substr(d, 9, 2) " 12 00 00") }
-function lstart(d) { return (d in LB) ? LB[d] : lnoon(d) - 7 * 3600 }
+function lstart(d) { return (d in LB) ? LB[d] : lnoon(d) - 5 * 3600 }
 function lday(ts,   d, nx) {
     d = strftime("%Y-%m-%d", ts)
     if (ts < lstart(d)) return strftime("%Y-%m-%d", lnoon(d) - 86400)
@@ -268,7 +268,7 @@ bump_today() { # после записи отрезка — пересчёт «�
 }
 
 # Кэш на сегодня, чтобы status не гонял awk по журналу раз в секунду. Начало дня в кэше:
-# отбой стал известен задним числом (сон после 05:00) — пересчёт.
+# отбой стал известен задним числом (сон после 07:00) — пересчёт.
 today_stats() { # $1 — дата, $2 — начало дня; печатает "секунды помидоры"
     od=; ost=
     [ -f "$TODAY" ] && IFS='	' read -r od ot oc ost < "$TODAY"

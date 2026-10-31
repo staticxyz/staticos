@@ -115,14 +115,11 @@ def _mix(a, b, t):
 
 
 def palette(acc, bg):
-    """acc, bg — (r, g, b) 0..1 → цвета ключей для «значка» и для «ярлыка» (силуэт на акценте)."""
+    """acc, bg — (r, g, b) 0..1 → цвета ключей символа."""
     white = (1, 1, 1)
-    icon = {"A": acc, "L": _mix(acc, white, .3), "W": _mix(acc, white, .65),
+    return {"A": acc, "L": _mix(acc, white, .3), "W": _mix(acc, white, .65),
             "D": _mix(acc, (0, 0, 0), .4), "T": _mix(_mix(acc, (.82, .74, .96), .6), white, .15),
             "k": bg}
-    dark = _mix(bg, acc, .12)
-    badge = {"A": dark, "L": bg, "W": bg, "D": _mix(bg, acc, .3), "T": _mix(bg, acc, .2), "k": None}
-    return icon, badge
 
 
 def draw(cr, name, cx, cy, cols, glow=None):
@@ -193,7 +190,7 @@ def choices():
 
 
 def sheet(path):
-    """Лист: оба вида всех символов в цветах Skeet (как кнопка на панели, ×3)."""
+    """Лист: все символы в цветах Skeet (как кнопка на панели, ×3)."""
     import cairo
     sys.path.insert(0, __import__("os").path.dirname(__file__))
     import rec_style
@@ -201,26 +198,20 @@ def sheet(path):
     rgb = lambda h: tuple(int(h.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))  # noqa: E731
     acc, bg, field = rgb(sk["acc"]), rgb(sk["bg"]), rgb(sk["field"])
     l1, l3 = rgb(sk["line1"]), rgb(sk["line3"])
-    icon, badge = palette(acc, bg)
-    K, W, H = 3, 76, 34
-    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, (W * 2 + 8) * K, H * len(ORDER) * K)
+    icon = palette(acc, bg)
+    K, W, H = 3, 29, 34
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, (W + 8) * K, H * len(ORDER) * K)
     cr = cairo.Context(surf)
     cr.scale(K, K)
     cr.set_antialias(cairo.ANTIALIAS_NONE)
     cr.set_source_rgb(*bg)
     cr.paint()
     for i, g in enumerate(ORDER):
-        y = i * H + 2
-        for j in range(2):
-            x = 4 + j * (W + 4)
-            cr.set_source_rgb(*l1); cr.rectangle(x, y, 29, 29); cr.fill()
-            cr.set_source_rgb(*l3); cr.rectangle(x + 1, y + 1, 27, 27); cr.fill()
-            cr.set_source_rgb(*field); cr.rectangle(x + 2, y + 2, 25, 25); cr.fill()
-            if j == 0:
-                cr.set_source_rgb(*acc); cr.rectangle(x + 2, y + 2, 25, 25); cr.fill()
-                draw(cr, g, x + 14.5 - (g == "sparkle") * .5, y + 14.5 - (g == "sparkle") * .5, badge)
-            else:
-                draw(cr, g, x + 14.5 - (g == "sparkle") * .5, y + 14.5 - (g == "sparkle") * .5, icon, glow=acc)
+        y, x = i * H + 2, 4
+        cr.set_source_rgb(*l1); cr.rectangle(x, y, 29, 29); cr.fill()
+        cr.set_source_rgb(*l3); cr.rectangle(x + 1, y + 1, 27, 27); cr.fill()
+        cr.set_source_rgb(*field); cr.rectangle(x + 2, y + 2, 25, 25); cr.fill()
+        draw(cr, g, x + 14.5 - (g == "sparkle") * .5, y + 14.5 - (g == "sparkle") * .5, icon, glow=acc)
     surf.write_to_png(path)
 
 

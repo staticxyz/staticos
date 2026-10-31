@@ -70,6 +70,11 @@ binds {
     Mod+P hotkey-overlay-title="Помидор: старт/пауза" { spawn-sh "~/.local/bin/pomo toggle"; }
     Mod+Shift+P hotkey-overlay-title="Помидор: пропустить" { spawn-sh "~/.local/bin/pomo skip"; }
     Mod+Alt+P hotkey-overlay-title="Помидор: стоп" { spawn-sh "~/.local/bin/pomo stop"; }
+    // Потом и Холст (30.10.2026): записать и вернуться к делу, во время блока дня (later, growth.py)
+    Mod+Shift+O repeat=false hotkey-overlay-title="Собеседования: таблица" { spawn-sh "~/.config/hypr/scripts/iv_table.py"; }
+    Mod+Ctrl+O repeat=false hotkey-overlay-title="Собеседования: форма" { spawn-sh "~/.config/hypr/scripts/iv_form.py"; }
+    Mod+Shift+B repeat=false hotkey-overlay-title="Замок: энергия и постройка" { spawn-sh "~/.config/hypr/scripts/castle_app.py --toggle"; }
+    Mod+Shift+I repeat=false hotkey-overlay-title="Холст: мысль или чувство" { spawn-sh "~/.local/bin/later --holst"; }
     // 23.10.2026: Super+T — окно Timer.exe (новый виджет-таймер), Pomo.exe переехало на Super+Ctrl+P (сторож pomo — командой pomo watch)
     Mod+T repeat=false hotkey-overlay-title="Таймер: новый (Timer.exe)" { spawn-sh "python3 ~/.config/hypr/scripts/desktop_widgets.py timer ask=1"; }
     // Clocker (до 23.10.2026 — Discipline) на вкладке Alarm (07.10.2026; было Focus), повторное нажатие закрывает (scripts/routine_app.py, 06.10.2026); Super+Alt+T — нет, по выбору пользователя

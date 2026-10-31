@@ -754,3 +754,22 @@ body:is(.theme-dark, .theme-light) .table-view-table > thead > tr > th {
   background-color: var(--table-header-background);
   border-bottom: 1px solid var(--table-border-color);
 }
+/* Календарь: сегодня — плашка акцента. Светлый акцент текстом почти не отличался от белых чисел,
+   а в серых днях соседнего месяца сегодняшняя дата выцветала вовсе. Открытая заметка дня — рамкой,
+   иначе при открытой чужой дате плашек две и не видно, какая сегодня (01.11.2026) */
+#calendar-container .day.today,
+#calendar-container .day.today:hover {
+  color: var(--text-on-accent);
+  background-color: var(--interactive-accent);
+  opacity: 1;
+}
+#calendar-container .day.today .dot.filled { fill: var(--text-on-accent); }
+#calendar-container .day.today .hollow { stroke: var(--text-on-accent); }
+#calendar-container .day.active:not(.today),
+#calendar-container .day.active:not(.today):hover {
+  color: var(--interactive-accent);
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--interactive-accent);
+}
+#calendar-container .day.active:not(.today) .dot.filled { fill: var(--interactive-accent); }
+#calendar-container .day.active:not(.today) .hollow { stroke: var(--interactive-accent); }

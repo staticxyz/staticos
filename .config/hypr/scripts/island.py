@@ -31,6 +31,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 WM_PY = os.path.join(HERE, "wm.py")   # focus: свёрнутое в стопке — через unmin (22.10.2026)
 sys.path.insert(0, HERE)
+from fs_track import FsTrack, commit_now  # noqa: E402
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 LOCK = os.path.join(RUN, "jarvis-island.lock")
 SOCK = os.path.join(RUN, "jarvis-island.sock")
@@ -4834,6 +4835,7 @@ class Island:
         self.ctl_used = False            # крутили/жали капсулу — наведение не раскрывает до ухода
         self.scroll_acc = 0.0            # тачпад: доли щелчка колеса копятся
         self.bub = False                 # пузырь ▶ показан — входная зона шире
+        self.under_fs = False            # на мониторе окно во весь экран (sync_rest)
         w = self.win = Gtk.Window()
         w.set_title(NAMESPACE)
         w.set_app_paintable(True)
@@ -5009,11 +5011,11 @@ class Island:
         rect = (e.x, e.y, e.width, e.height)
         self.in_rect = rect
 
-    @staticmethod
-    def base_layer():
+    def base_layer(self):
         """В стопке (stack_mode) островок — под окнами, слой BOTTOM: «окна должны уметь
         перекрывать её, она только на рабочем столе» (21.10.2026, пользователь). Раскрытая карточка
-        всё равно поднимается в OVERLAY (cover)."""
+        всё равно поднимается в OVERLAY (cover). Под окном во весь экран — тоже BOTTOM, иначе
+        островок мелькает при смене стола (fs_track.py, 30.10.2026)."""
         from gi.repository import GtkLayerShell
         try:
             st = json.load(open(os.path.expanduser("~/.config/hypr/state/stack-mode.json")))
@@ -5021,7 +5023,16 @@ class Island:
                 os.environ.get("NIRI_SOCKET", ""))
         except (OSError, ValueError):
             on = False
-        return GtkLayerShell.Layer.BOTTOM if on else GtkLayerShell.Layer.TOP
+        return GtkLayerShell.Layer.BOTTOM if on or self.under_fs else GtkLayerShell.Layer.TOP
+
+    def sync_rest(self):
+        geo = self.monitor.get_geometry()
+        under = self.app.fs.on(self.output, geo.width, geo.height)
+        if under != self.under_fs:
+            self.under_fs = under
+            self.sync_layer()
+            if self.win.get_visible():
+                commit_now(self.win)
 
     def sync_layer(self):
         from gi.repository import GtkLayerShell
@@ -5586,6 +5597,7 @@ class App:
         self.osdw = None
         self.focus_out = None
         self.overview = False
+        self.fs = FsTrack()
         self.game = False
         self.video = False           # видео в окне в фокусе — нить прячется (video_hide)
         self.video_t = None
@@ -6214,6 +6226,9 @@ class App:
             ev = json.loads(line)
         except ValueError:
             return True
+        if self.fs.feed(ev):
+            for isl in self.wins.values():
+                isl.sync_rest()
         before = (self.focus_out, self.overview)
         if "WindowsChanged" in ev or "WindowOpenedOrChanged" in ev or "WindowClosed" in ev:
             self.cat.on_window(ev)              # заголовок со спиннером — терминал занят

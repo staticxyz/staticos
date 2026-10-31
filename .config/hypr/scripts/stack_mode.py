@@ -716,7 +716,8 @@ def csd_buttons(hide):
         old = open(CSD_SAVED, encoding="utf-8").read().strip()
     except OSError:
         return
-    subprocess.run(["gsettings", "set", *CSD_KEY, old or "icon:minimize,maximize,close"])
+    # Без «minimize»: вне стопки niri сворачивать не умеет (31.10.2026, «лучше их убрать?»).
+    subprocess.run(["gsettings", "set", *CSD_KEY, old or "icon:maximize,close"])
     os.remove(CSD_SAVED)
 
 

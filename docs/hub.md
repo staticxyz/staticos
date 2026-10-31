@@ -90,6 +90,22 @@ does not log which keys were pressed, and it does not use the microphone or came
 
 ---
 
+## Better, the castle and interviews
+
+The Better tab (`Mod + M`) tracks the day against a ladder: a level counts once it is reached on 5
+days of 7. A day runs from waking up to going to sleep, and the new one starts at 07:00 at the
+earliest, once you are at the computer. Waking and bedtime come from your own entry, the alarm, a long
+sleep of the laptop or a silence in the screen time, in that order; `Space` on those rows types them in.
+
+The castle (`Mod + Shift + B`, also a desktop widget) has no counter of its own: energy comes from the
+same numbers as Better (market, code, speech, strength, chores, the daily block) and from going to
+interviews, and it is spent on building. `block` sets the minutes of the daily block. Interviews are plain
+notes in the vault's `Вакансии` folder: a table on `Mod + Shift + O`, a form on `Mod + Ctrl + O`, `iv` in
+the terminal.
+
+`Mod + Shift + I` opens the canvas for a thought that should not break the block; `later` puts a task
+aside until the block is over.
+
 ## Files
 
 | Path | What |

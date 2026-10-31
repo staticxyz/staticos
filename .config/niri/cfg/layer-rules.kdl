@@ -79,6 +79,23 @@ layer-rule {
     }
 }
 
+// Холст и Потом (scripts/holst.py), таблица собеседований (iv_table.py), 30.10.2026: размытие как у окон preset_ask.
+layer-rule {
+    match namespace=r#"^jarvis-(holst|ivtable|ivform)$"#
+    background-effect {
+        blur true
+        xray false
+    }
+}
+
+layer-rule {
+    match namespace=r#"^jarvis-(holst|ivtable|ivform)-catch$"#
+    background-effect {
+        blur true
+        xray false
+    }
+}
+
 // Меню Recorder (scripts/rec_menu.py, 04.10.2026) — вместо rofi: размыт весь экран
 // под слоями-ловцами, как было под rofi. Само окно меню непрозрачное, ему правило не нужно.
 layer-rule {

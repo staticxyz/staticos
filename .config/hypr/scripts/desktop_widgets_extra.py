@@ -1601,19 +1601,24 @@ if(!b)return -1;if(go)b.click();return b.getAttribute('aria-pressed')==='true'?1
 
     # ── better.exe ──────────────────────────────────────────────────────────
     class Better(Widget, SecondTicker):
-        """«Лучше вчера» на обоях (28.10.2026, просьба: «можно добавить виджет для этого»):
-        счёт дня, серия и строки вкладки Better из hub (Super+M) — значок в цвете строки,
-        значение (зелёное — лучше вчера, красное — хуже) и полоса до цели. Данные —
+        """Better на обоях (28.10.2026, просьба: «можно добавить виджет для этого»): шапка: молния «1/2»
+        (сделано из блока дня: hh.kz и код) и календарь «1/7» (дней со сделанным блоком за неделю) и строки вкладки Better из hub (Super+M) — значок в цвете строки,
+        значение (зелёное — взято, голубое — удержано) и полоса до ступени. Данные —
         `growth.py --json` раз в минуту в отдельном потоке; в игре не спрашивает.
         29.10: запись в hub или боте трогает growth-stamp — виджет перечитывает сразу."""
         GROWTH = os.path.expanduser("~/.local/share/hub/growth.py")
         STAMP = os.path.expanduser("~/.cache/jarvis/growth-stamp")
         EVERY = 60
         PX = 14                                # кегль, как был у окна по умолчанию
-        # серия — огонёк 8×8 и цифра на ступень мельче строки (29.10.2026, просьба: «огонёк чуть
-        # поменьше сделай с цифрой», потом «чуть-чуть больше» — 7×7 вышел мелким); 9×9 у окна hub
-        FLAME = ("...#....", "..##....", "..###.#.", ".######.", "########", "###..###", "##....##",
-                 ".######.")
+        # значки шапки (31.10.2026, просьба: «день в виде энергии, а неделю в виде придумай сам»):
+        # молния — силуэт BOLT из Замка, неделя — листок календаря
+        BOLT = (".....##..", "....##...", "...##....", "..##.....", ".######..", "....###..", "...###...",
+                "..###....", "..##.....", ".##......", ".#.......")
+        CAL = ("..#.....#..", "###########", "###########", "#.........#", "#.#.#.#.#.#", "#.........#",
+               "#.#.#.#.#.#", "#.........#", "#.#.#.#.#.#", "#.........#", "###########")
+        UP, DOWN = ("...#...", "..###..", ".#####.", "#######"), ("#######", ".#####.", "..###..", "...#...")
+        RED = (1.0, 0.35, 0.35)
+        GOLD = (1.0, 0.82, 0.4)                # время hh.kz и кода, пока норма дня не закрыта; #ffd166 Замка
         SHORT = {"code": "Код", "market": "hh.kz", "fun": "Прокрастинация", "money": "Траты",
                  "cig": "Сигареты", "lift": "Сила"}
 
@@ -1666,13 +1671,29 @@ if(!b)return -1;if(go)b.click();return b.getAttribute('aria-pressed')==='true'?1
             return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
 
         @staticmethod
-        def pix(cr, x, y, art, col, s):
-            cr.set_source_rgb(*col)
+        def pix(cr, x, y, art, col, s, alpha=1.0):
+            cr.set_source_rgba(*col, alpha)
             for j, row in enumerate(art):
                 for i, ch in enumerate(row):
                     if ch == "#":
                         cr.rectangle(int(x) + i * s, int(y) + j * s, s, s)
             cr.fill()
+
+        def stat(self, cr, art, n, of, ok, right, y, px, s):
+            """Значок акцентом и «n/of» в шапке, прижаты к right → левый край. Цифры (31.10.2026, просьба: «1 из 2 закрыт, или 1 из 7, чтобы по цветам отличались»): ноль серый, часть золотая, всё зелёное."""
+            col = T["fg"] if not n else ok if n >= of else self.GOLD
+            tw, _ = text(cr, "%d/%d" % (n, of), 0, y, px, col, 1.0 if n else 0.6, right=right)
+            left = right - tw - 4 * s - len(art[0]) * s
+            self.pix(cr, left, y + (px - len(art) * s) // 2, art, T["accent"], s)
+            return left
+
+        @staticmethod
+        def gap_text(key, gap):
+            """Сколько до конечной цели, знаки по просьбе пользователя: подъём «+4ч 40м», отбой «-6ч 57м»; дошли — «цель»."""
+            if not gap:
+                return "цель"
+            h, m = divmod(gap, 60)
+            return ("+" if key == "wake" else "-") + " ".join(filter(None, ("%dч" % h if h else "", "%dм" % m if m else "")))
 
         def paint(self, cr, x, y, w, h):
             # кегль не растёт с окном (29.10.2026, просьба: «когда я его увеличиваю по размерам,
@@ -1685,61 +1706,54 @@ if(!b)return -1;if(go)b.click();return b.getAttribute('aria-pressed')==='true'?1
                 text(cr, "…", 0, y, px, T["fg"], right=x + w)
                 return
             hues = d["hues"]
-            ok, bad = self.rgb(hues["ok"]), self.rgb("#ff6b6b")
-            good, n = d["score"]
+            ok, hold = self.rgb(hues["ok"]), self.rgb(hues["hold"])
+            scol = {"take": ok, "hold": hold, None: T["fg"]}
             s = max(1, px // 8)                       # точка значка: 9×9 точек ≈ кегль
             right = x + w
-            sw, _ = text(cr, "%d/%d" % (good, n), 0, y, px, ok if good * 2 > n else T["fg"], right=right)
-            sp = max([p for p in SIZES if p < px] or [px])     # ступень ниже кегля строки
-            if d.get("streak"):
-                fl = self.rgb(hues["flame"])
-                tw, _ = text(cr, str(d["streak"]), 0, y + (px - sp) // 2, sp, fl, right=right - sw - adv(px))
-                self.pix(cr, right - sw - adv(px) - tw - 9 * s, y + (px - 8 * s) // 2, self.FLAME, fl, s)
+            week = d["week7"]
+            done, need = d["day"]
+            left = self.stat(cr, self.CAL, week, d["window"], ok, right, y, px, s)
+            self.stat(cr, self.BOLT, done, need, ok, left - adv(px) * 2, y, px, s)
             rh = px + max(8, px // 2 + 6)
             rows = d["rows"]
-            k = max(0, min(len(rows), int((h - px * 1.5) // rh)))
+            block = d["block"]
+            need_of = {st["key"]: st for st in block["steps"]}
+            top = y + px * 2
+            k = max(0, min(len(rows), int((y + h - top) // rh)))
             for i, r in enumerate(rows[:k]):
-                ry = y + px * 1.5 + i * rh
+                ry = top + i * rh
                 col = self.rgb(hues.get(r["key"], hues["chores"]))
                 self.pix(cr, x, ry + (px - 9 * s) // 2, d["icons"][r["key"]], col, s)
                 nx = x + 9 * s + adv(px)
-                met = r["met"]
-                vcol = ok if met else bad if met is False else T["fg"]
-                # «−30м 10:08»: разница — по центру строки, время — справа (29.10.2026, просьба:
-                # «эти значения лучше чуть ближе влево, т.е. по центру»)
-                val, lead = r["value"], ""
-                if val[:1] in "−+±" and " " in val:
-                    lead, val = val.split(" ", 1)
-                alpha = 0.9 if met is None else 1.0
-                vw, _ = text(cr, val, 0, ry, px, vcol, alpha, right=right)
-                lw = len(lead) * adv(px)
-                room = right - nx - vw - adv(px) - (lw + adv(px) if lead else 0)
-                # серия у длинного имени («Прокрастинация») не влезала и пропадала — имя
-                # ужимается с «…», чтобы огонёк остался (29.10.2026)
-                fw = adv(px) // 2 + 9 * s + len(str(r.get("streak") or "")) * adv(sp)
-                fit = r.get("streak") and room - fw >= 5 * adv(px)
-                nw, _ = text(cr, self.SHORT.get(r["key"], r["name"]), nx, ry, px, T["fg"],
-                             width=(room - fw) if fit else room)
-                ne = nx + nw
-                if fit:
-                    fl = self.rgb(hues["flame"])
-                    fx = nx + nw + adv(px) // 2
-                    self.pix(cr, fx, ry + (px - 8 * s) // 2, self.FLAME, fl, s)
-                    sw2, _ = text(cr, str(r["streak"]), fx + 9 * s, ry + (px - sp) // 2, sp, fl)
-                    ne = fx + 9 * s + sw2
-                if lead:
-                    lx = max(ne + adv(px), min(nx + (right - nx - lw) / 2, right - vw - adv(px) - lw))
-                    text(cr, lead, int(lx), ry, px, vcol, alpha)
-                f = r["frac"] if r["frac"] is not None else (1.0 if met is not None else 0.0)
-                bh = max(2, px // 5)
+                state = r["state"]
+                # hh.kz и код (31.10.2026, пользователь): в скобках цель дня, время золотое с первой минуты,
+                # закрыл норму дня — скобки уходят, время зелёное; поход на собеседование закрывает обе
+                st = need_of.get(r["key"])
+                left = st["left"] if st and not block["done"] else 0
+                vcol = scol[state]
+                if st and not left:
+                    vcol = ok
+                elif st and st["done"] >= 30:          # с 30 секунд на экране уже «1 мин» (growth.SHOWN)
+                    vcol = self.GOLD
+                vw, _ = text(cr, r["value"], 0, ry, px, vcol, 1.0 if vcol is not T["fg"] else 0.9, right=right)
+                name, gap = self.SHORT.get(r["key"], r["name"]), r.get("gap")
+                note = self.gap_text(r["key"], gap) if gap is not None else "(+%dм)" % (st["goal"] // 60) if left else None
+                if note and right - nx - vw >= adv(px) * (len(name) + 11):
+                    gw, _ = text(cr, note, 0, ry, px, T["fg"], 0.7, right=right - vw - adv(px))
+                    vw += gw + adv(px)
+                trend = r.get("trend")
+                room = right - nx - vw - adv(px) - (adv(px) if trend else 0)
+                nw, _ = text(cr, name, nx, ry, px, T["fg"], width=room)
+                if trend:                              # лучше или хуже обычного, медиана 14 дней (growth.trend)
+                    self.pix(cr, nx + nw + adv(px) // 2, ry + (px - 4 * s) // 2, self.UP if trend > 0 else self.DOWN,
+                             ok if trend > 0 else self.RED, s)
+                f = r["frac"] if r["frac"] is not None else (1.0 if state else 0.0)
+                bh = max(3, px // 4)
                 by = ry + px + max(3, px // 4)
                 cr.set_source_rgba(*T["fg"], 0.12)
                 cr.rectangle(nx, by, right - nx, bh)
                 cr.fill()
-                # предел (сигареты, траты, прокрастинация): сверх цели — красная, как в окне Better;
-                # при цели 0 полоса ровно полная (frac 1) — смотреть и на met (29.10.2026)
-                warn_over = r["warn"] and ((r["frac"] or 0) > 1 or met is False)
-                cr.set_source_rgb(*(bad if warn_over or (r["frac"] is None and met is False) else col))
+                cr.set_source_rgb(*col)
                 cr.rectangle(nx, by, (right - nx) * max(0.0, min(1.0, f)), bh)
                 cr.fill()
 
@@ -1828,6 +1842,39 @@ if(!b)return -1;if(go)b.click();return b.getAttribute('aria-pressed')==='true'?1
     def at_human(kb):
         g = kb / 1048576
         return ("%.1fG" % g) if g >= 1 else ("%dM" % (kb // 1024))
+
+    class Castle(Better):
+        """Замок на обоях (30.10.2026): картина, энергия, что дальше, ближайшее собеседование.
+        Чтение и обновление — как у better.exe, рисунок — тот же castle_art, что в окне."""
+        GROWTH = os.path.expanduser("~/.local/share/hub/castle.py")
+
+        def paint(self, cr, x, y, w, h):
+            import castle_art as A
+            px = min(self.PX, list_px(w, h))
+            right = x + w
+            text(cr, "CASTLE", x, y, px, T["accent"])
+            d = self.d
+            if not d:
+                text(cr, "…", 0, y, px, T["fg"], right=right)
+                return
+            text(cr, "%d" % d["balance"], 0, y, px, T["fg"], right=right)
+            lines = [d["near"]] if d["near"] else []
+            n = d["next"]
+            if n:
+                lines.insert(0, "%s %d/%d" % (n["name"], min(d["balance"], n["price"]), n["price"]))
+            line = px + 6
+            top = y + px + 8
+            room = h - (top - y) - line * len(lines)
+            s = max(1, min(w // A.W, room // A.H))
+            ax = int(x + (w - A.W * s) / 2)
+            A.paint(cr, ax, int(top), s, set(d["built"]), n["key"] if n else None, None, T["accent"],
+                    (0.07, 0.07, 0.1), d.get("land", "home"))
+            ly = top + A.H * s + 6
+            for ln in lines:
+                if ly + px > y + h:
+                    break
+                text(cr, ln, x, ly, px, T["fg"])
+                ly += line
 
     class AppTop(Widget, SecondTicker):
         """Программы по памяти (appmem) или по процессору (appcpu), первые сколько влезет."""
@@ -2605,6 +2652,6 @@ if(!b)return -1;if(go)b.click();return b.getAttribute('aria-pressed')==='true'?1
     ns["CLASSES"].update({"sysmon": SysMon, "banner": Banner, "player": Player,
                           "playermini": PlayerMini, "timer": Timer,
                           "calendar": Calendar, "screentime": ScreenTime,
-                          "screenweek": ScreenWeek, "screenmonth": ScreenMonth, "better": Better,
+                          "screenweek": ScreenWeek, "screenmonth": ScreenMonth, "better": Better, "castle": Castle,
                           "appmem": AppTop, "appcpu": AppTop,
                           "miku": Miku, "fire": Fire, "life": Life})

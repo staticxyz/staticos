@@ -255,6 +255,18 @@ def play(event, force=False, wait=False):
             return False
         if group not in ALWAYS and _cached("dnd", dnd):
             return False
+    return _spawn(f, vol, wait)
+
+
+def play_file(path, wait=False):
+    """Свой файл (Замок): те же громкость и тишина, что у событий интерфейса."""
+    vol = get_volume()
+    if vol == 0 or os.path.exists(OFF) or os.path.exists(REC_PID) or _cached("game", gaming) or _cached("dnd", dnd):
+        return False
+    return _spawn(path, vol, wait)
+
+
+def _spawn(f, vol, wait):
     # Своё имя потока: в микшере вместо непонятного «pw-play» — «Звуки интерфейса»
     # (04.10.2026, просьба: «а что за pw-play?»). media.role=Notification — системные звуки.
     # Без media.role и с state.restore-props = false (05.10.2026, просьба: «стало тише,

@@ -19,6 +19,8 @@ sys.path.insert(0, os.path.expanduser("~/.config/hypr/scripts"))
 import hublib as H  # noqa: E402
 import hubtg as T  # noqa: E402
 import growth as G  # noqa: E402
+import interviews as IV  # noqa: E402
+import castle as Castle  # noqa: E402
 import hubguard  # noqa: E402
 import hubwa  # noqa: E402
 import lday  # noqa: E402
@@ -775,7 +777,7 @@ def eve_tick(c, esc):
 
 
 def nudge_send(n):
-    """Предупреждение «Лучше вчера» на ПК; щелчок — окно Better (Super+M)."""
+    """Предупреждение Better на ПК; щелчок — окно Better (Super+M)."""
     cmd = ["notify-send", "-a", "hub", "-i", "jarvis-hub-better", "-w", "-A", "default=Открыть"]
     if n["through"]:
         cmd += ["-h", "int:SWAYNC_BYPASS_DND:1"]
@@ -793,11 +795,62 @@ def nudge_send(n):
     threading.Thread(target=work, daemon=True).start()
 
 
+def game_send(app, title, body, icon, cmd):
+    """Награда (31.10.2026, просьба: «как только я что то получаю… если не беспокоить стоит то в
+    ожидании»): обычное уведомление, поэтому при DND его держит dnd_queue, а звук — общий, его
+    DND глушит (chime() звенел бы и в тишине). Щелчок — открыть cmd."""
+    def work():
+        try:
+            r = subprocess.run(["notify-send", "-a", app, "-i", icon, "-w", "-A", "default=Открыть", title, body],
+                               capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        except Exception:
+            return
+        if r.stdout.strip() == "default":
+            subprocess.Popen(cmd, start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+    threading.Thread(target=work, daemon=True).start()
+
+
+def castle_say(gained, balance):
+    """Несколько источников за один тик — одно уведомление."""
+    if not gained:
+        return
+    total = sum(n for _k, n in gained)
+    what = ", ".join("%s +%d" % (Castle.NAMES[k], n) for k, n in gained)
+    title = "⚡ +%d энергии" % total
+    body = "%s\nВсего: %d. Замок: %s" % (what, balance, Castle.BIND)
+    game_send("Замок", title, body, "jarvis-castle", [os.path.expanduser("~/.config/hypr/scripts/castle_app.py"), "--toggle"])
+    log("замок:", title, what)
+
+
+def ladder_say(fresh):
+    """Взятые ступени лестницы."""
+    if not fresh:
+        return
+    lines = ["%s: %s" % (G.NAMES[k], G.step_text(k, s)) for k, s in fresh]
+    title = "🪜 Ступень взята" if len(lines) == 1 else "🪜 Ступеней взято: %d" % len(lines)
+    game_send("Better", title, "\n".join(lines), "jarvis-hub-better", [os.path.expanduser("~/.local/bin/hub-open"), "growth"])
+    log("лестница:", ", ".join(lines))
+
+
 _nudge = {"t": 0}
+_notes = {"t": 0}
+
+
+def notes_tick(c):
+    """Правки из Obsidian: «Потом» → база, Вакансии/* → напоминания и отметки (30.10.2026)."""
+    if time.monotonic() - _notes["t"] < 15:
+        return
+    _notes["t"] = time.monotonic()
+    G.later_sync(c)
+    G.later_heading(c)
+    IV.sync(c)
+    ladder_say(G.ladder_sync(c))
+    castle_say(*Castle.note_tick(c))
 
 
 def nudge_tick(c):
-    """Раз в минуту: «до красной чуть-чуть» (growth.nudges, 29.10.2026)."""
+    """Раз в минуту: предупреждения про ступень дня (growth.nudges, 29.10.2026)."""
     if time.monotonic() - _nudge["t"] < 60:
         return
     _nudge["t"] = time.monotonic()
@@ -913,6 +966,10 @@ def tick(c):
         nudge_tick(c)
     except Exception as e:
         log("better → предупреждения:", repr(e))
+    try:
+        notes_tick(c)
+    except Exception as e:
+        log("заметки → hub:", repr(e))
     try:
         obs_tick(c)
     except Exception as e:

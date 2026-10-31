@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""Блок дня (30.10.2026): минуты на рынок и на код.
+
+    block            показать
+    block 45 60      своё время: рынок и код
+    block default    стандарт 30 и 50
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.expanduser("~/.local/share/hub"))
+import growth as G  # noqa: E402
+
+a = sys.argv[1:]
+if a in (["default"], ["стандарт"]):
+    G.plan_set(None)
+elif len(a) == 2 and all(x.isdigit() and 0 < int(x) <= 600 for x in a):
+    G.plan_set({"market": int(a[0]), "code": int(a[1])})
+elif a:
+    sys.exit(__doc__)
+b = G.plan()[0]
+print("Блок дня: рынок %d мин, затем код %d мин" % (b["market"], b["code"]))

@@ -34,6 +34,9 @@ built from `binds.kdl` (niri's own overlay is still on **Super+Shift+/**).
 | `Mod + N` | notepad: new note |
 | `Mod + M` | Hub: reminders |
 | `Mod + Shift + M` | Hub: dictionary |
+| `Mod + Shift + O` | interviews: table |
+| `Mod + Ctrl + O` | interviews: form |
+| `Mod + Shift + B` | castle: energy and building |
 | `Mod + Shift + N` | notepad |
 | `Mod + F6` | emoji picker |
 | `Mod + Alt + V` | clipboard window |
@@ -52,6 +55,7 @@ built from `binds.kdl` (niri's own overlay is still on **Super+Shift+/**).
 | `Mod + P` | pomodoro: start/pause |
 | `Mod + Shift + P` | pomodoro: skip |
 | `Mod + Alt + P` | pomodoro: stop |
+| `Mod + Shift + I` | canvas: note a thought or feeling (again to close) |
 | `Mod + T` | pomodoro: status popup |
 | `Mod + Alt + F` | Discipline: alarm/focus |
 | `Mod + Alt + T` | App list |

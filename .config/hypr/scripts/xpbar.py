@@ -193,6 +193,7 @@ from gi.repository import PangoCairo  # noqa: E402
 import popup_theme  # noqa: E402
 import pixel_recolor  # noqa: E402
 import lyrics_bar as LB  # noqa: E402
+from fs_track import FsTrack, commit_now as _commit_now  # noqa: E402
 import nvim_lang  # noqa: E402
 from PIL import Image  # noqa: E402
 
@@ -508,12 +509,13 @@ def start_button_look():
     return v if v == "square" or start_glyphs.parse(v) else "default"
 
 
-# Символы «Пуска» (15.10.2026): «ярлык» — квадрат акцентом впритык к левой рамке, «значок» —
+# Символы «Пуска» (15.10.2026): «ярлык» — символ со свечением и надпись, ось символа как у
+# искорки «Системной» (без подложки с 31.10.2026, просьба: «чтобы фона не было»); «значок» —
 # кнопка 29×29 без надписи. Идёт после блоков видов: та же специфичность, побеждает порядок.
 GLYPH_CSS = """
 window.xpbar-win button.start.badge, window.xpbar-win button.start.badge:hover,
 window.xpbar-win button.start.badge.open, window.xpbar-win button.start.badge.open:hover,
-window.xpbar-win button.start.badge.open:active { padding: 0 9px 0 1px; }
+window.xpbar-win button.start.badge.open:active { padding: 0 9px 0 5px; }
 window.xpbar-win button.start.glyphonly, window.xpbar-win button.start.glyphonly:hover,
 window.xpbar-win button.start.glyphonly.open, window.xpbar-win button.start.glyphonly.open:hover,
 window.xpbar-win button.start.glyphonly.open:active { padding: 0 1px; }
@@ -1205,6 +1207,7 @@ class NiriState:
     def __init__(self, on_change):
         self.windows, self.workspaces = {}, {}
         self.layouts, self.layout_idx = [], 0
+        self.fs = FsTrack()
         self.on_change = on_change
         threading.Thread(target=self.listen, daemon=True).start()
 
@@ -1226,6 +1229,8 @@ class NiriState:
             time.sleep(2)
 
     def apply(self, ev):
+        if self.fs.feed(ev):
+            sync_rest()
         kind = next(iter(ev), None)
         d = ev.get(kind) or {}
         if kind == "WorkspacesChanged":
@@ -1774,8 +1779,8 @@ class Sparkle(Gtk.DrawingArea):
 
 
 class StartGlyph(Gtk.DrawingArea):
-    """Символ кнопки «Пуск» из start_glyphs.py: «ярлык» (квадрат акцентом с тёмным силуэтом и
-    чертой-разделителем) или «значок» (символ акцентом со свечением)."""
+    """Символ кнопки «Пуск» из start_glyphs.py, акцентом со свечением: в «ярлыке» рядом с
+    надписью, в «значке» один."""
 
     def __init__(self):
         super().__init__()
@@ -1785,7 +1790,10 @@ class StartGlyph(Gtk.DrawingArea):
 
     def set(self, form, name):
         self.form, self.name = form, name
-        self.set_size_request(27 if form == "badge" else 25, 25)
+        self.set_size_request(24 if form == "badge" else 25, 25)
+        # скрытый виджет хранит прежний замер (ширина 0): без этого квадрат выбранный на лету
+        # получал 1 px, а до перезапуска панели было видно лишь кромку (31.10.2026)
+        self.queue_resize()
         self.queue_draw()
 
     def on_draw(self, _w, cr):
@@ -1794,26 +1802,12 @@ class StartGlyph(Gtk.DrawingArea):
         rgb = lambda h: tuple(int(h[i:i + 2], 16) / 255 for i in (1, 3, 5))  # noqa: E731
         acc, bg = rgb(c.get("acc") or c["primary"]), rgb(c.get("bg") or c["base"])
         btn = self.get_ancestor(Gtk.Button)
-        op = btn is not None and btn.get_style_context().has_class("open")
-        icon, badge = sg.palette(acc, bg)
+        icon = sg.palette(acc, bg)
+        if btn is not None and btn.get_style_context().has_class("open"):   # меню открыто — светлее
+            icon = {k: sg._mix(v, (1, 1, 1), .15) for k, v in icon.items()}
         cr.set_antialias(cairo.ANTIALIAS_NONE)
         a = self.get_allocation()
-        if self.form == "badge":
-            y0 = (a.height - 25) // 2
-            cr.set_source_rgb(*(rgb(c["st_hi"]) if op else acc))   # меню открыто — светлее
-            cr.rectangle(0, y0, 25, 25)
-            cr.fill()
-            cr.set_source_rgb(*sg._mix(acc, (0, 0, 0), .4))       # нижняя кромка темнее
-            cr.rectangle(0, y0 + 24, 25, 1)
-            cr.fill()
-            cr.set_source_rgb(*bg)                                 # черта между квадратом и надписью
-            cr.rectangle(25, y0, 1, 25)
-            cr.fill()
-            sg.draw(cr, self.name, 12.5, y0 + 12.5, badge)
-        else:
-            if op:
-                icon = {k: sg._mix(v, (1, 1, 1), .15) for k, v in icon.items()}
-            sg.draw(cr, self.name, a.width / 2, a.height / 2, icon, glow=acc)
+        sg.draw(cr, self.name, a.width / 2, a.height / 2, icon, glow=acc)
         return True
 
 
@@ -2050,6 +2044,20 @@ def short_layout(name):
 # (org.kde.StatusNotifierWatcher): свойства значка — org.kde.StatusNotifierItem,
 # меню — com.canonical.dbusmenu. ЛКМ — Activate, ПКМ — меню программы.
 SNW = "org.kde.StatusNotifierWatcher"
+# 30.10.2026, просьба: «Сделай так чтобы они были разноцветные». Программы отдают панели
+# одноцветный значок; вместо него берём цветной из темы. Сетка 16 без масштаба — пиксели
+# чёткие. Только эти имена: другие состояния («Bluetooth выключен», Wi-Fi) не подменяются.
+TRAY_COLOR = {"org.telegram.desktop-symbolic": "org.telegram.desktop",
+              "org.telegram.desktop-attention-symbolic": "org.telegram.desktop",
+              "org.telegram.desktop-mute-symbolic": "org.telegram.desktop",
+              "steam_tray_mono": "steam",
+              "blueman-tray": "blueman",
+              "nm-device-wired": "preferences-system-network",
+              "polychromatic-light.svg": "polychromatic",
+              "polychromatic-dark.svg": "polychromatic"}
+# у цветного значка признак «есть непрочитанные» пропал бы — точка в углу вместо него
+TRAY_DOT = {"org.telegram.desktop-attention-symbolic": 0xff4040ff,
+            "org.telegram.desktop-mute-symbolic": 0x9a9a9aff}
 
 
 class SniItem:
@@ -2082,6 +2090,14 @@ class SniItem:
             theme.append_search_path(path)
         if name:
             try:
+                base = os.path.basename(name)
+                color = TRAY_COLOR.get(base)
+                if color and theme.has_icon(color):
+                    pb = theme.load_icon(color, 16, Gtk.IconLookupFlags.FORCE_SIZE)
+                    if base in TRAY_DOT:
+                        pb = pb.copy()
+                        pb.new_subpixbuf(11, 0, 5, 5).fill(TRAY_DOT[base])
+                    return pb
                 if os.path.isabs(name) and os.path.exists(name):
                     return GdkPixbuf.Pixbuf.new_from_file_at_scale(name, px, px, True)
                 if theme.has_icon(name):
@@ -2226,6 +2242,7 @@ class TrayPlate(Gtk.Window):
             b.get_style_context().add_class("xptray-item")
             b.set_relief(Gtk.ReliefStyle.NONE)
             img = Gtk.Image()
+            img.set_size_request(20, 20)          # цветные мельче — кнопки того же размера
             pb = it.pixbuf(20)
             if pb:
                 img.set_from_pixbuf(pb)
@@ -4435,39 +4452,29 @@ def _set_open(bar, on):
     (ctx.add_class if on else ctx.remove_class)("open")
     # Пока открыт «Пуск», панель — слоем OVERLAY: поверх окна во весь экран видна и она, с окнами
     # (27.10.2026, просьба: «в полноэкранном режиме при нажатии на Пуск показывать ещё и нижнюю панель»).
-    GtkLayerShell.set_layer(bar, GtkLayerShell.Layer.OVERLAY if on else GtkLayerShell.Layer.TOP)
+    GtkLayerShell.set_layer(bar, GtkLayerShell.Layer.OVERLAY if on else rest_layer(bar))
     _commit_now(bar)
     if getattr(bar, "spark", None) is not None:
         bar.spark.queue_draw()
         bar.glyph.queue_draw()
 
 
-def _commit_now(win):
-    """wl_surface.commit сразу. Слой (и другое состояние layer-shell) применяется только с коммитом,
-    а GTK рисует по кадровому сигналу niri, который окну под полноэкранным приходит раз в ~секунду:
-    панель поднималась через пару секунд после меню (27.10.2026, просьба: «надо вместе, синхронно,
-    моментально»). Коммит без нового буфера — только применяет ждущее состояние."""
-    import ctypes
-    try:
-        gw = win.get_window()
-        if gw is None:
-            return
-        cap = ctypes.pythonapi.PyCapsule_GetPointer
-        cap.restype, cap.argtypes = ctypes.c_void_p, [ctypes.py_object, ctypes.c_char_p]
-        gdk = ctypes.CDLL("libgdk-3.so.0")
-        gdk.gdk_wayland_window_get_wl_surface.restype = ctypes.c_void_p
-        gdk.gdk_wayland_window_get_wl_surface.argtypes = [ctypes.c_void_p]
-        gdk.gdk_wayland_display_get_wl_display.restype = ctypes.c_void_p
-        gdk.gdk_wayland_display_get_wl_display.argtypes = [ctypes.c_void_p]
-        surf = gdk.gdk_wayland_window_get_wl_surface(cap(gw.__gpointer__, None))
-        dpy = gdk.gdk_wayland_display_get_wl_display(cap(gw.get_display().__gpointer__, None))
-        if not surf or not dpy:
-            return
-        wl = ctypes.CDLL("libwayland-client.so.0")
-        wl.wl_proxy_marshal(ctypes.c_void_p(surf), ctypes.c_uint32(6))   # 6 = wl_surface.commit
-        wl.wl_display_flush(ctypes.c_void_p(dpy))
-    except Exception as e:
-        print("xpbar: commit:", e, file=sys.stderr)
+def rest_layer(bar):
+    """Слой панели без открытого «Пуска»: на мониторе с окном во весь экран — под окнами
+    (fs_track.py), иначе панель мелькает поверх него на время смены стола."""
+    geo = bar.monitor.get_geometry()
+    under = bar.state.fs.on(bar.connector, geo.width, geo.height)
+    return GtkLayerShell.Layer.BOTTOM if under else GtkLayerShell.Layer.TOP
+
+
+def sync_rest():
+    for bar in BARS:
+        if bar.start.get_style_context().has_class("open"):
+            continue                    # открыт «Пуск»: панель в OVERLAY, вернётся при закрытии
+        layer = rest_layer(bar)
+        if layer != GtkLayerShell.get_layer(bar):
+            GtkLayerShell.set_layer(bar, layer)
+            _commit_now(bar)
 
 
 def menu_for(bar):

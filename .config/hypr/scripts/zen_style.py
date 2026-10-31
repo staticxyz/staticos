@@ -70,7 +70,7 @@ SKEET = """@-moz-document url("chrome://browser/content/browser.xhtml") {{
     --panel-border-color: {line1_on} !important;
   }}
   /* Страница — в рамке skeet: снаружи внутрь {line1_on} 1 / {line2} 3 / {line1_on} 1 / {line3} 1.
-     Сверху рамки нет (13.10, Просьба: «эту линию в браузере лучше убрать сверху») — clip-path
+     Сверху рамки нет (13.10, просьба: «эту линию в браузере лучше убрать сверху») — clip-path
      срезает тень над страницей; полоска палитры и отступ под закладками ушли вместе с ней. */
   #tabbrowser-tabpanels .browserSidebarContainer {{
     border-radius: 0 !important;
@@ -170,6 +170,15 @@ def current_block():
     return t[i:j + len(END)] + "\n" if i >= 0 and j >= 0 else None
 
 
+def keys_ok():
+    """Сочетания live-theme.js: итог их привязки при запуске Zen. Нет статуса — Zen не запускали."""
+    try:
+        d = json.load(open(os.path.expanduser("~/.cache/zen-live-theme.json")))
+    except (OSError, ValueError):
+        return True
+    return d.get("shortcut", "Ctrl+E").startswith("Ctrl+E") and d.get("tab_keys", "Ctrl+J").startswith("Ctrl+J")
+
+
 def main(a):
     if a == ["sync"]:
         return write(build(style()))
@@ -177,9 +186,9 @@ def main(a):
         return write(None)
     if a == ["check"]:
         st = style()
-        ok = current_block() == build(st)
-        print(json.dumps({"style": st, "block_ok": ok}))
-        return 0 if ok else 1
+        block, keys = current_block() == build(st), keys_ok()
+        print(json.dumps({"style": st, "block_ok": block, "keys_ok": keys}))
+        return 0 if block and keys else 1
     print(__doc__)
     return 2
 

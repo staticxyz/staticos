@@ -19,7 +19,10 @@ MENUS = ("app_launcher.py",      # Super+X
          "keybinds_sheet.py",    # Super+Z
          "config_map.py",        # Super+Shift+Z
          "translate_popup.py",   # Super+C
-         "wallpaper_picker.py")  # Super+W
+         "wallpaper_picker.py",  # Super+W
+         "holst.py",             # Super+Shift+I
+         "iv_table.py",          # Super+Shift+O
+         "iv_form.py")           # Super+Ctrl+O
 QUIET = ("--shot", "--check", "check", "shot")
 
 

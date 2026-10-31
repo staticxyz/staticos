@@ -99,7 +99,7 @@ AREAS = [
         power_view.py router_clients.py router_pass.py volume_popup.py wifi_net_popup.py
         wifi_popup.py popup-toggle"""),
     ("Нижняя панель, док, «Пуск»", "▁", """
-        bottom_bar.py dock.py xpbar.py xpbar_colors.py xp_calendar.py start_menu.py
+        bottom_bar.py dock.py xpbar.py xpbar_colors.py xp_calendar.py start_menu.py fs_track.py sni_watcher.py
         super_tap.py app_search.py power_xp.py"""),
     ("Виджеты и меню рабочего стола", "▦", """
         desktop_widgets.py desktop_widgets_extra.py preset_ask.py banner_ask.py banner_fx.py desktop_menu.py
@@ -170,7 +170,7 @@ AREAS = [
     ("Экранное время и нагрузка", "◔", """
         screentime.py screentime_daemon.py appmem jtop yt-study"""),
     ("Clocker и hub", "⏱", """
-        routine_app.py focus_mode.py pomo_lock.py lday.py alarm clocker discipline routine pomo hub hub-open rem dict wa tfa jchat jchat-tg jchat-wa"""),
+        routine_app.py focus_mode.py pomo_lock.py lday.py alarm clocker discipline routine pomo hub hub-open rem dict later block holst.py iv iv_table.py iv_form.py castle_app.py castle_art.py castle_biomes.py castle_sound.py wa tfa jchat jchat-tg jchat-wa"""),
     ("Будильник", "⏰", """
         wake_alarm.py jarvis-rtc-wake.sh wake_overlay.py wake-alarm"""),
     # Служебное
@@ -318,6 +318,10 @@ DESC = {
     "bar_volume.sh": "Щелчки и колёсико звука в баре: на динамики или микрофон — что показано",
     "wb_share": "Общий исполнитель модулей бара: команда идёт одна на оба монитора (через wb_hub.py)",
     "hub-open": "Открыть окно hub (одно на всех); hub-open dict — словарь",
+    "iv": "Собеседования: список, новое, «сходил»; те же заметки, что в Журнале встреч",
+    "later": "Потом и Холст: отложить задачу или записать чувство, не выходя из фокуса",
+    "holst.py": "Окно Холста и Потом: дневник чувств на день и список отложенного",
+    "block": "Блок дня Better: минуты на рынок и код",
     "jchat": "Свои чаты WhatsApp+Telegram в терминале; демон живёт, пока открыт jchat",
     "start_glyphs.py": "Символы кнопки «Пуск»: ярлык/значок × 8 символов",
     "wa": "Отложенные сообщения WhatsApp: очередь, wa new, wa add, wa app — окно; вход по паролю sudo",

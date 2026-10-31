@@ -462,3 +462,11 @@ window-rule {
     default-column-width { fixed 980; }
     default-window-height { fixed 640; }
 }
+
+// Замок (castle_app.py), 30.10.2026: окно-игра, рамку и полосу рисует сам.
+window-rule {
+    match app-id="com.jarvis.castle"
+    open-floating true
+    border { off; }
+    focus-ring { off; }
+}

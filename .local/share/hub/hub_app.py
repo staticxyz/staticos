@@ -3,7 +3,7 @@
 цвета из обоев, управление как в nvim по keycode; вид общий с routine_app.py, код свой —
 Clocker тянет будильник и фокус, hub ничего этого не знает).
 
-    hub_app.py            «Лучше вчера» (growth.py, 28.10.2026) — первая вкладка
+    hub_app.py            Better (growth.py, 28.10.2026) — первая вкладка
     hub_app.py items      напоминания            hub_app.py dict   словарь (с выделенным текстом)
 
 j/k — вниз/вверх · Tab / Shift+Tab, Shift+H/L — вкладка вперёд/назад · i/a, Ctrl+E — новая запись (ввод обычным
@@ -71,7 +71,7 @@ HEAD_PRIO = {name: p for p, name in H.PRIO_NAMES.items()}
 FIELDS = ("title", "date", "time", "prio", "repeat")
 # поля под строкой ввода: имя, подсказка, ширина; не влезают в ширину — переносятся
 FORM = (("date", "дата", 210), ("time", "время", 64), ("prio", None, 96), ("repeat", None, 96))
-# 28.10.2026: «Лучше вчера» первой, потом напоминания (просьба: «чтобы она стояла первой»)
+# 28.10.2026: Better первой, потом напоминания (просьба: «чтобы она стояла первой»)
 TABS = ("growth", "items", "words")
 TAB_NAMES = {"growth": "Better", "items": "Reminders", "words": "Dictionary"}
 TAB_TITLES = {"growth": "Better", "items": "Reminders", "words": "Dictionary"}
@@ -504,7 +504,8 @@ class View:
         self.scroll = {"growth": 0, "items": 0, "words": 0}
         self.mode = "normal"            # normal | text | quiz | ginput (ввод во вкладке growth)
         self.g_op = ""                  # что вводится в ginput: wake | spend | lift | apply | hr
-        self.g_chart = None             # «Лучше вчера»: график строки за 7 дней (l — войти, h — назад)
+        self.g_chart = None             # Better: график строки за 7 дней (l — войти, h — назад)
+        self.g_cal = None               # Better: месяц (c — войти), dict(y, m, day)
         self.buf = ""
         self.buf2 = ""                  # для items: название уже набрано, buf — поле «когда»
         self.text_stage = "title"       # title | when (только для items)
@@ -609,6 +610,8 @@ class View:
         return 6 if self.c["frame"] == "skeet" else 1
 
     def height_min(self):
+        if self.tab == "growth" and self.g_cal:     # месяц целиком: кольца, сетка, день, год
+            return 700
         return self.frame_f() + 2 + 10 + 18 + 14 + ROW_H * 3 + 10 + 24 + 14 + 18 + 8 + self.frame_f()
 
     def layout_y(self, h):
@@ -715,6 +718,13 @@ class View:
             hov = self.hover == ("view",)
             vw = p.text(x1, y, label, c["text"] if hov else c["faint"], align="r")
             self.hits.append(((x1 - 4 - vw, y - 4, vw + 8, 20), ("view",)))
+        elif self.tab == "growth":              # всегда на виду (31.10.2026, пользователь); ещё щелчок — к списку
+            key, label = ("btn", "g:cal"), "Месяц"
+            bw = p.text_w(label) + 30
+            self.button(p, x1 - bw, y - 5, bw, "", key, bool(self.g_cal))
+            col = c["acc_l"] if self.g_cal or self.hover == key else c["text"]
+            G.pix(p, x1 - bw + 8, y + 2, G.ICONS["tab_month"], col, 1)
+            p.text(x1 - bw + 22, y, label, col)
 
     def row_bg(self, p, x0, x1, y, sel, key, h=ROW_H):
         c = self.c
@@ -1356,7 +1366,7 @@ class HubWindow(Gtk.ApplicationWindow):
                 v.sel[v.tab] = key[1]
                 kind, gk = G.current(v) if v.tab == "growth" else (None, None)
                 if kind == "g":
-                    # строка «Лучше вчера» — в график (29.10.2026, просьба: «по двойному щелчку
+                    # строка Better — в график (29.10.2026, просьба: «по двойному щелчку
                     # заходить в инфографику»); дела быта — по-прежнему отметить
                     self.g_chart(gk)
                 elif v.tab == "growth":
@@ -1387,9 +1397,14 @@ class HubWindow(Gtk.ApplicationWindow):
             v.sel[v.tab] = key[1]
             v.confirm_delete = None
         elif isinstance(key, tuple) and key[0] == "gseg":
-            v.sel[v.tab], v.free_scroll = key[1], False     # щелчок по отрезку «Лучше вчера» — к его строке
+            v.sel[v.tab], v.free_scroll = key[1], False     # щелчок по отрезку Better — к его строке
             if v.g_chart and key[1] < len(G.METRICS):        # в графике — график этой строки
                 v.g_chart = G.METRICS[key[1]][0]
+        elif isinstance(key, tuple) and key[0] == "gcal_day":
+            d = dt.date.fromisoformat(key[1])
+            v.g_cal = dict(y=d.year, m=d.month, day=d)
+        elif isinstance(key, tuple) and key[0] == "gcal_mon":
+            v.g_cal = G.cal_step(v.g_cal, months=key[1] - v.g_cal["m"])
         elif isinstance(key, tuple) and key[0] == "btn":
             self.do_button(key[1])
         elif key == ("view",):
@@ -1887,8 +1902,8 @@ class HubWindow(Gtk.ApplicationWindow):
         self.view.tab, self.view.mode = tab, "normal"
         self.set_title(self.tab_title())
 
-    # ── «Лучше вчера» (growth.py, 28.10.2026): действия с отменой через u / Ctrl+R ──
-    G_LABEL = {"cig": "сигарета", "spend": "трата", "lift": "тренировка", "speech": "речь"}
+    # ── Better (growth.py, 28.10.2026): действия с отменой через u / Ctrl+R ──
+    G_LABEL = {"cig": "сигарета", "spend": "трата", "lift": "тренировка", "speech": "речь", "wake": "подъём", "bed": "отбой"}
 
     def g_push(self, label, forward, backward):
         """Действие уже сделано — только в стек отмены (run_action выполнил бы его ещё раз)."""
@@ -1917,8 +1932,17 @@ class HubWindow(Gtk.ApplicationWindow):
             self.g_submit()
         elif act == "chart":
             self.g_chart(None)
+        elif act == "cal":
+            if v.mode == "ginput":              # кнопка видна и при вводе в строке
+                self.g_do("cancel")
+            self.g_month(not v.g_cal)
+        elif act.startswith("calm:"):
+            v.g_cal = G.cal_step(v.g_cal, months=int(act[5:]))
         elif act == "tochores":
             v.sel["growth"] = next(i for i, r in enumerate(G.rows(v)) if r[0] == "chore")
+        elif act == "blockstd":
+            v.mode, v.buf, v.cur = "normal", "", None
+            v.flash(G.block_text("с"))
         elif act.startswith("i:"):
             v.mode, v.g_op, v.buf, v.cur = "ginput", act[2:], "", None
         elif act.startswith("pomo"):
@@ -1964,6 +1988,12 @@ class HubWindow(Gtk.ApplicationWindow):
         if not text:
             v.mode = "normal"
             return
+        if v.g_op == "block":
+            said = G.block_text(text)
+            if said:
+                v.mode, v.buf, v.cur = "normal", "", None
+            v.flash(said or "не понял: «45 60» или «с»")
+            return
         said, ids = G.do_text(c, v.g_op, text)
         if ids is None:
             v.flash(said)                      # не понял — ввод остаётся, можно поправить
@@ -2005,11 +2035,36 @@ class HubWindow(Gtk.ApplicationWindow):
         elif ch == "r":
             self.g_do("refresh")
 
+    def g_month(self, on):
+        """Месяц вместо списка (31.10.2026, просьба: «просматривать сразу по месяцам»)."""
+        v = self.view
+        v.g_chart = None
+        v.g_cal = G.cal_open(v.conn) if on else None
+        self.resize_to_min()
+
+    def g_month_key(self, ch, name, shift):
+        """Клавиши месяца: h/l день, j/k неделя, H/L или [ ] месяц, Esc/c — к списку."""
+        v = self.view
+        if shift and ch in ("h", "l") or ch in ("[", "]"):
+            v.g_cal = G.cal_step(v.g_cal, months=-1 if ch in ("h", "[") else 1)
+        elif ch in ("h", "l"):
+            v.g_cal = G.cal_step(v.g_cal, days=-1 if ch == "h" else 1)
+        elif ch in ("j", "k"):
+            v.g_cal = G.cal_step(v.g_cal, days=7 if ch == "j" else -7)
+        elif ch == "c" or name in ("Escape", "BackSpace"):
+            self.g_month(False)
+        elif ch == "q":
+            self.close()
+        elif ch == "r":
+            self.g_do("refresh")
+
     def g_key(self, ch, name):
         v = self.view
         kind, key = G.current(v)
         if ch == "l" and kind == "g":
             self.g_chart(key)
+        elif ch == "c":
+            self.g_month(True)
         elif name in ("Return", "KP_Enter", "space") or ch == " ":
             self.g_primary()
         elif ch in ("i", "a", "n", "e"):
@@ -2018,10 +2073,12 @@ class HubWindow(Gtk.ApplicationWindow):
         elif ch == "x" or ch == "-":
             if kind == "chore":
                 self.g_do("chore")
-            elif key in ("cig", "money", "lift", "speech"):
+            elif key in ("cig", "money", "lift", "speech", "wake", "bed"):
                 self.g_do({"money": "-spend"}.get(key, "-" + key))
         elif ch == "=" and key == "cig":                 # «+» без Shift
             self.g_do("+cig")
+        elif ch == "b":
+            self.g_do("i:block")
         elif ch == "r":
             self.g_do("refresh")
 
@@ -2334,6 +2391,9 @@ class HubWindow(Gtk.ApplicationWindow):
             return
         if ctrl:
             return
+        if v.tab == "growth" and v.g_cal:
+            self.g_month_key(ch, name, shift)
+            return
         if v.tab == "growth" and v.g_chart and not shift:
             self.g_chart_key(ch, name)
             return
@@ -2416,7 +2476,7 @@ class App(Gtk.Application):
         args = cl.get_arguments()[1:]
         toggle = "--toggle" in args
         args = [a for a in args if a != "--toggle"]
-        # без аргумента — «Лучше вчера», а у уже открытого окна вкладка остаётся как была
+        # без аргумента — Better, а у уже открытого окна вкладка остаётся как была
         tab = "words" if "dict" in args else "items" if "items" in args else \
             "growth" if "growth" in args else None
         # --toggle (как в Clocker): окно открыто и в фокусе — закрыть;
@@ -2443,9 +2503,11 @@ class App(Gtk.Application):
 
 
 def shot(path, tab="growth", sel=0, mode="normal", style=None, w=0, h=0, view=None,
-         field="title", fdate="", ftime="", fprio=0, frepeat="", gop="spend", chart=None):
+         field="title", fdate="", ftime="", fprio=0, frepeat="", gop="spend", chart=None, cal=None):
     v = View()
     v.g_chart = chart
+    if cal:
+        v.g_cal = G.cal_open(v.conn, None if cal == 1 else dt.date.fromisoformat(cal))
     if view:
         v.view_mode = view
     v.field, v.f_date, v.f_time, v.f_prio = field, str(fdate), str(ftime), int(fprio)

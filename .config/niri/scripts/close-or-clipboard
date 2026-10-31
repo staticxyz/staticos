@@ -43,6 +43,26 @@ close_by_args() {
 if printf '%s' "$layers" | grep -Eq '"namespace": *"jarvis-calc"'; then
     close_by_args 'translate_popup[.]py' && exit 0
 fi
+# Холст и Потом (30.10.2026): pid в файле, SIGTERM записывает страницу и закрывает.
+if printf '%s' "$layers" | grep -Eq '"namespace": *"jarvis-holst"'; then
+    pid=
+    { read -r pid < "$RUN/jarvis-holst.pid"; } 2>/dev/null
+    if [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ]; then
+        case "$(tr '\0' ' ' < "/proc/$pid/cmdline")" in
+            *holst*) kill -TERM "$pid" 2>/dev/null && exit 0 ;;
+        esac
+    fi
+fi
+# Таблица собеседований (30.10.2026): то же.
+if printf '%s' "$layers" | grep -Eq '"namespace": *"jarvis-ivtable"'; then
+    pid=
+    { read -r pid < "$RUN/jarvis-ivtable.pid"; } 2>/dev/null
+    if [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ]; then
+        case "$(tr '\0' ' ' < "/proc/$pid/cmdline")" in
+            *iv_table*) kill -TERM "$pid" 2>/dev/null && exit 0 ;;
+        esac
+    fi
+fi
 # Окна preset_ask (Pomo.exe, Timer.exe, Preset.exe, «Точно?»): SIGTERM у них = отмена (16.10.2026).
 if printf '%s' "$layers" | grep -Eq '"namespace": *"jarvis-preset"'; then
     close_by_args 'preset_ask[.]py' && exit 0

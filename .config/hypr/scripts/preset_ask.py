@@ -45,6 +45,7 @@ PX, PAD…), шрифт, растровые значки, стекло (read_gla
 """
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -241,6 +242,8 @@ class Win(Gtk.Window):
 
 
 class Dialog:
+    caret = True                               # курсор в поле; окно с двумя полями гасит его
+
     def __init__(self, names, test=False, style=None):
         self.test = test
         self.names = names
@@ -326,7 +329,14 @@ class Dialog:
         """Строка i — выбрана, её имя — в поле."""
         if self.names:
             i = max(0, min(len(self.names) - 1, i))
-            self.set_entry(self.names[i])
+            if MERGE_TIME:
+                # Timer.exe (15.10.2026, просьба: «чтобы можно было сначала задать время, потом
+                # название»): время из списка встаёт к набранному названию, а не вместо него,
+                # и с пробелом в конце — дальше можно сразу печатать название.
+                rest = " ".join(w for w in self.entry.split() if not TIME_RE.fullmatch(w))
+                self.set_entry(self.names[i] + " " + (rest + " " if rest else ""))
+            else:
+                self.set_entry(self.names[i])
             self.sel = i
 
     def move(self, d):
@@ -663,9 +673,10 @@ class Dialog:
         else:
             self.text(cr, PLACEHOLDER, x + 6, y, C["dim"], alpha=0.75)
             cx = x
-        cr.set_source_rgb(*C["accent"])                      # курсор — как в поиске буфера
-        cr.rectangle(cx, y, 2 if K == 2 else 1, PX)
-        cr.fill()
+        if self.caret:
+            cr.set_source_rgb(*C["accent"])                  # курсор — как в поиске буфера
+            cr.rectangle(cx, y, 2 if K == 2 else 1, PX)
+            cr.fill()
 
     # ── список ─────────────────────────────────────────────────────────────
     def draw_list_box(self, cr):
@@ -921,8 +932,12 @@ def sound(event):
     threading.Thread(target=play, daemon=True).start()
 
 
+MERGE_TIME = False                         # --ask Timer.exe: варианты — время, складываются с названием
+TIME_RE = re.compile(r"(\d+([dhmsDHMS]|мин|м|ч|сек|с|д)?)+|\d{1,2}:\d{2}(:\d{2})?")
+
+
 def main():
-    global TITLE, PLACEHOLDER, GROUP, EMPTY, HINT, OVERWRITE, ICON_BMP, DATES
+    global TITLE, PLACEHOLDER, GROUP, EMPTY, HINT, OVERWRITE, ICON_BMP, DATES, MERGE_TIME
     if sys.argv[1:2] == ["--ask"]:
         # preset_ask.py --ask ЗАГОЛОВОК ПОДСКАЗКА-ПОЛЯ ПОДПИСЬ-СПИСКА ПОДСКАЗКА-СНИЗУ [ВАРИАНТ…]
         # то же окно для других вопросов (05.10.2026: «Создать таймер…» → Timer.exe)
@@ -931,6 +946,7 @@ def main():
         EMPTY, OVERWRITE, DATES = "", "", False
         if TITLE.lower().startswith(("timer", "pomo")):
             ICON_BMP = CLOCK_BMP
+            MERGE_TIME = True
         sys.argv = [sys.argv[0]] + [x for x in sys.argv[6:]]
     if sys.argv[1:2] == ["--confirm"]:
         # preset_ask.py --confirm ЗАГОЛОВОК ВОПРОС [ПОЯСНЕНИЕ] → «yes» или пусто

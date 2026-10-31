@@ -343,9 +343,12 @@ def sync_messages(c, bot):
 HELP_TEXT = Html(
     "<b>◆ " + BRAND + " · СПРАВКА</b>\n"
     "<i>Пишите как человеку, сэр, — разберу. Голосовые тоже.</i>\n"
-    "\n<b>■ ЛУЧШЕ ВЧЕРА</b>\n"
-    "📈 /better — сегодня против вчера: сон, код, речь, отклики, видео и игры, траты, сигареты, сила, быт\n"
-    "📅 /week — неделя таблицей\n"
+    "\n<b>■ BETTER</b>\n"
+    "📈 /better — взято и удержано: сон, код, речь, отклики, видео и игры, траты, сигареты, сила, быт\n"
+    "📅 /week — неделя таблицей, /month — месяц по дням\n"
+    "🎯 /block — блок дня: минуты на рынок и код\n"
+    "📝 /later текст — отложить задачу\n"
+    "💭 /holst текст — выгрузить мысль или чувство\n"
     "\n<b>■ ЗАДАЧИ</b>\n"
     "📝 <code>купить хлеб       </code> новая задача\n"
     "⏰ <code>завтра в 10 звонок</code> со сроком\n"
@@ -378,6 +381,11 @@ HELP_ALL = Html(
     "\n<b>■ ЛУЧШЕ ВЧЕРА</b>\n"
 "📈 <code>/better · /growth · /лучше</code> пульт: отметить, быт, неделя\n"
 "📅 <code>/week · /неделя    </code> 7 дней таблицей\n"
+"🎯 <code>/block 45 60        </code> блок дня: рынок, код (default — 10 и 20)\n"
+"🎯 <code>/iv · /собес         </code> собеседования: список, новое, «сходил»\n"
+"⚡ <code>/castle · /замок    </code> энергия и постройка ступени\n"
+"📝 <code>/later · /потом     </code> отложенные задачи: текст — записать, без текста — показать\n"
+"💭 <code>/holst · /холст     </code> холст: мысли и чувства во время работы\n"
 "🧹 <code>/chores · /быт     </code> бытовые дела\n"
 "🚬 <code>/cig · /cig -      </code> +1 · −1 сигарета\n"
 "💸 <code>/spend 1500 обед   </code> трата (2к = 2000)\n"
@@ -450,7 +458,7 @@ HELP_ALL = Html(
 "📚 <code>/help all          </code> эта страница\n"
     "<i>Голосовые понимаю как текст.</i>")
 
-MENU = [("better", "📈 лучше вчера: отметить, неделя"), ("away", "🚪 охрана — ухожу из дома"), ("tasks", "✅ пульт задач"), ("timer", "⏱ таймеры"), ("pomo", "🍅 помидор"), ("words", "📖 словарь"),
+MENU = [("better", "📈 better: отметить, неделя, месяц"), ("iv", "🎯 собеседования"), ("castle", "⚡ замок: энергия, постройка"), ("away", "🚪 охрана — ухожу из дома"), ("tasks", "✅ пульт задач"), ("timer", "⏱ таймеры"), ("pomo", "🍅 помидор"), ("words", "📖 словарь"),
         ("wa", "💬 WhatsApp: отложенные"), ("pc", "💻 управление ПК"), ("alarm", "🔔 будильник и Сторож"),
         ("log", "📜 журнал: сон, пробуждения"), ("help", "❓ справка")]
 
@@ -1565,7 +1573,7 @@ def start_timer_reply(c, secs, name=""):
 
 def command(c, cmd, arg, bot=None, chat=None):
     import growth as G
-    g = G.tg_command(c, cmd, arg, chat)             # «Лучше вчера» (28.10.2026)
+    g = G.tg_command(c, cmd, arg, chat)             # Better (28.10.2026)
     if g is not None:
         return g
     import hubpomo as P
@@ -1832,7 +1840,7 @@ def handle_callback(c, bot, chat, mid, cb_id, data):
         import hubpomo as P
         P.tg_callback(c, bot, chat, mid, cb_id, rest)
         return
-    if k == "g":                                    # «Лучше вчера»: /better (28.10.2026)
+    if k == "g":                                    # Better: /better (28.10.2026)
         import growth as G
         G.tg_callback(c, bot, chat, mid, cb_id, rest)
         return

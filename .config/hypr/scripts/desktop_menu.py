@@ -237,7 +237,8 @@ WIDGET_KINDS = [
     ("pomo", "\U000f051b", "pomodoro.exe — помодоро"),
     ("screentime", "\U000f13ab", "screentime.exe — экранное время"),
     ("screenmonth", "\U000f13ab", "screenmonth.exe — экранное время за месяц"),
-    ("better", "\U000f0535", "better.exe — лучше вчера"),
+    ("better", "\U000f0535", "better.exe — ступени дня"),
+    ("castle", "\U000f0b9d", "castle.exe — замок"),
     ("appmem", "\U000f035b", "ram.exe — память по программам"),
     ("appcpu", "\U000f0ee0", "cpu.exe — процессор по программам"),
     ("sysinfo", "\U000f08c7", "fetch.exe — fastfetch"),
@@ -1059,7 +1060,7 @@ def run(dry_run=False):
         if st["restart"]:
             GLib.timeout_add(300, restart)
 
-    def fit_menus(menu, py, surf_h):
+    def fit_menus(menu, py, surf_h, surf_w=None):
         """Меню и подменю — целиком НАД нижней панелью (05.10.2026, просьба: «меню
         должно быть видно полностью; не хватает места — пусть открывается выше»).
         niri ограничивает всплывающие меню только краем экрана, а XP-панель лежит поверх
@@ -1113,6 +1114,69 @@ def run(dry_run=False):
             want[sub] = int(d)
             tops[sub] = item_top + d
 
+        def pos_log(sub, _fr, _final, fx, fy, item):
+            # 29.10.2026, просьба: подменю «иногда создаётся чуть дальше, курсором туда не
+            # зайти». Причину по исходникам не поймать — пишем, где GTK и niri его поставили.
+            def later():
+                try:
+                    win = sub.get_toplevel().get_window()
+                    pw = item.get_toplevel().get_window()
+                    line = "%s %r dx=%s flip=%s/%s sub=%s+%dx%d parent=%s item=%s+%d\n" % (
+                        time.strftime("%H:%M:%S"), item.get_label() if hasattr(item, "get_label") else "?",
+                        sub.get_property("rect-anchor-dx"), fx, fy, win.get_origin()[1:],
+                        win.get_width(), win.get_height(), pw.get_origin()[1:],
+                        item.get_allocation().x, item.get_allocation().width)
+                    with open(os.path.expanduser("~/.cache/jarvis/desktop-menu-pos.log"), "a") as f:
+                        f.write(line)
+                except Exception as e:                    # noqa: BLE001 — только журнал
+                    print("pos_log:", e, file=sys.stderr)
+                return False
+            GLib.timeout_add(80, later)
+
+        # Сторона подменю — своя (29.10.2026, просьба: «доп. меню создаётся чуть дальше, курсором
+        # туда не зайти из-за пространства между ними»). По журналу pos_log: GTK просит подменю
+        # справа (rect-anchor-dx +14), места нет — niri (Smithay) переворачивает anchor/gravity, но
+        # не offset: подменю встаёт слева, наехав на родителя на 22 px, а GTK о перевороте не
+        # узнаёт (popped-up flipped_x=False) и следующее подменю снова просит справа — с зазором.
+        # Поэтому место считаем сами (x — в координатах поверхности стола, она же цель niri) и
+        # ставим dx так, чтобы подменю влезало без переворота: справа или слева от родителя,
+        # в ту же сторону, что и родитель, если влезает.
+        pos, dx_ours = {}, {}
+
+        def main_pos(mm, *_a):
+            try:
+                win = mm.get_toplevel().get_window()
+                pos[mm] = (win.get_origin()[1], win.get_width(), 1)
+            except (AttributeError, TypeError, IndexError):
+                pass
+
+        def on_dx(sub, _pspec, item, parent):
+            v = sub.get_property("rect-anchor-dx")
+            if v == dx_ours.get(sub) or parent not in pos or not surf_w:
+                return
+            px_, pw_, pside = pos[parent]
+            try:
+                ix = item.translate_coordinates(parent.get_toplevel(), 0, 0)[0]
+            except TypeError:
+                return
+            iw = item.get_allocated_width()
+            sw = sub.get_toplevel().get_preferred_width()[1]
+            k = abs(v)
+            il, ir = px_ + ix, px_ + ix + iw
+            xr, xl = ir + k, il - k - sw                  # справа / слева, как у GTK без переворота
+            fits = {1: xr + sw <= surf_w, -1: xl >= 0}
+            side = pside if fits[pside] else -pside if fits[-pside] else None
+            if side is None:
+                return                                    # не влезает нигде — пусть решает niri
+            x = xr if side > 0 else xl
+            # GTK: v ≥ 0 — якорь справа от пункта (x = ir + dx), v < 0 — слева (правый край = il + dx)
+            dx = (x - ir) if v >= 0 else (x + sw - il)
+            pos[sub] = (x, sw, side)
+            dx_ours[sub] = int(dx)
+            sub.set_property("rect-anchor-dx", int(dx))
+
+        menu.connect("popped-up", main_pos)
+
         def hook(mm):
             # оценка места пункта — сумма высот пунктов выше + поле 8 px; «select» уточняет
             y_acc, rows_seen = 8, {}
@@ -1134,6 +1198,8 @@ def run(dry_run=False):
                     continue
                 place(sub, tops.get(mm, 0) + est_top)
                 sub.connect("notify::rect-anchor-dy", on_dy)
+                sub.connect("popped-up", pos_log, it)
+                sub.connect("notify::rect-anchor-dx", on_dx, it, mm)
 
                 def on_select(item, sub=sub, parent=mm):
                     place(sub, tops.get(parent, 0) + item.get_allocation().y)
@@ -1158,7 +1224,7 @@ def run(dry_run=False):
         m = build_menu(Gtk, on_action, on_quick)
         m.connect("deactivate", menu_done)
         st["menu"] = m
-        fit_menus(m, ev.y, _w.get_allocated_height())
+        fit_menus(m, ev.y, _w.get_allocated_height(), _w.get_allocated_width())
         _w.jarvis_raised = True
         GtkLayerShell.set_layer(_w, GtkLayerShell.Layer.TOP)
         _w.queue_draw()

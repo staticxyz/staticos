@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Потом и Холст (30.10.2026): записать и вернуться к делу.
+
+    later            окно, ввод в поле «Потом»
+    later --holst    окно, ввод в Холсте (Super+Shift+I)
+                     само окно и его клавиши — ~/.config/hypr/scripts/holst.py
+    later ТЕКСТ      записать без окна; с --holst — в заметку дня
+    later list       показать; с --holst — Холст за сегодня
+    later done N     убрать задачу из списка
+"""
+import os
+import sys
+
+a = sys.argv[1:]
+kind = "thought" if "--holst" in a else "later"
+a = [x for x in a if x != "--holst"]
+if not a:                                          # до импорта growth: клавиша должна срабатывать сразу
+    HOLST = os.path.expanduser("~/.config/hypr/scripts/holst.py")
+    os.execv(sys.executable, [sys.executable, HOLST, "holst" if kind == "thought" else "later"])
+
+sys.path.insert(0, os.path.expanduser("~/.local/share/hub"))
+import growth as G  # noqa: E402
+import hublib  # noqa: E402
+
+
+def main():
+    c = hublib.connect()
+    if a == ["list"] and kind == "thought":
+        print(G.holst_page(G.today(c).isoformat()))
+    elif a == ["list"]:
+        for i, r in enumerate(G.later_list(c), 1):
+            print("%d. %s" % (i, r["note"]))
+    elif len(a) == 2 and a[0] == "done" and a[1].isdigit():
+        items = G.later_list(c)
+        n = int(a[1])
+        if not 1 <= n <= len(items):
+            sys.exit("нет записи %d" % n)
+        G.remove(c, items[n - 1]["id"])
+    else:
+        G.later_add(c, " ".join(a), kind=kind)
+
+
+if __name__ == "__main__":
+    main()
