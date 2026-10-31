@@ -57,7 +57,7 @@ ZEN_KIND = {
 SCRIPT = {
     "desktop_widgets": "desktop widgets", "xpbar": "bottom panel", "top_bar": "top bar watcher",
     "lyrics_sync": "lyrics sync", "lyrics_bar": "lyrics", "screentime_daemon": "screen time",
-    "mem-guard": "memory guard", "cursor_shake": "shake to find cursor",
+    "cursor_shake": "shake to find cursor",
     "ui_sound_watch": "UI sounds", "hot_corners": "hot corners", "dnd_sounds": "DND silence",
     "notif_log": "notification log", "track_notify": "track notifications",
     "cpu_hog_watch": "CPU hog watch", "bar_watch": "bar watcher", "focus_mode": "focus mode",

@@ -57,7 +57,7 @@ NAMES = {
     # отдельными строками (TERM_APPS в screentime_daemon.py).
     "steam_app_730": "CS2",
     "nvim": "Neovim", "jtetris": "jtetris", "jchat": "jchat", "btop": "btop",
-    "opencode": "OpenCode", "agy": "Antigravity CLI", "jtype": "jtype", "yazi": "yazi",
+    "jtype": "jtype", "yazi": "yazi",
     "steam": "Steam",
     "unknown": "Unknown window",
 }

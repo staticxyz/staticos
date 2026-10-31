@@ -327,26 +327,6 @@ window-rule {
     focus-ring { off; }
 }
 
-// Сфера Джарвиса — правый нижний угол, полупрозрачная, чтобы чёрный фон
-// сферы пропускал обои. pin не ставим: его нет ни у одного другого окна.
-window-rule {
-    match app-id=r#"^orb\.py$"#
-    open-floating true
-    default-column-width { fixed 620; }
-    default-window-height { fixed 620; }
-    default-floating-position x=30 y=80 relative-to="bottom-right"
-    opacity 0.60
-}
-
-// Текстовая панель Джарвиса — правый верхний угол
-window-rule {
-    match app-id=r#"^jarvis-panel$"#
-    open-floating true
-    default-column-width { fixed 620; }
-    default-window-height { fixed 380; }
-    default-floating-position x=30 y=20 relative-to="top-right"
-}
-
 // Картинка в картинке (LibreWolf, Zen и Helium с 29.10) — правый нижний угол, 640x360.
 window-rule {
     // Helium называет окно «Automatic picture-in-picture» (29.10) — шаблон без учёта регистра.
@@ -384,7 +364,7 @@ window-rule {
     }
 }
 
-// Пробные окна Джарвиса (заголовок shadertest). Фокус НЕ забирают: иначе
+// Пробные окна (заголовок shadertest). Фокус НЕ забирают: иначе
 // всплывающее окно сбивало пользователя с работы, и он закрывал его рефлекторно
 // вместе с тем, что делал. Монитор — основной, по его же просьбе (28.09.2026):
 // на ноутбуке он проб не видел.

@@ -14,7 +14,7 @@
 звонок слышно, а взять его — Alt+Q.
 
     tg_call_pocket.py          сторож (живёт в staticos_host)
-    tg_call_pocket.py check    самопроверка (jarvis-doctor)
+    tg_call_pocket.py check    самопроверка
     tg_call_pocket.py off|on   выключить / включить (файл state/tg-call-pocket-off)
 
 Журнал — ~/.cache/jarvis/tg-call-pocket.log.

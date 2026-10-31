@@ -1183,9 +1183,9 @@ class StartMenu(Gtk.Window):
     W11_PINS = 18
     W11_MIN = 12
     W11_REC = 6
-    # 23.10.2026, просьба: в «Рекомендуем» вместо Claude и Helium — Postman и DBeaver (первыми).
+    # 23.10.2026, просьба: в «Рекомендуем» вместо Helium — Postman и DBeaver (первыми).
     W11_REC_FIRST = ("postman.desktop", "io.dbeaver.DBeaver.desktop")
-    W11_REC_HIDE = ("com.anthropic.Claude.desktop", "helium.desktop")
+    W11_REC_HIDE = ("helium.desktop",)
 
     def w11_build(self):
         catch = Gtk.EventBox()

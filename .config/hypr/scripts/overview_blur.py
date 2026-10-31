@@ -13,7 +13,7 @@ MSI выключено, и обзор показывал резкие обои.
 не трогаем (--no-cache): после перезапуска демон поднимет настоящие обои.
 
     overview_blur.py          сторож (живёт в staticos_host)
-    overview_blur.py check    самопроверка (jarvis-doctor)
+    overview_blur.py check    самопроверка
     overview_blur.py off|on   выключить / включить (файл state/overview-blur-off)
 """
 import json

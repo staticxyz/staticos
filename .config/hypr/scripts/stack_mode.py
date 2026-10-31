@@ -629,7 +629,7 @@ def css_block(path, begin, end, css):
 
 VSCODE_SETTINGS = os.path.expanduser("~/.config/Code/User/settings.json")
 VENCORD_CSS = os.path.expanduser("~/.config/Vencord/settings/quickCss.css")
-OBSIDIAN_VAULT = os.path.expanduser("~/Documents/PersonalOS/.obsidian")
+OBSIDIAN_VAULT = os.path.expanduser("~/Documents/Vault/.obsidian")
 OBSIDIAN_SNIPPET = "stack-buttons"
 STEAM_CSS = [os.path.expanduser("~/.local/share/Steam/millennium/themes/" + p) for p in
              ("JarvisPixel/libraryroot.custom.css", "SpaceTheme/src/css/libraryroot.custom.css")]

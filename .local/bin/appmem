@@ -146,7 +146,7 @@ BY_COMM = {
     "polkitd": "System services", "(sd-pam)": "System services",
     # 06.10.2026, для jtop: имена, которые в списке были непонятны
     "plasma-systemmo": "KDE System Monitor", "drkonqi-coredum": "Crash reporter",
-    "agy": "Antigravity CLI", "nvim": "Neovim", "nvidia-smi": "GPU monitor",
+    "nvim": "Neovim", "nvidia-smi": "GPU monitor",
 }
 SYSTEM_PREFIX = ("systemd", "dbus-", "gvfs", "at-spi", "dconf")
 SHELLS = ("fish", "bash", "zsh", "sh", "kitten")

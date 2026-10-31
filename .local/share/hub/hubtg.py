@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""hub — Telegram-слой. Без ИИ: команды, кнопки, быстрый текст. Только стандартная библиотека.
+"""hub — Telegram-слой: команды, кнопки, быстрый текст. Только стандартная библиотека.
 
 Bot ходит на HUB_TG_API (по умолчанию api.telegram.org) — для теста подставляется фейковый сервер.
 Принимает сообщения только от владельца (config.json: owner). Пусто — отказ всем."""
@@ -720,7 +720,7 @@ def _line(it, n, show_list, show_prio):
 
 def console(c, note=None, pick=None, **change):
     """Пульт задач → (Html, кнопки). change — per/mode/arg (запоминаются в meta);
-    note — строка ассистента вместо «Открыто N»; pick — "edit"/"del": вместо кнопок номера."""
+    note — своя строка вместо «Открыто N»; pick — "edit"/"del": вместо кнопок номера."""
     import datetime as dt
     v = view_get(c)
     v.update({k: x for k, x in change.items() if x is not None})

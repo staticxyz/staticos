@@ -1393,7 +1393,7 @@ def window_icon_id(app_id, title):
 
 
 def pin_id(w):
-    """Чей закреп «занимает» окно — по значку на панели, не по app_id: kitty с Claude, nvim,
+    """Чей закреп «занимает» окно — по значку на панели, не по app_id: kitty с nvim,
     btop показываются своими значками, и закреп kitty при таких окнах пропадал из панели
     (23.10.2026, просьба: «закрываю kitty — он исчезает из панели»)."""
     return window_icon_id(w.get("app_id") or "", w.get("title"))
@@ -4002,18 +4002,12 @@ def title_count(app_id, title):
 
 def badge_holder(wins):
     """Окно программы, на котором рисовать счётчик: одно на программу (21.10.2026, просьба: «у всех окон этот красный значок, хотя уведомлений там нет» — пришло одно от kitty, «1»
-    встала на все четыре окна kitty). Просит внимания — оно; уведомление Claude Code —
-    окно, где Claude ждёт ввода (заголовок «✳ …»); иначе — последнее бывшее в фокусе."""
+    встала на все четыре окна kitty). Просит внимания — оно; иначе — последнее
+    бывшее в фокусе."""
     def ts(w):
         t = w.get("focus_timestamp") or {}
         return (t.get("secs", 0), t.get("nanos", 0))
     pick = [w for w in wins if w.get("is_urgent")]
-    last = next((r for r in _badge["log"] if _norm(r.get("app")) == _norm(wins[0].get("app_id"))), None) \
-        if wins else None
-    if not pick and last and last.get("summary") == "Claude Code":
-        pick = [w for w in wins if (w.get("title") or "").startswith("\u2733")]
-        if not pick:                         # нужного окна нет — значок не на чужом окне
-            return None
     return max(pick or wins, key=ts)["id"] if wins else None
 
 
@@ -5489,7 +5483,7 @@ class XPBar(Gtk.Window):
             # открывались в конце списка»; прежде вставало рядом с её окнами, как в Windows 10)
             # закреп, о котором порядок ещё не знает (закрепили из «Пуска»), — на место
             # первого окна программы, а не в конец
-            # программа — по видимому значку (pin_id): kitty с nvim/Claude не «окно kitty» (23.10.2026,
+            # программа — по видимому значку (pin_id): kitty с nvim не «окно kitty» (23.10.2026,
             # Пользователь: kitty, переставленный влево, открывался в конце — его место занимали nvim-окна)
             pid = {b: (pin_id(self.state.windows[b.wid]) if b.wid in self.state.windows else b.app_id)
                    for b in order}
@@ -5607,7 +5601,7 @@ class XPBar(Gtk.Window):
             app = w.get("app_id") or ""
             pinned = app in pins_of(pins_load(), self.connector)
             info = app_info(app)
-            # окно со своим значком (Claude, nvim, btop в kitty) закрепляет саму программу
+            # окно со своим значком (nvim, btop в kitty) закрепляет саму программу
             own = pin_id(w) == app
             name = info.get_display_name() if info else app
             pin_label = ("Открепить" if pinned else "Закрепить") + (

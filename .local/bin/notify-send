@@ -37,7 +37,7 @@ case "${key,,}" in
     *пипетка*|*цвет*)                          icon=color-picker ;;
     *вентилятор*|*fan*|*температур*)           icon=psensor ;;
     *vault*|*синхрон*|*obsidian*)              icon=folder-sync ;;
-    *память*|*mem-guard*|*memory*)             icon=dialog-warning ;;
+    *память*|*memory*)             icon=dialog-warning ;;
     *таймер*|*timer*|*pomo*)                   icon=alarm-clock ;;
     *обои*|*тема*|*wallpaper*)                 icon=preferences-desktop-wallpaper ;;
     *микрофон*|*mic*)                          icon=audio-input-microphone ;;

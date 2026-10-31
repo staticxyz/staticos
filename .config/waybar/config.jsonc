@@ -115,10 +115,7 @@
             // кружок-точку.
             "class<DBeaver>": "",
             "class<com.rafaelmardojai.Blanket>": "",
-            // Джарвис: окно зовётся по имени скрипта, orb.py. Голова робота.
-            "class<[^>]*orb\\.py[^>]*>.*": "󰚩",
-            // Dolphin. Единственное, что оставалось без своей иконки помимо
-            // Джарвиса, и потому вечно висело в предупреждениях theme-doctor.
+            // Dolphin: без своей иконки вечно висел в предупреждениях theme-doctor.
             "class<[^>]*dolphin[^>]*>.*": "",
             "class<sysmontask>": "",
             "class<brave-browser>": "",
@@ -184,9 +181,8 @@
             "class<org.kde.discover>": "",
             "class<[^>]*speedcrunch[^>]*>.*": "",
             "class<[^>]*postman[^>]*>.*": "",
-            "class<[^>]*jarvis-panel[^>]*>.*": "󰚩",
             // ── добавлено 13.10.2026 (П8): программы, у которых вместо значка был номер стола ──
-            // Свои окна Джарвиса
+            // Свои окна
             "class<(com.jarvis.hub|hub_app\\.py)>": "󰂚",
             "class<com.jarvis.wa>": "󰖣",
             "class<alarm_app\\.py>": "󰀠",

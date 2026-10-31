@@ -41,7 +41,7 @@ GAP_MANY = 1.0          # если в очереди больше MANY
 MANY = 10
 BODY_MAX = 2000
 MARK = "x-jarvis-replay"
-NUM_APPS = ("Джарвис", "staticOS", "System", "Энергия", "Замок")     # в тексте только показания
+NUM_APPS = ("staticOS", "System", "Энергия", "Замок")     # в тексте только показания
 MATCHES = ("type='method_call',interface='org.freedesktop.Notifications',member='Notify'",
            "type='method_return',sender='org.freedesktop.Notifications'",
            "type='signal',interface='org.freedesktop.Notifications',member='NotificationClosed'")

@@ -143,7 +143,7 @@ tells you what each file does and what starts it, without opening anything.
 - **`Super+X` menu** in the spirit of Omarchy: apps by category, screenshots and toggles,
   install / remove / update packages through fzf, system and power. Any site as its own
   window — `webapp add Name URL`.
-- **Hub** — reminders, lists, timers and a spaced-repetition dictionary with no AI involved,
+- **Hub** — reminders, lists, timers and a spaced-repetition dictionary,
   its own SQLite database, a Discipline-styled window (`Super+M`) and an optional Telegram bot
   that reaches you when you're away from the computer. [How it works →](docs/hub.md)
 - **Island** — a small capsule at the top centre: calls (with mute for the call only), recording,

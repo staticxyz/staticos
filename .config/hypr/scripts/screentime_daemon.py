@@ -89,8 +89,8 @@ SHELLS = {"fish", "zsh", "bash", "sh"}
 # Ключ — то, что detail_of() достаёт из заголовка; значение — app_id строки (имя ей
 # даёт NAMES в screentime.py). Остальное (оболочка, pacman, ffetch…) — терминал.
 TERM_APPS = {"nvim": "nvim", "vim": "nvim", "jtetris": "jtetris", "jchat": "jchat",
-             "btop": "btop", "btop++": "btop", "OC": "opencode", "OpenCode": "opencode",
-             "opencode": "opencode", "agy": "agy", "jtype": "jtype", "yazi": "yazi"}
+             "btop": "btop", "btop++": "btop",
+             "jtype": "jtype", "yazi": "yazi"}
 APP_ID = re.compile(rb"\bAppId=(\d+)")
 
 
@@ -128,7 +128,6 @@ ZEN_SESSIONS = [os.path.expanduser(d) for d in ("~/.config/zen", "~/.zen")]
 # Имена для известных адресов; остальные — домен без поддомена: almaty.hh.kz → hh.kz
 SITE_HOSTS = {"youtube.com": "YouTube", "youtu.be": "YouTube", "github.com": "GitHub",
               "mail.google.com": "Gmail", "google.com": "Google", "web.telegram.org": "Telegram",
-              "chatgpt.com": "ChatGPT",
               "reddit.com": "Reddit", "twitch.tv": "Twitch", "wikipedia.org": "Wikipedia",
               "habr.com": "Хабр", "stackoverflow.com": "Stack Overflow", "instagram.com": "Instagram",
               "vk.com": "VK", "discord.com": "Discord", "netflix.com": "Netflix",

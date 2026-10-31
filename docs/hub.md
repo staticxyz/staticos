@@ -2,8 +2,7 @@
 
 [Русская версия](ru/hub.md)
 
-Reminders, lists, timers and a spaced-repetition dictionary, with no AI anywhere in the
-loop: fixed rules, a SQLite database you can read yourself, and (optionally) a Telegram bot
+Reminders, lists, timers and a spaced-repetition dictionary: fixed rules, a SQLite database you can read yourself, and (optionally) a Telegram bot
 that reaches you when you are away from the computer. A separate background service
 (`hub.service`) does the actual firing; the windows are just a view onto the same database.
 

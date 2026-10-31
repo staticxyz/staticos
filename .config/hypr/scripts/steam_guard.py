@@ -130,7 +130,7 @@ def hung():
 
 def steam_procs():
     """Процессы клиента: всё, что запущено из ~/.local/share/Steam или /usr/lib/steam,
-    кроме игры (дерево reaper SteamLaunch — её mem-guard/сама игра закрывают отдельно)."""
+    кроме игры (дерево reaper SteamLaunch — её игра закрывает сама)."""
     out = []
     for p in mine():
         if p == os.getpid():

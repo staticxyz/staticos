@@ -2,7 +2,7 @@
 Type=Application
 Name=Reminders
 GenericName=Reminders and tasks
-Comment=Списки, напоминания, таймеры — без ИИ, своя база
+Comment=Списки, напоминания, таймеры, своя база
 Exec=hub-open
 Icon=jarvis-hub-reminders
 Terminal=false

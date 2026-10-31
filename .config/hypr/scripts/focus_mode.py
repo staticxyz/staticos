@@ -63,8 +63,6 @@ DEFAULT_BLOCKS = [
     {"label": "CS2", "app": "^cs2$|gamescope", "on": False},
     {"label": "Discord", "app": "discord|vesktop", "on": False},
     {"label": "Telegram", "app": "org\\.telegram\\.desktop", "on": False},
-    {"label": "Claude", "match": "claude", "on": False},
-    {"label": "Codex", "match": "codex", "on": False},
 ]
 # Учёба по видео: слово из списка в заголовке/названии — ролик можно и в фокусе
 # (только для правил по заголовку; правила по app-id исключений не знают).

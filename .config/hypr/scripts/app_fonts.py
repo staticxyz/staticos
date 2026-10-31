@@ -363,7 +363,7 @@ def apply_zen(font):
         'user_pref("theme.custom_uifont.default", "Custom");',
         'user_pref("browser.display.use_document_fonts", %d);'
         % (0 if zen_fonts() == "on" else 1),
-        # шрифты-значки, которым сайт может отдать свой шрифт и при «0» (07.10.2026: у Gemini
+        # шрифты-значки, которым сайт может отдать свой шрифт и при «0» (07.10.2026: у одного из сайтов
         # вместо значков были буквы — его шрифт «Luminous Symbols» не входил в список Zen)
         ICON_FONTS_PREF,
     ]

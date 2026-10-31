@@ -22,7 +22,7 @@ Vencord сам видит изменение файла — без переза�
     discord_pixel.py on | off | status
     discord_pixel.py sync       пересобрать сейчас (после matugen)
     discord_pixel.py style      какой стиль сейчас выбран и почему
-    discord_pixel.py check      самопроверка (для jarvis-doctor)
+    discord_pixel.py check      самопроверка
 """
 import json
 import os

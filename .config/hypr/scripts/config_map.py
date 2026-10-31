@@ -127,7 +127,7 @@ AREAS = [
         screen_gamma.py night_mode.py monitor_brightness.py"""),
     ("Звук и микрофон", "♪", """
         app_volume.py audio_names.py audio_repair sound_guard.sh mic_monitor.py mediakey
-        audio-resume-fix mic-floor mic-guard"""),
+        audio-resume-fix mic-floor"""),
     ("Музыка и тексты песен", "♫", """
         lyrics_sync.py lyrics_sync_asr.py lyrics_sync_sep.py ym_font.py ym_font_watch.py
         ym_launch.sh ym_theme.py ym_tweaks.py ytm_colors.py ytmd_auth.py"""),

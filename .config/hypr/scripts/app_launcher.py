@@ -263,10 +263,6 @@ CATALOG = [
     ("Терминал", ("utilities-terminal",), [
         ("Kitty", "kitty", False, None), ("Alacritty", "alacritty", False, None),
         ("Ghostty", "ghostty", False, None), ("Foot", "foot", False, None), ("WezTerm", "wezterm", False, None)]),
-    ("ИИ", ("applications-science", "preferences-system"), [
-        ("Ollama", "ollama", False, None), ("Ollama + CUDA", "ollama-cuda", False, None),
-        ("LM Studio", "lmstudio-bin", True, None), ("OpenCode", "opencode-bin", True, "opencode"),
-        ("aichat", "aichat", False, None)]),
     ("Игры", ("applications-games",), [
         ("Steam", "steam", False, None), ("Lutris", "lutris", False, None),
         ("Heroic (Epic, GOG)", "heroic-games-launcher-bin", True, None),
@@ -300,7 +296,7 @@ CATALOG = [
 
 
 # Значки каталога (13.10.2026, просьба: «не хватает иконок, особенно у неустановленных»).
-# По имени пакета значок в теме находится не всегда (zen-browser-bin, neovim, lmstudio-bin…),
+# По имени пакета значок в теме находится не всегда (zen-browser-bin, neovim…),
 # тогда строка получала общий «пакет». Здесь — имена из Papirus/Jarvis-Pixel, проверенные
 # lookup_icon; у кого своего значка в теме нет — похожий по смыслу.
 CATALOG_ICONS = {
@@ -309,9 +305,6 @@ CATALOG_ICONS = {
     "visual-studio-code-bin": ("visual-studio-code", "code"), "code": ("code-oss", "code"),
     "cursor-bin": ("cursor",), "sublime-text-4": ("sublime-text", "sublime_text"),
     "ghostty": ("com.mitchellh.ghostty",), "wezterm": ("org.wezfurlong.wezterm",), "alacritty": ("Alacritty",),
-    "ollama": ("applications-science",), "ollama-cuda": ("applications-science",),
-    "lmstudio-bin": ("applications-science",), "opencode-bin": ("utilities-terminal",),
-    "aichat": ("utilities-terminal",),
     "heroic-games-launcher-bin": ("heroic",), "prismlauncher": ("org.prismlauncher.PrismLauncher",),
     "gamemode": ("input-gaming",), "mangohud": ("utilities-system-monitor",),
     "jdk-openjdk": ("java",), "intellij-idea-community-edition": ("idea", "intellij-idea-ce"),
