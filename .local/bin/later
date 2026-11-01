@@ -5,8 +5,8 @@
     later --holst    окно, ввод в Холсте (Super+Shift+I)
                      само окно и его клавиши — ~/.config/hypr/scripts/holst.py
     later ТЕКСТ      записать без окна; с --holst — в заметку дня
-    later list       показать; с --holst — Холст за сегодня
-    later done N     убрать задачу из списка
+    later list       «Потом» за сегодня; с --holst — Холст за сегодня
+    later done N     убрать задачу из сегодняшнего списка
 """
 import os
 import sys
@@ -28,10 +28,10 @@ def main():
     if a == ["list"] and kind == "thought":
         print(G.holst_page(G.today(c).isoformat()))
     elif a == ["list"]:
-        for i, r in enumerate(G.later_list(c), 1):
+        for i, r in enumerate(G.later_today(c), 1):
             print("%d. %s" % (i, r["note"]))
     elif len(a) == 2 and a[0] == "done" and a[1].isdigit():
-        items = G.later_list(c)
+        items = G.later_today(c)
         n = int(a[1])
         if not 1 <= n <= len(items):
             sys.exit("нет записи %d" % n)

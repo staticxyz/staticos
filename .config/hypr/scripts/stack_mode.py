@@ -1416,8 +1416,8 @@ def max_top(o):
         return 0
     if not c.get("on", True):
         return 0
-    m = c.get("monitor") or "focus"
-    return ISLAND_CLEAR if m in ("focus", "all") or m == o else 0
+    import panels
+    return ISLAND_CLEAR if panels.island_on(o, c.get("monitor") or "focus") else 0
 
 
 def max_rect(st, o, w):

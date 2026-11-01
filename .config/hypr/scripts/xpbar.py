@@ -1196,9 +1196,24 @@ def _ws_here(connector):
     return WS_BOTTOM
 
 
+PANEL_POPUPS = []        # живые плашки панели: пока они есть, rest_layer держит панель над окном
+
+
 def spawn(*args):
-    subprocess.Popen(list(args), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True)
+    p = subprocess.Popen(list(args), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    if "JARVIS_POPUP_FROM=xpbar" in args:
+        if not PANEL_POPUPS:
+            GLib.timeout_add(250, popups_watch)
+        PANEL_POPUPS.append(p)
+
+
+def popups_watch():
+    PANEL_POPUPS[:] = [p for p in PANEL_POPUPS if p.poll() is None]
+    if PANEL_POPUPS:
+        return True
+    sync_rest()
+    return False
 
 
 class NiriState:
@@ -2314,6 +2329,7 @@ class TrayPlate(Gtk.Window):
 
     def close_plate(self):
         self.hide()
+        sync_rest()
         return False
 
     def toggle(self):
@@ -2498,6 +2514,7 @@ class BarPopup(Gtk.Window):
         self.scrims = []
         bar = self.bar
         bar.menu_open = False
+        sync_rest()
         if bar.mode == "hover":
             bar.hide_id = GLib.timeout_add(HIDE_MS * 2, bar.hide_now)
         self.destroy()
@@ -3154,11 +3171,12 @@ class Tray(Gtk.Box):
         # ЛКМ — открыть календарь своей панели (xp_calendar.py; не calendar_popup.py —
         # тот принадлежит waybar наверху, 04.10.2026: случайно отдали его сюда же,
         # получилась путаница с «уши» и открытием не с той стороны). СКМ — время ↔
-        # дата (01.10.2026). Два монитора: меняются местами, один: сам переключается.
+        # дата (01.10.2026). Два монитора: меняются местами. Один: видно и то и другое, менять
+        # нечего (02.11.2026).
         # Выбор помнится в state/xpbar-clock-swap.
         if e.button == 1:
             spawn("env", "JARVIS_POPUP_FROM=xpbar", sys.executable, os.path.join(HERE, "xp_calendar.py"))
-        elif e.button == 2:
+        elif e.button == 2 and len(BARS) >= 2:
             swap = not clock_swapped()
             try:
                 if swap:
@@ -3171,21 +3189,19 @@ class Tray(Gtk.Box):
                 b.tray.set_clock()
 
     def show_date(self):
-        """По умолчанию: два монитора и больше — на ноутбуке (eDP) время, на
-        остальных (MSI) дата; один монитор — время. СКМ переворачивает."""
-        if len(BARS) >= 2:
-            base = not self.bar.connector.startswith("eDP")
-        else:
-            base = False
-        return base != clock_swapped()
+        """Два монитора и больше: на ноутбуке (eDP) время, на остальных (MSI) дата; СКМ
+        переворачивает. С одним монитором сюда не приходят: set_clock пишет и дату, и время."""
+        return (not self.bar.connector.startswith("eDP")) != clock_swapped()
 
     def set_clock(self):
         now = time.localtime()
         days_short = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
-        if self.show_date():
-            self.clock.set_text("%s %02d.%02d" % (days_short[now.tm_wday], now.tm_mday, now.tm_mon))
+        date = "%s %02d.%02d" % (days_short[now.tm_wday], now.tm_mday, now.tm_mon)
+        hm = time.strftime("%H:%M", now)
+        if len(BARS) < 2:            # только ноутбук (02.11.2026, просьба: «и дату и время»)
+            self.clock.set_text("%s  %s" % (date, hm))
         else:
-            self.clock.set_text(time.strftime("%H:%M", now))
+            self.clock.set_text(date if self.show_date() else hm)
         days = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
         months = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа",
                   "сентября", "октября", "ноября", "декабря")
@@ -4457,8 +4473,16 @@ def rest_layer(bar):
     """Слой панели без открытого «Пуска»: на мониторе с окном во весь экран — под окнами
     (fs_track.py), иначе панель мелькает поверх него на время смены стола."""
     geo = bar.monitor.get_geometry()
-    under = bar.state.fs.on(bar.connector, geo.width, geo.height)
-    return GtkLayerShell.Layer.BOTTOM if under else GtkLayerShell.Layer.TOP
+    if not bar.state.fs.on(bar.connector, geo.width, geo.height):
+        return GtkLayerShell.Layer.TOP
+    # Щелчок по панели закрывает «Пуск», но начатое с неё ещё открыто: панель остаётся видна, пока
+    # открыты плашка, меню или значки трея (02.11.2026). Поднятой должна быть именно эта панель:
+    # на втором мониторе с окном во весь экран своя панель из-за чужой плашки не всплывает.
+    plate = getattr(bar.tray, "plate", None)
+    held = PANEL_POPUPS or bar.menu_open or (plate is not None and plate.get_visible())
+    if held and GtkLayerShell.get_layer(bar) == GtkLayerShell.Layer.OVERLAY:
+        return GtkLayerShell.Layer.OVERLAY
+    return GtkLayerShell.Layer.BOTTOM
 
 
 def sync_rest():
@@ -6037,6 +6061,8 @@ def main():
             if seen["lyrics"] is not None:
                 b.set_lyrics(seen["lyrics"])
             GLib.timeout_add(2000, prewarm_menus)
+        for b in bars:               # число панелей решает, что показывают часы
+            b.tray.set_clock()
         apply_volume()
         refresh_all()
         update_visible_flag()

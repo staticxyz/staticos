@@ -72,7 +72,8 @@ def main():
     # Стоим на пустом столе — вставлять рядом нечего, и клавиша просто ведёт по
     # ленте. Именованный стол (дашборд, виджеты) считается занятым даже без окон.
     if cur["id"] not in busy and not cur.get("name"):
-        act("focus-workspace-up" if side == "before" else "focus-workspace-down")
+        # Через ws-step: тот обходит пустой карман (02.11.2026)
+        subprocess.run([sys.path[0] + "/ws-step", "up" if side == "before" else "down"])
         return 0
 
     # Пустой стол в конце ленты — тот, что niri держит про запас. Именно его и

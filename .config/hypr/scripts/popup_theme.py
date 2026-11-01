@@ -423,9 +423,13 @@ def xpbar_attach(align, connector, inner=(), strip=()):
                 [mix(x, c["bg"], 0.6) for x in (b[0], b[1], b[2], b[1], b[0])],   # у xpbar.SKEET_BAR_CSS
                 [c["line3"]] * 5]
         fill = c["bg"]
+        # Внешняя рамка как у центра уведомлений (02.11.2026, пользователь): акцент 2, светлая 1;
+        # дальше inner: средняя 2, светлая 1. Рамка замкнута, ширина кромки (3) та же.
+        ring = (c["acc"], c["acc"], c["line1"])
     else:
         rows = [[c["line_strong"]] * 5]
         fill = c["bar"]
+        ring = None
     align.get_style_context().add_class("popup-attached")
     align.get_style_context().add_class("xp-attached")
     prov = Gtk.CssProvider()
@@ -455,7 +459,7 @@ def xpbar_attach(align, connector, inner=(), strip=()):
     place()
     align.connect("hierarchy-changed", place)
     align.set_app_paintable(True)
-    align.connect("draw", lambda w, cr: _draw_xp_attached(w, cr, rows, fill, inner, strip))
+    align.connect("draw", lambda w, cr: _draw_xp_attached(w, cr, rows, fill, inner, strip, ring))
     return True
 
 
@@ -521,14 +525,14 @@ def _xp_roles(style):
 
 
 def xp_frame():
-    """Своя рамка Skeet для приклеенной плашки (xpbar_attach(…, *xp_frame())): слои как у
-    карточки (без внешней светлой линии — её место занимает кромка панели) и полоска
-    трёх тонов под ней. Beta и default — без своей рамки."""
+    """Своя рамка Skeet для приклеенной плашки (xpbar_attach(…, *xp_frame())): внутренние
+    слои рамки центра уведомлений (внешние три рисует ring в xpbar_attach) и полоска трёх
+    тонов под ней. Beta и default — без своей рамки."""
     if XP_STYLE != "skeet":
         return (), ()
     import xp_calendar
     c = _xp_colors("skeet")
-    return ((c["line2"], c["line2"], c["line2"], c["line1_on"], c["line3"]),
+    return ((c["line2"], c["line2"], c["line1"]),
             (c["strip_l"], [xp_calendar._mix(x, "#000000", 0.55) for x in c["strip_l"]]))
 
 
@@ -640,11 +644,12 @@ def _grad_at(stops, t):
     return mix(stops[i], stops[i + 1], t - i)
 
 
-def _draw_xp_attached(widget, cr, rows, fill, inner=(), strip=()):
+def _draw_xp_attached(widget, cr, rows, fill, inner=(), strip=(), ring=None):
     """Фигура плашки над нижней панелью. rows — строки кромки панели сверху вниз, каждая —
     остановки градиента по ширине экрана. Строка k кромки у края плашки поворачивает вверх
     столбцом k и идёт поверх плашки строкой k: вложенные «П», без стыков. Нижние len(rows)
-    пикселей align лежат на кромке панели — там внутри плашки заливка цветом панели."""
+    пикселей align лежат на кромке панели — там внутри плашки заливка цветом панели.
+    ring (Skeet) — вместо «П» кромки свои замкнутые линии того же числа, по цвету на линию."""
     alloc = widget.get_allocation()
     W, full = alloc.width, alloc.height
     p = getattr(widget, "_reveal_p", 1.0)
@@ -668,7 +673,15 @@ def _draw_xp_attached(widget, cr, rows, fill, inner=(), strip=()):
     cr.set_source_rgb(*rgb(fill))
     cr.fill()
     import cairo
-    for k, stops in enumerate(rows):
+    for k, col in enumerate(ring or ()):
+        yb = full - 1 - k
+        cr.set_source_rgb(*rgb(col))
+        cr.rectangle(k, y0 + k, W - 2 * k, 1)
+        cr.rectangle(k, yb, W - 2 * k, 1)
+        cr.rectangle(k, y0 + k, 1, yb - y0 - k + 1)
+        cr.rectangle(W - 1 - k, y0 + k, 1, yb - y0 - k + 1)
+        cr.fill()
+    for k, stops in enumerate(() if ring else rows):
         yk = y0 + k                   # строка k по верху плашки
         yb = full - E + k             # та же строка кромки панели внизу
         # верх: градиент по экрану, обрезанный по ширине плашки
@@ -950,6 +963,14 @@ def cursor_local_x():
 # «ПКМ по звуку внизу — плашка открывается сверху, прилепленная к верхнему бару, криво»):
 # для него «бар снизу» — встаёт над нижней панелью, отдельной плашкой, без ушек.
 FROM_XPBAR = os.environ.get("JARVIS_POPUP_FROM") == "xpbar"
+
+
+def panel_layer():
+    """Слой плашки: у открытой с нижней панели — OVERLAY (02.11.2026, просьба: окно во весь экран,
+    Super, щелчок по панели — плашка «НЕ открывается»). Окно во весь экран выше слоя TOP, и она
+    вставала под него."""
+    from gi.repository import GtkLayerShell
+    return GtkLayerShell.Layer.OVERLAY if FROM_XPBAR else GtkLayerShell.Layer.TOP
 
 
 def bar_position():

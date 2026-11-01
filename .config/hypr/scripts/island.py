@@ -161,8 +161,12 @@ def space_outputs(c):
         return {}
     always, outs = bar_always()
     want = outs - always
-    if c.get("monitor") not in ("focus", "all"):
-        want &= {c.get("monitor")}
+    here = set(niri_json("outputs") or {})
+    m = c.get("monitor")
+    if m not in ("focus", "all") and (m in here or not here):
+        want &= {m}
+    elif here:                  # монитор из настройки отключён — островок на подключённых (targets)
+        want &= here
     return {o: n for o in sorted(want)}
 
 
@@ -6125,6 +6129,8 @@ class App:
             self.wins[c] = Island(self, m, c)
         log("мониторы:", ", ".join(self.wins))
         self.refresh()
+        if not self.space_t:         # монитор подключили или сняли — зазор переезжает за островком
+            self.space_t = self.GLib.timeout_add(800, self.resync_space)
         return False
 
     def targets(self):

@@ -328,7 +328,7 @@ class XPCalendar(Gtk.Window):
         mon = popup_theme.pointer_monitor()
         if mon:
             GtkLayerShell.set_monitor(self, mon)
-        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
+        GtkLayerShell.set_layer(self, popup_theme.panel_layer())
         for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
                      GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
             GtkLayerShell.set_anchor(self, edge, True)

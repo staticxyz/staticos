@@ -176,7 +176,7 @@ class BatteryPopup(Gtk.Window):
         if target_mon:
             GtkLayerShell.set_monitor(self, target_mon)
 
-        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
+        GtkLayerShell.set_layer(self, popup_theme.panel_layer())
         # Окно — на весь экран и прозрачное, как у Wi-Fi, Bluetooth и
         # микшеров: щелчок по прозрачной части закрывает панель. Раньше окно
         # было размером с карточку, и щелчок мимо до него просто не доходил.
@@ -375,15 +375,14 @@ class BatteryPopup(Gtk.Window):
 
     def attached_frame(self):
         """Рамка Skeet для приклеенной к нижней панели плашки (popup_theme.xpbar_attach):
-        слои как у .card (без внешней светлой линии — её место занимает кромка панели)
+        внутренние слои рамки центра уведомлений (внешние три рисует ring в xpbar_attach)
         и полоска трёх тонов под ней. Для Beta — без своей рамки."""
         if self.style != "skeet":
             return (), ()
         import xp_calendar
         c = xp_calendar.colors("skeet")
         mix = xp_calendar._mix
-        on = mix(c["line1"], c["acc"], 0.45)
-        return ((c["line2"], c["line2"], c["line2"], on, c["line3"]),
+        return ((c["line2"], c["line2"], c["line1"]),
                 (list(c["strip"]), [mix(x, "#000000", 0.55) for x in c["strip"]]))
 
     def skin_css(self):

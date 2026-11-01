@@ -19,7 +19,14 @@ $XDG_RUNTIME_DIR/jarvis-holst.pid; его же берёт Ctrl+Q (niri/scripts/c
 Холст — текст заметки дня в Obsidian (growth.holst_page: Personal/2026/Октябрь/2026-10-30.md),
 одна на логический день, сохраняется сама: через 1,5 с после правки и при закрытии. Потеря
 мысли хуже лишней записи, поэтому здесь не так, как с черновиками hub. Потом — записи kind
-later, те, что заведены в этот день, дописываются в заметку разделом «## Потом».
+later, те, что заведены в этот день, дописываются в заметку разделом «## Потом». Список у
+каждого дня свой (01.11.2026): новый день начинается с пустого, старое остаётся в своей
+заметке, Ctrl+H/L листают Холст и Потом вместе.
+
+Метки времени (01.11.2026, просьба: «чтобы я понимал, во сколько я это писал… компактно, но
+читаемо»): мелкие, тусклые, в конце предложения, только там, где минута меняется. В текст и в
+заметку не попадают: это рисунок поверх TextView (draw_stamps), время лежит в holst-times.json
+по дням, ключ — текст предложения. Написанное до 01.11, в Obsidian и из бота метки не имеет.
 
 Окно — три остановки сверху вниз, Ctrl+J и Ctrl+K ходят по ним: Холст → поле новой строки →
 строки списка (Пользователь 30.10). Холст и поле — только для письма, режимов нет.
@@ -35,11 +42,14 @@ later, те, что заведены в этот день, дописывают�
 Буквы списка узнаются по коду клавиши, поэтому работают и в русской раскладке.
 """
 import datetime as dt
+import difflib
+import json
 import math
 import os
 import re
 import signal
 import sys
+import time
 
 RUN = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
 PIDFILE = os.path.join(RUN, "jarvis-holst.pid")
@@ -96,6 +106,11 @@ SAVE_MS = 1500
 MARGIN = 20                    # поле листа слева и справа
 MORE_H = 40                    # полоса «ниже ещё текст»
 LIST_MAX = 16                  # отступ пункта списка, знаков
+SIDE = 40                      # поле листа справа: туда встаёт метка времени в конце строки
+STAMP_GAP = 6                  # от текста до метки
+NEAR = 0.6                     # похожесть, при которой правка не считается новым предложением
+TIMES = os.path.expanduser("~/.local/share/hub/holst-times.json")
+SENT_RE = re.compile(r"\S.*?(?:[.!?…]+(?=\s|$)|$)", re.M)
 HEAD_RE = re.compile(r"^(#{1,6})\s+\S")
 LIST_RE = re.compile(r"^(\s*)(?:[-*+]|\d+[.)])\s+")
 TASK_RE = re.compile(r"^(\s*)[-*+]\s+\[(.)\]\s+")
@@ -149,6 +164,49 @@ def hexcol(c):
     return "#%02x%02x%02x" % tuple(int(round(v * 255)) for v in c[:3])
 
 
+def align(old, new, now, gone):
+    """Времена предложений после правки. old — [(текст, время)], new — тексты сейчас, now — время
+    для нового (None — не ставить). Неизменное и слегка поправленное время не меняет. gone —
+    {текст: [время]} убранного: вернётся через отмену или перенос, время то же."""
+    n, a, b = min(len(old), len(new)), 0, 0
+    while a < n and old[a][0] == new[a]:
+        a += 1
+    while b < n - a and old[-1 - b][0] == new[-1 - b]:
+        b += 1
+    was = old[a:len(old) - b]
+    fresh = new[a:len(new) - b]
+    out = {}
+    for i, s in enumerate(fresh):
+        j = next((j for j, r in enumerate(was) if r[0] == s), None)
+        if j is not None:
+            out[i] = was.pop(j)[1]
+        elif gone.get(s):
+            out[i] = gone[s].pop(0)
+    if len(was) * len(fresh) <= 400:
+        for i, s in enumerate(fresh):
+            if i not in out and was:
+                k = [difflib.SequenceMatcher(None, r[0], s, autojunk=False).ratio() for r in was]
+                if max(k) >= NEAR:
+                    out[i] = was.pop(k.index(max(k)))[1]
+    for r in was:
+        if r[1]:
+            gone.setdefault(r[0], []).append(r[1])
+    mid = [(s, out.get(i, now)) for i, s in enumerate(fresh)]
+    return old[:a] + mid + old[len(old) - b:] if b else old[:a] + mid
+
+
+def stamps(text, seq, spans):
+    """Что рисовать: [(смещение конца предложения, «ЧЧ:ММ», внутри строки?)]; подряд идущие
+    предложения одной минуты получают одну метку, после последнего."""
+    out = []
+    for i, (_s, t) in enumerate(seq):
+        nxt = seq[i + 1][1] if i + 1 < len(seq) else None
+        if t and t != nxt:
+            end = spans[i][1]
+            out.append((end, t, i + 1 < len(seq) and "\n" not in text[end:spans[i + 1][0]]))
+    return out
+
+
 def day_title(day, today):
     d = dt.date.fromisoformat(day)
     s = "%d %s, %s" % (d.day, MONTHS[d.month - 1], DAYS[d.weekday()])
@@ -170,6 +228,8 @@ class Holst(pa.Dialog):
         self.names, self.ids, self.dates = [], [], {}
         self.undo_text, self.redo_text = [], []
         self.undo_rows, self.redo_rows = [], []        # ("del"|"add", строка базы)
+        self.seq, self.spans, self.gone, self.labels = [], [], {}, []   # см. retime
+        self.times_dirty = False
         self.saved = self.base = self.stamp = self.chord = ""
         self.timer, self.loading = 0, False
         self.tv = self.sw = self.buf = self.more = None
@@ -192,12 +252,13 @@ class Holst(pa.Dialog):
         tv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         tv.set_accepts_tab(True)
         tv.set_left_margin(MARGIN)
-        tv.set_right_margin(MARGIN)
+        tv.set_right_margin(SIDE)
         tv.set_pixels_inside_wrap(pa.LINE - pa.PX + 3)
         tv.set_pixels_below_lines(pa.LINE - pa.PX + 3)
         tv.override_font(self.fd)
         tv.get_style_context().add_class("holst")
         tv.connect("button-press-event", self.on_text_press)
+        tv.connect_after("draw", self.draw_stamps)
         css = Gtk.CssProvider()
         css.load_from_data(("""
 textview.holst, textview.holst text { background-color: transparent; color: %s; caret-color: %s; }
@@ -214,7 +275,9 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
         Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css,
                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         sw = self.sw = Gtk.ScrolledWindow()
-        sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        # EXTERNAL, а не NEVER: при NEVER ширина рамки идёт за шириной текста, текст занимает её
+        # и рамка растёт с каждым знаком — строка уходит за край окна (01.11.2026)
+        sw.set_policy(Gtk.PolicyType.EXTERNAL, Gtk.PolicyType.AUTOMATIC)
         sw.set_overlay_scrolling(False)                # ползунок виден всегда, пока текст не влез
         sw.get_style_context().add_class("holst")
         sw.set_size_request(pa.CW - 2, PAGE_Y + PAGE_H - TEXT_Y - 2)
@@ -261,6 +324,9 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
         tag("done", foreground=dim, strikethrough=True)
         for n in range(1, LIST_MAX + 1):               # перенос под текст пункта, а не под маркер
             tag("list%d" % n, left_margin=MARGIN + n * pa.ADV, indent=-n * pa.ADV)
+        self.stamp_fd = self.sized(0.5)                # родной размер пиксельного шрифта: чётко
+        self.stamp_w = 5 * pa.ADV // 2
+        tag("gap", letter_spacing=(self.stamp_w + 2 * STAMP_GAP) * Pango.SCALE)   # место под метку
 
     def sized(self, k):
         """Шрифт в k раз крупнее текста: кратный размер, иначе пиксельный шрифт поплывёт."""
@@ -278,6 +344,9 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
         for line in self.text_now().split("\n"):
             self.decorate_line(line, at)
             at += len(line) + 1
+        for end, _t, inside in self.labels:
+            if inside:
+                self.span("gap", end, end + 1)
 
     def decorate_line(self, line, at):
         m = HEAD_RE.match(line)
@@ -302,6 +371,66 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
                 if cut:
                     self.span("mark", at + m.start(), at + m.start() + cut)
                     self.span("mark", at + m.end() - cut, at + m.end())
+
+    # ── метки времени: только рисунок, в тексте их нет ─────────────────────
+    def retime(self, stamp):
+        """Сверить предложения с прошлым разбором; stamp — новое получает текущую минуту."""
+        text = self.text_now()
+        spans = [(m.start(), m.start() + len(m.group().rstrip())) for m in SENT_RE.finditer(text)]
+        new = [text[a:b] for a, b in spans]
+        seq = align(self.seq, new, time.strftime("%H:%M") if stamp else None, self.gone)
+        if stamp and seq != self.seq:
+            self.times_dirty = True
+        self.seq, self.spans = seq, spans
+        self.labels = stamps(text, seq, spans)
+
+    def load_times(self, day):
+        try:
+            with open(TIMES, encoding="utf-8") as f:
+                self.gone = json.load(f).get(day, {})
+        except (OSError, ValueError, AttributeError):
+            self.gone = {}
+        self.seq, self.times_dirty = [], False
+
+    def save_times(self):
+        """Файл общий на все дни; повреждённый заменяется: это подписи, а не сами мысли."""
+        if not self.times_dirty:
+            return
+        try:
+            with open(TIMES, encoding="utf-8") as f:
+                all_days = json.load(f)
+        except (OSError, ValueError):
+            all_days = {}
+        day = {}
+        for s, t in self.seq:
+            if t:
+                day.setdefault(s, []).append(t)
+        all_days[self.day] = day
+        try:
+            with open(TIMES + ".tmp", "w", encoding="utf-8") as f:
+                json.dump(all_days, f, ensure_ascii=False)
+            os.replace(TIMES + ".tmp", TIMES)
+            self.times_dirty = False
+        except OSError:
+            pass
+
+    def draw_stamps(self, tv, cr):
+        if not self.labels or not Gtk.cairo_should_draw_window(cr, tv.get_window(Gtk.TextWindowType.TEXT)):
+            return False
+        view = tv.get_visible_rect()
+        lay = PangoCairo.create_layout(cr)
+        PangoCairo.context_set_font_options(lay.get_context(), self.fo)
+        lay.set_font_description(self.stamp_fd)
+        cr.set_source_rgba(*self.C["dim"][:3], 0.85)
+        for end, t, _inside in self.labels:
+            r = tv.get_iter_location(self.buf.get_iter_at_offset(end))
+            if r.y + r.height < view.y or r.y > view.y + view.height:
+                continue
+            lay.set_text(t, -1)
+            x, y = tv.buffer_to_window_coords(Gtk.TextWindowType.WIDGET, r.x, r.y + r.height)
+            cr.move_to(x + STAMP_GAP, y - lay.get_pixel_size()[1] - 2)
+            PangoCairo.show_layout(cr, lay)
+        return False
 
     def on_scrolled(self, *_a):
         if self.more is not None:
@@ -339,6 +468,7 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
         self.loading = True
         self.buf.set_text(text)
         self.loading = False
+        self.retime(False)
         self.decorate()
         at = self.buf.get_end_iter() if offset is None else self.buf.get_iter_at_offset(offset)
         self.buf.place_cursor(at)
@@ -390,6 +520,7 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
         self.day = day
         self.saved = self.base = G.holst_page(day)
         self.undo_text = []
+        self.load_times(day)
         self.set_text(self.saved)
 
     def page(self, d):
@@ -398,6 +529,12 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
         i = days.index(self.day) + d if self.day in days else len(days) - 1
         if 0 <= i < len(days):
             self.load_page(days[i])
+            self.undo_rows.clear()                     # шаги отмены списка — про строки того дня
+            self.redo_rows.clear()
+            self.scroll = 0
+            self.reload_list()
+            if self.in_list() and not self.names:
+                self.focus("later")
         self.redraw()
 
     def on_changed(self, _b):
@@ -405,7 +542,9 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
             if self.timer:
                 GLib.source_remove(self.timer)
             self.timer = GLib.timeout_add(SAVE_MS, self.on_timer)
+            self.retime(True)
             self.decorate()
+            self.tv.queue_draw()
             self.redraw()
 
     def on_timer(self):
@@ -436,6 +575,7 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
                     f.write(text)
                 self.stamp = "не записано"
         self.saved = text
+        self.save_times()
         self.redraw()
 
     def commit(self):
@@ -486,7 +626,7 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
 
     def load_list(self):
         G.later_sync(self.conn)
-        rows = G.later_list(self.conn)
+        rows = G.later_list(self.conn, self.day)
         self.ids = [r["id"] for r in rows]
         self.names[:] = [r["note"] for r in rows]
         self.dates = {r["note"]: pa._when(r["ts"]) for r in rows}
@@ -500,7 +640,7 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
     def submit(self):
         text = self.entry.strip()
         if text:
-            gid = G.later_add(self.conn, text)
+            gid = G.later_add(self.conn, text, day=self.day)
             self.undo_rows.append(("add", G.get(self.conn, gid)))
             self.redo_rows.clear()
             self.set_entry("")

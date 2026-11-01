@@ -221,6 +221,16 @@ def niri_outputs():
     return _outputs() or {}
 
 
+def island_on(out, m):
+    """Стоит ли островок на мониторе out; m — настройка monitor из state/island.json. Монитор
+    из настройки отключён (MSI) — островок уходит на монитор в фокусе (island.py targets), значит
+    считается как focus (02.11.2026, просьба: «окна открываются за островком»)."""
+    if m in ("focus", "all") or m == out:
+        return True
+    outs = niri_outputs()
+    return bool(outs) and m not in outs
+
+
 def config_outputs():
     """Мониторы из "output" основного конфига бара (["DP-4", "eDP-1"])."""
     import re

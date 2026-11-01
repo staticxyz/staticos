@@ -219,6 +219,22 @@ HUB_LEAD = 20        # секунд
 RTC_WHY = RTC_PLAN + ".why"          # ради чего завели часы — hubd молчит о «плановом включении» хаба
 
 
+def slept_before(day):
+    """Виден ли сон перед днём day: по той же ночи, что считает Better. Сбой проверки — да."""
+    try:
+        if HUB_DIR not in sys.path:
+            sys.path.insert(0, HUB_DIR)
+        import growth
+        import hublib
+        c = hublib.connect()
+        try:
+            return growth.night(c, day) is not None
+        finally:
+            c.close()
+    except Exception:
+        return True
+
+
 def hub_events(now_ts=None):
     try:
         if HUB_DIR not in sys.path:
@@ -1735,11 +1751,14 @@ def cmd_check():
         if day.isoformat() not in s["plan"]:
             s["plan"][day.isoformat()] = t.strftime("%H:%M")
             save(s)
-        if awake_at_pc(now):          # вы за ПК — не спите, звонить незачем; подъём засчитан
-            if not woke_load().get(day.isoformat()):
+        if awake_at_pc(now):          # вы за ПК — не спите, звонить незачем
+            # подъём засчитан, только если перед ним был сон: иначе ночь просто не кончилась
+            slept = slept_before(day)
+            if slept and not woke_load().get(day.isoformat()):
                 woke_set(day, time.strftime("%H:%M"))
                 via_set(day.isoformat(), "pc")
-            slog("звонок %s %s: вы за ПК — без проверок" % (day.isoformat(), t.strftime("%H:%M")))
+            slog("звонок %s %s: вы за ПК — без проверок%s" % (
+                day.isoformat(), t.strftime("%H:%M"), "" if slept else ", сна не было, подъём не записан"))
             return
         run_series(series_build(t))
         return

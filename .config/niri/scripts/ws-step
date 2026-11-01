@@ -6,5 +6,10 @@
 if [ "$2" = jk ] && grep -q '"active": true' "$HOME/.config/hypr/state/stack-mode.json" 2>/dev/null; then
     exec python3 "$HOME/.config/hypr/scripts/stack_mode.py" key "$1"
 fi
+# Остальные (стрелки, Page_Up/Down) в стопке молчат: стол один, ниже — скрытый стол свёрнутых
+# (scripts/nostack, 21.10.2026)
+grep -q '"active": true' "$HOME/.config/hypr/state/stack-mode.json" 2>/dev/null && exit 0
 "$HOME/.local/bin/pomo" locked >/dev/null 2>&1 && exit 0
+# Пустой карман шаг обходит: без MSI он лежит посреди столов, а в баре стоит слева (02.11.2026)
+python3 -S "$HOME/.config/niri/scripts/ws_step.py" "$1" 2>/dev/null && exit 0
 exec niri msg action "focus-workspace-$1"

@@ -488,8 +488,8 @@ if __name__ == "__main__":
             c = {}
         if not c.get("on", True):
             return 0
-        m = c.get("monitor", "focus")
-        return ISLAND_HOLE if m in ("focus", "all") or m == out else 0
+        import panels
+        return ISLAND_HOLE if panels.island_on(out, c.get("monitor", "focus")) else 0
 
     class Strip(Gtk.Window):
         """Невидимая полоска-датчик: top=True — у верхнего края, иначе — под баром."""

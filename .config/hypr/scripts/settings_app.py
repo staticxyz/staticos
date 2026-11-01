@@ -5241,14 +5241,16 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # Как разворачивать окно в стопке (21.10.2026, просьба: «раскрывать полностью и
         # раскрывать, чтобы было видно островок»): stack_mode.py maxmode full|island.
         sm_py = os.path.join(HERE, "stack_mode.py")
-        cur_mm = run("python3", sm_py, "maxmode") if stack else "full"
+        # 02.11.2026: строка и в Scroll — там настройка действует на окна с полосой (title_strip).
+        cur_mm = run("python3", sm_py, "maxmode")
         mm_row = self.row(c, "Развёрнутое окно",
                  self.segments([("full", "На весь экран"), ("island", "Под островком")],
                                cur_mm if cur_mm in ("full", "island") else "full",
                                lambda k: subprocess.run(["python3", sm_py, "maxmode", k],
                                                         capture_output=True)),
-                 "Только в режиме Stack: куда встаёт окно по «развернуть» (кнопка на полосе, "
-                 "двойной щелчок, Super+F, Super+K). На весь экран — от верхнего края до нижней "
+                 "Куда встаёт окно по «развернуть»: в Stack — кнопка на полосе, двойной щелчок, "
+                 "Super+F, Super+K; в Scroll — окна с полосой заголовка (hub, Clocker, App list); "
+                 "окна ленты держит зазор островка. На весь экран — от верхнего края до нижней "
                  "панели. Под островком — сверху остаётся полоска, и островок не перекрывает "
                  "заголовок окна; на мониторе без островка окно всё равно на весь экран. "
                  "Уже развёрнутые окна перестраиваются сразу.",
@@ -5256,7 +5258,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         # «Верхний бар: Waybar / Капсула» убран (22.10.2026, просьба: «эту настройку можно
         # убрать»): бар в стопке — как выбран в «Показе панелей», только без столов.
         # Капсула осталась командой: stack_mode.py topbar capsule|waybar.
-        self.only_in("stack", mm_row, self.stack_look_row(c))
+        self.only_in("stack", self.stack_look_row(c))
         self.desk_menu_rows(c)
         # «Показ панелей» и «Мониторы»: в Scroll — здесь, в Stack — на странице Compositor
         # (23.10.2026, пользователь, со снимком группы «Мониторы» в стопке: «положить в раздел

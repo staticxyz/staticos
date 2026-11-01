@@ -1249,7 +1249,7 @@ def note_save(c, day, body=None):
         old = None
     head, was = note_parts(old) if old is not None else ("", "")
     body = was if body is None else body
-    items = [r["note"] for r in later_list(c) if r["day"] == day]
+    items = [r["note"] for r in later_list(c, day)]
     if old is None and not (body or items):
         return
     if old is None:
@@ -1300,7 +1300,7 @@ def holst_save(c, text, day=None):
     note_save(c, day or today(c).isoformat(), text)
 
 
-def later_add(c, text, src="pc", kind="later"):
+def later_add(c, text, src="pc", kind="later", day=None):
     if kind == "thought":                          # из бота и `later --holst` — в конец страницы дня
         text = text.strip()
         day = today(c).isoformat()
@@ -1310,14 +1310,21 @@ def later_add(c, text, src="pc", kind="later"):
     text = " ".join(text.split())
     if not text:
         return None
-    gid = add(c, kind, 1, text, src)
+    gid = add(c, kind, 1, text, src, day=dt.date.fromisoformat(day) if day else None)
     note_save(c, get(c, gid)["day"])
     return gid
 
 
-def later_list(c):
+def later_list(c, day=None):
+    """Строки «Потом»: все или за логический день day. У дня список свой (01.11.2026, просьба: «должен быть новым для каждого дня»): старое не удаляется, остаётся в заметке своего дня."""
     ensure(c)
+    if day:
+        return c.execute("SELECT * FROM growth WHERE kind='later' AND day=? ORDER BY ts, id", (day,)).fetchall()
     return c.execute("SELECT * FROM growth WHERE kind='later' ORDER BY ts, id").fetchall()
+
+
+def later_today(c):
+    return later_list(c, today(c).isoformat())
 
 
 def do_text(c, op, text, src="pc"):
@@ -2313,7 +2320,7 @@ def tg_callback(c, bot, chat, mid, cb_id, rest):
 def tg_later(c):
     import hubtg as T
     later_sync(c)
-    items = later_list(c)
+    items = later_today(c)
     if not items:
         return "Потом: пусто, сэр.", None
     out = ["<b>◆ ПОТОМ</b>"] + ["%d. %s" % (i, T.esc(r["note"])) for i, r in enumerate(items, 1)]
@@ -2376,7 +2383,7 @@ def tg_command(c, cmd, arg, chat=None):
         later_sync(c)
         w = a.split()
         if len(w) == 2 and w[0] == "done" and w[1].isdigit():
-            items = later_list(c)
+            items = later_today(c)
             n = int(w[1])
             if not 1 <= n <= len(items):
                 return "Такого номера нет, сэр.", None
@@ -2881,7 +2888,7 @@ def nudges(c, at_pc=True):
     b = s["block"]
     plan_m = {x["key"]: x["goal"] // 60 for x in b["steps"]}
     if b["done"]:
-        n = len(later_list(c))
+        n = len(later_today(c))
         say("block_done", "🏁 Блок дня сделан",
             "Отдых заслужен, +%d ⚡ в Замке." % _castle().BLOCK + (" В листке «потом»: %d." % n if n else ""))
     elif b["steps"][0]["ok"]:
