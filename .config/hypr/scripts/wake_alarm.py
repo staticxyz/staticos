@@ -171,6 +171,54 @@ RTC_LEAD = 30        # минут: проснуться за полчаса до
 SLEEP_MARGIN = 40 / 60   # часов: ближе к проверке idle_suspend не усыпляет (больше RTC_LEAD,
                          # иначе после пробуждения уснул бы снова)
 RTC_SYS = "/sys/class/rtc/rtc0"
+LID_RING = 5         # минут: столько звонок с закрытой крышкой держит ноутбук от сна
+BOOT_HOLD = 10 * 60  # секунд после включения: без сеанса звонить нельзя, с сеансом — незачем
+
+
+# 02.11.2026: с закрытой крышкой часы будили каждые 90 с с 10:25 до 12:51, батарея кончилась
+# (logind усыпляет через ~30 с, а срок «за полчаса» уже прошёл — и план снова «через минуту»).
+def lid_shut():
+    """Крышка закрыта и нет внешнего монитора: за ПК никого, не спать ноутбук не будет.
+    Сбой проверки — нет."""
+    try:
+        out = subprocess.run(["busctl", "get-property", "org.freedesktop.login1",
+                              "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
+                              "LidClosed", "Docked"], capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.split() == ["b", "true", "b", "false"]
+
+
+def uptime():
+    return time.clock_gettime(time.CLOCK_BOOTTIME)
+
+
+def boot_id():
+    try:
+        return open("/proc/sys/kernel/random/boot_id").read().strip()
+    except OSError:
+        return ""
+
+
+def session_up():
+    """Есть ли сеанс niri: экран входа окно будильника не покажет."""
+    session_env.fill()
+    return os.path.exists(os.environ.get("NIRI_SOCKET", ""))
+
+
+def boot_hold():
+    """ПК только что включили, в систему ещё не вошли — не начинать ничего."""
+    return uptime() < BOOT_HOLD and not session_up()
+
+
+def series_next(fallback):
+    """Ближайший срок текущего шага серии — ради него и стоит будить закрытый ноутбук."""
+    d = series_load()
+    st = cur_step(d) if d else None
+    for key in ("check", "due", "until"):
+        if st and st[key] > time.time():
+            return int(st[key])
+    return fallback
 
 
 def alarm_events(now=None):
@@ -254,9 +302,13 @@ def wake_plan(now=None):
     at — само событие, wake — когда заведены часы (раньше на RTC_LEAD или HUB_LEAD)."""
     now = now or dt.datetime.now()
     out = []
+    shut = lid_shut()          # с закрытой крышкой запас бесполезен: будим к самому событию
     for at, kind, title in alarm_events(now):
         ts = int(at.timestamp())
-        out.append({"wake": ts - RTC_LEAD * 60, "at": ts, "kind": kind, "src": "alarm", "title": title})
+        if shut and kind == "series":
+            ts = series_next(ts)
+        out.append({"wake": ts - (0 if shut else RTC_LEAD * 60), "at": ts, "kind": kind,
+                    "src": "alarm", "title": title})
     for ts, kind, title in hub_events(int(now.timestamp())):
         out.append({"wake": ts - HUB_LEAD, "at": ts, "kind": kind, "src": "hub", "title": title})
     return sorted(out, key=lambda e: e["wake"])
@@ -843,6 +895,8 @@ def last_input(now=None):
     """Время последнего нажатия/движения мыши или None, если неизвестно (тогда не пропускать).
     Видео в фокусе = не простой (09.10.2026: «я могу длинный видос смотреть»)."""
     now = now or time.time()
+    if lid_shut():      # hypridle после пробуждения пишет active — 02.11 звонок в 11:00 снят «за ПК»
+        return None
     if subprocess.run(["pgrep", "-fx", "hypridle"], stdout=subprocess.DEVNULL).returncode:
         return None
     try:
@@ -882,8 +936,11 @@ def last_sleep():
 
 
 def awake_at_pc(now=None):
-    """Вы за ПК: ввод (или видео в фокусе) за последние WATCH_IDLE минут."""
+    """Вы за ПК: ввод (или видео в фокусе) за последние WATCH_IDLE минут. Только что включили
+    ПК и вошли (пароль SDDM набирает человек) — тоже за ПК: файла ввода ещё нет."""
     now = now or time.time()
+    if uptime() < BOOT_HOLD and session_up():
+        return True
     li = last_input(now)
     return li is not None and now - li < WATCH_IDLE * 60
 
@@ -1480,6 +1537,8 @@ class SeriesRun:
         self.ring_n = None
         self.ov = None
         self.shown = None
+        self.win_lost = False            # окна нет, потому что нет экрана: появится — открыть
+        self.lid_hold = None
         self.can_reply = tg_receivable() if telegram else False
         self.stop_ev = threading.Event()
 
@@ -1534,12 +1593,20 @@ class SeriesRun:
             subprocess.run(["niri", "msg", "action", "power-on-monitors"],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if self.sound:
+            if lid_shut():           # иначе logind усыпит через ~30 с и звонок оборвётся
+                self.lid_hold = subprocess.Popen(
+                    ["systemd-inhibit", "--what=sleep:handle-lid-switch", "--mode=block",
+                     "--who=wake_alarm", "--why=звонит будильник", "sleep", str(LID_RING * 60)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.ringer = Ringer(max(5, st["until"] - time.time()))
             self.ringer.start()
         else:
             self.ringer = "dry"
 
     def ring_stop(self):
+        if self.lid_hold:
+            self.lid_hold.terminate()
+            self.lid_hold = None
         if not self.ringer:
             return
         if self.ringer != "dry":
@@ -1656,9 +1723,23 @@ class SeriesRun:
             except Exception as e:      # без окна серия идёт дальше: звук и Telegram
                 slog("окно не открылось, дальше без него: %r" % e)
                 self.window = False
+                self.win_lost = not session_up()
+        elif self.win_lost and session_up():
+            self.reopen()
         if d is None or d.get("done"):
             self.stop_ev.set()
         return not self.stop_ev.is_set()
+
+    def reopen(self):
+        """Экран появился после старта серии. Gdk подключается к нему только при запуске
+        процесса, поэтому тот же процесс заново: серия продолжится уже с окном."""
+        slog("экран появился: серия продолжается с окном")
+        self.ring_stop()
+        try:
+            os.remove(PIDF + ".series")
+        except OSError:
+            pass
+        os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), "check"])
 
     def run(self):
         with open(PIDF + ".series", "w") as f:
@@ -1710,8 +1791,19 @@ def series_pid_alive():
         return False
 
 
+def drop_past_steps(d, now):
+    """Серия с прошлой загрузки, ПК включили руками. Шаги, чей срок прошёл, пока он был
+    выключен, не звонят: дальше следующий шаг, как обычно, с тихой проверки (02.11.2026)."""
+    past = [st for st in d["steps"]
+            if st["state"] in ("wait", "check", "ring") and st["check"] <= now]
+    for st in past:
+        st.update(state="off", skip="late")
+    slog("серия %s: ПК включён заново, снято шагов: %d" % (d["date"], len(past)))
+
+
 def run_series(d, **kw):
     d["pid"] = os.getpid()
+    d["boot"] = boot_id()
     with series_lock():
         series_save(d)
     slog("серия %s %s%s: старт" % (d["date"], d["t"], " (тест)" if d.get("test") else ""))
@@ -1724,6 +1816,8 @@ def run_series(d, **kw):
 
 def cmd_check():
     now = time.time()
+    if boot_hold():
+        return
     with series_lock():
         d = series_load()
     if d and not d.get("done") and not d.get("test"):
@@ -1731,6 +1825,8 @@ def cmd_check():
             return
         if now < d["steps"][-1]["until"]:      # служба упала посреди серии — продолжить
             slog("серия %s: продолжаю после сбоя" % d["date"])
+            if d.get("boot") != boot_id():
+                drop_past_steps(d, now)
             run_series(d)
             return
     s = load()
