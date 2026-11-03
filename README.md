@@ -159,6 +159,9 @@ tells you what each file does and what starts it, without opening anything.
 - **Screenshots, OCR and recording.** Annotate, pin a screenshot on top, copy text off the screen,
   record GIFs, videos and Telegram stickers.
 - **Own clipboard, Alt+Tab, lock screen and screensaver**, all keyboard-driven with vim keys.
+- **Notifications open in place.** A click expands a notification to its full text, another
+  click folds it, a double click does what the app asked (a patched swaync, `packages/swaync-jarvis`:
+  `makepkg -si` there).
 - **Pixel, regular or Minimalistic look** in one switch: fonts, bar, notifications, menus, mixers
   and even Discord follow it. Minimalistic is a centered capsule bar with thin borders and popups under it. **Super+Z** shows every shortcut, grouped and searchable.
 - **Your own key bindings** — Settings → Binds. Press a new combination for any action; niri

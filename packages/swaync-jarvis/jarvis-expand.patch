@@ -1,0 +1,72 @@
+diff -ru a/src/notification/notification.vala b/src/notification/notification.vala
+--- a/src/notification/notification.vala	2026-11-04 01:09:48.561869336 +0500
++++ b/src/notification/notification.vala	2026-11-04 01:09:48.572232745 +0500
+@@ -55,6 +55,10 @@
+         private bool default_action_down = false;
+         private bool default_action_in = false;
+ 
++        // staticOS: щелчок раскрывает уведомление целиком, ещё щелчок — свернуть,
++        // двойной щелчок — действие приложения (прежний одиночный щелчок). 04.11.2026
++        private bool jv_open = false;
++
+         private int notification_body_image_height {
+             get;
+             default = ConfigModel.instance.notification_body_image_height;
+@@ -170,7 +174,12 @@
+                     switch (gesture.get_current_button ()) {
+                         default:
+                         case Gdk.BUTTON_PRIMARY:
+-                            click_default_action ();
++                            if (_n_press == 1) {
++                                jv_toggle (!jv_open);
++                            } else if (_n_press == 2) {
++                                jv_toggle (!jv_open);      // вернуть, как было до первого щелчка
++                                click_default_action ();
++                            }
+                             break;
+                         case Gdk.BUTTON_MIDDLE:
+                         case Gdk.BUTTON_SECONDARY:
+@@ -288,6 +297,9 @@
+                 this.progress_bar.set_fraction (param.value * 0.01);
+             }
+ 
++            if (jv_open) {
++                jv_toggle (false);
++            }
+             set_body ();
+             set_icon ();
+             set_inline_reply ();
+@@ -423,6 +435,24 @@
+                 match.strip (), (c) => c.isdigit () || c.isspace ()).strip ();
+         }
+ 
++        private void jv_toggle (bool open) {
++            jv_open = open;
++            body.set_lines (open ? -1 : number_of_body_lines);
++            body.set_ellipsize (open ? Pango.EllipsizeMode.NONE : Pango.EllipsizeMode.END);
++            summary.set_wrap (open);
++            summary.set_wrap_mode (Pango.WrapMode.WORD_CHAR);
++            summary.set_ellipsize (open ? Pango.EllipsizeMode.NONE : Pango.EllipsizeMode.END);
++            if (open) {
++                base_box.add_css_class ("jv-expanded");
++            } else {
++                base_box.remove_css_class ("jv-expanded");
++            }
++            if (is_timed) {                      // раскрытое всплывающее не гаснет само
++                remove_noti_timeout ();
++                add_notification_timeout ();      // при jv_open ничего не ставит
++            }
++        }
++
+         public void click_default_action () {
+             action_clicked (param.default_action);
+         }
+@@ -778,7 +808,7 @@
+         }
+ 
+         public void add_notification_timeout () {
+-            if (!this.is_timed) {
++            if (!this.is_timed || jv_open) {
+                 return;
+             }
+ 

@@ -1,0 +1,31 @@
+# swaync 0.12.6 + правка staticOS: щелчок по уведомлению раскрывает его целиком,
+# ещё щелчок — свернуть, двойной — действие приложения (прежний щелчок), без кнопок. 04.11.2026
+pkgname=swaync-jarvis
+_pkgname=SwayNotificationCenter
+pkgver=0.12.6
+pkgrel=2
+pkgdesc="SwayNotificationCenter with click-to-expand notifications (staticOS)"
+url="https://github.com/ErikReider/SwayNotificationCenter"
+arch=('x86_64')
+license=('GPL-3.0-only')
+depends=('gtk4' 'gtk4-layer-shell' 'libadwaita' 'glib2' 'libgee' 'json-glib' 'libpulse' 'granite7')
+makedepends=('vala' 'meson' 'scdoc' 'sassc' 'gobject-introspection' 'blueprint-compiler')
+provides=("swaync=${pkgver}")
+conflicts=('swaync')
+source=("${_pkgname}-${pkgver}.tar.gz::${url}/archive/v${pkgver}.tar.gz" "jarvis-expand.patch")
+sha256sums=('0c844eb5c9524f924495bd4145e5db575096de36f3ec87fb37e4c1ed6eacb897' 'SKIP')
+
+prepare() {
+	cd "${_pkgname}-${pkgver}"
+	patch -p1 < ../jarvis-expand.patch
+}
+
+build() {
+	arch-meson "${_pkgname}-${pkgver}" build -Dscripting=true
+	ninja -C build
+}
+
+package() {
+	DESTDIR="${pkgdir}" ninja -C build install
+	install -Dm 644 "${_pkgname}-${pkgver}/README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+}
