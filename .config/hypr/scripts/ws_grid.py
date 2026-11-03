@@ -48,6 +48,7 @@ FAMILY = "JetBrainsMono Nerd Font"
 MARGIN_X, MARGIN_TOP, MARGIN_BOT = 56, 48, 60
 GAP = 28                 # между плитками
 CAP_H = 30               # подпись стола под плиткой
+PART = 72                # px — на столько раздвигаются столы под перетаскиваемым (04.11.2026)
 DRAG_START = 6           # px — дальше это уже перетаскивание, не щелчок
 MAX_SHARE = 0.46         # одна-две плитки не во весь экран
 WGAP = 24                # между колонками окон, в пикселях экрана (до уменьшения)
@@ -93,6 +94,16 @@ def text(cr, s, x, y, w, size, color=(1, 1, 1, 0.92), markup=False, center=False
     _ink, log = lay.get_pixel_extents()
     cr.move_to(x, y - log.height / 2)
     PangoCairo.show_layout(cr, lay)
+
+
+def rrect(cr, x, y, w, h, r):
+    r = max(0.0, min(r, w / 2, h / 2))
+    cr.new_sub_path()
+    cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+    cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+    cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+    cr.arc(x + r, y + r, r, math.pi, 1.5 * math.pi)
+    cr.close_path()
 
 
 def desk_index(a, b, side):
@@ -188,6 +199,9 @@ class Grid:
         self.sel = None               # (выход, i) — выбор с клавиатуры
         self.nav_x = None             # j/k: столбец, откуда пошли (ряды со сдвигом, 04.11.2026)
         self.dtarget = None           # перетаскивание стола: {out, i, side, bar}
+        self.part = {}                # (выход, i) → сдвиг плитки по x сейчас (столы раздвигаются)
+        self.part_t = {}              # выход → время прошлого шага
+        self.part_id = None
         self.surf = {}                # кэш поверхностей cairo
         self.sprites = {}             # (выход, i, вид) → готовая плитка на время перехода
         self.img = {}                 # id окна → Pixbuf (снимок окна)
@@ -403,6 +417,7 @@ class Grid:
         if not self.shown or (self.anim and self.anim["kind"] == "close"):
             return
         self.drag = self.press = self.target = self.dtarget = None
+        self.part = {}
         if focus is None:
             focus = {}
         shot = {}
@@ -626,6 +641,8 @@ class Grid:
 
     def relayout(self):
         self.tiles = {}
+        if not self.drag:                 # номера плиток сменились — сдвиги по старым не годятся
+            self.part = {}
         for out in self.sw.outs:
             tiles = self.desks(out)
             if tiles:
@@ -999,14 +1016,28 @@ class Grid:
                     cr.restore()
         else:
             dd = self.drag if self.drag and self.drag.get("desk") else None
-            for i, t in enumerate(tiles):
-                src = dd is not None and dd["out"] == out and dd["i"] == i
-                self.draw_tile(cr, out, i, t, acc, drag_wid, 0.3 if src else 1.0)
             dt = self.dtarget
+            if dd or self.part:
+                # перетаскивание стола: соседи по ряду раздвигаются, освобождая место (04.11.2026,
+                # «не очень видны… чтобы столы сами раздвигались»); плитки — готовые картинки
+                offs = self.part_offsets(out, tiles)
+                for i, t in enumerate(tiles):
+                    src = dd is not None and dd["out"] == out and dd["i"] == i
+                    cr.save()
+                    cr.translate(offs.get(i, 0.0), 0)
+                    self.paint_sprite(cr, out, i, t, "all", 0.3 if src else 1.0)
+                    cr.restore()
+            else:
+                for i, t in enumerate(tiles):
+                    self.draw_tile(cr, out, i, t, acc, drag_wid, 1.0)
             if dd and dt and dt["out"] == out:
                 bx, y0, y1 = dt["bar"]
+                k = min(1.0, abs(self.part.get((out, "gap"), 0.0)) / PART)
+                rgba(cr, acc, 0.16 * k)               # раскрытая щель — подсветка
+                rrect(cr, bx - PART / 2 + 6, y0, PART - 12, y1 - y0, 10)
+                cr.fill()
                 rgba(cr, acc)
-                cr.rectangle(bx - 3, y0, 6, y1 - y0)
+                rrect(cr, bx - 4, y0, 8, y1 - y0, 4)
                 cr.fill()
         hint = self.hint_text(out, tiles)
         text(cr, hint, 0, oh - MARGIN_BOT / 2, ow, 13, (1, 1, 1, 0.55 * p * fade), center=True)
@@ -1217,6 +1248,46 @@ class Grid:
         cr.stroke()
         cr.restore()
 
+    def part_offsets(self, out, tiles):
+        """Сдвиги плиток для щели под перетаскиваемый стол; плавно, по часам (04.11.2026)."""
+        dt = self.dtarget if self.drag and self.drag.get("desk") else None
+        want = {}
+        if dt and dt["out"] == out and dt["i"] < len(tiles):
+            tb = tiles[dt["i"]]
+            b = dt["i"] if dt["side"] == "before" else dt["i"] + 1
+            for j, t in enumerate(tiles):
+                if abs(t["y"] - tb["y"]) < 1:
+                    want[j] = -PART / 2 if j < b else PART / 2
+            want["gap"] = PART
+        now = time.monotonic()
+        last = self.part_t.get(out)
+        dtime = min(0.05, max(0.0, now - last)) if last else 0.016
+        self.part_t[out] = now
+        k = 1 - math.exp(-dtime * 16)             # ≈ 0,2 с до места
+        moving, offs = False, {}
+        for key in set(want) | {j for (o, j) in self.part if o == out}:
+            cur = self.part.get((out, key), 0.0)
+            tgt = want.get(key, 0.0)
+            cur += (tgt - cur) * k
+            if abs(tgt - cur) < 0.5:
+                cur = tgt
+            else:
+                moving = True
+            if cur == 0.0 and tgt == 0.0:
+                self.part.pop((out, key), None)
+            else:
+                self.part[(out, key)] = cur
+            if key != "gap":
+                offs[key] = cur
+        if moving and self.part_id is None:
+            self.part_id = GLib.timeout_add(12, self._part_step)
+        return offs
+
+    def _part_step(self):
+        self.part_id = None
+        self.redraw()
+        return False
+
     def desk_slot(self, out, lx, ly):
         """Куда встанет перетаскиваемый стол: перед/после плитки под курсором → {out, i, side, bar}."""
         d = self.drag
@@ -1345,6 +1416,7 @@ class Grid:
             self.press = self.drag = self.target = self.dtarget = None
             if drag and drag.get("desk"):
                 if dtarget:
+                    self.part = {}                # стол встаёт на место — щель больше не нужна
                     self.move_desk(drag, dtarget)
                 self.redraw()
                 return True

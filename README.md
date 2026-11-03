@@ -99,7 +99,8 @@ them, one tile per desk, and works as a place to rearrange windows.
   monitor); a bar in the accent color shows where it lands between columns. Inside one tile the
   same drag changes the order of windows. Click a window to focus it, a tile to go to that desk.
 - **Reorder desks.** Hold the right mouse button on a desk (anywhere on its tile, windows too) and
-  drop it before or after another one, on this monitor or the other.
+  drop it before or after another one, on this monitor or the other; the desks in that row part to
+  make room.
 - **Opens like niri's overview.** The current desk shrinks from full screen into its tile and the
   others fade in; on close the chosen tile grows back. The transition is drawn on the GPU through
   OpenGL, at a steady 60 fps, and falls back to cairo by itself if GL is unavailable.
