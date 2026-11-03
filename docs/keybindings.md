@@ -67,7 +67,7 @@ built from `binds.kdl` (niri's own overlay is still on **Super+Shift+/**).
 |---|---|
 | `Mod + G` | workspace overview: staticOS tiles or niri's own (Settings → Misc → Alt+Tab) |
 
-Inside the staticOS overview: `h/j/k/l`, `w/a/s/d` or arrows move between tiles of a monitor, `Mod+Tab` switches to the other monitor, `Tab`/`Shift+Tab` go through the tiles, `Enter` or `1`–`9` opens a desk, `Esc` closes. Drag a window onto another tile to move it, or between windows of the same tile to reorder. Hold the right mouse button on a tile (windows included) and drag to change the order of desks or move it to the other monitor.
+Inside the staticOS overview: `h/j/k/l`, `w/a/s/d` or arrows move between tiles of a monitor, `Mod+Tab` switches to the other monitor, `Tab`/`Shift+Tab` go through the tiles, `Enter`, `Mod+G` again or `1`–`9` opens a desk, `Esc` closes. Drag a window onto another tile to move it, or between windows of the same tile to reorder. Hold the right mouse button on a tile (windows included) and drag to change the order of desks or move it to the other monitor.
 
 ### Focus: columns, horizontal
 

@@ -318,7 +318,15 @@ class Grid:
     # ── открыть / закрыть ──
     def toggle(self):
         if self.shown:
-            self.close()
+            # Super+G ещё раз — зайти туда, где остановилась рамка (j/k/h/l, w/a/s/d); Esc — отмена
+            # (04.11.2026, «где он остановился, туда и зайти»)
+            so, cur = self.sel or (None, None)
+            tiles = self.tiles.get(so) or []
+            if cur is not None and cur < len(tiles) and tiles[cur]["ws"] \
+                    and not (self.anim and self.anim["kind"] == "close"):
+                self.go_desk(tiles[cur]["ws"], so, cur)
+            else:
+                self.close()
         else:
             self.open()
 
