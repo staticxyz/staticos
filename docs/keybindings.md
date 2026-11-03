@@ -65,7 +65,9 @@ built from `binds.kdl` (niri's own overlay is still on **Super+Shift+/**).
 
 | Keys | Action |
 |---|---|
-| `Mod + G` | workspace overview |
+| `Mod + G` | workspace overview: staticOS tiles or niri's own (Settings → Misc → Alt+Tab) |
+
+Inside the staticOS overview: `h/j/k/l` or arrows move between tiles (and to the next monitor at the edge), `Tab`/`Shift+Tab` go through all tiles, `Enter` or `1`–`9` opens a desk, `Esc` closes. Drag a window onto another tile to move it, or between windows of the same tile to reorder.
 
 ### Focus: columns, horizontal
 
@@ -241,6 +243,7 @@ Super + wheel scrolls through the strip's windows.
 | `Mod + WheelScrollUp` | focus column left |
 | `Mod + Ctrl + WheelScrollDown` | focus workspace down |
 | `Mod + Ctrl + WheelScrollUp` | focus workspace up |
+| `Mod + Alt + WheelScrollUp / Down` | live zoom around the cursor (needs niri built with PR #3246 zoom); on stock niri — magnifier: frozen screen zoom (Esc closes) |
 
 ### Screenshots and recording
 

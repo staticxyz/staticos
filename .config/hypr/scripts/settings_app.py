@@ -6957,6 +6957,15 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  c, "Показывать", self.segments([("windows", "Окна"), ("desks", "Столы")], cur, put),
                  "С чего открывается Alt+Tab. Внутри переключает клавиша ~ (на русской — ё), "
                  "выбор запоминается. В Stack mode Alt+Tab — только окна.", icon="\U000f05ad"))
+        # 03.11.2026, просьба: «переключатель рядом с Alt+Tab: Super+G на старый обзор или на
+        # новый; имена Niri overview и staticOS overview». Бинд не переписывается — его
+        # скрипт ~/.config/niri/scripts/overview читает state/overview-mode при каждом нажатии.
+        cur, put = state_rw("overview-mode", ("staticos", "niri"), "staticos")
+        self.row(c, "Workspace Overview", self.segments([("staticos", "staticOS overview"), ("niri", "Niri overview")],
+                                             cur, put),
+                 "staticOS overview — все столы монитора плитками, окна перетаскиваются мышью "
+                 "между столами и мониторами. Niri overview — встроенный обзор niri.",
+                 icon="\U000f0570")
 
     def notify_cards(self, v):
         """Уведомления (была страница Notifications; с 02.10.2026 — в Misc)."""

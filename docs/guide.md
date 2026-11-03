@@ -69,7 +69,7 @@ Movement follows vim: **h** left, **l** right, **k** up, **j** down.
 | Super+Alt+D | let the window take the whole width |
 | Super+0 | reset the window size |
 | Super+R | keep the focused window centered, or just make it fit |
-| Super+G | overview of all workspaces |
+| Super+G | overview: every desk as a tile, drag windows between desks |
 | Alt+Tab | switch windows (hold Alt, tap Tab) |
 | Ctrl+Q | close the window |
 | Alt+F4 | power menu (it does not close windows) |

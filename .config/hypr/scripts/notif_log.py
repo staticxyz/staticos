@@ -68,6 +68,8 @@ def add(payload):
     except (KeyError, ValueError, TypeError):
         return
     hints = hints if isinstance(hints, dict) else {}
+    if "/jarvis-wsgrid/" in (icon or ""):   # снимки окон обзора Super+G (ws_grid.py) — не в журнал
+        return
     if hint(hints, "x-jarvis-replay"):        # повтор после «Не беспокоить» (dnd_queue.py) — уже в журнале
         return
     now = time.time()

@@ -316,6 +316,10 @@ def main():
                 *lines, buf = buf.split(b"\n")
                 for ln in lines:
                     if ln.startswith(b'{"ScreenshotCaptured'):
+                        if b"/jarvis-wsgrid/" in ln:
+                            # снимки окон для обзора Super+G (ws_grid.py, 03.11.2026) —
+                            # не снимок пользователя: без звука и без уведомления
+                            continue
                         # попутно: звук снимка экрана (ui_sound.py) — поток событий niri
                         # у нас уже открыт, отдельный сторож ради одного события не нужен
                         try:

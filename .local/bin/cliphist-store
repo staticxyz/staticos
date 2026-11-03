@@ -1,5 +1,9 @@
 #!/bin/bash
 # `wl-paste --watch cliphist-store`: история буфера, но без скопированного в Tor Browser.
+# Снимки окон для обзора Super+G (ws_grid.py, 03.11.2026): niri кладёт каждый снимок в
+# буфер, обзор потом возвращает прежний буфер. Пока лежит свежая метка — в историю не пишем.
+NC="${XDG_RUNTIME_DIR:-/tmp}/jarvis-noclip"
+if [ -e "$NC" ] && [ $(( $(date +%s) - $(stat -c %Y "$NC") )) -le 15 ]; then cat >/dev/null; exit 0; fi
 niri msg -j focused-window 2>/dev/null | grep -q '"app_id":"Tor Browser"' && { cat >/dev/null; exit 0; }
 # Большое в историю не пишем (29.09.2026): каждая скопированная картинка ложилась в
 # базу целиком — она разрослась до 59 МБ, и буфер начал подлагивать при открытии и

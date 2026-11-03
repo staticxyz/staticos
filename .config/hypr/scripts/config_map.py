@@ -107,11 +107,11 @@ AREAS = [
     # Окна и клавиши
     ("Конфиг niri", "▣", ""),
     ("Окна и столы", "▢", """
-        alt_tab.py alt_tab.sh ribbon_center.py mouse_focus.py mouse_wait_release.py
+        alt_tab.py alt_tab.sh ws_grid.py gl_quads.py magnifier.py live_zoom.py ribbon_center.py mouse_focus.py mouse_wait_release.py
         window_fx.py wm.py hot_corners.py
         pip_place.py pip_toggle.py ws_layout.py stack_mode.py stack_bars.py stack_pin.py mousepad_place.py colexpand colwidth floattoggle magic tg_call_pocket.py overview_blur.py
         move_all no_self_maximize.py pair_center.py winreset ws_insert ws-step ws_step.py fs-toggle hl-step nostack winmon close-or-clipboard
-        dashboard shell-switch shell-do ws-anim"""),
+        dashboard shell-switch shell-do ws-anim overview"""),
     ("Настройки и справка", "⚙", """
         settings_app.py niri_state.py niri_compositor.py keybinds_sheet.py binds_edit.py smart_search.py exe_frame.py close_cap.py title_strip.py scrim_layer.py menu_one.py app_list.py
         config_map.py skeet_icons/ settings-open slashkey applist"""),

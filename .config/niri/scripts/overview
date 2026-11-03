@@ -1,0 +1,9 @@
+#!/bin/sh
+# Super+G (03.11.2026): какой обзор открыть — state/overview-mode, переключатель в
+# Настройки → Misc → Alt+Tab. staticos (по умолчанию) — свой обзор столов плитками
+# (ws_grid.py в резиденте Alt+Tab), niri — встроенный обзор niri.
+mode=$(cat "$HOME/.config/hypr/state/overview-mode" 2>/dev/null)
+if [ "$mode" = niri ]; then
+    exec niri msg action toggle-overview
+fi
+exec "$HOME/.config/hypr/scripts/alt_tab.sh" grid

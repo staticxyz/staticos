@@ -87,8 +87,10 @@ binds {
 
     // ─── Обзор: новое, в Hyprland такого не было ───
     // Зум-вид всех столов и окон. Ещё — левый верхний угол мышью
-    // и четыре пальца вверх по тачпаду.
-    Mod+G repeat=false { spawn-sh "~/.config/niri/scripts/nostack niri msg action toggle-overview"; }
+    // и четыре пальца вверх по тачпаду (там всегда обзор niri).
+    // 03.11.2026: Super+G — обзор по выбору в Настройки → Misc → Alt+Tab:
+    // staticOS overview (столы плитками, ws_grid.py) или Niri overview.
+    Mod+G repeat=false hotkey-overlay-title="Обзор столов" { spawn-sh "~/.config/niri/scripts/nostack ~/.config/niri/scripts/overview"; }
 
     // ═══ НАВИГАЦИЯ: оси совпадают с направлениями vim ═══
     //
@@ -335,6 +337,9 @@ binds {
     // Super+Ctrl+колесо: в стопке — свернуть / развернуть окно (как Super+J/K), иначе столы (21.10.2026)
     Mod+Ctrl+WheelScrollDown cooldown-ms=350 hotkey-overlay-title="Свернуть окно (стопка) / стол ниже" { spawn-sh "~/.config/niri/scripts/ws-step down jk"; }
     Mod+Ctrl+WheelScrollUp   cooldown-ms=350 hotkey-overlay-title="Развернуть окно (стопка) / стол выше" { spawn-sh "~/.config/niri/scripts/ws-step up jk"; }
+    // Super+Alt+колесо: лупа — живой зум niri вокруг курсора (сборка с PR #3246), иначе застывший снимок (03.11.2026)
+    Mod+Alt+WheelScrollUp   hotkey-overlay-title="Лупа: увеличить" { spawn-sh "python3 ~/.config/hypr/scripts/live_zoom.py in"; }
+    Mod+Alt+WheelScrollDown hotkey-overlay-title="Лупа: уменьшить" { spawn-sh "python3 ~/.config/hypr/scripts/live_zoom.py out"; }
 
     // ─── Снимки экрана ───
     // Print — родной экран выбора niri: область, окно или монитор,

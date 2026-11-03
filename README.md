@@ -83,6 +83,32 @@ The bottom panel comes in two looks. Pick one in Settings → DE → Bottom pane
 
   All of this is remembered for the next time.
 
+## Overview mode — `Super+G`
+
+![Overview mode](assets/overview.png)
+
+<p align="center"><i>Every desk of a monitor as a tile with real pictures of its windows · drag a window to another desk or between windows</i></p>
+
+niri's own overview shows three desks before the rest slide off screen. This one fits all of
+them, one tile per desk, and works as a place to rearrange windows.
+
+- **Desks as tiles.** Windows sit in their columns at their real proportions, floating ones on top,
+  with a caption like in Alt+Tab: the desk icon and the apps column by column. The last tile,
+  «+ New desk», makes an empty one.
+- **Move windows with the mouse.** Drop a window on another tile to send it to that desk (on any
+  monitor); a bar in the accent color shows where it lands between columns. Inside one tile the
+  same drag changes the order of windows. Click a window to focus it, a tile to go to that desk.
+- **Opens like niri's overview.** The current desk shrinks from full screen into its tile and the
+  others fade in; on close the chosen tile grows back. The transition is drawn on the GPU through
+  OpenGL, at a steady 60 fps, and falls back to cairo by itself if GL is unavailable.
+- **Keyboard:** `h/j/k/l` (or arrows) move by position and step over to the next monitor at the
+  edge, `Tab`/`Shift+Tab` walk through all tiles, `Enter` or `1`–`9` opens a desk, `Esc` closes.
+- **Pick your overview** in Settings → Misc → Alt+Tab: staticOS overview or the stock Niri
+  overview. Four fingers up on the touchpad always open niri's own.
+- **Live zoom on `Super+Alt+wheel`.** With niri built from PR
+  [#3246](https://github.com/YaLTeR/niri/pull/3246) the screen zooms live around the cursor;
+  on stock niri the same keys open a frozen magnifier.
+
 ## Config map — `Super+Shift+Z`
 
 ![Config map](assets/config-map.png)
@@ -192,6 +218,7 @@ Other distributions, options and removal: [docs/install.md](docs/install.md).
 | `Super+/` | Settings |
 | `Super+Z` | All shortcuts — cheat sheet with search |
 | `Super+Shift+Z` | Config map: which file does what |
+| `Super+G` | Overview: every desk as a tile, drag windows between them |
 | `Super+X` | Menu: apps, actions, packages, system |
 | `Super+Space` | Launch an app |
 | `Super+Return` | Terminal |

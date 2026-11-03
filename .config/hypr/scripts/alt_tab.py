@@ -3,6 +3,7 @@
 
     alt_tab.py daemon [next]   резидент (автозапуск niri; второй экземпляр выходит)
     alt_tab.py next|prev       сигнал резиденту (бинд зовёт быстрый alt_tab.sh)
+    alt_tab.py grid            обзор столов плитками (Super+G, ws_grid.py)
 
 Просьба: «нормальный Alt+Tab как в Windows, в стиле XP и по теме Настроек (Default,
 Skeet, Beta); стабильный, чтобы не отваливался; открывался почти моментально;
@@ -119,7 +120,7 @@ def send(cmd):
         os.close(fd)
 
 
-if sys.argv[1:2] in (["next"], ["prev"]):
+if sys.argv[1:2] in (["next"], ["prev"], ["grid"]):
     if alive_pid() and os.path.exists(FIFO):
         send(sys.argv[1])
         sys.exit(0)
@@ -136,7 +137,7 @@ try:
     fcntl.flock(_LOCK, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except OSError:
     first = sys.argv[2] if len(sys.argv) > 2 else None
-    if first in ("next", "prev") and os.path.exists(FIFO):
+    if first in ("next", "prev", "grid") and os.path.exists(FIFO):
         time.sleep(0.3)                    # первый ещё может открывать канал
         send(first)
     sys.exit(0)
@@ -150,6 +151,7 @@ from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, GtkLayerShell, Pango  
 
 sys.path.insert(0, HERE)
 import xp_calendar  # noqa: E402  — цвета трёх стилей (colors), шрифт
+import ws_grid  # noqa: E402  — обзор столов плитками, Super+G (03.11.2026)
 import nvim_lang  # noqa: E402
 
 STYLES = ("default", "skeet", "beta")
@@ -537,6 +539,7 @@ class Switcher:
         self.win.add(self.box)
         self.box.show_all()
 
+        self.grid = ws_grid.Grid(self, sys.modules[__name__])
         self.load_initial()
         self.follow_niri()
         self.open_fifo()
@@ -693,6 +696,7 @@ class Switcher:
                         self.focus_desk(s["id"])
         except Exception:
             log("event: " + traceback.format_exc(limit=2))
+        self.grid.changed()                       # обзор открыт — перестроить плитки
         return False
 
     def focus_desk(self, wsid):
@@ -766,7 +770,7 @@ class Switcher:
 
     def snap(self, out):
         self.snap_ids.pop(out, None)
-        if self.shown:                        # иначе на снимок попал бы сам переключатель
+        if self.shown or self.grid.shown:     # иначе на снимок попал бы сам переключатель
             self.schedule_snap(out, 800)
             return False
         s = self.active_ws(out)
@@ -873,6 +877,11 @@ class Switcher:
         return False
 
     def command(self, cmd):
+        if cmd == "grid":                 # обзор столов Super+G (ws_grid.py)
+            self.grid.toggle()
+            return
+        if self.grid.shown:
+            self.grid.close()
         step = -1 if cmd == "prev" else 1
         if not self.shown:
             self.open(step)
@@ -1531,7 +1540,7 @@ def main():
         pass
     sw = Switcher()
     first = sys.argv[2] if len(sys.argv) > 2 else None
-    if first in ("next", "prev"):
+    if first in ("next", "prev", "grid"):
         # первый показ сразу после старта клавиатуру не получал (05.10.2026) — подождать,
         # пока окно и соединение с niri готовы
         GLib.timeout_add(250, lambda: (sw.command(first), False)[1])
