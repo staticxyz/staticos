@@ -103,8 +103,8 @@ them, one tile per desk, and works as a place to rearrange windows.
 - **Opens like niri's overview.** The current desk shrinks from full screen into its tile and the
   others fade in; on close the chosen tile grows back. The transition is drawn on the GPU through
   OpenGL, at a steady 60 fps, and falls back to cairo by itself if GL is unavailable.
-- **Keyboard:** `h/j/k/l`, `w/a/s/d` (or arrows) move by position and step over to the next monitor at the
-  edge, `Tab`/`Shift+Tab` walk through all tiles, `Enter` or `1`–`9` opens a desk, `Esc` closes.
+- **Keyboard:** `h/j/k/l`, `w/a/s/d` (or arrows) move by position, `Super+Tab` switches to the other
+  monitor, `Tab`/`Shift+Tab` walk through the tiles, `Enter` or `1`–`9` opens a desk, `Esc` closes.
 - **Pick your overview** in Settings → Misc → Alt+Tab: staticOS overview or the stock Niri
   overview. Four fingers up on the touchpad always open niri's own.
 - **Live zoom on `Super+Alt+wheel`.** With niri built from PR

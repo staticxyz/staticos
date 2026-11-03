@@ -353,6 +353,7 @@ class Grid:
         except Exception:
             self.m.log("обзор обои: " + traceback.format_exc(limit=2))
         here = sw.focused_output()
+        self.here_out = here          # Super+Tab (niri focus-monitor-next) → рамка на другой монитор
         self.drag = self.press = self.target = self.hover = self.dtarget = self.nav_x = None
         self.moved = False
         t_in = time.monotonic()
@@ -437,6 +438,7 @@ class Grid:
             self.sprites = {}                     # плитки сдвинулись — заготовки перехода устарели
             try:
                 self.relayout()
+                self.follow_monitor()
             except Exception:
                 self.m.log("обзор relayout: " + traceback.format_exc(limit=3))
             self.redraw()
@@ -1503,8 +1505,16 @@ class Grid:
             d = "d"
         elif k in (G.KEY_Up, G.KEY_k, G.KEY_Cyrillic_el, G.KEY_w, G.KEY_Cyrillic_tse):
             d = "u"
+        elif k in (G.KEY_Tab, G.KEY_ISO_Left_Tab) and getattr(ev, "state", 0) & (
+                Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.MOD4_MASK):
+            # на другой монитор — только Super+Tab (если niri не перехватил его сам) (04.11.2026)
+            outs = [o for o in self.outs_by_x() if self.tiles.get(o)]
+            if len(outs) > 1:
+                self.select_monitor(outs[(outs.index(so) + 1) % len(outs)] if so in outs else outs[0])
+            return True
         elif k in (G.KEY_Tab, G.KEY_ISO_Left_Tab):
-            order = [(o, i) for o in self.outs_by_x() for i in range(len(self.tiles.get(o) or []))]
+            # Tab — по плиткам своего монитора; монитор меняет только Super+Tab (04.11.2026)
+            order = [(so, i) for i in range(len(tiles))]
             n = order.index((so, cur)) + (-1 if k == G.KEY_ISO_Left_Tab else 1)
             self.sel = order[n % len(order)]
             self.nav_x = None
@@ -1528,12 +1538,28 @@ class Grid:
                 self.redraw()
         return True
 
+    def follow_monitor(self):
+        """Фокус niri ушёл на другой монитор (Super+Tab) — рамка выбора туда же (04.11.2026)."""
+        f = self.sw.focused_output()
+        if not f or f == getattr(self, "here_out", None) or self.drag:
+            return
+        self.here_out = f
+        self.select_monitor(f)
+
+    def select_monitor(self, out):
+        tiles = self.tiles.get(out) or []
+        if not tiles:
+            return
+        i = next((j for j, t in enumerate(tiles) if t["ws"] and t["ws"].get("is_active")), 0)
+        self.sel, self.nav_x = (out, i), None
+        self.redraw()
+
     def outs_by_x(self):
         return sorted(self.tiles, key=lambda o: self.origin(o))
 
     def neighbour(self, out, i, d, ax=None):
         """Соседняя плитка по направлению — по положению на экране (ряды бывают 4+3 со сдвигом),
-        h/l на краю — на соседний монитор, в тот же по высоте ряд (04.11.2026)."""
+        на краю монитора — никуда: монитор меняет Super+Tab (04.11.2026)."""
         tiles = self.tiles[out]
         c = tiles[i]
         cx, cy = c["x"] + c["w"] / 2, c["y"] + c["H"] / 2
@@ -1554,19 +1580,6 @@ class Grid:
                 key = (round(abs(dy)), abs(tx - (cx if ax is None else ax)))   # ближний ряд, в нём — ближняя к столбцу
             if best is None or key < best[0]:
                 best = (key, (out, j))
-        if best or d in ("u", "d"):
-            return best[1] if best else None
-        outs = self.outs_by_x()
-        n = outs.index(out) + (1 if d == "r" else -1)
-        if not 0 <= n < len(outs) or not self.tiles.get(outs[n]):
-            return None
-        o2 = outs[n]
-        _ow, oh = self.size(out)
-        rel = cy / oh                             # та же высота на другом мониторе
-        t2 = self.tiles[o2]
-        oh2 = self.size(o2)[1]
-        row_y = min({t["y"] + t["H"] / 2 for t in t2}, key=lambda y: abs(y / oh2 - rel))
-        row = [j for j, t in enumerate(t2) if abs(t["y"] + t["H"] / 2 - row_y) < 1]
-        j = min(row, key=lambda j: t2[j]["x"]) if d == "r" else max(row, key=lambda j: t2[j]["x"])
-        return (o2, j)
+        # на соседний монитор стрелками не уходит: только Super+Tab (04.11.2026, «багованно работает»)
+        return best[1] if best else None
 
