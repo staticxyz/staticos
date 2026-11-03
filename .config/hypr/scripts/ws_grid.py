@@ -52,7 +52,8 @@ DRAG_START = 6           # px — дальше это уже перетаски�
 MAX_SHARE = 0.46         # одна-две плитки не во весь экран
 WGAP = 24                # между колонками окон, в пикселях экрана (до уменьшения)
 PAD = 8                  # поле внутри плитки, px плитки
-BG_DIM = 0.40            # притушить обои под плитками (было 0.62 — «слишком темно», 04.11.2026)
+BG_DIM = 0.62    # затемнение фона обзора (04.11.2026: «фон лучше пусть будет темнее»)
+TILE_DIM = 0.0   # обои внутри плитки: было 0.18 — стол темнел в конце перехода (снимок экрана без тени), 04.11.2026
 IMG_MAX = 1000           # картинка окна в памяти не крупнее
 GHOST_MIN, GHOST_MAX = 140, 380
 OPEN_S, CLOSE_S = 0.26, 0.22
@@ -92,6 +93,13 @@ def text(cr, s, x, y, w, size, color=(1, 1, 1, 0.92), markup=False, center=False
     _ink, log = lay.get_pixel_extents()
     cr.move_to(x, y - log.height / 2)
     PangoCairo.show_layout(cr, lay)
+
+
+def desk_index(a, b, side):
+    """Новый номер стола a (niri, с 1), чтобы встать перед/после стола b того же монитора."""
+    if side == "before":
+        return b if a > b else b - 1
+    return b + 1 if a > b else b
 
 
 def niri_req(obj):
@@ -178,6 +186,8 @@ class Grid:
         self.drag = None              # {wid, out, gx, gy, over, fx, fy, w, h}
         self.target = None            # {out, i, g, bar} под окном при перетаскивании
         self.sel = None               # (выход, i) — выбор с клавиатуры
+        self.nav_x = None             # j/k: столбец, откуда пошли (ряды со сдвигом, 04.11.2026)
+        self.dtarget = None           # перетаскивание стола: {out, i, side, bar}
         self.surf = {}                # кэш поверхностей cairo
         self.sprites = {}             # (выход, i, вид) → готовая плитка на время перехода
         self.img = {}                 # id окна → Pixbuf (снимок окна)
@@ -343,7 +353,7 @@ class Grid:
         except Exception:
             self.m.log("обзор обои: " + traceback.format_exc(limit=2))
         here = sw.focused_output()
-        self.drag = self.press = self.target = self.hover = None
+        self.drag = self.press = self.target = self.hover = self.dtarget = self.nav_x = None
         self.moved = False
         t_in = time.monotonic()
         self.relayout()
@@ -391,7 +401,7 @@ class Grid:
         """focus — {выход: i плитки}, какой стол разворачивается; иначе активные столы."""
         if not self.shown or (self.anim and self.anim["kind"] == "close"):
             return
-        self.drag = self.press = self.target = None
+        self.drag = self.press = self.target = self.dtarget = None
         if focus is None:
             focus = {}
         shot = {}
@@ -906,8 +916,8 @@ class Grid:
         many = len(self.sw.outs) > 1
         head = self.sw.monitor_name(out) + " · " if many else ""
         n = len([t for t in tiles if t["kind"] == "desk"])
-        return ("%s%d %s   ·   тащите окно на другой стол или между окнами   ·   "
-                "щелчок — перейти   ·   Esc — закрыть") % (head, n, self.m.plural(n, "стол", "стола", "столов"))
+        return ("%s%d %s   ·   тащите окно на другой стол или между окнами, подпись стола — переставить стол"
+                "   ·   щелчок — перейти   ·   Esc — закрыть") % (head, n, self.m.plural(n, "стол", "стола", "столов"))
 
     def hint_sprite(self, out, tiles):
         """Подсказка внизу — картинкой (для перехода на видеокарте); (поверхность, y)."""
@@ -986,8 +996,16 @@ class Grid:
                     cr.paint_with_alpha(1 - p)
                     cr.restore()
         else:
+            dd = self.drag if self.drag and self.drag.get("desk") else None
             for i, t in enumerate(tiles):
-                self.draw_tile(cr, out, i, t, acc, drag_wid, 1.0)
+                src = dd is not None and dd["out"] == out and dd["i"] == i
+                self.draw_tile(cr, out, i, t, acc, drag_wid, 0.3 if src else 1.0)
+            dt = self.dtarget
+            if dd and dt and dt["out"] == out:
+                bx, y0, y1 = dt["bar"]
+                rgba(cr, acc)
+                cr.rectangle(bx - 3, y0, 6, y1 - y0)
+                cr.fill()
         hint = self.hint_text(out, tiles)
         text(cr, hint, 0, oh - MARGIN_BOT / 2, ow, 13, (1, 1, 1, 0.55 * p * fade), center=True)
         if self.drag and self.drag.get("over") == out:
@@ -1045,7 +1063,7 @@ class Grid:
         else:
             wall = self.wall_pb(out, w, h)
             if wall is not None:
-                cr.set_source_surface(self.surface_of(("w", out), wall, w, h, dim=0.18), x, y)
+                cr.set_source_surface(self.surface_of(("w", out), wall, w, h, dim=TILE_DIM), x, y)
                 if fast:
                     cr.get_source().set_filter(cairo.FILTER_FAST)
                 cr.paint_with_alpha(a)
@@ -1149,6 +1167,9 @@ class Grid:
 
     def draw_ghost(self, cr, out, acc):
         d = self.drag
+        if d.get("desk"):
+            self.draw_desk_ghost(cr, out, acc, d)
+            return
         win = self.sw.windows.get(d["wid"])
         if not win:
             return
@@ -1169,6 +1190,53 @@ class Grid:
         cr.set_line_width(2)
         cr.rectangle(X + 1, Y + 1, w - 2, h - 2)
         cr.stroke()
+
+    def draw_desk_ghost(self, cr, out, acc, d):
+        """Стол под курсором при перетаскивании — уменьшенная плитка (04.11.2026)."""
+        tiles = self.tiles.get(d["out"]) or []
+        if d["i"] >= len(tiles):
+            return
+        t = tiles[d["i"]]
+        ox, oy = self.origin(out)
+        k = min(1.0, 380 / max(1, t["w"]))
+        w, h = t["w"] * k, t["H"] * k
+        X, Y = d["gx"] - ox - d["fx"] * w, d["gy"] - oy - d["fy"] * h
+        cr.set_source_rgba(0, 0, 0, 0.35)
+        cr.rectangle(X + 6, Y + 8, w, t["h"] * k)
+        cr.fill()
+        cr.save()
+        cr.translate(X, Y)
+        cr.scale(k, k)
+        cr.translate(-t["x"], -t["y"])
+        self.draw_tile(cr, d["out"], d["i"], t, acc, None, 0.95)
+        rgba(cr, acc)
+        cr.set_line_width(2 / k)
+        cr.rectangle(t["x"] + 1, t["y"] + 1, t["w"] - 2, t["h"] - 2)
+        cr.stroke()
+        cr.restore()
+
+    def desk_slot(self, out, lx, ly):
+        """Куда встанет перетаскиваемый стол: перед/после плитки под курсором → {out, i, side, bar}."""
+        d = self.drag
+        tiles = self.tiles.get(out) or []
+        best = None
+        for j, t in enumerate(tiles):
+            if not t["ws"]:
+                continue
+            if t["x"] - GAP / 2 <= lx < t["x"] + t["w"] + GAP / 2 and \
+                    t["y"] - GAP / 2 <= ly < t["y"] + t["H"] + GAP / 2:
+                best = j
+                break
+        if best is None:
+            return None
+        t = tiles[best]
+        side = "before" if (t["kind"] == "new" or lx < t["x"] + t["w"] / 2) else "after"
+        if out == d["out"]:
+            i = d["i"]
+            if best == i or (side == "before" and best == i + 1) or (side == "after" and best == i - 1):
+                return None                       # туда же, где стоит
+        bx = t["x"] - GAP / 2 if side == "before" else t["x"] + t["w"] + GAP / 2
+        return {"out": out, "i": best, "side": side, "bar": (bx, t["y"], t["y"] + t["h"])}
 
     # ── мышь ──
     def hit(self, out, x, y):
@@ -1202,6 +1270,28 @@ class Grid:
                     X, Y, W, H = pr["what"][3]
                     self.drag = {"wid": pr["what"][2]["id"], "out": out, "w": W, "h": H,
                                  "fx": (pr["x"] - X) / max(1, W), "fy": (pr["y"] - Y) / max(1, H)}
+            # стол целиком — за подпись или пустое место плитки (04.11.2026)
+            if pr and not self.drag and pr["what"][0] == "tile" \
+                    and abs(ev.x - pr["x"]) + abs(ev.y - pr["y"]) > DRAG_START:
+                tiles = self.tiles.get(pr["out"]) or []
+                i = pr["what"][1]
+                if i < len(tiles) and tiles[i]["kind"] == "desk" and tiles[i]["ws"]:
+                    t = tiles[i]
+                    self.drag = {"desk": t["ws"]["id"], "wid": None, "out": pr["out"], "i": i,
+                                 "fx": (pr["x"] - t["x"]) / max(1, t["w"]),
+                                 "fy": (pr["y"] - t["y"]) / max(1, t["H"])}
+            if self.drag and self.drag.get("desk"):
+                gx, gy = ox + ev.x, oy + ev.y
+                o2 = self.out_at(gx, gy)
+                self.drag.update(gx=gx, gy=gy, over=o2)
+                self.target = None
+                if o2:
+                    x2, y2 = self.origin(o2)
+                    self.dtarget = self.desk_slot(o2, gx - x2, gy - y2)
+                else:
+                    self.dtarget = None
+                self.redraw()
+                return True
             if self.drag:
                 # пока кнопка зажата, события идут окну, где нажали, — и за его краем:
                 # координаты в общих (по монитору под курсором)
@@ -1249,8 +1339,13 @@ class Grid:
         try:
             if ev.button != 1 or not self.press:
                 return True
-            press, drag, target = self.press, self.drag, self.target
-            self.press = self.drag = self.target = None
+            press, drag, target, dtarget = self.press, self.drag, self.target, self.dtarget
+            self.press = self.drag = self.target = self.dtarget = None
+            if drag and drag.get("desk"):
+                if dtarget:
+                    self.move_desk(drag, dtarget)
+                self.redraw()
+                return True
             if drag:
                 win = self.sw.windows.get(drag["wid"])
                 if win and target:
@@ -1331,6 +1426,44 @@ class Grid:
         self.act(steps, "окно %d (%s) → %s стол %s, место %s" % (
             wid, win.get("app_id"), out, s.get("idx"), "—" if g is None else g + 1))
 
+    def move_desk(self, drag, dt):
+        """Переставить стол: на другой монитор (MoveWorkspaceToMonitor) и на место
+        (MoveWorkspaceToIndex, номера niri с 1). Фокус niri при этом не меняет (04.11.2026)."""
+        src = self.sw.ws.get(drag["desk"])
+        tiles = self.tiles.get(dt["out"]) or []
+        if not src or dt["i"] >= len(tiles) or not tiles[dt["i"]]["ws"]:
+            return
+        sid, tid = src["id"], tiles[dt["i"]]["ws"]["id"]
+        out, side = dt["out"], dt["side"]
+        cross = src.get("output") != out
+        self.moved = True
+        why = "стол %s (%s) → %s, %s стола %s" % (src.get("idx"), src.get("output"), out,
+                                                  "перед" if side == "before" else "после",
+                                                  tiles[dt["i"]]["ws"].get("idx"))
+        self.m.log("обзор: " + why)
+        if self.m.DRY:
+            self.m.log("обзор (сухо): стол %d → %s %s %d" % (sid, out, side, tid))
+            return
+
+        def run():
+            try:
+                if cross:
+                    r = niri_req({"Action": {"MoveWorkspaceToMonitor": {"output": out, "reference": {"Id": sid}}}})
+                    if not r or "Ok" not in r:
+                        self.m.log("обзор: niri не принял перенос стола: %s" % r)
+                        return
+                r = niri_req("Workspaces")
+                ws = {w["id"]: w for w in r["Ok"]["Workspaces"]}
+                a, b = ws[sid]["idx"], ws[tid]["idx"]
+                p = desk_index(a, b, side)
+                if p != a:
+                    r = niri_req({"Action": {"MoveWorkspaceToIndex": {"index": p, "reference": {"Id": sid}}}})
+                    if not r or "Ok" not in r:
+                        self.m.log("обзор: niri не принял место стола: %s" % r)
+            except Exception:
+                self.m.log("обзор move_desk: " + traceback.format_exc(limit=3))
+        threading.Thread(target=run, daemon=True).start()
+
     def focus_window(self, win, out, i):
         self.close({out: i})
         self.act([{"FocusWindow": {"id": int(win["id"])}}], "в окно")
@@ -1362,18 +1495,19 @@ class Grid:
                 return True
         tiles = self.tiles[so]
         d = None
-        if k in (G.KEY_Right, G.KEY_l, G.KEY_Cyrillic_de, G.KEY_d):
+        if k in (G.KEY_Right, G.KEY_l, G.KEY_Cyrillic_de, G.KEY_d, G.KEY_Cyrillic_ve):
             d = "r"
-        elif k in (G.KEY_Left, G.KEY_h, G.KEY_Cyrillic_er, G.KEY_a):
+        elif k in (G.KEY_Left, G.KEY_h, G.KEY_Cyrillic_er, G.KEY_a, G.KEY_Cyrillic_ef):
             d = "l"
-        elif k in (G.KEY_Down, G.KEY_j, G.KEY_Cyrillic_o, G.KEY_s):
+        elif k in (G.KEY_Down, G.KEY_j, G.KEY_Cyrillic_o, G.KEY_s, G.KEY_Cyrillic_yeru):
             d = "d"
-        elif k in (G.KEY_Up, G.KEY_k, G.KEY_Cyrillic_el, G.KEY_w):
+        elif k in (G.KEY_Up, G.KEY_k, G.KEY_Cyrillic_el, G.KEY_w, G.KEY_Cyrillic_tse):
             d = "u"
         elif k in (G.KEY_Tab, G.KEY_ISO_Left_Tab):
             order = [(o, i) for o in self.outs_by_x() for i in range(len(self.tiles.get(o) or []))]
             n = order.index((so, cur)) + (-1 if k == G.KEY_ISO_Left_Tab else 1)
             self.sel = order[n % len(order)]
+            self.nav_x = None
             self.redraw()
             return True
         elif k in (G.KEY_Return, G.KEY_KP_Enter, G.KEY_space):
@@ -1383,16 +1517,21 @@ class Grid:
             self.go_desk(tiles[k - G.KEY_1]["ws"], so, k - G.KEY_1)
             return True
         if d:
-            nxt = self.neighbour(so, cur, d)
+            ax = None
+            if d in ("u", "d"):                   # j/k держат столбец: j, k — туда же, откуда ушли
+                c = tiles[cur]
+                ax = self.nav_x if self.nav_x is not None else c["x"] + c["w"] / 2
+            nxt = self.neighbour(so, cur, d, ax)
             if nxt:
                 self.sel = nxt
+                self.nav_x = ax
                 self.redraw()
         return True
 
     def outs_by_x(self):
         return sorted(self.tiles, key=lambda o: self.origin(o))
 
-    def neighbour(self, out, i, d):
+    def neighbour(self, out, i, d, ax=None):
         """Соседняя плитка по направлению — по положению на экране (ряды бывают 4+3 со сдвигом),
         h/l на краю — на соседний монитор, в тот же по высоте ряд (04.11.2026)."""
         tiles = self.tiles[out]
@@ -1411,7 +1550,8 @@ class Grid:
             else:
                 if same_row or (dy > 0) != (d == "d"):
                     continue
-                key = (round(abs(dy)), abs(dx))     # ближний ряд, в нём — ближняя по горизонтали
+                tx = t["x"] + t["w"] / 2
+                key = (round(abs(dy)), abs(tx - (cx if ax is None else ax)))   # ближний ряд, в нём — ближняя к столбцу
             if best is None or key < best[0]:
                 best = (key, (out, j))
         if best or d in ("u", "d"):

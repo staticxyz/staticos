@@ -965,7 +965,12 @@ class Switcher:
             xs = [w for w in self.windows.values()
                   if s and w.get("workspace_id") == s["id"]
                   and not (w.get("app_id") or "").startswith(HIDDEN_APPS)]
-            xs.sort(key=lambda w: (not w.get("is_focused"), -ts(w)))
+            # 04.11.2026, просьба: «порядок ровно такой же, как они размещены на столе и в нижней
+            # панели» — колонки слева направо, в колонке сверху вниз, плавающие в конце (как xpbar)
+            def at(w):
+                pos = ((w.get("layout") or {}).get("pos_in_scrolling_layout")) or [9999, 0]
+                return (bool(w.get("is_floating")), pos[0], pos[1], w["id"])
+            xs.sort(key=at)
             if xs:
                 groups.append((s.get("output"), xs))
         elif desks:
@@ -1002,7 +1007,8 @@ class Switcher:
             rank = lambda w: (not w.get("is_focused"), -ts(w))  # noqa: E731
         recent = sorted(range(len(self.items)), key=lambda i: rank(self.items[i]))
         n = len(recent)
-        if desks:
+        if desks or dw:
+            # окна стола — как столы: Tab по порядку показа, старт на прошлом окне (04.11.2026)
             # 19.10.2026, просьба: «сначала стол, на котором я был до этого, а дальше Tab —
             # по столам слева направо, а не по посещаемости». Tab идёт по плиткам в порядке
             # показа (мониторы слева направо, столы сверху вниз); старт — на прошлом столе
