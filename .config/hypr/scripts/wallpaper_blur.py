@@ -5,7 +5,6 @@
     wallpaper_blur.py on|off|toggle [ВЫХОД]
     wallpaper_blur.py outputs            -> имя<TAB>подпись<TAB>состояние
     wallpaper_blur.py apply              применить состояние (после смены обоев)
-    wallpaper_blur.py backdrop           фон обзора niri — размытые обои (2-й демон awww)
     wallpaper_blur.py level [1..3]       сила: 1 лёгкое, 2 среднее, 3 сильное
 
 Без имени выхода команда действует на все мониторы сразу.
@@ -39,8 +38,6 @@ TRANSITION = ["--transition-type", "fade", "--transition-duration", "0.6"]
 # Пиксельные обои (03.10.2026, wallpaper_pixel.py): ещё одна производная копия. Порядок —
 # сперва пиксели, потом размытие поверх; «настоящими» обоями не считается ни та, ни другая.
 PIXEL_CACHE = os.path.expanduser("~/.cache/wallpaper-pixel")
-BACKDROP_NS = "-backdrop"      # второй демон awww — фон обзора niri, см. backdrop();
-                               # передавать как --namespace=…: «-n -backdrop» читается как флаги
 
 
 def level():
@@ -66,11 +63,10 @@ def radius():
     return LEVELS[level()][1]
 
 
-def shown(ns=""):
+def shown():
     """{имя выхода: показанная сейчас картинка} — по опросу самого демона обоев."""
     try:
-        out = subprocess.run(["awww", "query"] + (["--namespace=" + ns] if ns else []),
-                             capture_output=True, text=True,
+        out = subprocess.run(["awww", "query"], capture_output=True, text=True,
                              timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
         return {}
@@ -241,35 +237,6 @@ def apply():
             show(name, target)
         done.append("%s: %s%s" % (name, "размыто" if want_blur else "чётко",
                                   ", пиксели" if base != path else ""))
-    backdrop()
-    return ", ".join(done)
-
-
-def backdrop():
-    """Фон обзора niri — размытые обои каждого монитора (28.09.2026).
-
-    Обзор уменьшает столы, а вокруг них niri рисует свой фон — был серый.
-    Картинку туда кладёт второй демон awww со своим namespace (awww-daemon-backdrop):
-    правило place-within-backdrop в config.kdl уносит его слой в фон обзора, а
-    столы остаются с обычными обоями. Кэш awww не трогаем (--no-cache): иначе
-    основной демон после перезапуска мог бы поднять размытую картинку.
-    """
-    display = shown()
-    now = shown(BACKDROP_NS)
-    done = []
-    for name in display:
-        path = original(name, display)
-        target = blurred(path) if path else None
-        if not target:
-            continue
-        if now.get(name) != target:
-            r = subprocess.run(["awww", "img", "--namespace=" + BACKDROP_NS, "--no-cache",
-                                "--outputs", name, "--transition-type", "none", target],
-                               capture_output=True, text=True)
-            if r.returncode != 0:
-                done.append("%s: демон фона обзора не отвечает" % name)
-                continue
-        done.append("%s: фон обзора" % name)
     return ", ".join(done)
 
 
@@ -298,16 +265,6 @@ def main():
         return 0
     if cmd == "toggle":
         print(set_value("off" if get(name) == "on" else "on", name))
-        return 0
-    if cmd == "backdrop":
-        # При входе оба демона поднимаются параллельно — ждём их до 15 с.
-        import time
-        for _ in range(30):
-            if shown() and subprocess.run(["awww", "query", "--namespace=" + BACKDROP_NS],
-                                          capture_output=True).returncode == 0:
-                break
-            time.sleep(0.5)
-        print(backdrop())
         return 0
     if cmd == "apply":
         print(apply())

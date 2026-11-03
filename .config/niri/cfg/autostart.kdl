@@ -47,9 +47,6 @@ spawn-at-startup "~/.local/bin/x-clip-pull"
 // Звонок терминала тише и тишина уведомлений при «Не беспокоить» (23.09.2026).
 spawn-at-startup "~/.config/hypr/scripts/sound_guard.sh"
 spawn-at-startup "awww-daemon"
-// Фон обзора — второй демон и размытые обои в нём (см. layer-rule у обоев).
-spawn-at-startup "awww-daemon" "--namespace" "-backdrop"
-spawn-at-startup "python3" "~/.config/hypr/scripts/wallpaper_blur.py" "backdrop"
 spawn-at-startup "waypaper" "--restore"
 // Дашборд (часы, таймер, cava, brrt…) — те же окна, что были до перезагрузки,
 // в тех же местах. Ждёт бар, иначе окна встают без поправки на него.

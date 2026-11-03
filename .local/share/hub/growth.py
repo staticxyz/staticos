@@ -449,6 +449,29 @@ def sleeps(c, t_from, t_to):
     return out
 
 
+QUIET_RE = re.compile(r"без ввода с (?:(\d\d)\.(\d\d) )?(\d\d):(\d\d)")
+
+
+def quiet_before(c, start):
+    """Последний ввод перед сном ПК в start — из строки «сон (…) · без ввода с 00:31» (hubd,
+    с 03.11.2026) или None. Экран заперли и ушли, а ПК уснул позже (видео под замком держало
+    сон до 03:09) — отбой не по сну ПК, а по тому, когда к нему перестали прикасаться."""
+    try:
+        r = c.execute("SELECT ts, text FROM journal WHERE kind='power' AND text LIKE '%без ввода с %'"
+                      " AND ts>=? AND ts<=? ORDER BY ABS(ts-?) LIMIT 1", (start - 120, start + 120, start)).fetchone()
+    except Exception:
+        return None
+    m = QUIET_RE.search(r[1] or "") if r else None
+    if not m:
+        return None
+    lt = time.localtime(r[0])
+    mon, day = (int(m.group(2)), int(m.group(1))) if m.group(1) else (lt.tm_mon, lt.tm_mday)
+    t = time.mktime((lt.tm_year, mon, day, int(m.group(3)), int(m.group(4)), 0, 0, 0, -1))
+    if t > r[0]:
+        t -= 86400
+    return int(t) if 0 < r[0] - t <= 16 * 3600 else None
+
+
 def first_input(c, t0, t1):
     """Первый ввод после пробуждения ПК по часам (журнал 'input' — пишет hubd)."""
     try:
@@ -498,7 +521,7 @@ def _night_calc(c, d):
     n = None
     if long:
         x = long[0]
-        n = dict(bed=x["start"], bed_a="", up=x["end"], up_a="")
+        n = dict(bed=quiet_before(c, x["start"]) or x["start"], bed_a="", up=x["end"], up_a="")
         if x["clock"]:                       # ПК разбудили часы — встали, когда тронули клавиатуру
             fi = first_input(c, x["end"], x["end"] + 12 * 3600)
             fa = None if fi else first_active(x["end"], min(now, x["end"] + 12 * 3600))

@@ -76,6 +76,22 @@ def screen_away():
     return None
 
 
+def quiet_since(t):
+    """« · без ввода с 00:31», если перед сном в t к ПК не прикасались 5 мин и дольше, иначе «».
+    03.11.2026, просьба: «почему отбой был в 3 часа ночи? … к полуночи или к часу я заснул».
+    Экран заперли в 00:31, а уснул ПК в 03:09 (видео под замком) — growth.py брал отбой по
+    сну ПК. Последний ввод — по jarvis-input: hypridle пишет «idle <ts>» через 60 с тишины."""
+    try:
+        state, ts = open(INPUT_FILE).read().split()
+        last = int(ts) - 60
+    except (OSError, ValueError):
+        return ""
+    if state != "idle" or not 5 * 60 <= t - last <= 24 * 3600:
+        return ""
+    return " · без ввода с " + time.strftime("%H:%M" if time.localtime(last)[:3] == time.localtime(t)[:3]
+                                            else "%d.%m %H:%M", time.localtime(last))
+
+
 def input_since(t):
     """Был ли ввод (клавиши, мышь) после t — по jarvis-input от hypridle."""
     try:
@@ -1285,7 +1301,7 @@ def power_watch():
             if member == "sleep":
                 plan_refresh()                   # таймер, заведённый перед самой крышкой, — тоже в план
                 why = "снова, после пробуждения ради хаба" if quiet_wake() else sleep_src()
-                jnote("power", "сон (%s)%s" % (why, plan_text()))
+                jnote("power", "сон (%s)%s%s" % (why, plan_text(), quiet_since(st["sleep_at"])))
             else:
                 jnote("power", "выключение или перезагрузка")
             st["lock"].terminate()

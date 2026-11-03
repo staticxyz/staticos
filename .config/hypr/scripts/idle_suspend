@@ -11,6 +11,14 @@
 срабатывают при любом инхибиторе. Сон же идёт через этот скрипт, который сам
 смотрит на состояние Savage Mode — так правило записано в одном месте и видно
 глазами, а не спрятано в чужой семантике инхибиторов.
+
+03.11.2026, просьба: «почему ноутбук уснул в 3 часа? … по плану он должен был уйти в сон
+через 15 мин». Экран заперли в 00:31, а YouTube в Helium под замком играл дальше: браузер
+держал инхибитор простоя, и обычный слушатель (без ignore_inhibit) ждал до конца видео —
+сон в 03:09. Теперь второй слушатель hypridle с ignore_inhibit зовёт `idle_suspend --locked`:
+экран заперт — видео не держит (смотреть его некому), держат только игра, Savage, будильник
+и микрофон в работе (звонок). Без замка `--locked` ничего не делает: там решает обычный.
+Оба слушателя срабатывают в одну секунду — второй вызов пропускается по метке STAMP.
 """
 import importlib.util
 import os
@@ -19,6 +27,59 @@ import sys
 import time
 
 SAVAGE = os.path.expanduser("~/.config/hypr/scripts/savage_battery.py")
+STAMP = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()), "jarvis-idle-suspend")
+LOCKERS = {"hyprlock", "swaylock", "gtklock", "waylock"}
+
+
+def screen_locked():
+    """Запущен экран блокировки (hyprlock или свой jarvis_lock.py) — по /proc, без pgrep -f."""
+    for p in os.listdir("/proc"):
+        if not p.isdigit():
+            continue
+        try:
+            with open("/proc/%s/comm" % p) as f:
+                comm = f.read().strip()
+            if comm in LOCKERS:
+                return True
+            if comm.startswith(("python", "jv:")):
+                with open("/proc/%s/cmdline" % p, "rb") as f:
+                    argv = f.read().split(b"\0")
+                if any(os.path.basename(a) == b"jarvis_lock.py" for a in argv[1:3]):
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def mic_busy():
+    """Программы, которые пишут с настоящего микрофона (звонок) — privacy_status.scan_mic."""
+    try:
+        import privacy_status
+        return privacy_status.scan_mic() or []
+    except Exception:
+        return []
+
+
+def twin_call():
+    """Оба слушателя (обычный и --locked) срабатывают разом: второй — молчит. Время —
+    CLOCK_MONOTONIC (сон его не двигает): вызов следом за усыплением не усыпит снова."""
+    import fcntl
+    try:
+        fd = os.open(STAMP, os.O_RDWR | os.O_CREAT, 0o644)
+    except OSError:
+        return False
+    with os.fdopen(fd, "r+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)            # оба вызова разом: читают по очереди
+        now = time.monotonic()
+        try:
+            if now - float(f.read() or "-1e9") < 60:
+                return True
+        except ValueError:
+            pass
+        f.seek(0)
+        f.truncate()
+        f.write("%f" % now)
+    return False
 
 
 def savage_active():
@@ -30,6 +91,9 @@ def savage_active():
 
 def main():
     dry = os.environ.get("IDLE_SUSPEND_DRYRUN") == "1"
+    locked = screen_locked()
+    if "--locked" in sys.argv[1:] and not locked:
+        return 0                                 # без замка решает обычный слушатель
     try:
         blocked = savage_active()
     except Exception as e:                      # скрипт недоступен — лучше не спать
@@ -44,7 +108,12 @@ def main():
         print("идёт игра — сон пропущен")
         return 0
     from idle_guard import video_in_focus, hold
-    if video_in_focus():                         # видео в фокусе — не спать (07.10.2026)
+    if locked:                                   # под замком: видео не держит, звонок держит
+        mic = mic_busy()
+        if mic:
+            print("микрофон занят (%s) — сон пропущен" % ", ".join(mic))
+            return 0
+    elif video_in_focus():                       # видео на экране — не спать (07.10.2026)
         hold("suspend")
         print("смотрят видео — сон пропущен")
         return 0
@@ -64,7 +133,10 @@ def main():
         print("будильник не проверен: %s — сон пропущен" % e, file=sys.stderr)
         return 0
     if dry:
-        print("сон бы состоялся (Savage Mode выключен)")
+        print("сон бы состоялся (Savage Mode выключен)%s" % (", экран заперт" if locked else ""))
+        return 0
+    if twin_call():
+        print("второй слушатель следом — сон уже был")
         return 0
     if os.environ.get("HUB_QUIET_SLEEP") != "1":  # хаб снова усыпляет после тихого пробуждения
         hub_sleep_notice()
