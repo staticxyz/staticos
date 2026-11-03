@@ -52,6 +52,7 @@ DRAG_START = 6           # px — дальше это уже перетаски�
 MAX_SHARE = 0.46         # одна-две плитки не во весь экран
 WGAP = 24                # между колонками окон, в пикселях экрана (до уменьшения)
 PAD = 8                  # поле внутри плитки, px плитки
+BG_DIM = 0.40            # притушить обои под плитками (было 0.62 — «слишком темно», 04.11.2026)
 IMG_MAX = 1000           # картинка окна в памяти не крупнее
 GHOST_MIN, GHOST_MAX = 140, 380
 OPEN_S, CLOSE_S = 0.26, 0.22
@@ -180,6 +181,7 @@ class Grid:
         self.surf = {}                # кэш поверхностей cairo
         self.sprites = {}             # (выход, i, вид) → готовая плитка на время перехода
         self.img = {}                 # id окна → Pixbuf (снимок окна)
+        self.img_at = {}              # id окна → когда снято (time.monotonic)
         self.shots = {}               # выход → поверхность: экран в миг открытия
         self.anim = None              # {kind open|close, t0, dur, p0, focus{out: i}, shot{out: bool}}
         self.tick_id = None
@@ -506,11 +508,13 @@ class Grid:
         return True                               # кадры рисует _frame_tick
 
     # ── снимки окон ──
-    def capture(self):
+    def capture(self, ids=None):
+        """ids — только эти окна (Alt+Tab, вид «окна стола», 04.11.2026); иначе все."""
         if self.m.DRY or self.capturing:
             return
-        ids = [w["id"] for w in self.sw.windows.values()
-               if not (w.get("app_id") or "").startswith(self.m.HIDDEN_APPS)]
+        if ids is None:
+            ids = [w["id"] for w in self.sw.windows.values()
+                   if not (w.get("app_id") or "").startswith(self.m.HIDDEN_APPS)]
         if not ids:
             return
         self.capturing = True
@@ -586,8 +590,12 @@ class Grid:
 
     def got_img(self, wid, pb):
         self.img[wid] = pb
+        self.img_at[wid] = time.monotonic()
         if self.shown:
             self.redraw()
+        hook = getattr(self.sw, "win_img", None)   # Alt+Tab, вид «окна стола»
+        if hook:
+            hook(wid)
         return False
 
     # ── раскладка ──
@@ -799,7 +807,7 @@ class Grid:
                 pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, ow, oh, False)
                 s = Gdk.cairo_surface_create_from_pixbuf(pb, 1, None)
                 cr = cairo.Context(s)
-                cr.set_source_rgba(0, 0, 0, 0.62)
+                cr.set_source_rgba(0, 0, 0, BG_DIM)
                 cr.paint()
             except GLib.Error:
                 s = None

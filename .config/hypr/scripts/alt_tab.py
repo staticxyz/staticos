@@ -30,6 +30,12 @@ Skeet, Beta); стабильный, чтобы не отваливался; от
 в обоих режимах сразу оба монитора»). Клавиша ` / ~ (на русской — ё) переключает:
   * окна — значки окон, по группе на монитор (слева направо, как стоят мониторы);
   * столы — превью столов каждого монитора столбиком, как столы в niri (сверху вниз).
+  * окна стола (04.11.2026, просьба: «третий вид — окна в текущем столе, работает как вид
+    со столами») — окна стола в фокусе плитками с картинками окон. Картинки — снимки
+    niri тем же бережным путём, что в обзоре Super+G (ws_grid.capture: буфер возвращается,
+    без уведомлений и звука); снимаются через 0,3 с после показа, если Alt+Tab ещё открыт,
+    и только устаревшие (старше IMG_FRESH); до готовности — обои и значок программы.
+  ` идёт по кругу: окна → столы → окна стола → окна.
 Режим запоминается (state/alttab-mode). Вид (state/alttab-layout, Настройки → Misc):
   * side — мониторы рядом слева направо, столы монитора столбиком;
   * stack — мониторы друг под другом (внешний сверху, Laptop снизу), столы монитора строкой.
@@ -62,7 +68,7 @@ HIDDEN_APPS = ("dash-",)            # окна «Dashboard» на первом �
 STACK_STATE = os.path.expanduser("~/.config/hypr/state/stack-mode.json")
 STACK_MIN_DESK = "\U000f05b0"   # стол свёрнутых окон стопки (stack_mode.MIN_NAME; у MSI + \u2060 в конце)
 MODE_FILE = os.path.expanduser("~/.config/hypr/state/alttab-mode")
-MODES = ("windows", "desks")
+MODES = ("windows", "desks", "deskwin")
 TW = 240                 # ширина превью стола (19.10.2026: 192 → 240, «чтобы столы было лучше
                          # видно»); высота — по сторонам монитора. В режиме окон не нужна
 LAYOUT_FILE = os.path.expanduser("~/.config/hypr/state/alttab-layout")
@@ -76,6 +82,8 @@ THUMB_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser(
                          "alt_tab")
 GAME_APPS = ("steam_app_", "gamescope")
 COLS = 7
+DW_COLS = 4               # вид «окна стола»: плиток в строке (04.11.2026)
+IMG_FRESH = 30            # картинка окна свежая столько секунд — не переснимать
 ICON = 40
 NVIM_ICON = 36
 TILE = 72                # 05.10.2026: шире — под подписью короткое имя окна
@@ -486,6 +494,7 @@ class Switcher:
         self.layout = read_layout()   # side | stack — мониторы рядом или друг под другом
         self.ws_seen = {}             # id стола → когда стал активным (давность столов)
         self.thumbs = {}              # id стола → Pixbuf снимка
+        self.pic_cache = {}           # id окна → (ключ, Pixbuf под плитку «окна стола»)
         self.disk_tried = set()       # столы, чей снимок уже искали на диске
         self.snap_ids = {}            # выход → таймер снимка
         self.snap_procs = {}          # выход → grim в работе
@@ -912,14 +921,19 @@ class Switcher:
         return None
 
     def open(self, step):
-        # Открывается в последнем режиме (окна или столы, клавиша `), оба монитора сразу.
+        # Открывается в последнем режиме (окна, столы или окна стола, клавиша `), оба монитора сразу.
         self.mode = read_mode()         # могли сменить в Настройках → Misc
         if stack_active():              # в стопке все окна на одном столе — только окна
             self.mode = "windows"       # (21.10.2026), выбор в файле не трогаем
-        if not self.build(step):
+        ok = self.build(step)
+        if not ok and self.mode == "deskwin":   # стол пустой — все окна, выбор в файле не трогаем
+            self.mode = "windows"
+            ok = self.build(step)
+        if not ok:
             log("окон нет — нечего показывать")
             return
         self.show()
+        self.want_pics()
 
     def out_order(self):
         """Выходы слева направо, как стоят мониторы; в виде «друг под другом» — внешние
@@ -942,10 +956,19 @@ class Switcher:
         """Плитки режима: по группе на монитор. keep — id окна/стола, который выбрать;
         иначе step-й по давности (1 — прошлое окно/стол, как короткое Alt+Tab в Windows)."""
         desks = self.mode == "desks"
+        dw = self.mode == "deskwin"
         self.layout = read_layout()
         stack = self.layout == "stack"
         groups = []
-        if desks:
+        if dw:
+            s = self.current_desk()
+            xs = [w for w in self.windows.values()
+                  if s and w.get("workspace_id") == s["id"]
+                  and not (w.get("app_id") or "").startswith(HIDDEN_APPS)]
+            xs.sort(key=lambda w: (not w.get("is_focused"), -ts(w)))
+            if xs:
+                groups.append((s.get("output"), xs))
+        elif desks:
             for out in self.out_order():
                 xs = self.desks_of(out)
                 if xs:
@@ -964,7 +987,9 @@ class Switcher:
         self.items, self.groups = [], []
         for out, xs in groups:
             idx = list(range(len(self.items), len(self.items) + len(xs)))
-            if stack:                     # монитор — строка: столы слева направо
+            if dw:                        # окна одного стола — строкой, как Alt+Tab в Windows
+                cols = min(DW_COLS, len(xs))
+            elif stack:                   # монитор — строка: столы слева направо
                 cols = min(6 if desks else COLS, len(xs))
             else:                         # монитор — столбец: столы сверху вниз, как в niri
                 cols = (1 if len(xs) <= 5 else 2) if desks else min(COLS, len(xs))
@@ -1019,7 +1044,7 @@ class Switcher:
             grid.set_max_children_per_line(cols)
             grid.get_style_context().add_class("at-grid")
             for i in idx:
-                tile = self.desk_tile(i) if desks else self.win_tile(i)
+                tile = self.desk_tile(i) if desks else self.pic_tile(i) if dw else self.win_tile(i)
                 tile.connect("button-press-event", lambda _t, _e, k=i: self.pick(k))
                 grid.add(tile)
                 self.tiles[i] = tile
@@ -1060,6 +1085,117 @@ class Switcher:
         tile.get_style_context().add_class("at-tile")
         tile.add(inner)
         return tile
+
+    # ── вид «окна стола» (04.11.2026) ──
+    def current_desk(self):
+        """Стол в фокусе: стол окна в фокусе, иначе активный стол монитора в фокусе."""
+        s = next((s for s in self.ws.values() if s.get("is_focused")), None)
+        return s or self.active_ws(self.focused_output())
+
+    def pic_tile(self, i):
+        """Плитка окна как плитка стола: картинка окна в рамке размера превью стола."""
+        w = self.items[i]
+        out = (self.ws.get(w.get("workspace_id")) or {}).get("output")
+        tw, th = self.thumb_size(out)
+        area = Gtk.DrawingArea()
+        area.set_size_request(tw, th)
+        area.connect("draw", self.draw_pic, w["id"], out)
+        self.areas[i] = area
+        app_id = w.get("app_id") or ""
+        name = app_info(app_id)[0]
+        title = (w.get("title") or "").strip()
+        for sep in (" — ", " - ", " – "):         # «Мои резюме — Zen Browser» → «Мои резюме»
+            if title.endswith(sep + name):
+                title = title[:-len(sep + name)].strip()
+        if app_id.lower() in TERMINALS:
+            which, tcap = term_view(title)
+            title = tcap if which else title
+        # плитка широкая — подпись целиком: программа · заголовок (short() — для узких значков)
+        cap = name + (" · " + title if title and title != name else "")
+        label = Gtk.Label(label=cap, xalign=0)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        label.set_max_width_chars(1)
+        label.set_size_request(tw, -1)            # иначе подпись сжималась до ~8 букв
+        label.set_hexpand(True)
+        label.get_style_context().add_class("at-cap")
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        inner.pack_start(area, False, False, 0)
+        inner.pack_start(label, False, False, 0)
+        tile = Gtk.EventBox()
+        tile.get_style_context().add_class("at-tile")
+        tile.get_style_context().add_class("at-desk")
+        tile.add(inner)
+        return tile
+
+    def draw_pic(self, area, cr, wid, out):
+        w, h = area.get_allocated_width(), area.get_allocated_height()
+        wall = (self.walls.get(out) or (None, None))[1]
+        if wall is not None:                      # подложка — обои монитора, притушенные
+            if wall.get_width() != w or wall.get_height() != h:
+                wall = wall.scale_simple(w, h, GdkPixbuf.InterpType.BILINEAR)
+            Gdk.cairo_set_source_pixbuf(cr, wall, 0, 0)
+            cr.paint()
+            cr.set_source_rgba(0, 0, 0, 0.35)
+        else:
+            cr.set_source_rgba(0.07, 0.07, 0.09, 1)
+        cr.paint()
+        pb = self.grid.img.get(wid)
+        if pb is not None:                        # картинка окна по центру, пропорции свои
+            pad = 6
+            k = min((w - 2 * pad) / pb.get_width(), (h - 2 * pad) / pb.get_height())
+            pw, ph = max(1, round(pb.get_width() * k)), max(1, round(pb.get_height() * k))
+            key = (wid, id(pb), pw, ph)
+            sc = self.pic_cache.get(wid)
+            if not sc or sc[0] != key:
+                sc = (key, pb.scale_simple(pw, ph, GdkPixbuf.InterpType.BILINEAR))
+                self.pic_cache[wid] = sc
+            x, y = round((w - pw) / 2), round((h - ph) / 2)
+            Gdk.cairo_set_source_pixbuf(cr, sc[1], x, y)
+            cr.paint()
+            cr.set_source_rgba(1, 1, 1, 0.14)
+            cr.set_line_width(1)
+            cr.rectangle(x + 0.5, y + 0.5, pw - 1, ph - 1)
+            cr.stroke()
+        else:                                     # снимка ещё нет — значок программы
+            win = self.windows.get(wid) or {}
+            ipb = self.icon_for(win.get("app_id") or "", 48)
+            if ipb is not None:
+                Gdk.cairo_set_source_pixbuf(cr, ipb, round((w - 48) / 2), round((h - 48) / 2))
+                cr.paint()
+        cr.set_source_rgba(0, 0, 0, 0.6)
+        cr.set_line_width(1)
+        cr.rectangle(0.5, 0.5, w - 1, h - 1)
+        cr.stroke()
+        if self.items and self.items[self.sel].get("id") == wid:
+            Gdk.cairo_set_source_rgba(cr, self.acc)
+            cr.set_line_width(2)
+            cr.rectangle(1, 1, w - 2, h - 2)
+            cr.stroke()
+        return False
+
+    def want_pics(self):
+        """Вид «окна стола»: через 0,3 с (короткое Alt+Tab уже закрылось бы) снять окна, у
+        которых картинки нет или она старше IMG_FRESH. Не в игре."""
+        if self.mode != "deskwin" or DRY:
+            return
+
+        def go():
+            if not self.shown or self.mode != "deskwin" or self.gaming():
+                return False
+            now = time.monotonic()
+            ids = [w["id"] for w in self.items
+                   if w["id"] not in self.grid.img or now - self.grid.img_at.get(w["id"], 0) > IMG_FRESH]
+            if ids:
+                self.grid.capture(ids)
+            return False
+        GLib.timeout_add(300, go)
+
+    def win_img(self, wid):
+        """ws_grid принёс картинку окна — перерисовать его плитку, если она на экране."""
+        if self.shown and self.mode == "deskwin":
+            for i, it in enumerate(self.items):
+                if it.get("id") == wid and i in self.areas:
+                    self.areas[i].queue_draw()
 
     # ── плитка стола (19.10.2026) ──
     def desk_wins(self, s):
@@ -1225,11 +1361,16 @@ class Switcher:
             what = "%d %s" % (n, plural(n, "окно", "окна", "окон"))
             if not n and it.get("name") in dash_names():
                 what = "виджеты"
-            self.sub.set_text(what + "   [~ окна]")
+            self.sub.set_text(what + "   [~ окна стола]")
             return
         name, _icon = app_info(it.get("app_id") or "")
         self.title.set_text(it.get("title") or name)
         s = self.ws.get(it.get("workspace_id")) or {}
+        if self.mode == "deskwin":
+            n = len(self.items)
+            self.sub.set_markup(ws_markup(s, self.windows, "  %s · стол %s, %d %s   [~ окна]" % (
+                name, s.get("idx") or "", n, plural(n, "окно", "окна", "окон"))))
+            return
         where = "стол %s" % s["idx"] if s.get("idx") else ""
         if many and s.get("output"):
             where += (", " if where else "") + self.monitor_name(s["output"])
@@ -1412,13 +1553,24 @@ class Switcher:
         cur = self.items[self.sel] if self.items else {}
         if self.mode == "windows":
             self.mode, keep = "desks", cur.get("workspace_id")
+        elif self.mode == "desks":
+            # 04.11.2026: третий вид — окна стола в фокусе; выбор — его окно в фокусе
+            s = self.current_desk() or {}
+            self.mode, keep = "deskwin", s.get("active_window_id")
         else:
-            self.mode, keep = "windows", cur.get("active_window_id")
-        if not self.build(0, keep):            # окон нет — остаться на столах
-            self.mode = "desks"
-            self.build(0, None)
+            self.mode, keep = "windows", cur.get("id")
+        if not self.build(0, keep):
+            if self.mode == "deskwin":         # стол пустой — сразу к окнам
+                self.mode = "windows"
+                ok = self.build(0, None)
+            else:
+                ok = False
+            if not ok:                         # окон нет вовсе — остаться на столах
+                self.mode = "desks"
+                self.build(0, None)
         save_mode(self.mode)
         self.win.resize(1, 1)                  # панель сжимается под новый режим
+        self.want_pics()
 
     # ── вид ──
     def apply_css(self):

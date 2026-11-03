@@ -208,7 +208,7 @@ Inside the staticOS overview: `h/j/k/l` or arrows move between tiles (and to the
 | Keys | Action |
 |---|---|
 | `Mod + Tab` | focus the next monitor |
-| `Alt + Tab` | window switcher (next) |
+| `Alt + Tab` | window switcher (next); inside, `` ` `` cycles windows → desks → windows of the current desk (with pictures) |
 | `Ctrl + Alt + H` | window to the monitor on the left |
 | `Ctrl + Alt + L` | window to the monitor on the right |
 | `Ctrl + Alt + Left` | window to the monitor on the left |

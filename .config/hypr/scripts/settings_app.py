@@ -6952,11 +6952,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
                  "Рядом — мониторы слева направо, столы каждого столбиком. Друг под другом — "
                  "MSI сверху, Laptop снизу, столы каждого строкой слева направо.",
                  icon="\U000f0379")
-        cur, put = state_rw("alttab-mode", ("windows", "desks"), "windows")
+        cur, put = state_rw("alttab-mode", ("windows", "desks", "deskwin"), "windows")
         self.only_in("scroll", self.row(
-                 c, "Показывать", self.segments([("windows", "Окна"), ("desks", "Столы")], cur, put),
-                 "С чего открывается Alt+Tab. Внутри переключает клавиша ~ (на русской — ё), "
-                 "выбор запоминается. В Stack mode Alt+Tab — только окна.", icon="\U000f05ad"))
+                 c, "Показывать", self.segments([("windows", "Окна"), ("desks", "Столы"),
+                                                 ("deskwin", "Окна стола")], cur, put),
+                 "С чего открывается Alt+Tab. Внутри переключает клавиша ~ (на русской — ё) по кругу: "
+                 "окна → столы → окна стола; выбор запоминается. Окна стола — окна стола в фокусе "
+                 "с картинками. В Stack mode Alt+Tab — только окна.", icon="\U000f05ad"))
         # 03.11.2026, просьба: «переключатель рядом с Alt+Tab: Super+G на старый обзор или на
         # новый; имена Niri overview и staticOS overview». Бинд не переписывается — его
         # скрипт ~/.config/niri/scripts/overview читает state/overview-mode при каждом нажатии.
