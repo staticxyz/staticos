@@ -375,9 +375,9 @@ class Grid:
             mon = sw.monitor_for(out)
             if mon:
                 GtkLayerShell.set_monitor(win, mon)
-            GtkLayerShell.set_keyboard_mode(
-                win, GtkLayerShell.KeyboardMode.EXCLUSIVE if out == here
-                else GtkLayerShell.KeyboardMode.NONE)
+            # клавиатура — у слоя на каждом мониторе: niri отдаёт её слою монитора в фокусе,
+            # и после Super+Tab Enter/Space не уходили в пустоту (04.11.2026, «не заходит в стол»)
+            GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.EXCLUSIVE)
             win.show()
         self.start_anim("open", focus, {o: o in self.shots for o in focus})   # после window_for: часы кадров
         # снимки окон — после перехода: niri и разбор PNG не отнимают кадры у анимации (03.11.2026)
@@ -918,7 +918,7 @@ class Grid:
         many = len(self.sw.outs) > 1
         head = self.sw.monitor_name(out) + " · " if many else ""
         n = len([t for t in tiles if t["kind"] == "desk"])
-        return ("%s%d %s   ·   тащите окно на другой стол или между окнами, подпись стола — переставить стол"
+        return ("%s%d %s   ·   тащите окно на другой стол или между окнами, ПКМ с удержанием — переставить стол"
                 "   ·   щелчок — перейти   ·   Esc — закрыть") % (head, n, self.m.plural(n, "стол", "стола", "столов"))
 
     def hint_sprite(self, out, tiles):
@@ -1267,13 +1267,13 @@ class Grid:
                 return True
             ox, oy = self.origin(out)
             pr = self.press
-            if pr and not self.drag and pr["what"][0] == "win":
+            if pr and not self.drag and pr["btn"] == 1 and pr["what"][0] == "win":
                 if abs(ev.x - pr["x"]) + abs(ev.y - pr["y"]) > DRAG_START:
                     X, Y, W, H = pr["what"][3]
                     self.drag = {"wid": pr["what"][2]["id"], "out": out, "w": W, "h": H,
                                  "fx": (pr["x"] - X) / max(1, W), "fy": (pr["y"] - Y) / max(1, H)}
-            # стол целиком — за подпись или пустое место плитки (04.11.2026)
-            if pr and not self.drag and pr["what"][0] == "tile" \
+            # стол целиком — удержанием ПКМ по плитке, хоть по окну (04.11.2026: «я имел ввиду ПКМ»)
+            if pr and not self.drag and pr["btn"] == 3 and pr["what"][0] in ("tile", "win") \
                     and abs(ev.x - pr["x"]) + abs(ev.y - pr["y"]) > DRAG_START:
                 tiles = self.tiles.get(pr["out"]) or []
                 i = pr["what"][1]
@@ -1330,16 +1330,16 @@ class Grid:
             return True                       # двойной щелчок — второй раз не считать
         if self.anim and self.anim["kind"] == "close":
             return True
-        if ev.button != 1:
-            if ev.button == 3:
-                self.close()
+        if ev.button not in (1, 3):
             return True
-        self.press = {"out": out, "x": ev.x, "y": ev.y, "what": self.hit(out, ev.x, ev.y) or ("bg",)}
+        # ПКМ: удержание по плитке (и по окну в ней) тащит стол целиком, щелчок — закрыть (04.11.2026)
+        self.press = {"out": out, "x": ev.x, "y": ev.y, "btn": ev.button,
+                      "what": self.hit(out, ev.x, ev.y) or ("bg",)}
         return True
 
     def on_release(self, _area, ev, out):
         try:
-            if ev.button != 1 or not self.press:
+            if not self.press or ev.button != self.press["btn"]:
                 return True
             press, drag, target, dtarget = self.press, self.drag, self.target, self.dtarget
             self.press = self.drag = self.target = self.dtarget = None
@@ -1355,6 +1355,9 @@ class Grid:
                 self.redraw()
                 return True
             what = press["what"]
+            if press["btn"] == 3:                 # ПКМ без перетаскивания — закрыть, как раньше
+                self.close()
+                return True
             if what[0] == "win":
                 self.focus_window(what[2], out, what[1])
             elif what[0] == "tile":
