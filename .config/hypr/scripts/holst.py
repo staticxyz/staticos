@@ -103,6 +103,8 @@ W, H = 1120, 820               # окно: ~100 знаков в строке (04
 ROWS = 4                       # строк списка Потом без прокрутки
 LIST_MS = 5000                 # список дописывают и из бота и Obsidian: сверка, пока окно открыто
 SAVE_MS = 1500
+UNDO_PAUSE_MS = 800            # пауза в наборе — отдельный шаг отмены
+UNDO_MAX = 300
 MARGIN = 20                    # поле листа слева и справа
 MORE_H = 40                    # полоса «ниже ещё текст»
 LIST_MAX = 16                  # отступ пункта списка, знаков
@@ -121,7 +123,7 @@ MONTHS = ("января", "февраля", "марта", "апреля", "ма�
           "сентября", "октября", "ноября", "декабря")
 DAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
 PAPER = "Что я сейчас чувствую? Эмоции, не дела."
-HINTS = {"holst": "Ctrl+J — Потом · Ctrl+Z, Ctrl+R · Esc — закрыть",
+HINTS = {"holst": "Ctrl+J — Потом · Ctrl+Z, Ctrl+Shift+Z · Esc — закрыть",
          "field": "Enter — добавить · Ctrl+J — список · Ctrl+K — Холст",
          "list": "dd — убрать · u, Ctrl+R · Ctrl+K — вверх · gg — Холст · G — конец"}
 
@@ -139,6 +141,17 @@ pa.EMPTY = "Пока пусто"
 pa.OVERWRITE = ""
 pa.DATES = False
 pa.MAX_LEN = 300
+
+
+def changed_at(old, new):
+    """Где курсор после отмены/повтора: конец изменённого места в новом тексте."""
+    i = 0
+    while i < len(old) and i < len(new) and old[i] == new[i]:
+        i += 1
+    j = 0
+    while j < len(old) - i and j < len(new) - i and old[-1 - j] == new[-1 - j]:
+        j += 1
+    return len(new) - j
 
 
 def geometry(style):
@@ -232,6 +245,7 @@ class Holst(pa.Dialog):
         self.times_dirty = False
         self.saved = self.base = self.stamp = self.chord = ""
         self.timer, self.loading = 0, False
+        self.pause_id, self.last_kind, self.last_end = 0, "", -1   # шаги отмены по словам, см. on_insert
         self.tv = self.sw = self.buf = self.more = None
         self.load_list()
         pa.preset_dates = lambda name, short=False: self.dates.get(name, "")
@@ -302,6 +316,8 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
         self.buf = tv.get_buffer()
         self.make_tags()
         self.buf.connect("changed", self.on_changed)
+        self.buf.connect("insert-text", self.on_insert)
+        self.buf.connect("delete-range", self.on_delete)
         self.load_page(self.day)
         return ov
 
@@ -520,6 +536,8 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
         self.day = day
         self.saved = self.base = G.holst_page(day)
         self.undo_text = []
+        self.redo_text = []
+        self.last_kind, self.last_end = "", -1
         self.load_times(day)
         self.set_text(self.saved)
 
@@ -537,8 +555,39 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
                 self.focus("later")
         self.redraw()
 
+    # Шаги отмены (04.11.2026, «Ctrl+Z, Ctrl+Shift+Z работают неправильно»): раньше снимок был
+    # только при смене поля — Ctrl+Z стирал всё набранное с открытия окна разом. Теперь шаг —
+    # слово: снимок перед пробелом/Enter после слова, при смене набор⇄удаление, при прыжке курсора
+    # и после паузы UNDO_PAUSE_MS.
+    def on_insert(self, _b, it, text, _n):
+        if self.loading:
+            return
+        pos = it.get_offset()
+        prev = self.text_now()[pos - 1:pos] if pos > 0 else ""
+        if (self.last_kind != "ins" or pos != self.last_end
+                or (text[:1].isspace() and prev and not prev.isspace()) or len(text) > 1):
+            self.commit()
+        self.last_kind, self.last_end = "ins", pos + len(text)
+
+    def on_delete(self, _b, start, end):
+        if self.loading:
+            return
+        a, b = start.get_offset(), end.get_offset()
+        if self.last_kind != "del" or self.last_end not in (a, b):
+            self.commit()
+        self.last_kind, self.last_end = "del", a
+
+    def on_pause(self):
+        self.pause_id = 0
+        self.commit()
+        self.last_kind = ""
+        return False
+
     def on_changed(self, _b):
         if not self.loading:
+            if self.pause_id:
+                GLib.source_remove(self.pause_id)
+            self.pause_id = GLib.timeout_add(UNDO_PAUSE_MS, self.on_pause)
             if self.timer:
                 GLib.source_remove(self.timer)
             self.timer = GLib.timeout_add(SAVE_MS, self.on_timer)
@@ -584,6 +633,7 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
             t = self.text_now()
             if t != self.base:
                 self.undo_text.append(self.base)
+                del self.undo_text[:-UNDO_MAX]
                 self.redo_text.clear()
                 self.base = t
 
@@ -608,12 +658,19 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
                     self.pick(self.ids.index(r["id"]))
             return
         self.commit()
+        if self.pause_id:
+            GLib.source_remove(self.pause_id)
+            self.pause_id = 0
+        self.last_kind, self.last_end = "", -1
         if texts:
-            off = self.cursor().get_offset()
-            back_texts.append(self.base)
+            old = self.base
+            back_texts.append(old)
             self.base = texts.pop()
-            self.set_text(self.base, min(off, len(self.base)))
+            self.set_text(self.base, changed_at(old, self.base))
             self.on_changed(None)
+            if self.pause_id:                          # шаг истории — не повод для снимка
+                GLib.source_remove(self.pause_id)
+                self.pause_id = 0
 
     def on_list_timer(self):
         was = list(self.ids)
@@ -715,7 +772,7 @@ scrolledwindow.holst scrollbar slider:hover, scrolledwindow.holst scrollbar slid
             elif code == K_Q:
                 self.finish("")
             elif code == K_Z:
-                self.undo()
+                self.redo() if shift else self.undo()  # Ctrl+Shift+Z — повтор, как везде
             elif code == K_R:
                 self.redo()
             else:
