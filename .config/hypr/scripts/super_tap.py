@@ -16,9 +16,9 @@
 Повторный тап при открытом меню его закрывает (start_menu.py — переключатель).
 В стопке при игре в фокусе (CS2) тап сворачивает игру, а не открывает «Пуск» (22.10.2026).
 
-Читаются только клавиатуры (обработчик kbd в /proc/bus/input/devices), не мышь:
-мышь шлёт сотни событий движения в секунду, а связки Super+мышь (перетаскивание,
-колёсико) и так дольше TAP_S. Процессор — ноль: спит в select, пока не нажата
+Постоянно читаются только клавиатуры (обработчик kbd в /proc/bus/input/devices): мышь шлёт
+сотни событий движения в секунду. Мыши и тачпад открываются только на время удержания Super:
+колёсико, кнопка или прокрутка двумя пальцами тоже делают нажатие «не тапом» (03.11.2026, просьба: Super+колёсико по окнам открывало «Пуск» — быстрая прокрутка короче TAP_S). Процессор — ноль: спит в select, пока не нажата
 клавиша. Клавиатуры переподключаются (Razer после сна) — список перечитывается
 при ошибке чтения и раз в RESCAN_S.
 """
@@ -33,7 +33,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "xpbar-visible")
 TAP_S = 0.35
 RESCAN_S = 10
-EV_KEY = 1
+EV_KEY, EV_REL = 1, 2
+WHEEL = {6, 8, 11, 12}                # REL_HWHEEL, REL_WHEEL и их *_HI_RES
+SOFT = {325, 330}                     # BTN_TOOL_FINGER, BTN_TOUCH — тачпад просто тронули
 META = {125, 126}                     # KEY_LEFTMETA, KEY_RIGHTMETA
 FMT = "llHHi"
 SIZE = struct.calcsize(FMT)
@@ -57,6 +59,41 @@ def keyboards():
             if tok.startswith("event"):
                 out.append("/dev/input/" + tok)
     return out
+
+
+def pointers():
+    """Мыши и тачпады: обработчик mouseN, но не клавиатура (у Razer есть и mouse)."""
+    out = []
+    try:
+        blocks = open("/proc/bus/input/devices").read().split("\n\n")
+    except OSError:
+        return out
+    for b in blocks:
+        h = next((l for l in b.splitlines() if l.startswith("H: Handlers=")), "")
+        if "mouse" not in h or "kbd" in h:
+            continue
+        out += ["/dev/input/" + t for t in h[12:].split() if t.startswith("event")]
+    return out
+
+
+def pointer_used(data):
+    """В пачке событий мыши/тачпада есть колёсико, кнопка или касание двумя и более пальцами."""
+    for i in range(0, len(data) - SIZE + 1, SIZE):
+        _s, _us, typ, code, val = struct.unpack_from(FMT, data, i)
+        if typ == EV_REL and code in WHEEL:
+            return True
+        if typ == EV_KEY and val == 1 and code not in SOFT:
+            return True
+    return False
+
+
+def close_all(fds):
+    for fd in list(fds):
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+    fds.clear()
 
 
 def open_all(paths):
@@ -126,13 +163,21 @@ def main():
     down_at = None          # когда нажат Super
     dirty = False           # за время удержания нажата другая клавиша
     held = set()            # какие клавиши сейчас нажаты (кроме Super)
+    mice = {}               # мыши — открыты только пока Super нажат
     while True:
         try:
-            r, _, _ = select.select(list(fds), [], [], RESCAN_S)
+            r, _, _ = select.select(list(fds) + list(mice), [], [], RESCAN_S)
         except (OSError, ValueError):
             r = []
         broken = False
         for fd in r:
+            if fd in mice:
+                try:
+                    if pointer_used(os.read(fd, SIZE * 64)) and down_at is not None:
+                        dirty = True
+                except OSError:
+                    pass
+                continue
             try:
                 data = os.read(fd, SIZE * 64)
             except BlockingIOError:
@@ -147,7 +192,16 @@ def main():
                 if code in META:
                     if val == 1:
                         down_at, dirty = time.monotonic(), bool(held)
+                        if not mice:
+                            mice.update(open_all(pointers()))
                     elif down_at is not None:
+                        for m in list(mice):           # события мыши, пришедшие до отпускания
+                            try:
+                                if pointer_used(os.read(m, SIZE * 64)):
+                                    dirty = True
+                            except OSError:
+                                pass
+                        close_all(mice)
                         if not dirty and time.monotonic() - down_at <= TAP_S:
                             fire()
                         down_at = None
@@ -168,6 +222,7 @@ def main():
                     except OSError:
                         pass
                 fds = open_all(want)
+                close_all(mice)
                 held.clear()
                 down_at = None
             next_scan = now + RESCAN_S

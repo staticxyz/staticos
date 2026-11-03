@@ -1689,11 +1689,27 @@ if(!b)return -1;if(go)b.click();return b.getAttribute('aria-pressed')==='true'?1
 
         @staticmethod
         def gap_text(key, gap):
-            """Сколько до конечной цели, знаки по просьбе пользователя: подъём «+4ч 40м», отбой «-6ч 57м»; дошли — «цель»."""
+            """Сколько до конечной цели: «-4ч 40м» (03.11.2026, просьба: подъём тоже минусом); дошли — «цель»."""
             if not gap:
                 return "цель"
-            h, m = divmod(gap, 60)
-            return ("+" if key == "wake" else "-") + " ".join(filter(None, ("%dч" % h if h else "", "%dм" % m if m else "")))
+            return "-" + Better.hm(gap)
+
+        @staticmethod
+        def hm(mins):
+            h, m = divmod(int(mins), 60)
+            return " ".join(filter(None, ("%dч" % h if h else "", "%dм" % m if m or not h else "")))
+
+        def row_note(self, r, gap, st, left):
+            """Серая подпись перед значением. 03.11.2026, просьба: в «Отбое» — сколько спал («7ч 57м сна»),
+            у «Сигарет» в скобках — сколько прошло с последней, как в окне Better."""
+            d = self.d
+            if r["key"] == "bed" and d.get("sleep"):
+                return self.hm(d["sleep"]) + " сна"
+            if r["key"] == "cig" and d.get("cig_ts"):
+                return "(%s назад)" % self.hm(max(0, time.time() - d["cig_ts"]) // 60)
+            if gap is not None:
+                return self.gap_text(r["key"], gap)
+            return "(+%dм)" % (st["goal"] // 60) if left else None
 
         def paint(self, cr, x, y, w, h):
             # кегль не растёт с окном (29.10.2026, просьба: «когда я его увеличиваю по размерам,
@@ -1737,8 +1753,8 @@ if(!b)return -1;if(go)b.click();return b.getAttribute('aria-pressed')==='true'?1
                     vcol = self.GOLD
                 vw, _ = text(cr, r["value"], 0, ry, px, vcol, 1.0 if vcol is not T["fg"] else 0.9, right=right)
                 name, gap = self.SHORT.get(r["key"], r["name"]), r.get("gap")
-                note = self.gap_text(r["key"], gap) if gap is not None else "(+%dм)" % (st["goal"] // 60) if left else None
-                if note and right - nx - vw >= adv(px) * (len(name) + 11):
+                note = self.row_note(r, gap, st, left)
+                if note and right - nx - vw >= adv(px) * (len(name) + max(11, len(note) + 3)):
                     gw, _ = text(cr, note, 0, ry, px, T["fg"], 0.7, right=right - vw - adv(px))
                     vw += gw + adv(px)
                 trend = r.get("trend")

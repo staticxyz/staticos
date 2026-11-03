@@ -2849,7 +2849,13 @@ def widget_json(c):
     st = compute(c)
     a, b = rungs(st)
     need = len(st["block"]["steps"])
-    return {"taken": st["taken"], "held": st["held"], "week7": st["week7"], "window": WINDOW,
+    # 03.11.2026, просьба: в «Отбое» — сколько спал, у «Сигарет» — сколько прошло с последней
+    T = st["today"]
+    sleep = T["wake"] + 1440 - T["bed"] if T["wake"] is not None and T["bed"] is not None else None
+    last = last_today(c, "cig")
+    return {"sleep": sleep if sleep is not None and 0 < sleep < 1440 else None,
+            "cig_ts": int(last["ts"]) if last else None,
+            "taken": st["taken"], "held": st["held"], "week7": st["week7"], "window": WINDOW,
             "day": [need if st["counted"] else sum(s["ok"] for s in st["block"]["steps"]), need],
             "rungs": [a, b], "block": st["block"],
             "rows": [dict(key=k, name=name, value=st["rows"][k]["value"],
