@@ -3830,6 +3830,7 @@ class WsButton(Gtk.Button):
     def on_drag_begin(self, _w, ctx):
         self.dragging = True
         self.drag_t = time.monotonic()
+        print("xpbar ws: тащат стол %s" % self.ws_id, flush=True)
         a = self.get_allocation()
         try:
             import cairo
@@ -3846,6 +3847,7 @@ class WsButton(Gtk.Button):
     def on_drag_failed(self, _w, _ctx, result):
         """Щелчок с дрожью мыши GTK начинает как перетаскивание квадрата; брошенный никуда
         (обратно на себя) — это щелчок: перейти на стол (19.10.2026)."""
+        print("xpbar ws: перетаскивание стола %s сорвалось: %s" % (self.ws_id, result), flush=True)
         if result == Gtk.DragResult.NO_TARGET or result == Gtk.DragResult.USER_CANCELLED:
             win = self.get_window()
             seat = Gdk.Display.get_default().get_default_seat()
@@ -3907,6 +3909,7 @@ class WsButton(Gtk.Button):
             val = None
         kind = data.get_target().name() if data.get_target() else None
         ok = val is not None
+        print("xpbar ws: на стол %s бросили %s %s" % (self.ws_id, kind, val), flush=True)
         if ok and kind == DND_TARGET:
             self.bar.move_window(val, self.target_id())
         elif ok and kind == WS_TARGET:
@@ -4464,9 +4467,25 @@ def _set_open(bar, on):
     # (27.10.2026, просьба: «в полноэкранном режиме при нажатии на Пуск показывать ещё и нижнюю панель»).
     GtkLayerShell.set_layer(bar, GtkLayerShell.Layer.OVERLAY if on else rest_layer(bar))
     _commit_now(bar)
+    if on and _overview_open(bar.connector):
+        # Обзор Super+G тоже в OVERLAY и показан позже — панель оставалась под ним. Заново
+        # показанная панель встаёт поверх слоя (04.11.2026, «в обзоре на Пуск нижняя панель
+        # не показывается»). Обзор на время перепоказа — снимки, мигания окон под ним не видно.
+        bar.hide()
+        bar.show()
     if getattr(bar, "spark", None) is not None:
         bar.spark.queue_draw()
         bar.glyph.queue_draw()
+
+
+def _overview_open(out):
+    """Открыт ли на мониторе обзор staticOS (слой jarvis-wsgrid)."""
+    try:
+        r = json.loads(niri_request("Layers"))
+        return any(l.get("namespace") == "jarvis-wsgrid" and l.get("output") == out
+                   for l in r["Ok"]["Layers"])
+    except Exception:
+        return False
 
 
 def rest_layer(bar):
