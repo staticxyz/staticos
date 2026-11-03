@@ -60,6 +60,7 @@ RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 # для проверок: свой каталог канала и «сухой» выбор (только спрятать, не переключать окно)
 RUN = os.environ.get("JARVIS_ALTTAB_RUN", RUN)
 DRY = bool(os.environ.get("JARVIS_ALTTAB_DRY"))
+KEYLOG = os.path.exists(os.path.expanduser("~/.cache/alt_tab.keylog"))   # разбор клавиш (04.11.2026)
 FIFO = os.path.join(RUN, "jarvis-alttab.fifo")
 PIDF = os.path.join(RUN, "jarvis-alttab.pid")
 LOG = os.environ.get("JARVIS_ALTTAB_LOG") or os.path.expanduser("~/.cache/alt_tab.log")
@@ -83,6 +84,7 @@ THUMB_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser(
 GAME_APPS = ("steam_app_", "gamescope")
 COLS = 7
 DW_COLS = 4               # вид «окна стола»: плиток в строке (04.11.2026)
+DW_ICON = 20              # значок программы перед подписью плитки окна стола
 IMG_FRESH = 30            # картинка окна свежая столько секунд — не переснимать
 ICON = 40
 NVIM_ICON = 36
@@ -273,9 +275,9 @@ def glyph_color(g):
     return "#%02x%02x%02x" % (round(r * 255), round(gg * 255), round(b * 255))
 
 
-def ws_markup(s, windows, rest=""):
+def ws_markup(s, windows, rest="", col=None):
     g = ws_glyph(s, windows)
-    col = glyph_color(g)
+    col = col or glyph_color(g)
     return '<span font="%s"%s>%s</span>%s' % (WS_FONT, ' foreground="%s"' % col if col else "",
                                               GLib.markup_escape_text(g), GLib.markup_escape_text(rest))
 
@@ -521,6 +523,7 @@ class Switcher:
         self.win.connect("key-press-event", self.on_key)
         self.win.connect("key-release-event", self.on_key_release)
         self.win.connect("focus-in-event", self.on_focus_in)
+        self.win.connect("focus-out-event", lambda *_a: KEYLOG and log("фокус ушёл (%s)" % self.mode))
 
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.box.get_style_context().add_class("at-box")
@@ -1092,6 +1095,29 @@ class Switcher:
         tile.add(inner)
         return tile
 
+    def win_icon(self, w, size):
+        """Значок окна, как у плитки вида «окна»: терминальные программы и nvim — свои, иначе тема."""
+        app_id = w.get("app_id") or ""
+        img = None
+        if app_id.lower() in TERMINALS:
+            which = term_view(w.get("title"))[0]
+            if which == "claude":
+                pb = claude_icon()
+                if pb is not None:
+                    img = Gtk.Image.new_from_pixbuf(
+                        pb.scale_simple(size, size, GdkPixbuf.InterpType.NEAREST))
+            elif which and Gtk.IconTheme.get_default().has_icon(which):
+                img = Gtk.Image.new_from_icon_name(which, Gtk.IconSize.DIALOG)
+        if img is None:
+            img = Gtk.Image.new_from_gicon(app_info(app_id)[1], Gtk.IconSize.DIALOG)
+        img.set_pixel_size(size)
+        img.set_size_request(size, size)
+        return img
+
+    def acc_hex(self):
+        a = self.acc
+        return "#%02x%02x%02x" % (round(a.red * 255), round(a.green * 255), round(a.blue * 255))
+
     # ── вид «окна стола» (04.11.2026) ──
     def current_desk(self):
         """Стол в фокусе: стол окна в фокусе, иначе активный стол монитора в фокусе."""
@@ -1121,12 +1147,17 @@ class Switcher:
         label = Gtk.Label(label=cap, xalign=0)
         label.set_ellipsize(Pango.EllipsizeMode.END)
         label.set_max_width_chars(1)
-        label.set_size_request(tw, -1)            # иначе подпись сжималась до ~8 букв
+        label.set_size_request(tw - DW_ICON - 5, -1)   # иначе подпись сжималась до ~8 букв
         label.set_hexpand(True)
         label.get_style_context().add_class("at-cap")
+        # 04.11.2026, просьба: «не хватает иконок рядом с окнами, цветные» — значок программы
+        # перед подписью, тот же, что в виде «окна» (терминальные программы, nvim по языку, тема значков)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        row.pack_start(self.win_icon(w, DW_ICON), False, False, 0)
+        row.pack_start(label, True, True, 0)
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         inner.pack_start(area, False, False, 0)
-        inner.pack_start(label, False, False, 0)
+        inner.pack_start(row, False, False, 0)
         tile = Gtk.EventBox()
         tile.get_style_context().add_class("at-tile")
         tile.get_style_context().add_class("at-desk")
@@ -1374,8 +1405,9 @@ class Switcher:
         s = self.ws.get(it.get("workspace_id")) or {}
         if self.mode == "deskwin":
             n = len(self.items)
+            # значок стола внизу — цветом акцента, а не своим (04.11.2026, пользователь)
             self.sub.set_markup(ws_markup(s, self.windows, "  %s · стол %s, %d %s   [~ окна]" % (
-                name, s.get("idx") or "", n, plural(n, "окно", "окна", "окон"))))
+                name, s.get("idx") or "", n, plural(n, "окно", "окна", "окон")), self.acc_hex()))
             return
         where = "стол %s" % s["idx"] if s.get("idx") else ""
         if many and s.get("output"):
@@ -1524,6 +1556,8 @@ class Switcher:
 
     def on_key(self, _w, ev):
         k = ev.keyval
+        if DRY or KEYLOG:
+            log("клавиша %s (%s), выбор %s" % (Gdk.keyval_name(k), self.mode, self.sel))
         if k == Gdk.KEY_Escape:
             self.hide()
         # h/j/k/l как в nvim (05.10.2026); на русской раскладке те же клавиши — р/о/л/д

@@ -129,6 +129,18 @@ def niri_req(obj):
         return None
 
 
+EXIT_FILE = os.path.expanduser("~/.config/hypr/state/overview-exit")
+
+
+def exit_go():
+    """Настройки → «Выход из обзора»: True — повторное Super+G и ПКМ заходят в стол."""
+    try:
+        with open(EXIT_FILE) as f:
+            return f.read().strip() == "go"
+    except OSError:
+        return False
+
+
 def touch(path):
     try:
         with open(path, "a"):
@@ -320,7 +332,13 @@ class Grid:
     def toggle(self):
         # Super+G ещё раз — закрыть и остаться, где открывали; зайти — только Enter/Space
         # (04.11.2026: повторное Super+G было заходом в выбранный стол — Просьба: «оставались там же»)
+        # С 04.11.2026 — на выбор в Настройках → Misc → Alt+Tab → «Выход из обзора»:
+        # «На месте» (так и было) или «На выбранный» — повторное Super+G заходит в стол под рамкой.
         if self.shown:
+            if exit_go() and self.sel and self.sel[0] in self.tiles \
+                    and self.sel[1] < len(self.tiles[self.sel[0]]):
+                so, i = self.sel
+                return self.go_desk(self.tiles[so][i]["ws"], so, i)
             self.close()
         else:
             self.open()
@@ -1431,6 +1449,9 @@ class Grid:
                 return True
             what = press["what"]
             if press["btn"] == 3:                 # ПКМ без перетаскивания — закрыть, как раньше
+                # «На выбранный» (Настройки, 04.11.2026): ПКМ по столу или по окну в нём — в этот стол
+                if exit_go() and what[0] in ("win", "tile") and what[1] < len(self.tiles.get(out) or []):
+                    return self.go_desk(self.tiles[out][what[1]]["ws"], out, what[1]) or True
                 self.close()
                 return True
             if what[0] == "win":
